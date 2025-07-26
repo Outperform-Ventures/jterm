@@ -173,6 +173,10 @@ pub const Window = struct {
 
     blur_region: Region = .{},
 
+    // Cache last applied values to avoid redundant X11 property updates
+    last_applied_blur_region: ?Region = null,
+    last_applied_decoration_hints: ?MotifWMHints = null,
+
     pub fn init(
         alloc: Allocator,
         app: *App,
@@ -255,19 +259,34 @@ pub const Window = struct {
         const gtk_widget = self.apprt_window.as(gtk.Widget);
         const config = if (self.apprt_window.getConfig()) |v| v.get() else return;
 
+        // When blur is disabled, remove the property if it was previously set
+        const blur = config.@"background-blur";
+        if (!blur.enabled()) {
+            if (self.last_applied_blur_region != null) {
+                try self.deleteProperty(self.app.atoms.kde_blur);
+                self.last_applied_blur_region = null;
+            }
+            return;
+        }
+
         // Transform surface coordinates to device coordinates.
         const scale = gtk_widget.getScaleFactor();
         self.blur_region.width = gtk_widget.getWidth() * scale;
         self.blur_region.height = gtk_widget.getHeight() * scale;
 
-        const blur = config.@"background-blur";
         log.debug("set blur={}, window xid={}, region={}", .{
             blur,
             self.x11_surface.getXid(),
             self.blur_region,
         });
 
-        if (blur.enabled()) {
+        // Only update X11 properties when the blur region actually changes
+        const region_changed = if (self.last_applied_blur_region) |last|
+            !std.meta.eql(self.blur_region, last)
+        else
+            true;
+
+        if (region_changed) {
             try self.changeProperty(
                 Region,
                 self.app.atoms.kde_blur,
@@ -276,8 +295,7 @@ pub const Window = struct {
                 .{ .mode = .replace },
                 &self.blur_region,
             );
-        } else {
-            try self.deleteProperty(self.app.atoms.kde_blur);
+            self.last_applied_blur_region = self.blur_region;
         }
     }
 
@@ -307,14 +325,23 @@ pub const Window = struct {
             .auto, .client, .none => false,
         };
 
-        try self.changeProperty(
-            MotifWMHints,
-            self.app.atoms.motif_wm_hints,
-            self.app.atoms.motif_wm_hints,
-            ._32,
-            .{ .mode = .replace },
-            &hints,
-        );
+        // Only update decoration hints when they actually change
+        const hints_changed = if (self.last_applied_decoration_hints) |last|
+            !std.meta.eql(hints, last)
+        else
+            true;
+
+        if (hints_changed) {
+            try self.changeProperty(
+                MotifWMHints,
+                self.app.atoms.motif_wm_hints,
+                self.app.atoms.motif_wm_hints,
+                ._32,
+                .{ .mode = .replace },
+                &hints,
+            );
+            self.last_applied_decoration_hints = hints;
+        }
     }
 
     pub fn addSubprocessEnv(self: *Window, env: *std.process.EnvMap) !void {
