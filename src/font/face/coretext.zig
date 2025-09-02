@@ -378,16 +378,6 @@ pub const Face = struct {
         var width = glyph_size.width;
         var height = glyph_size.height;
 
-        // If this is a bitmap glyph, it will always render as full pixels,
-        // not fractional pixels, so we need to quantize its position and
-        // size accordingly to align to full pixels so we get good results.
-        if (sbix) {
-            width = cell_width - @round(cell_width - width - x) - @round(x);
-            height = cell_height - @round(cell_height - height - y) - @round(y);
-            x = @round(x);
-            y = @round(y);
-        }
-
         // We center all glyphs within the pixel-rounded and adjusted
         // cell width if it's larger than the face width, so that they
         // aren't weirdly off to the left.
@@ -398,6 +388,16 @@ pub const Face = struct {
         if ((opts.constraint.align_horizontal == .none) and (metrics.face_width < cell_width)) {
             // We add half the difference to re-center.
             x += (cell_width - metrics.face_width) / 2;
+        }
+
+        // If this is a bitmap glyph, it will always render as full pixels,
+        // not fractional pixels, so we need to quantize its position and
+        // size accordingly to align to full pixels so we get good results.
+        if (sbix) {
+            width = cell_width - @round(cell_width - width - x) - @round(x);
+            height = cell_height - @round(cell_height - height - y) - @round(y);
+            x = @round(x);
+            y = @round(y);
         }
 
         // Our whole-pixel bearings for the final glyph.
