@@ -2975,14 +2975,22 @@ else
 ///
 /// If `false`, each new ghostty process will launch a separate application.
 ///
-/// The default value is `desktop` which will default to `true` if Ghostty
-/// detects that it was launched from the `.desktop` file such as an app
-/// launcher (like Gnome Shell)  or by D-Bus activation. If Ghostty is launched
-/// from the command line, it will default to `false`.
+/// If `detect`, Ghostty will act as if it was `true` if one of the following
+/// conditions is true:
+///
+/// 1. If no CLI arguments have been set.
+/// 2. If `--launched-from` has been set to `desktop`, `dbus`, or `systemd`.
+///
+/// Otherwise, Ghostty will act as if it was `false`.
+///
+/// The pre-1.2 option `desktop` has been deprecated. If encountered it will be
+/// treated as `detect`.
+///
+/// The default value is `detect`.
 ///
 /// Note that debug builds of Ghostty have a separate single-instance ID
 /// so you can test single instance without conflicting with release builds.
-@"gtk-single-instance": GtkSingleInstance = .desktop,
+@"gtk-single-instance": GtkSingleInstance = .default,
 
 /// When enabled, the full GTK titlebar is displayed instead of your window
 /// manager's simple titlebar. The behavior of this option will vary with your
@@ -3113,15 +3121,13 @@ term: []const u8 = "xterm-ghostty",
 /// incorrect for your environment or for developers who want to test
 /// Ghostty's behavior in different, forced environments.
 ///
-/// This is set using the standard `no-[value]`, `[value]` syntax separated
-/// by commas. Example: "no-desktop,systemd". Specific details about the
-/// available values are documented on LaunchProperties in the code. Since
-/// this isn't intended to be modified by users, the documentation is
-/// lighter than the other configurations and users are expected to
-/// refer to the code for details.
+/// Specific details about the available values are documented on LaunchSource
+/// in the code. Since this isn't intended to be modified by users, the
+/// documentation is lighter than the other configurations and users are
+/// expected to refer to the code for details.
 ///
 /// Available since: 1.2.0
-@"launched-from": ?LaunchSource = null,
+@"launched-from": LaunchSource = .default,
 
 /// Configures the low-level API to use for async IO, eventing, etc.
 ///
@@ -3488,7 +3494,23 @@ pub fn loadCliArgs(self: *Config, alloc_gpa: Allocator) !void {
         .windows => {},
 
         // Fast-path if we are Linux and have no args.
-        .linux, .freebsd => if (std.os.argv.len <= 1) return,
+        .linux, .freebsd => {
+            if (std.os.argv.len <= 1) {
+                if (self.@"gtk-single-instance" == .detect) {
+                    const arena_alloc = self._arena.?.allocator();
+                    // Add an artificial replay step so that replaying the
+                    // inputs doesn't undo this change.
+                    try self._replay_steps.append(
+                        arena_alloc,
+                        .{
+                            .arg = "--gtk-single-instance=true",
+                        },
+                    );
+                    self.@"gtk-single-instance" = .true;
+                }
+                return;
+            }
+        },
 
         // Everything else we have to at least try because it may
         // not use std.os.argv.
@@ -3584,6 +3606,34 @@ pub fn loadCliArgs(self: *Config, alloc_gpa: Allocator) !void {
     // directory.
     var buf: [std.fs.max_path_bytes]u8 = undefined;
     try self.expandPaths(try std.fs.cwd().realpath(".", &buf));
+
+    if (self.@"gtk-single-instance" == .detect) {
+        const arena_alloc = self._arena.?.allocator();
+        switch (self.@"launched-from") {
+            .cli => {
+                // Add an artificial replay step so that replaying the
+                // inputs doesn't undo this change.
+                try self._replay_steps.append(
+                    arena_alloc,
+                    .{
+                        .arg = "--gtk-single-instance=false",
+                    },
+                );
+                self.@"gtk-single-instance" = .false;
+            },
+            .desktop, .systemd, .dbus => {
+                // Add an artificial replay step so that replaying the
+                // inputs doesn't undo this change.
+                try self._replay_steps.append(
+                    arena_alloc,
+                    .{
+                        .arg = "--gtk-single-instance=true",
+                    },
+                );
+                self.@"gtk-single-instance" = .true;
+            },
+        }
+    }
 }
 
 /// Load and parse the config files that were added in the "config-file" key.
@@ -3917,11 +3967,6 @@ pub fn finalize(self: *Config) !void {
 
     const alloc = self._arena.?.allocator();
 
-    // Ensure our launch source is properly set.
-    if (self.@"launched-from" == null) {
-        self.@"launched-from" = .detect();
-    }
-
     // If we have a font-family set and don't set the others, default
     // the others to the font family. This way, if someone does
     // --font-family=foo, then we try to get the stylized versions of
@@ -3946,7 +3991,7 @@ pub fn finalize(self: *Config) !void {
     }
 
     // The default for the working directory depends on the system.
-    const wd = self.@"working-directory" orelse switch (self.@"launched-from".?) {
+    const wd = self.@"working-directory" orelse switch (self.@"launched-from") {
         // If we have no working directory set, our default depends on
         // whether we were launched from the desktop or elsewhere.
         .desktop => "home",
@@ -3973,7 +4018,7 @@ pub fn finalize(self: *Config) !void {
                 // If we were launched from the desktop, our SHELL env var
                 // will represent our SHELL at login time. We want to use the
                 // latest shell from /etc/passwd or directory services.
-                switch (self.@"launched-from".?) {
+                switch (self.@"launched-from") {
                     .desktop, .dbus, .systemd => break :shell_env,
                     .cli => {},
                 }
@@ -7125,9 +7170,23 @@ pub const MacShortcuts = enum {
 
 /// See gtk-single-instance
 pub const GtkSingleInstance = enum {
-    desktop,
     false,
     true,
+    detect,
+
+    pub const default: GtkSingleInstance = .detect;
+
+    pub fn parseCLI(input_: ?[]const u8) error{ ValueRequired, InvalidValue }!GtkSingleInstance {
+        const input = std.mem.trim(
+            u8,
+            input_ orelse return error.ValueRequired,
+            cli.args.whitespace,
+        );
+
+        if (std.mem.eql(u8, input, "desktop")) return .detect;
+
+        return std.meta.stringToEnum(GtkSingleInstance, input) orelse error.InvalidValue;
+    }
 };
 
 /// See gtk-tabs-location
@@ -8020,31 +8079,27 @@ pub const Duration = struct {
 };
 
 pub const LaunchSource = enum {
-    /// Ghostty was launched via the CLI. This is the default if
-    /// no other source is detected.
+    /// Ghostty was launched via the CLI. This is the default on non-macOS
+    /// platforms.
     cli,
 
     /// Ghostty was launched in a desktop environment (not via the CLI).
     /// This is used to determine some behaviors such as how to read
     /// settings, whether single instance defaults to true, etc.
+    ///
+    /// This is the default on macOS.
     desktop,
 
     /// Ghostty was started via dbus activation.
     dbus,
 
-    /// Ghostty was started via systemd activation.
+    /// Ghostty was started via systemd unit.
     systemd,
 
-    pub fn detect() LaunchSource {
-        return if (internal_os.launchedFromDesktop())
-            .desktop
-        else if (internal_os.launchedByDbusActivation())
-            .dbus
-        else if (internal_os.launchedBySystemd())
-            .systemd
-        else
-            .cli;
-    }
+    pub const default: LaunchSource = switch (builtin.os.tag) {
+        .macos => .desktop,
+        else => .cli,
+    };
 };
 
 pub const WindowPadding = struct {

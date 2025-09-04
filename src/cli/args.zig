@@ -260,6 +260,7 @@ fn formatInvalidValue(
 }
 
 fn formatValues(comptime T: type, key: []const u8, writer: anytype) std.mem.Allocator.Error!void {
+    @setEvalBranchQuota(2000);
     const typeinfo = @typeInfo(T);
     inline for (typeinfo.@"struct".fields) |f| {
         if (std.mem.eql(u8, key, f.name)) {

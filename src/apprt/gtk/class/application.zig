@@ -223,10 +223,8 @@ pub const Application = extern struct {
         const single_instance = switch (config.@"gtk-single-instance") {
             .true => true,
             .false => false,
-            .desktop => switch (config.@"launched-from".?) {
-                .desktop, .systemd, .dbus => true,
-                .cli => false,
-            },
+            // This should have been resolved to true/false during config loading.
+            .detect => unreachable,
         };
 
         // Setup the flags for our application.
@@ -428,7 +426,7 @@ pub const Application = extern struct {
             // We need to scope any config access because once we run our
             // event loop, this can change out from underneath us.
             const config = priv.config.get();
-            if (config.@"initial-window") switch (config.@"launched-from".?) {
+            if (config.@"initial-window") switch (config.@"launched-from") {
                 .desktop, .cli => self.as(gio.Application).activate(),
                 .dbus, .systemd => {},
             };
