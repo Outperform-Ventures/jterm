@@ -3,6 +3,7 @@
   lib,
   stdenv,
   bashInteractive,
+  nushell,
   appstream,
   flatpak-builder,
   gdb,
@@ -123,6 +124,9 @@ in
 
         # CI
         uv
+
+        # Scripting
+        nushell
 
         # We need these GTK-related deps on all platform so we can build
         # dist tarballs.
