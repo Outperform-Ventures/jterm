@@ -22,7 +22,7 @@ jobs:
       - build-macos-matrix
       - build-windows
       - test
-      - test-gtk-ng
+      - test-gtk
       - test-sentry-linux
       - test-macos
       - pinact
@@ -491,14 +491,14 @@ jobs:
       - name: test
         run: nix develop -c zig build -Dapp-runtime=none test
 
-      - name: Test GTK-NG Build
-        run: nix develop -c zig build -Dapp-runtime=gtk-ng -Demit-docs -Demit-webdata
+      - name: Test GTK Build
+        run: nix develop -c zig build -Dapp-runtime=gtk -Demit-docs -Demit-webdata
 
       # This relies on the cache being populated by the commands above.
       - name: Test System Build
         run: nix develop -c zig build --system ${ZIG_GLOBAL_CACHE_DIR}/p
 
-  test-gtk-ng:
+  test-gtk:
     strategy:
       fail-fast: false
       matrix:
@@ -534,7 +534,7 @@ jobs:
         run: |
           nix develop -c \
             zig build \
-            -Dapp-runtime=gtk-ng \
+            -Dapp-runtime=gtk \
             -Dgtk-x11=${{ matrix.x11 }} \
             -Dgtk-wayland=${{ matrix.wayland }} \
             test
@@ -543,7 +543,7 @@ jobs:
         run: |
           nix develop -c \
             zig build \
-            -Dapp-runtime=gtk-ng \
+            -Dapp-runtime=gtk \
             -Dgtk-x11=${{ matrix.x11 }} \
             -Dgtk-wayland=${{ matrix.wayland }}
 
@@ -1011,7 +1011,7 @@ jobs:
           cd $GITHUB_WORKSPACE
           zig build test
 
-      - name: Build GTK-NG app runtime
+      - name: Build GTK app runtime
         shell: freebsd {0}
         run: |
           cd $GITHUB_WORKSPACE

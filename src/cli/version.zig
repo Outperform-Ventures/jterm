@@ -7,8 +7,8 @@ const internal_os = @import("../os/main.zig");
 const xev = @import("../global.zig").xev;
 const renderer = @import("../renderer.zig");
 
-const gtk_version = @import("../apprt/gtk-ng/gtk_version.zig");
-const adw_version = @import("../apprt/gtk-ng/adw_version.zig");
+const gtk_version = @import("../apprt/gtk/gtk_version.zig");
+const adw_version = @import("../apprt/gtk/adw_version.zig");
 
 pub const Options = struct {};
 
@@ -38,7 +38,7 @@ pub fn run(alloc: Allocator) !u8 {
     try stdout.print("  - font engine   : {}\n", .{build_config.font_backend});
     try stdout.print("  - renderer      : {}\n", .{renderer.Renderer});
     try stdout.print("  - libxev        : {s}\n", .{@tagName(xev.backend)});
-    if (comptime build_config.app_runtime == .@"gtk-ng") {
+    if (comptime build_config.app_runtime == .gtk) {
         if (comptime builtin.os.tag == .linux) {
             const kernel_info = internal_os.getKernelInfo(alloc);
             defer if (kernel_info) |k| alloc.free(k);

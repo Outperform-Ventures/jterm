@@ -550,7 +550,7 @@ pub fn add(
 
         switch (self.config.app_runtime) {
             .none => {},
-            .@"gtk-ng" => try self.addGtkNg(step),
+            .gtk => try self.addGtkNg(step),
         }
     }
 
@@ -701,11 +701,11 @@ pub fn gtkNgDistResources(
     resources_c: DistResource,
     resources_h: DistResource,
 } {
-    const gresource = @import("../apprt/gtk-ng/build/gresource.zig");
+    const gresource = @import("../apprt/gtk/build/gresource.zig");
     const gresource_xml = gresource_xml: {
         const xml_exe = b.addExecutable(.{
             .name = "generate_gresource_xml",
-            .root_source_file = b.path("src/apprt/gtk-ng/build/gresource.zig"),
+            .root_source_file = b.path("src/apprt/gtk/build/gresource.zig"),
             .target = b.graph.host,
         });
         const xml_run = b.addRunArtifact(xml_exe);
@@ -713,7 +713,7 @@ pub fn gtkNgDistResources(
         // Run our blueprint compiler across all of our blueprint files.
         const blueprint_exe = b.addExecutable(.{
             .name = "gtk_blueprint_compiler",
-            .root_source_file = b.path("src/apprt/gtk-ng/build/blueprint.zig"),
+            .root_source_file = b.path("src/apprt/gtk/build/blueprint.zig"),
             .target = b.graph.host,
         });
         blueprint_exe.linkLibC();
@@ -778,11 +778,11 @@ pub fn gtkNgDistResources(
 
     return .{
         .resources_c = .{
-            .dist = "src/apprt/gtk-ng/ghostty_resources.c",
+            .dist = "src/apprt/gtk/ghostty_resources.c",
             .generated = resources_c,
         },
         .resources_h = .{
-            .dist = "src/apprt/gtk-ng/ghostty_resources.h",
+            .dist = "src/apprt/gtk/ghostty_resources.h",
             .generated = resources_h,
         },
     };

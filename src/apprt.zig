@@ -16,7 +16,7 @@ const structs = @import("apprt/structs.zig");
 
 pub const action = @import("apprt/action.zig");
 pub const ipc = @import("apprt/ipc.zig");
-pub const gtk_ng = @import("apprt/gtk-ng.zig");
+pub const gtk = @import("apprt/gtk.zig");
 pub const none = @import("apprt/none.zig");
 pub const browser = @import("apprt/browser.zig");
 pub const embedded = @import("apprt/embedded.zig");
@@ -42,7 +42,7 @@ pub const SurfaceSize = structs.SurfaceSize;
 pub const runtime = switch (build_config.artifact) {
     .exe => switch (build_config.app_runtime) {
         .none => none,
-        .@"gtk-ng" => gtk_ng,
+        .gtk => gtk,
     },
     .lib => embedded,
     .wasm_module => browser,
@@ -60,13 +60,13 @@ pub const Runtime = enum {
 
     /// GTK4. Rich windowed application. This uses a full GObject-based
     /// approach to building the application.
-    @"gtk-ng",
+    gtk,
 
     pub fn default(target: std.Target) Runtime {
         return switch (target.os.tag) {
             // The Linux and FreeBSD default is GTK because it is a full
             // featured application.
-            .linux, .freebsd => .@"gtk-ng",
+            .linux, .freebsd => .gtk,
             // Otherwise, we do NONE so we don't create an exe and we create
             // libghostty. On macOS, Xcode is used to build the app that links
             // to libghostty.

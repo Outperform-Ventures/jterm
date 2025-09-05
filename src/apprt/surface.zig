@@ -111,7 +111,7 @@ pub const Message = union(enum) {
 
         /// Make this a valid gobject if we're in a GTK environment.
         pub const getGObjectType = switch (build_config.app_runtime) {
-            .@"gtk-ng",
+            .gtk,
             => @import("gobject").ext.defineBoxed(
                 ChildExited,
                 .{ .name = "GhosttyApprtChildExited" },

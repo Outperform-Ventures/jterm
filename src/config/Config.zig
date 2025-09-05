@@ -7149,7 +7149,7 @@ pub const GtkTitlebarStyle = enum(c_int) {
     tabs,
 
     pub const getGObjectType = switch (build_config.app_runtime) {
-        .@"gtk-ng" => @import("gobject").ext.defineEnum(
+        .gtk => @import("gobject").ext.defineEnum(
             GtkTitlebarStyle,
             .{ .name = "GhosttyGtkTitlebarStyle" },
         ),
@@ -7717,7 +7717,7 @@ pub const WindowDecoration = enum(c_int) {
 
     /// Make this a valid gobject if we're in a GTK environment.
     pub const getGObjectType = switch (build_config.app_runtime) {
-        .@"gtk-ng" => @import("gobject").ext.defineEnum(
+        .gtk => @import("gobject").ext.defineEnum(
             WindowDecoration,
             .{ .name = "GhosttyConfigWindowDecoration" },
         ),

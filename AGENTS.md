@@ -15,7 +15,7 @@ A file for [guiding coding agents](https://agents.md/).
 - Shared Zig core: `src/`
 - C API: `include/ghostty.h`
 - macOS app: `macos/`
-- GTK (Linux and FreeBSD) app: `src/apprt/gtk-ng`
+- GTK (Linux and FreeBSD) app: `src/apprt/gtk`
 
 ## macOS App
 

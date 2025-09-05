@@ -14,10 +14,10 @@ pub const app_id = "com.mitchellh.ghostty";
 /// The path to the Blueprint files. The folder structure is expected to be
 /// `{version}/{name}.blp` where `version` is the major and minor
 /// minimum adwaita version.
-pub const ui_path = "src/apprt/gtk-ng/ui";
+pub const ui_path = "src/apprt/gtk/ui";
 
 /// The path to the CSS files.
-pub const css_path = "src/apprt/gtk-ng/css";
+pub const css_path = "src/apprt/gtk/css";
 
 /// The possible icon sizes we'll embed into the gresource file.
 /// If any size doesn't exist then it will be an error. We could

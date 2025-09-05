@@ -3,7 +3,7 @@ const GhosttyI18n = @This();
 const std = @import("std");
 const builtin = @import("builtin");
 const Config = @import("Config.zig");
-const gresource = @import("../apprt/gtk-ng/build/gresource.zig");
+const gresource = @import("../apprt/gtk/build/gresource.zig");
 const internal_os = @import("../os/main.zig");
 
 const domain = "com.mitchellh.ghostty";
@@ -80,7 +80,7 @@ fn createUpdateStep(b: *std.Build) !*std.Build.Step {
 
     inline for (gresource.blueprints) |blp| {
         const path = std.fmt.comptimePrint(
-            "src/apprt/gtk-ng/ui/{[major]}.{[minor]}/{[name]s}.blp",
+            "src/apprt/gtk/ui/{[major]}.{[minor]}/{[name]s}.blp",
             blp,
         );
         // The arguments to xgettext must be the relative path in the build root
@@ -105,7 +105,7 @@ fn createUpdateStep(b: *std.Build) !*std.Build.Step {
         }
 
         var gtk_dir = try b.build_root.handle.openDir(
-            "src/apprt/gtk-ng",
+            "src/apprt/gtk",
             .{ .iterate = true },
         );
         defer gtk_dir.close();
@@ -138,7 +138,7 @@ fn createUpdateStep(b: *std.Build) !*std.Build.Step {
         );
 
         for (gtk_files.items) |item| {
-            const path = b.pathJoin(&.{ "src/apprt/gtk-ng", item });
+            const path = b.pathJoin(&.{ "src/apprt/gtk", item });
             // The arguments to xgettext must be the relative path in the build root
             // or the resulting files will contain the absolute path. This will
             // cause a lot of churn because not everyone has the Ghostty code
