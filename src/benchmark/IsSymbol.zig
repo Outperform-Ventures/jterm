@@ -10,8 +10,7 @@ const Allocator = std.mem.Allocator;
 const Benchmark = @import("Benchmark.zig");
 const options = @import("options.zig");
 const UTF8Decoder = @import("../terminal/UTF8Decoder.zig");
-const symbols1 = @import("../unicode/symbols1.zig");
-const symbols2 = @import("../unicode/symbols2.zig");
+const symbols = @import("../unicode/symbols.zig");
 
 const log = std.log.scoped(.@"is-symbol-bench");
 
@@ -37,8 +36,7 @@ pub const Mode = enum {
     ziglyph,
 
     /// Ghostty's table-based approach.
-    table1,
-    table2,
+    table,
 };
 
 /// Create a new terminal stream handler for the given arguments.
@@ -60,8 +58,7 @@ pub fn benchmark(self: *IsSymbol) Benchmark {
     return .init(self, .{
         .stepFn = switch (self.opts.mode) {
             .ziglyph => stepZiglyph,
-            .table1 => stepTable1,
-            .table2 => stepTable1,
+            .table => stepTable,
         },
         .setupFn = setup,
         .teardownFn = teardown,
@@ -106,13 +103,13 @@ fn stepZiglyph(ptr: *anyopaque) Benchmark.Error!void {
             const cp_, const consumed = d.next(c);
             assert(consumed);
             if (cp_) |cp| {
-                std.mem.doNotOptimizeAway(symbols1.isSymbol(cp));
+                std.mem.doNotOptimizeAway(symbols.isSymbol(cp));
             }
         }
     }
 }
 
-fn stepTable1(ptr: *anyopaque) Benchmark.Error!void {
+fn stepTable(ptr: *anyopaque) Benchmark.Error!void {
     const self: *IsSymbol = @ptrCast(@alignCast(ptr));
 
     const f = self.data_f orelse return;
@@ -130,31 +127,7 @@ fn stepTable1(ptr: *anyopaque) Benchmark.Error!void {
             const cp_, const consumed = d.next(c);
             assert(consumed);
             if (cp_) |cp| {
-                std.mem.doNotOptimizeAway(symbols1.table.get(cp));
-            }
-        }
-    }
-}
-
-fn stepTable2(ptr: *anyopaque) Benchmark.Error!void {
-    const self: *IsSymbol = @ptrCast(@alignCast(ptr));
-
-    const f = self.data_f orelse return;
-    var r = std.io.bufferedReader(f.reader());
-    var d: UTF8Decoder = .{};
-    var buf: [4096]u8 = undefined;
-    while (true) {
-        const n = r.read(&buf) catch |err| {
-            log.warn("error reading data file err={}", .{err});
-            return error.BenchmarkFailed;
-        };
-        if (n == 0) break; // EOF reached
-
-        for (buf[0..n]) |c| {
-            const cp_, const consumed = d.next(c);
-            assert(consumed);
-            if (cp_) |cp| {
-                std.mem.doNotOptimizeAway(symbols2.table.get(cp));
+                std.mem.doNotOptimizeAway(symbols.table.get(cp));
             }
         }
     }
