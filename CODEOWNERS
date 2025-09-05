@@ -118,7 +118,6 @@
 /pkg/harfbuzz/ @ghostty-org/font
 
 # GTK
-/src/apprt/gtk/ @ghostty-org/gtk
 /src/apprt/gtk-ng/ @ghostty-org/gtk
 /src/os/cgroup.zig @ghostty-org/gtk
 /src/os/flatpak.zig @ghostty-org/gtk
