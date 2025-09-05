@@ -78,7 +78,9 @@ pub fn main() !void {
 
 // This is not very fast in debug modes, so its commented by default.
 // IMPORTANT: UNCOMMENT THIS WHENEVER MAKING CHANGES.
-test "unicode symbols1: tables match ziglyph" {
+test "unicode symbols: tables match ziglyph" {
+    if (std.valgrind.runningOnValgrind() > 0) return error.SkipZigTest;
+
     const testing = std.testing;
 
     for (0..std.math.maxInt(u21)) |cp| {
