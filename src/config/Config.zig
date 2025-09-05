@@ -73,6 +73,10 @@ pub const compatibility = std.StaticStringMap(
     // Ghostty 1.2 merged `bold-is-bright` into the new `bold-color`
     // by setting the value to "bright".
     .{ "bold-is-bright", compatBoldIsBright },
+
+    // Ghostty 1.2 removed the "desktop" option and renamed it to "detect".
+    // The semantics also changed slightly but this is the correct mapping.
+    .{ "gtk-single-instance", compatGtkSingleInstance },
 });
 
 /// The font families to use.
@@ -2975,16 +2979,23 @@ else
 ///
 /// If `false`, each new ghostty process will launch a separate application.
 ///
-/// If `detect`, Ghostty will act as if it was `true` if one of the following
-/// conditions is true:
+/// If `detect`, Ghostty will assume true (single instance) unless one of
+/// the following scenarios is found:
 ///
-/// 1. If no CLI arguments have been set.
-/// 2. If `--launched-from` has been set to `desktop`, `dbus`, or `systemd`.
+/// 1. TERM_PROGRAM environment variable is a non-empty value. In this
+/// case, we assume Ghostty is being launched from a graphical terminal
+/// session and you want a dedicated instance.
 ///
-/// Otherwise, Ghostty will act as if it was `false`.
+/// 2. Any CLI arguments exist. In this case, we assume you are passing
+/// custom Ghostty configuration. Single instance mode inherits the
+/// configuration from when it was launched, so we must disable single
+/// instance to load the new configuration.
 ///
-/// The pre-1.2 option `desktop` has been deprecated. If encountered it will be
-/// treated as `detect`.
+/// If either of these scenarios is producing a false positive, you can
+/// set this configuration explicitly to the behavior you want.
+///
+/// The pre-1.2 option `desktop` has been deprecated. Please replace
+/// this with `detect`.
 ///
 /// The default value is `detect`.
 ///
@@ -3111,23 +3122,6 @@ term: []const u8 = "xterm-ghostty",
 /// String to send when we receive `ENQ` (`0x05`) from the command that we are
 /// running. Defaults to an empty string if not set.
 @"enquiry-response": []const u8 = "",
-
-/// The mechanism used to launch Ghostty. This should generally not be
-/// set by users, see the warning below.
-///
-/// WARNING: This is a low-level configuration that is not intended to be
-/// modified by users. All the values will be automatically detected as they
-/// are needed by Ghostty. This is only here in case our detection logic is
-/// incorrect for your environment or for developers who want to test
-/// Ghostty's behavior in different, forced environments.
-///
-/// Specific details about the available values are documented on LaunchSource
-/// in the code. Since this isn't intended to be modified by users, the
-/// documentation is lighter than the other configurations and users are
-/// expected to refer to the code for details.
-///
-/// Available since: 1.2.0
-@"launched-from": LaunchSource = .default,
 
 /// Configures the low-level API to use for async IO, eventing, etc.
 ///
@@ -3493,24 +3487,8 @@ pub fn loadCliArgs(self: *Config, alloc_gpa: Allocator) !void {
     switch (builtin.os.tag) {
         .windows => {},
 
-        // Fast-path if we are Linux and have no args.
-        .linux, .freebsd => {
-            if (std.os.argv.len <= 1) {
-                if (self.@"gtk-single-instance" == .detect) {
-                    const arena_alloc = self._arena.?.allocator();
-                    // Add an artificial replay step so that replaying the
-                    // inputs doesn't undo this change.
-                    try self._replay_steps.append(
-                        arena_alloc,
-                        .{
-                            .arg = "--gtk-single-instance=true",
-                        },
-                    );
-                    self.@"gtk-single-instance" = .true;
-                }
-                return;
-            }
-        },
+        // Fast-path if we are Linux/BSD and have no args.
+        .linux, .freebsd => if (std.os.argv.len <= 1) return,
 
         // Everything else we have to at least try because it may
         // not use std.os.argv.
@@ -3606,34 +3584,6 @@ pub fn loadCliArgs(self: *Config, alloc_gpa: Allocator) !void {
     // directory.
     var buf: [std.fs.max_path_bytes]u8 = undefined;
     try self.expandPaths(try std.fs.cwd().realpath(".", &buf));
-
-    if (self.@"gtk-single-instance" == .detect) {
-        const arena_alloc = self._arena.?.allocator();
-        switch (self.@"launched-from") {
-            .cli => {
-                // Add an artificial replay step so that replaying the
-                // inputs doesn't undo this change.
-                try self._replay_steps.append(
-                    arena_alloc,
-                    .{
-                        .arg = "--gtk-single-instance=false",
-                    },
-                );
-                self.@"gtk-single-instance" = .false;
-            },
-            .desktop, .systemd, .dbus => {
-                // Add an artificial replay step so that replaying the
-                // inputs doesn't undo this change.
-                try self._replay_steps.append(
-                    arena_alloc,
-                    .{
-                        .arg = "--gtk-single-instance=true",
-                    },
-                );
-                self.@"gtk-single-instance" = .true;
-            },
-        }
-    }
 }
 
 /// Load and parse the config files that were added in the "config-file" key.
@@ -3967,6 +3917,10 @@ pub fn finalize(self: *Config) !void {
 
     const alloc = self._arena.?.allocator();
 
+    // Used for a variety of defaults. See the function docs as well the
+    // specific variable use sites for more details.
+    const probable_cli = probableCliEnvironment();
+
     // If we have a font-family set and don't set the others, default
     // the others to the font family. This way, if someone does
     // --font-family=foo, then we try to get the stylized versions of
@@ -3991,12 +3945,14 @@ pub fn finalize(self: *Config) !void {
     }
 
     // The default for the working directory depends on the system.
-    const wd = self.@"working-directory" orelse switch (self.@"launched-from") {
-        // If we have no working directory set, our default depends on
-        // whether we were launched from the desktop or elsewhere.
-        .desktop => "home",
-        .cli, .dbus, .systemd => "inherit",
-    };
+    const wd = self.@"working-directory" orelse if (probable_cli)
+        // From the CLI, we want to inherit where we were launched from.
+        "inherit"
+    else
+        // Otherwise we typically just want the home directory because
+        // our pwd is probably a runtime state dir or root or something
+        // (launchers and desktop environments typically do this).
+        "home";
 
     // If we are missing either a command or home directory, we need
     // to look up defaults which is kind of expensive. We only do this
@@ -4016,12 +3972,9 @@ pub fn finalize(self: *Config) !void {
                 if (internal_os.isFlatpak()) break :shell_env;
 
                 // If we were launched from the desktop, our SHELL env var
-                // will represent our SHELL at login time. We want to use the
-                // latest shell from /etc/passwd or directory services.
-                switch (self.@"launched-from") {
-                    .desktop, .dbus, .systemd => break :shell_env,
-                    .cli => {},
-                }
+                // will represent our SHELL at login time. We only want to
+                // read from SHELL if we're in a probable CLI environment.
+                if (!probable_cli) break :shell_env;
 
                 if (std.process.getEnvVarOwned(alloc, "SHELL")) |value| {
                     log.info("default shell source=env value={s}", .{value});
@@ -4072,6 +4025,23 @@ pub fn finalize(self: *Config) !void {
                 },
             }
         }
+    }
+
+    // Apprt-specific defaults
+    switch (build_config.app_runtime) {
+        .none => {},
+        .gtk => {
+            switch (self.@"gtk-single-instance") {
+                .true, .false => {},
+
+                // For detection, we assume single instance unless we're
+                // in a CLI environment, then we disable single instance.
+                .detect => self.@"gtk-single-instance" = if (probable_cli)
+                    .false
+                else
+                    .true,
+            }
+        },
     }
 
     // If we have the special value "inherit" then set it to null which
@@ -4195,6 +4165,23 @@ fn compatGtkTabsLocation(
 
     if (std.mem.eql(u8, value orelse "", "hidden")) {
         self.@"window-show-tab-bar" = .never;
+        return true;
+    }
+
+    return false;
+}
+
+fn compatGtkSingleInstance(
+    self: *Config,
+    alloc: Allocator,
+    key: []const u8,
+    value: ?[]const u8,
+) bool {
+    _ = alloc;
+    assert(std.mem.eql(u8, key, "gtk-single-instance"));
+
+    if (std.mem.eql(u8, value orelse "", "desktop")) {
+        self.@"gtk-single-instance" = .detect;
         return true;
     }
 
@@ -4536,6 +4523,32 @@ fn equalField(comptime T: type, old: T, new: T) bool {
             @compileError("unsupported field type");
         },
     }
+}
+
+/// This runs a heuristic to determine if we are likely running
+/// Ghostty in a CLI environment. We need this to change some behaviors.
+/// We should keep the set of behaviors that depend on this as small
+/// as possible because magic sucks, but each place is well documented.
+fn probableCliEnvironment() bool {
+    switch (builtin.os.tag) {
+        // Windows has its own problems, just ignore it for now since
+        // its not a real supported target and GTK via WSL2 assuming
+        // single instance is probably fine.
+        .windows => return false,
+        else => {},
+    }
+
+    // If we have TERM_PROGRAM set to a non-empty value, we assume
+    // a graphical terminal environment.
+    if (std.posix.getenv("TERM_PROGRAM")) |v| {
+        if (v.len > 0) return true;
+    }
+
+    // CLI arguments makes things probable
+    if (std.os.argv.len > 1) return true;
+
+    // Unlikely CLI environment
+    return false;
 }
 
 /// This is used to "replay" the configuration. See loadTheme for details.
@@ -7175,18 +7188,6 @@ pub const GtkSingleInstance = enum {
     detect,
 
     pub const default: GtkSingleInstance = .detect;
-
-    pub fn parseCLI(input_: ?[]const u8) error{ ValueRequired, InvalidValue }!GtkSingleInstance {
-        const input = std.mem.trim(
-            u8,
-            input_ orelse return error.ValueRequired,
-            cli.args.whitespace,
-        );
-
-        if (std.mem.eql(u8, input, "desktop")) return .detect;
-
-        return std.meta.stringToEnum(GtkSingleInstance, input) orelse error.InvalidValue;
-    }
 };
 
 /// See gtk-tabs-location
@@ -8078,30 +8079,6 @@ pub const Duration = struct {
     }
 };
 
-pub const LaunchSource = enum {
-    /// Ghostty was launched via the CLI. This is the default on non-macOS
-    /// platforms.
-    cli,
-
-    /// Ghostty was launched in a desktop environment (not via the CLI).
-    /// This is used to determine some behaviors such as how to read
-    /// settings, whether single instance defaults to true, etc.
-    ///
-    /// This is the default on macOS.
-    desktop,
-
-    /// Ghostty was started via dbus activation.
-    dbus,
-
-    /// Ghostty was started via systemd unit.
-    systemd,
-
-    pub const default: LaunchSource = switch (builtin.os.tag) {
-        .macos => .desktop,
-        else => .cli,
-    };
-};
-
 pub const WindowPadding = struct {
     const Self = @This();
 
@@ -8763,6 +8740,27 @@ test "theme specifying light/dark sets theme usage in conditional state" {
 
         try testing.expect(cfg.@"window-theme" == .system);
         try testing.expect(cfg._conditional_set.contains(.theme));
+    }
+}
+
+test "compatibility: gtk-single-instance desktop" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    {
+        var cfg = try Config.default(alloc);
+        defer cfg.deinit();
+        var it: TestIterator = .{ .data = &.{
+            "--gtk-single-instance=desktop",
+        } };
+        try cfg.loadIter(alloc, &it);
+
+        // We need to test this BEFORE finalize, because finalize will
+        // convert our detect to a real value.
+        try testing.expectEqual(
+            GtkSingleInstance.detect,
+            cfg.@"gtk-single-instance",
+        );
     }
 }
 
