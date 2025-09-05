@@ -1,12 +1,12 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
-const ziglyph = @import("ziglyph");
 const font = @import("../font/main.zig");
 const terminal = @import("../terminal/main.zig");
 const renderer = @import("../renderer.zig");
 const shaderpkg = renderer.Renderer.API.shaders;
 const ArrayListCollection = @import("../datastruct/array_list_collection.zig").ArrayListCollection;
+const symbols = @import("../unicode/symbols.zig").table;
 
 /// The possible cell content keys that exist.
 pub const Key = enum {
@@ -249,15 +249,7 @@ pub fn isCovering(cp: u21) bool {
 /// In the future it may be prudent to expand this to encompass more
 /// symbol-like characters, and/or exclude some PUA sections.
 pub fn isSymbol(cp: u21) bool {
-    // TODO: This should probably become a codegen'd LUT
-    return ziglyph.general_category.isPrivateUse(cp) or
-        ziglyph.blocks.isDingbats(cp) or
-        ziglyph.blocks.isEmoticons(cp) or
-        ziglyph.blocks.isMiscellaneousSymbols(cp) or
-        ziglyph.blocks.isEnclosedAlphanumerics(cp) or
-        ziglyph.blocks.isEnclosedAlphanumericSupplement(cp) or
-        ziglyph.blocks.isMiscellaneousSymbolsAndPictographs(cp) or
-        ziglyph.blocks.isTransportAndMapSymbols(cp);
+    return symbols.get(cp);
 }
 
 /// Returns the appropriate `constraint_width` for
