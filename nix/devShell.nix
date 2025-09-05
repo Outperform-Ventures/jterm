@@ -61,6 +61,7 @@
   pandoc,
   pinact,
   hyperfine,
+  poop,
   typos,
   shellcheck,
   uv,
@@ -187,6 +188,9 @@ in
         # developer shell
         glycin-loaders
         librsvg
+
+        # for benchmarking
+        poop
       ];
 
     # This should be set onto the rpath of the ghostty binary if you want
