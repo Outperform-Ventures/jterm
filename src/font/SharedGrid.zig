@@ -332,11 +332,12 @@ const GlyphKey = struct {
 
     const Context = struct {
         pub fn hash(_: Context, key: GlyphKey) u64 {
-            return @bitCast(Packed.from(key));
+            const packed_key = Packed.from(key);
+            return std.hash.CityHash64.hash(std.mem.asBytes(&packed_key));
         }
 
         pub fn eql(_: Context, a: GlyphKey, b: GlyphKey) bool {
-            return Packed.from(a) == Packed.from(b);
+            return a.glyph == b.glyph and Packed.from(a) == Packed.from(b);
         }
     };
 
