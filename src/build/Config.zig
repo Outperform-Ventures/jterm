@@ -61,6 +61,7 @@ emit_termcap: bool = false,
 emit_test_exe: bool = false,
 emit_xcframework: bool = false,
 emit_webdata: bool = false,
+emit_unicode_table_gen: bool = false,
 
 /// Environmental properties
 env: std.process.EnvMap,
@@ -297,6 +298,12 @@ pub fn init(b: *std.Build) !Config {
         bool,
         "emit-test-exe",
         "Build and install test executables with 'build'",
+    ) orelse false;
+
+    config.emit_unicode_table_gen = b.option(
+        bool,
+        "emit-unicode-table-gen",
+        "Build and install executables that generate unicode tables with 'build'",
     ) orelse false;
 
     config.emit_bench = b.option(

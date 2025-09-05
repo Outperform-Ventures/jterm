@@ -9,5 +9,7 @@ pub const graphemeBreak = grapheme.graphemeBreak;
 pub const GraphemeBreakState = grapheme.BreakState;
 
 test {
+    _ = @import("symbols1.zig");
+    _ = @import("symbols2.zig");
     @import("std").testing.refAllDecls(@This());
 }

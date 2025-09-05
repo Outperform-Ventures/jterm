@@ -142,6 +142,32 @@ pub fn Tables(comptime Elem: type) type {
             return self.stage3[self.stage2[self.stage1[high] + low]];
         }
 
+        pub inline fn getInline(self: *const Self, cp: u21) Elem {
+            const high = cp >> 8;
+            const low = cp & 0xFF;
+            return self.stage3[self.stage2[self.stage1[high] + low]];
+        }
+
+        pub fn getBool(self: *const Self, cp: u21) bool {
+            assert(Elem == bool);
+            assert(self.stage3.len == 2);
+            assert(self.stage3[0] == false);
+            assert(self.stage3[1] == true);
+            const high = cp >> 8;
+            const low = cp & 0xFF;
+            return self.stage2[self.stage1[high] + low] != 0;
+        }
+
+        pub inline fn getBoolInline(self: *const Self, cp: u21) bool {
+            assert(Elem == bool);
+            assert(self.stage3.len == 2);
+            assert(self.stage3[0] == false);
+            assert(self.stage3[1] == true);
+            const high = cp >> 8;
+            const low = cp & 0xFF;
+            return self.stage2[self.stage1[high] + low] != 0;
+        }
+
         /// Writes the lookup table as Zig to the given writer. The
         /// written file exports three constants: stage1, stage2, and
         /// stage3. These can be used to rebuild the lookup table in Zig.

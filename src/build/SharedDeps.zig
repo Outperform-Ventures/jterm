@@ -31,6 +31,7 @@ pub fn init(b: *std.Build, cfg: *const Config) !SharedDeps {
         .metallib = undefined,
     };
     try result.initTarget(b, cfg.target);
+    if (cfg.emit_unicode_table_gen) result.unicode_tables.install(b);
     return result;
 }
 
