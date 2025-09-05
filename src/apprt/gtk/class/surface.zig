@@ -496,6 +496,9 @@ pub const Surface = extern struct {
         /// if this is true, then it means the terminal is non-functional.
         @"error": bool = false,
 
+        /// The source that handles setting our child property.
+        idle_rechild: ?c_uint = null,
+
         /// A weak reference to an inspector window.
         inspector: ?*InspectorWindow = null,
 
@@ -504,6 +507,8 @@ pub const Surface = extern struct {
         context_menu: *gtk.PopoverMenu,
         drop_target: *gtk.DropTarget,
         progress_bar_overlay: *gtk.ProgressBar,
+        error_page: *adw.StatusPage,
+        terminal_page: *gtk.Overlay,
 
         pub var offset: c_int = 0;
     };
@@ -593,17 +598,6 @@ pub const Surface = extern struct {
         };
 
         return @intFromBool(config.@"bell-features".border);
-    }
-
-    fn closureStackChildName(
-        _: *Self,
-        error_: c_int,
-    ) callconv(.c) ?[*:0]const u8 {
-        const err = error_ != 0;
-        return if (err)
-            glib.ext.dupeZ(u8, "error")
-        else
-            glib.ext.dupeZ(u8, "terminal");
     }
 
     pub fn toggleFullscreen(self: *Self) void {
@@ -1370,6 +1364,19 @@ pub const Surface = extern struct {
             priv.progress_bar_timer = null;
         }
 
+        if (priv.idle_rechild) |v| {
+            if (glib.Source.remove(v) == 0) {
+                log.warn("unable to remove idle source", .{});
+            }
+            priv.idle_rechild = null;
+        }
+
+        // This works around a GTK double-free bug where if you bind
+        // to a top-level template child, it frees twice if the widget is
+        // also the root child of the template. By unsetting the child here,
+        // we avoid the double-free.
+        self.as(adw.Bin).setChild(null);
+
         gtk.Widget.disposeTemplate(
             self.as(gtk.Widget),
             getGObjectType(),
@@ -1651,8 +1658,26 @@ pub const Surface = extern struct {
             self.as(gtk.Widget).removeCssClass("background");
         }
 
-        // Note above: in both cases setting our error view is handled by
-        // a Gtk.Stack visible-child-name binding.
+        // We need to set our child property on an idle tick, because the
+        // error property can be triggered by signals that are in the middle
+        // of widget mapping and changing our child during that time
+        // results in a hard gtk crash.
+        if (priv.idle_rechild == null) priv.idle_rechild = glib.idleAdd(
+            onIdleRechild,
+            self,
+        );
+    }
+
+    fn onIdleRechild(ud: ?*anyopaque) callconv(.c) c_int {
+        const self: *Self = @ptrCast(@alignCast(ud orelse return 0));
+        const priv = self.private();
+        priv.idle_rechild = null;
+        if (priv.@"error") {
+            self.as(adw.Bin).setChild(priv.error_page.as(gtk.Widget));
+        } else {
+            self.as(adw.Bin).setChild(priv.terminal_page.as(gtk.Widget));
+        }
+        return 0;
     }
 
     fn propMouseHoverUrl(
@@ -2699,8 +2724,10 @@ pub const Surface = extern struct {
             class.bindTemplateChildPrivate("url_right", .{});
             class.bindTemplateChildPrivate("child_exited_overlay", .{});
             class.bindTemplateChildPrivate("context_menu", .{});
+            class.bindTemplateChildPrivate("error_page", .{});
             class.bindTemplateChildPrivate("progress_bar_overlay", .{});
             class.bindTemplateChildPrivate("resize_overlay", .{});
+            class.bindTemplateChildPrivate("terminal_page", .{});
             class.bindTemplateChildPrivate("drop_target", .{});
             class.bindTemplateChildPrivate("im_context", .{});
 
@@ -2736,7 +2763,6 @@ pub const Surface = extern struct {
             class.bindTemplateCallback("notify_mouse_shape", &propMouseShape);
             class.bindTemplateCallback("notify_bell_ringing", &propBellRinging);
             class.bindTemplateCallback("should_border_be_shown", &closureShouldBorderBeShown);
-            class.bindTemplateCallback("stack_child_name", &closureStackChildName);
 
             // Properties
             gobject.ext.registerProperties(class, &.{
