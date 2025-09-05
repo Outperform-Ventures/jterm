@@ -909,10 +909,7 @@ pub const Surface = struct {
             // our translation settings for Ghostty. If we aren't from
             // the desktop then we didn't set our LANGUAGE var so we
             // don't need to remove it.
-            switch (self.app.config.@"launched-from".?) {
-                .desktop => env.remove("LANGUAGE"),
-                .dbus, .systemd, .cli => {},
-            }
+            if (internal_os.launchedFromDesktop()) env.remove("LANGUAGE");
         }
 
         return env;

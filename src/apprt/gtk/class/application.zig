@@ -223,10 +223,8 @@ pub const Application = extern struct {
         const single_instance = switch (config.@"gtk-single-instance") {
             .true => true,
             .false => false,
-            .desktop => switch (config.@"launched-from".?) {
-                .desktop, .systemd, .dbus => true,
-                .cli => false,
-            },
+            // This should have been resolved to true/false during config loading.
+            .detect => unreachable,
         };
 
         // Setup the flags for our application.
@@ -418,9 +416,7 @@ pub const Application = extern struct {
         // This just calls the `activate` signal but its part of the normal startup
         // routine so we just call it, but only if the config allows it (this allows
         // for launching Ghostty in the "background" without immediately opening
-        // a window). An initial window will not be immediately created if we were
-        // launched by D-Bus activation or systemd.  D-Bus activation will send it's
-        // own `activate` or `new-window` signal later.
+        // a window).
         //
         // https://gitlab.gnome.org/GNOME/glib/-/blob/bd2ccc2f69ecfd78ca3f34ab59e42e2b462bad65/gio/gapplication.c#L2302
         const priv = self.private();
@@ -428,15 +424,11 @@ pub const Application = extern struct {
             // We need to scope any config access because once we run our
             // event loop, this can change out from underneath us.
             const config = priv.config.get();
-            if (config.@"initial-window") switch (config.@"launched-from".?) {
-                .desktop, .cli => self.as(gio.Application).activate(),
-                .dbus, .systemd => {},
-            };
+            if (config.@"initial-window") self.as(gio.Application).activate();
         }
 
         // If we are NOT the primary instance, then we never want to run.
-        // This means that another instance of the GTK app is running and
-        // our "activate" call above will open a window.
+        // This means that another instance of the GTK app is running.
         if (self.as(gio.Application).getIsRemote() != 0) {
             log.debug(
                 "application is remote, exiting run loop after activation",
