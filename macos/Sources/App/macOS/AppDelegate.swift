@@ -259,8 +259,16 @@ class AppDelegate: NSObject,
         // Setup signal handlers
         setupSignals()
 
-        // If we launched via zig run then we need to force foreground.
-        if Ghostty.launchSource == .zig_run {
+        switch Ghostty.launchSource {
+        case .app:
+            // Don't have to do anything.
+            break
+            
+        case .zig_run, .cli:
+            // Part of launch services (clicking an app, using `open`, etc.) activates
+            // the application and brings it to the front. When using the CLI we don't
+            // get this behavior, so we have to do it manually.
+            
             // This never gets called until we click the dock icon. This forces it
             // activate immediately.
             applicationDidBecomeActive(.init(name: NSApplication.didBecomeActiveNotification))
