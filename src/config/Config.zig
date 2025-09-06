@@ -4535,6 +4535,13 @@ fn probableCliEnvironment() bool {
         // its not a real supported target and GTK via WSL2 assuming
         // single instance is probably fine.
         .windows => return false,
+
+        // On macOS, we don't want to detect `open` calls as CLI envs.
+        // Our desktop detection on macOS is very accurate due to how
+        // processes are launched on macOS, so if we detect we're launched
+        // from the app bundle then we're not in a CLI environment.
+        .macos => if (internal_os.launchedFromDesktop()) return false,
+
         else => {},
     }
 
