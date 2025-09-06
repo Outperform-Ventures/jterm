@@ -11,6 +11,7 @@ const Benchmark = @import("Benchmark.zig");
 const options = @import("options.zig");
 const UTF8Decoder = @import("../terminal/UTF8Decoder.zig");
 const symbols = @import("../unicode/symbols.zig");
+const uucode = @import("uucode");
 
 const log = std.log.scoped(.@"is-symbol-bench");
 
@@ -103,7 +104,7 @@ fn stepUucode(ptr: *anyopaque) Benchmark.Error!void {
             const cp_, const consumed = d.next(c);
             assert(consumed);
             if (cp_) |cp| {
-                std.mem.doNotOptimizeAway(symbols.isSymbol(cp));
+                std.mem.doNotOptimizeAway(uucode.getX(.is_symbol, cp));
             }
         }
     }

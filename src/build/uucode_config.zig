@@ -90,6 +90,29 @@ const grapheme_boundary_class = config.Extension{
     },
 };
 
+fn computeIsSymbol(cp: u21, data: anytype, backing: anytype, tracking: anytype) void {
+    _ = cp;
+    _ = backing;
+    _ = tracking;
+    const block = data.block;
+    data.is_symbol = data.general_category == .other_private_use or
+        block == .dingbats or
+        block == .emoticons or
+        block == .miscellaneous_symbols or
+        block == .enclosed_alphanumerics or
+        block == .enclosed_alphanumeric_supplement or
+        block == .miscellaneous_symbols_and_pictographs or
+        block == .transport_and_map_symbols;
+}
+
+const is_symbol = config.Extension{
+    .inputs = &.{ "block", "general_category" },
+    .compute = &computeIsSymbol,
+    .fields = &.{
+        .{ .name = "is_symbol", .type = bool },
+    },
+};
+
 pub const tables = [_]config.Table{
     .{
         .extensions = &.{wcwidth},
@@ -111,6 +134,12 @@ pub const tables = [_]config.Table{
         .fields = &.{
             width.field("width"),
             grapheme_boundary_class.field("grapheme_boundary_class"),
+        },
+    },
+    .{
+        .extensions = &.{is_symbol},
+        .fields = &.{
+            is_symbol.field("is_symbol"),
         },
     },
 };

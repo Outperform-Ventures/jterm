@@ -31,15 +31,8 @@ pub const table = table: {
 /// In the future it may be prudent to expand this to encompass more
 /// symbol-like characters, and/or exclude some PUA sections.
 pub fn isSymbol(cp: u21) bool {
-    const block = uucode.get(.block, cp);
-    return uucode.get(.general_category, cp) == .other_private_use or
-        block == .dingbats or
-        block == .emoticons or
-        block == .miscellaneous_symbols or
-        block == .enclosed_alphanumerics or
-        block == .enclosed_alphanumeric_supplement or
-        block == .miscellaneous_symbols_and_pictographs or
-        block == .transport_and_map_symbols;
+    // TODO: probably can remove this method and just call uucode directly
+    return uucode.getX(.is_symbol, cp);
 }
 
 /// Runnable binary to generate the lookup tables and output to stdout.
