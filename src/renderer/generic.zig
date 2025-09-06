@@ -1551,15 +1551,17 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 // Look up the image
                 const image = self.images.get(p.image_id) orelse {
                     log.warn("image not found for placement image_id={}", .{p.image_id});
-                    return;
+                    continue;
                 };
 
                 // Get the texture
                 const texture = switch (image.image) {
-                    .ready => |t| t,
+                    .ready,
+                    .unload_ready,
+                    => |t| t,
                     else => {
                         log.warn("image not ready for placement image_id={}", .{p.image_id});
-                        return;
+                        continue;
                     },
                 };
 
@@ -1909,7 +1911,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 if (img.isUnloading()) {
                     img.deinit(self.alloc);
                     self.images.removeByPtr(kv.key_ptr);
-                    return;
+                    continue;
                 }
                 if (img.isPending()) try img.upload(self.alloc, &self.api);
             }
@@ -3064,7 +3066,14 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     .thicken = self.config.font_thicken,
                     .thicken_strength = self.config.font_thicken_strength,
                     .cell_width = cell.gridWidth(),
-                    .constraint = getConstraint(cp),
+                    // If there's no Nerd Font constraint for this codepoint
+                    // then, if it's a symbol, we constrain it to fit inside
+                    // its cell(s), we don't modify the alignment at all.
+                    .constraint = getConstraint(cp) orelse
+                        if (cellpkg.isSymbol(cp)) .{
+                            .size_horizontal = .fit,
+                            .size_vertical = .fit,
+                        } else .none,
                     .constraint_width = constraintWidth(cell_pin),
                 },
             );

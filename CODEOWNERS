@@ -119,7 +119,6 @@
 
 # GTK
 /src/apprt/gtk/ @ghostty-org/gtk
-/src/apprt/gtk-ng/ @ghostty-org/gtk
 /src/os/cgroup.zig @ghostty-org/gtk
 /src/os/flatpak.zig @ghostty-org/gtk
 /dist/linux/ @ghostty-org/gtk

@@ -594,6 +594,12 @@ pub const Face = struct {
                     freetype.c.FT_PIXEL_MODE_GRAY,
                     => {},
                     else => {
+                        // Make sure the slot owns its bitmap,
+                        // since we'll be modifying it here.
+                        if (freetype.c.FT_GlyphSlot_Own_Bitmap(glyph) != 0) {
+                            return error.BitmapHandlingError;
+                        }
+
                         var converted: freetype.c.FT_Bitmap = undefined;
                         freetype.c.FT_Bitmap_Init(&converted);
                         if (freetype.c.FT_Bitmap_Convert(
@@ -784,12 +790,8 @@ pub const Face = struct {
         return @as(F26Dot6, @bitCast(@as(i32, @intCast(v)))).to(f64);
     }
 
-    pub const GetMetricsError = error{
-        CopyTableError,
-    };
-
     /// Get the `FaceMetrics` for this face.
-    pub fn getMetrics(self: *Face) GetMetricsError!font.Metrics.FaceMetrics {
+    pub fn getMetrics(self: *Face) font.Metrics.FaceMetrics {
         const face = self.face;
 
         const size_metrics = face.handle.*.size.*.metrics;
@@ -799,10 +801,10 @@ pub const Face = struct {
         assert(size_metrics.x_ppem == size_metrics.y_ppem);
 
         // Read the 'head' table out of the font data.
-        const head = face.getSfntTable(.head) orelse return error.CopyTableError;
+        const head_ = face.getSfntTable(.head);
 
         // Read the 'post' table out of the font data.
-        const post = face.getSfntTable(.post) orelse return error.CopyTableError;
+        const post_ = face.getSfntTable(.post);
 
         // Read the 'OS/2' table out of the font data.
         const os2_: ?*freetype.c.TT_OS2 = os2: {
@@ -812,92 +814,128 @@ pub const Face = struct {
         };
 
         // Read the 'hhea' table out of the font data.
-        const hhea = face.getSfntTable(.hhea) orelse return error.CopyTableError;
+        const hhea_ = face.getSfntTable(.hhea);
 
-        const units_per_em = head.Units_Per_EM;
+        // Whether the font is in a scalable format. We need to know this
+        // because many of the metrics provided by FreeType are invalid for
+        // non-scalable fonts.
+        const is_scalable = face.handle.*.face_flags & freetype.c.FT_FACE_FLAG_SCALABLE != 0;
+
+        // We get the UPM from the head table.
+        //
+        // If we have no head, but it is a scalable face, take the UPM from
+        // FreeType's units_per_EM, otherwise we'll assume that UPM == PPEM.
+        const units_per_em: freetype.c.FT_UShort =
+            if (head_) |head|
+                head.Units_Per_EM
+            else if (is_scalable)
+                face.handle.*.units_per_EM
+            else
+                size_metrics.y_ppem;
         const px_per_em: f64 = @floatFromInt(size_metrics.y_ppem);
         const px_per_unit = px_per_em / @as(f64, @floatFromInt(units_per_em));
 
         const ascent: f64, const descent: f64, const line_gap: f64 = vertical_metrics: {
+            const hhea = hhea_ orelse {
+                // If we couldn't get the hhea table, rely on metrics from FreeType.
+                const ascender = f26dot6ToF64(size_metrics.ascender);
+                const descender = f26dot6ToF64(size_metrics.descender);
+                const height = f26dot6ToF64(size_metrics.height);
+                break :vertical_metrics .{
+                    ascender,
+                    descender,
+                    // We compute the line gap by adding the (negative) descender
+                    // and subtracting the (positive) ascender from the line height
+                    // to get the remaining gap size.
+                    //
+                    // NOTE: This might always be 0... but it doesn't hurt to do.
+                    height + descender - ascender,
+                };
+            };
+
             const hhea_ascent: f64 = @floatFromInt(hhea.Ascender);
             const hhea_descent: f64 = @floatFromInt(hhea.Descender);
             const hhea_line_gap: f64 = @floatFromInt(hhea.Line_Gap);
 
-            if (os2_) |os2| {
-                const os2_ascent: f64 = @floatFromInt(os2.sTypoAscender);
-                const os2_descent: f64 = @floatFromInt(os2.sTypoDescender);
-                const os2_line_gap: f64 = @floatFromInt(os2.sTypoLineGap);
-
-                // If the font says to use typo metrics, trust it.
-                // (The USE_TYPO_METRICS bit is bit 7)
-                if (os2.fsSelection & (1 << 7) != 0) {
-                    break :vertical_metrics .{
-                        os2_ascent * px_per_unit,
-                        os2_descent * px_per_unit,
-                        os2_line_gap * px_per_unit,
-                    };
-                }
-
-                // Otherwise we prefer the height metrics from 'hhea' if they
-                // are available, or else OS/2 sTypo* metrics, and if all else
-                // fails then we use OS/2 usWin* metrics.
-                //
-                // This is not "standard" behavior, but it's our best bet to
-                // account for fonts being... just weird. It's pretty much what
-                // FreeType does to get its generic ascent and descent metrics.
-
-                if (hhea.Ascender != 0 or hhea.Descender != 0) {
-                    break :vertical_metrics .{
-                        hhea_ascent * px_per_unit,
-                        hhea_descent * px_per_unit,
-                        hhea_line_gap * px_per_unit,
-                    };
-                }
-
-                if (os2_ascent != 0 or os2_descent != 0) {
-                    break :vertical_metrics .{
-                        os2_ascent * px_per_unit,
-                        os2_descent * px_per_unit,
-                        os2_line_gap * px_per_unit,
-                    };
-                }
-
-                const win_ascent: f64 = @floatFromInt(os2.usWinAscent);
-                const win_descent: f64 = @floatFromInt(os2.usWinDescent);
-                break :vertical_metrics .{
-                    win_ascent * px_per_unit,
-                    // usWinDescent is *positive* -> down unlike sTypoDescender
-                    // and hhea.Descender, so we flip its sign to fix this.
-                    -win_descent * px_per_unit,
-                    0.0,
-                };
-            }
-
             // If our font has no OS/2 table, then we just
             // blindly use the metrics from the hhea table.
-            break :vertical_metrics .{
+            const os2 = os2_ orelse break :vertical_metrics .{
                 hhea_ascent * px_per_unit,
                 hhea_descent * px_per_unit,
                 hhea_line_gap * px_per_unit,
             };
+
+            const os2_ascent: f64 = @floatFromInt(os2.sTypoAscender);
+            const os2_descent: f64 = @floatFromInt(os2.sTypoDescender);
+            const os2_line_gap: f64 = @floatFromInt(os2.sTypoLineGap);
+
+            // If the font says to use typo metrics, trust it.
+            // (The USE_TYPO_METRICS bit is bit 7)
+            if (os2.fsSelection & (1 << 7) != 0) {
+                break :vertical_metrics .{
+                    os2_ascent * px_per_unit,
+                    os2_descent * px_per_unit,
+                    os2_line_gap * px_per_unit,
+                };
+            }
+
+            // Otherwise we prefer the height metrics from 'hhea' if they
+            // are available, or else OS/2 sTypo* metrics, and if all else
+            // fails then we use OS/2 usWin* metrics.
+            //
+            // This is not "standard" behavior, but it's our best bet to
+            // account for fonts being... just weird. It's pretty much what
+            // FreeType does to get its generic ascent and descent metrics.
+
+            if (hhea.Ascender != 0 or hhea.Descender != 0) {
+                break :vertical_metrics .{
+                    hhea_ascent * px_per_unit,
+                    hhea_descent * px_per_unit,
+                    hhea_line_gap * px_per_unit,
+                };
+            }
+
+            if (os2_ascent != 0 or os2_descent != 0) {
+                break :vertical_metrics .{
+                    os2_ascent * px_per_unit,
+                    os2_descent * px_per_unit,
+                    os2_line_gap * px_per_unit,
+                };
+            }
+
+            const win_ascent: f64 = @floatFromInt(os2.usWinAscent);
+            const win_descent: f64 = @floatFromInt(os2.usWinDescent);
+            break :vertical_metrics .{
+                win_ascent * px_per_unit,
+                // usWinDescent is *positive* -> down unlike sTypoDescender
+                // and hhea.Descender, so we flip its sign to fix this.
+                -win_descent * px_per_unit,
+                0.0,
+            };
         };
 
-        // Some fonts have degenerate 'post' tables where the underline
-        // thickness (and often position) are 0. We consider them null
-        // if this is the case and use our own fallbacks when we calculate.
-        const has_broken_underline = post.underlineThickness == 0;
+        const underline_position: ?f64, const underline_thickness: ?f64 = ul: {
+            const post = post_ orelse break :ul .{ null, null };
 
-        // If the underline position isn't 0 then we do use it,
-        // even if the thickness is't properly specified.
-        const underline_position = if (has_broken_underline and post.underlinePosition == 0)
-            null
-        else
-            @as(f64, @floatFromInt(post.underlinePosition)) * px_per_unit;
+            // Some fonts have degenerate 'post' tables where the underline
+            // thickness (and often position) are 0. We consider them null
+            // if this is the case and use our own fallbacks when we calculate.
+            const has_broken_underline = post.underlineThickness == 0;
 
-        const underline_thickness = if (has_broken_underline)
-            null
-        else
-            @as(f64, @floatFromInt(post.underlineThickness)) * px_per_unit;
+            // If the underline position isn't 0 then we do use it,
+            // even if the thickness is't properly specified.
+            const pos: ?f64 = if (has_broken_underline and post.underlinePosition == 0)
+                null
+            else
+                @as(f64, @floatFromInt(post.underlinePosition)) * px_per_unit;
+
+            const thick: ?f64 = if (has_broken_underline)
+                null
+            else
+                @as(f64, @floatFromInt(post.underlineThickness)) * px_per_unit;
+
+            break :ul .{ pos, thick };
+        };
 
         // Similar logic to the underline above.
         const strikethrough_position, const strikethrough_thickness = st: {
@@ -1007,7 +1045,31 @@ pub const Face = struct {
                 .no_svg = true,
             }) catch break :ic_width null;
 
-            break :ic_width f26dot6ToF64(face.handle.*.glyph.*.advance.x);
+            const ft_glyph = face.handle.*.glyph;
+
+            // If the advance of the glyph is less than the width of the actual
+            // glyph then we just treat it as invalid since it's probably wrong
+            // and using it for size normalization will instead make the font
+            // way too big.
+            //
+            // This can sometimes happen if there's a CJK font that has been
+            // patched with the nerd fonts patcher and it butchers the advance
+            // values so the advance ends up half the width of the actual glyph.
+            if (ft_glyph.*.metrics.width > ft_glyph.*.advance.x) {
+                var buf: [1024]u8 = undefined;
+                const font_name = self.name(&buf) catch "<Error getting font name>";
+                log.warn(
+                    "(getMetrics) Width of glyph '水' for font \"{s}\" is greater than its advance ({d} > {d}), discarding ic_width metric.",
+                    .{
+                        font_name,
+                        f26dot6ToF64(ft_glyph.*.metrics.width),
+                        f26dot6ToF64(ft_glyph.*.advance.x),
+                    },
+                );
+                break :ic_width null;
+            }
+
+            break :ic_width f26dot6ToF64(ft_glyph.*.advance.x);
         };
 
         return .{
@@ -1061,7 +1123,7 @@ test {
             alloc,
             &atlas,
             ft_font.glyphIndex(i).?,
-            .{ .grid_metrics = font.Metrics.calc(try ft_font.getMetrics()) },
+            .{ .grid_metrics = font.Metrics.calc(ft_font.getMetrics()) },
         );
     }
 
@@ -1071,7 +1133,7 @@ test {
             alloc,
             &atlas,
             ft_font.glyphIndex('A').?,
-            .{ .grid_metrics = font.Metrics.calc(try ft_font.getMetrics()) },
+            .{ .grid_metrics = font.Metrics.calc(ft_font.getMetrics()) },
         );
         try testing.expectEqual(@as(u32, 11), g1.height);
 
@@ -1080,7 +1142,7 @@ test {
             alloc,
             &atlas,
             ft_font.glyphIndex('A').?,
-            .{ .grid_metrics = font.Metrics.calc(try ft_font.getMetrics()) },
+            .{ .grid_metrics = font.Metrics.calc(ft_font.getMetrics()) },
         );
         try testing.expectEqual(@as(u32, 20), g2.height);
     }
@@ -1107,7 +1169,7 @@ test "color emoji" {
         alloc,
         &atlas,
         ft_font.glyphIndex('🥸').?,
-        .{ .grid_metrics = font.Metrics.calc(try ft_font.getMetrics()) },
+        .{ .grid_metrics = font.Metrics.calc(ft_font.getMetrics()) },
     );
 
     // Make sure this glyph has color
@@ -1167,7 +1229,7 @@ test "mono to bgra" {
         alloc,
         &atlas,
         3,
-        .{ .grid_metrics = font.Metrics.calc(try ft_font.getMetrics()) },
+        .{ .grid_metrics = font.Metrics.calc(ft_font.getMetrics()) },
     );
 }
 
@@ -1231,7 +1293,7 @@ test "bitmap glyph" {
         alloc,
         &atlas,
         77,
-        .{ .grid_metrics = font.Metrics.calc(try ft_font.getMetrics()) },
+        .{ .grid_metrics = font.Metrics.calc(ft_font.getMetrics()) },
     );
 
     // should render crisp

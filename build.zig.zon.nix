@@ -123,11 +123,11 @@ in
       };
     }
     {
-      name = "gobject-0.3.0-Skun7AngnABC2BPiaoobs6YSSzSgMuEIcjb2rYrRyaAM";
+      name = "gobject-0.3.0-Skun7ET3nQAc0LzvO0NAvTiGGnmkF36cnmbeCAF6MB7Z";
       path = fetchZigArtifact {
         name = "gobject";
-        url = "https://github.com/jcollie/ghostty-gobject/releases/download/0.14.1-2025-08-09-37-1/ghostty-gobject-0.14.1-2025-08-09-37-1.tar.zst";
-        hash = "sha256-B0ziLzKud+kdKu5T1BTE9GMh8EPM/KhhhoNJlys5QPI=";
+        url = "https://github.com/jcollie/ghostty-gobject/releases/download/0.15.1-2025-09-04-48-1/ghostty-gobject-0.15.1-2025-09-04-48-1.tar.zst";
+        hash = "sha256-h6aKUerGlX2ATVEeoN03eWaqDqvUmKdedgpxrSoHvrY=";
       };
     }
     {
@@ -259,11 +259,11 @@ in
       };
     }
     {
-      name = "uucode-0.0.0-ZZjBPiqdPwB-rG3ieaq3c6tMpnksWYs4_rGj2IvFGjjB";
+      name = "uucode-0.0.0-ZZjBPl_dPwC-BPhSJLID4Hs9O0zw-vZKGXdaOBFch8c8";
       path = fetchZigArtifact {
         name = "uucode";
-        url = "https://github.com/jacobsandlund/uucode/archive/38b82297e69a3b2dc55dc8df25f3851be37f9327.tar.gz";
-        hash = "sha256-MkWxYZHONRxGyUvGI5cAKi/ckGiXIBxkktCz5r+zWrk=";
+        url = "https://github.com/jacobsandlund/uucode/archive/69782fbe79e06a34ee177978d3479ed5801ce0af.tar.gz";
+        hash = "sha256-wTtlHjbl17xNeg67vNELNJs9lXX3wndV5+6dqZOEvbQ=";
       };
     }
     {

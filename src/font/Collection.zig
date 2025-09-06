@@ -92,7 +92,6 @@ pub const AddOptions = struct {
 
 pub const AddError =
     Allocator.Error ||
-    Face.GetMetricsError ||
     error{
         /// There's no more room in the collection.
         CollectionFull,
@@ -127,7 +126,7 @@ pub fn add(
 
     // Scale factor to adjust the size of the added face.
     const scale_factor = self.scaleFactor(
-        try owned_face.getMetrics(),
+        owned_face.getMetrics(),
         opts.size_adjustment,
     );
 
@@ -225,7 +224,7 @@ fn getFaceFromEntry(
             // entry now that we have a loaded face.
             entry.scale_factor = .{
                 .scale = self.scaleFactor(
-                    try face.getMetrics(),
+                    face.getMetrics(),
                     entry.scale_factor.adjustment,
                 ),
             };
@@ -592,7 +591,7 @@ fn scaleFactor(
         @branchHint(.unlikely);
         // If we can't load the primary face, just use 1.0 as the scale factor.
         const primary_face = self.getFace(.{ .idx = 0 }) catch return 1.0;
-        self.primary_face_metrics = primary_face.getMetrics() catch return 1.0;
+        self.primary_face_metrics = primary_face.getMetrics();
     }
 
     const primary_metrics = self.primary_face_metrics.?;
@@ -652,7 +651,7 @@ fn scaleFactor(
     return primary_metric / face_metric;
 }
 
-const UpdateMetricsError = font.Face.GetMetricsError || error{
+const UpdateMetricsError = error{
     CannotLoadPrimaryFont,
 };
 
@@ -663,7 +662,7 @@ const UpdateMetricsError = font.Face.GetMetricsError || error{
 pub fn updateMetrics(self: *Collection) UpdateMetricsError!void {
     const primary_face = self.getFace(.{ .idx = 0 }) catch return error.CannotLoadPrimaryFont;
 
-    self.primary_face_metrics = try primary_face.getMetrics();
+    self.primary_face_metrics = primary_face.getMetrics();
 
     var metrics = Metrics.calc(self.primary_face_metrics.?);
 
@@ -1288,8 +1287,8 @@ test "adjusted sizes" {
 
         // The chosen metric should match.
         {
-            const primary_metrics = try (try c.getFace(.{ .idx = 0 })).getMetrics();
-            const fallback_metrics = try (try c.getFace(fallback_idx)).getMetrics();
+            const primary_metrics = (try c.getFace(.{ .idx = 0 })).getMetrics();
+            const fallback_metrics = (try c.getFace(fallback_idx)).getMetrics();
 
             try std.testing.expectApproxEqAbs(
                 @field(primary_metrics, metric).?,
@@ -1302,8 +1301,8 @@ test "adjusted sizes" {
         // Resize should keep that relationship.
         try c.setSize(.{ .points = 37, .xdpi = 96, .ydpi = 96 });
         {
-            const primary_metrics = try (try c.getFace(.{ .idx = 0 })).getMetrics();
-            const fallback_metrics = try (try c.getFace(fallback_idx)).getMetrics();
+            const primary_metrics = (try c.getFace(.{ .idx = 0 })).getMetrics();
+            const fallback_metrics = (try c.getFace(fallback_idx)).getMetrics();
 
             try std.testing.expectApproxEqAbs(
                 @field(primary_metrics, metric).?,
@@ -1359,8 +1358,8 @@ test "adjusted sizes" {
 
     // Test fallback to lineHeight() (ex_height and cap_height not defined in symbols font).
     {
-        const primary_metrics = try (try c.getFace(.{ .idx = 0 })).getMetrics();
-        const symbol_metrics = try (try c.getFace(symbol_idx)).getMetrics();
+        const primary_metrics = (try c.getFace(.{ .idx = 0 })).getMetrics();
+        const symbol_metrics = (try c.getFace(symbol_idx)).getMetrics();
 
         try std.testing.expectApproxEqAbs(
             primary_metrics.lineHeight(),

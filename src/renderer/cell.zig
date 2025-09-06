@@ -1,12 +1,12 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
-const uucode = @import("uucode");
 const font = @import("../font/main.zig");
 const terminal = @import("../terminal/main.zig");
 const renderer = @import("../renderer.zig");
 const shaderpkg = renderer.Renderer.API.shaders;
 const ArrayListCollection = @import("../datastruct/array_list_collection.zig").ArrayListCollection;
+const symbols = @import("../unicode/symbols.zig").table;
 
 /// The possible cell content keys that exist.
 pub const Key = enum {
@@ -237,13 +237,19 @@ pub fn isCovering(cp: u21) bool {
 
 /// Returns true of the codepoint is a "symbol-like" character, which
 /// for now we define as anything in a private use area and anything
-/// in the "dingbats" unicode block.
+/// in several unicode blocks:
+/// - Dingbats
+/// - Emoticons
+/// - Miscellaneous Symbols
+/// - Enclosed Alphanumerics
+/// - Enclosed Alphanumeric Supplement
+/// - Miscellaneous Symbols and Pictographs
+/// - Transport and Map Symbols
 ///
 /// In the future it may be prudent to expand this to encompass more
 /// symbol-like characters, and/or exclude some PUA sections.
 pub fn isSymbol(cp: u21) bool {
-    return uucode.get(.general_category, cp) == .other_private_use or
-        uucode.get(.block, cp) == .dingbats;
+    return symbols.get(cp);
 }
 
 /// Returns the appropriate `constraint_width` for

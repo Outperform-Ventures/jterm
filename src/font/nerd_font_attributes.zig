@@ -7,7 +7,7 @@
 const Constraint = @import("face.zig").RenderOptions.Constraint;
 
 /// Get the a constraints for the provided codepoint.
-pub fn getConstraint(cp: u21) Constraint {
+pub fn getConstraint(cp: u21) ?Constraint {
     return switch (cp) {
         0x2500...0x259f,
         => .{
@@ -1060,6 +1060,6 @@ pub fn getConstraint(cp: u21) Constraint {
             .align_vertical = .center,
             .group_width = 1.3001222493887530,
         },
-        else => .none,
+        else => null,
     };
 }

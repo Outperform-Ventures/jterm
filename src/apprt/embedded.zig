@@ -909,10 +909,7 @@ pub const Surface = struct {
             // our translation settings for Ghostty. If we aren't from
             // the desktop then we didn't set our LANGUAGE var so we
             // don't need to remove it.
-            switch (self.app.config.@"launched-from".?) {
-                .desktop => env.remove("LANGUAGE"),
-                .dbus, .systemd, .cli => {},
-            }
+            if (internal_os.launchedFromDesktop()) env.remove("LANGUAGE");
         }
 
         return env;
@@ -1822,10 +1819,18 @@ pub const CAPI = struct {
         surface.mousePressureCallback(stage, pressure);
     }
 
-    export fn ghostty_surface_ime_point(surface: *Surface, x: *f64, y: *f64) void {
+    export fn ghostty_surface_ime_point(
+        surface: *Surface,
+        x: *f64,
+        y: *f64,
+        width: *f64,
+        height: *f64,
+    ) void {
         const pos = surface.core_surface.imePoint();
         x.* = pos.x;
         y.* = pos.y;
+        width.* = pos.width;
+        height.* = pos.height;
     }
 
     /// Request that the surface become closed. This will go through the

@@ -3,6 +3,7 @@
   lib,
   stdenv,
   bashInteractive,
+  nushell,
   appstream,
   flatpak-builder,
   gdb,
@@ -60,6 +61,7 @@
   pandoc,
   pinact,
   hyperfine,
+  poop,
   typos,
   shellcheck,
   uv,
@@ -124,6 +126,9 @@ in
         # CI
         uv
 
+        # Scripting
+        nushell
+
         # We need these GTK-related deps on all platform so we can build
         # dist tarballs.
         blueprint-compiler
@@ -183,6 +188,9 @@ in
         # developer shell
         glycin-loaders
         librsvg
+
+        # for benchmarking
+        poop
       ];
 
     # This should be set onto the rpath of the ghostty binary if you want

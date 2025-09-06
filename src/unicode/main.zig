@@ -10,5 +10,6 @@ pub const GraphemeBreakState = grapheme.BreakState;
 pub const isExtendedPictographic = props.isExtendedPictographic;
 
 test {
+    _ = @import("symbols.zig");
     @import("std").testing.refAllDecls(@This());
 }

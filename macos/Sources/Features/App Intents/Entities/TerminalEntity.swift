@@ -34,7 +34,7 @@ struct TerminalEntity: AppEntity {
     /// Returns the view associated with this entity. This may no longer exist.
     @MainActor
     var surfaceView: Ghostty.SurfaceView? {
-        Self.defaultQuery.all.first { $0.uuid == self.id }
+        Self.defaultQuery.all.first { $0.id == self.id }
     }
 
     @MainActor
@@ -46,7 +46,7 @@ struct TerminalEntity: AppEntity {
 
     @MainActor
     init(_ view: Ghostty.SurfaceView) {
-        self.id = view.uuid
+        self.id = view.id
         self.title = view.title
         self.workingDirectory = view.pwd
         if let nsImage = ImageRenderer(content: view.screenshot()).nsImage {
@@ -80,7 +80,7 @@ struct TerminalQuery: EntityStringQuery, EnumerableEntityQuery {
     @MainActor
     func entities(for identifiers: [TerminalEntity.ID]) async throws -> [TerminalEntity] {
         return all.filter {
-            identifiers.contains($0.uuid)
+            identifiers.contains($0.id)
         }.map {
             TerminalEntity($0)
         }

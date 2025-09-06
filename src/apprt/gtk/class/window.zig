@@ -306,6 +306,13 @@ pub const Window = extern struct {
             const config = config_obj.get();
             if (config.maximize) self.as(gtk.Window).maximize();
             if (config.fullscreen) self.as(gtk.Window).fullscreen();
+
+            // If we have an explicit title set, we set that immediately
+            // so that any applications inspecting the window states see
+            // an immediate title set when the window appears, rather than
+            // waiting possibly a few event loop ticks for it to sync from
+            // the surface.
+            if (config.title) |v| self.as(gtk.Window).setTitle(v);
         }
 
         // We always sync our appearance at the end because loading our

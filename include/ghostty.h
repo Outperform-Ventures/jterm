@@ -964,7 +964,7 @@ void ghostty_surface_mouse_scroll(ghostty_surface_t,
                                   double,
                                   ghostty_input_scroll_mods_t);
 void ghostty_surface_mouse_pressure(ghostty_surface_t, uint32_t, double);
-void ghostty_surface_ime_point(ghostty_surface_t, double*, double*);
+void ghostty_surface_ime_point(ghostty_surface_t, double*, double*, double*, double*);
 void ghostty_surface_request_close(ghostty_surface_t);
 void ghostty_surface_split(ghostty_surface_t, ghostty_action_split_direction_e);
 void ghostty_surface_split_focus(ghostty_surface_t,

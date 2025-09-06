@@ -49,7 +49,7 @@ pub const MouseShape = enum(c_int) {
 
     /// Make this a valid gobject if we're in a GTK environment.
     pub const getGObjectType = switch (build_config.app_runtime) {
-        .gtk, .@"gtk-ng" => @import("gobject").ext.defineEnum(
+        .gtk => @import("gobject").ext.defineEnum(
             MouseShape,
             .{ .name = "GhosttyMouseShape" },
         ),

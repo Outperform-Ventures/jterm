@@ -332,11 +332,16 @@ const GlyphKey = struct {
 
     const Context = struct {
         pub fn hash(_: Context, key: GlyphKey) u64 {
-            return @bitCast(Packed.from(key));
+            // Packed is a u64 but std.hash.int improves uniformity and
+            // avoids collisions in our hashmap.
+            const packed_key = Packed.from(key);
+            return std.hash.int(@as(u64, @bitCast(packed_key)));
         }
 
         pub fn eql(_: Context, a: GlyphKey, b: GlyphKey) bool {
-            return Packed.from(a) == Packed.from(b);
+            // Packed checks glyphs but in most cases the glyphs are NOT
+            // equal so the first check leads to increased throughput.
+            return a.glyph == b.glyph and Packed.from(a) == Packed.from(b);
         }
     };
 

@@ -168,17 +168,17 @@ pub fn main() !void {
 
 // This is not very fast in debug modes, so its commented by default.
 // IMPORTANT: UNCOMMENT THIS WHENEVER MAKING CODEPOINTWIDTH CHANGES.
-//test "tables match uucode" {
-//    const testing = std.testing;
+// test "unicode props: tables match uucode" {
+//     const testing = std.testing;
 //
-//    const min = 0xFF + 1; // start outside ascii
-//    const max = std.math.maxInt(u21) + 1;
-//    for (min..max) |cp| {
-//        const t = table.get(@intCast(cp));
-//        const uu = @min(2, @max(0, uucode.get(.wcwidth, @intCast(cp))));
-//        if (t.width != uu) {
-//            std.log.warn("mismatch cp=U+{x} t={} uucode={}", .{ cp, t, uu });
-//            try testing.expect(false);
-//        }
-//    }
+//     const min = 0xFF + 1; // start outside ascii
+//     const max = std.math.maxInt(u21) + 1;
+//     for (min..max) |cp| {
+//         const t = table.get(@intCast(cp));
+//         const uu = @min(2, @max(0, uucode.get(.wcwidth, @intCast(cp))));
+//         if (t.width != uu) {
+//             std.log.warn("mismatch cp=U+{x} t={} uucode={}", .{ cp, t, uu });
+//             try testing.expect(false);
+//         }
+//     }
 //}

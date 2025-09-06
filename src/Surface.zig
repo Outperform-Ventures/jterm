@@ -258,6 +258,7 @@ const DerivedConfig = struct {
     mouse_shift_capture: configpkg.MouseShiftCapture,
     macos_non_native_fullscreen: configpkg.NonNativeFullscreen,
     macos_option_as_alt: ?configpkg.OptionAsAlt,
+    selection_clear_on_copy: bool,
     selection_clear_on_typing: bool,
     vt_kam_allowed: bool,
     wait_after_command: bool,
@@ -327,6 +328,7 @@ const DerivedConfig = struct {
             .mouse_shift_capture = config.@"mouse-shift-capture",
             .macos_non_native_fullscreen = config.@"macos-non-native-fullscreen",
             .macos_option_as_alt = config.@"macos-option-as-alt",
+            .selection_clear_on_copy = config.@"selection-clear-on-copy",
             .selection_clear_on_typing = config.@"selection-clear-on-typing",
             .vt_kam_allowed = config.@"vt-kam-allowed",
             .wait_after_command = config.@"wait-after-command",
@@ -1730,6 +1732,7 @@ pub fn pwd(
 pub fn imePoint(self: *const Surface) apprt.IMEPos {
     self.renderer_state.mutex.lock();
     const cursor = self.renderer_state.terminal.screen.cursor;
+    const preedit_width: usize = if (self.renderer_state.preedit) |preedit| preedit.width() else 0;
     self.renderer_state.mutex.unlock();
 
     // TODO: need to handle when scrolling and the cursor is not
@@ -1764,7 +1767,38 @@ pub fn imePoint(self: *const Surface) apprt.IMEPos {
         break :y y;
     };
 
-    return .{ .x = x, .y = y };
+    // Our height for now is always just the cell height because our preedit
+    // rendering only renders in a single line.
+    const height: f64 = height: {
+        var height: f64 = @floatFromInt(self.size.cell.height);
+        height /= content_scale.y;
+        break :height height;
+    };
+    const width: f64 = width: {
+        var width: f64 = @floatFromInt(preedit_width * self.size.cell.width);
+
+        // Our max width is the remaining screen width after the cursor.
+        // We don't have to deal with wrapping because the preedit doesn't
+        // wrap right now.
+        const screen_width: f64 = @floatFromInt(self.size.terminal().width);
+        const x_offset: f64 = @floatFromInt((cursor.x + 1) * self.size.cell.width);
+        const max = screen_width - x_offset;
+        width = @min(width, max);
+
+        // Note: we don't apply content scale here because it looks like
+        // for some reason in macOS its already scaled. I'm not sure why
+        // that is so I'm going to just leave this comment here so its known
+        // that I left this out on purpose pending more investigation.
+
+        break :width width;
+    };
+
+    return .{
+        .x = x,
+        .y = y,
+        .width = width,
+        .height = height,
+    };
 }
 
 fn clipboardWrite(self: *const Surface, data: []const u8, loc: apprt.Clipboard) !void {
@@ -4511,6 +4545,17 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
                     log.err("error setting clipboard string err={}", .{err});
                     return true;
                 };
+
+                // Clear the selection if configured to do so.
+                if (self.config.selection_clear_on_copy) {
+                    if (self.setSelection(null)) {
+                        self.queueRender() catch |err| {
+                            log.warn("failed to queue render after clear selection err={}", .{err});
+                        };
+                    } else |err| {
+                        log.warn("failed to clear selection after copy err={}", .{err});
+                    }
+                }
 
                 return true;
             }

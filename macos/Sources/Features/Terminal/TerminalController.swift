@@ -439,8 +439,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
                     continue
                 }
 
-                let action = "goto_tab:\(tab)"
-                if let equiv = ghostty.config.keyboardShortcut(for: action) {
+                if let equiv = ghostty.config.keyboardShortcut(for: "goto_tab:\(tab)") {
                     window.keyEquivalent = "\(equiv)"
                 } else {
                     window.keyEquivalent = ""
@@ -861,7 +860,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
             // Restore focus to the previously focused surface
             if let focusedUUID = undoState.focusedSurface,
-               let focusTarget = surfaceTree.first(where: { $0.uuid == focusedUUID }) {
+               let focusTarget = surfaceTree.first(where: { $0.id == focusedUUID }) {
                 DispatchQueue.main.async {
                     Ghostty.moveFocus(to: focusTarget, from: nil)
                 }
@@ -876,7 +875,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         return .init(
             frame: window.frame,
             surfaceTree: surfaceTree,
-            focusedSurface: focusedSurface?.uuid,
+            focusedSurface: focusedSurface?.id,
             tabIndex: window.tabGroup?.windows.firstIndex(of: window),
             tabGroup: window.tabGroup)
     }

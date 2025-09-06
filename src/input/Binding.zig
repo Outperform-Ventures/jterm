@@ -744,7 +744,7 @@ pub const Action = union(enum) {
 
     /// Make this a valid gobject if we're in a GTK environment.
     pub const getGObjectType = switch (build_config.app_runtime) {
-        .gtk, .@"gtk-ng" => @import("gobject").ext.defineBoxed(
+        .gtk => @import("gobject").ext.defineBoxed(
             Action,
             .{ .name = "GhosttyBindingAction" },
         ),

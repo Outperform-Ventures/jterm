@@ -351,8 +351,8 @@ if __name__ == "__main__":
 const Constraint = @import("face.zig").RenderOptions.Constraint;
 
 /// Get the a constraints for the provided codepoint.
-pub fn getConstraint(cp: u21) Constraint {
+pub fn getConstraint(cp: u21) ?Constraint {
     return switch (cp) {
 """)
         f.write(generate_zig_switch_arms(patch_set, nerd_font))
-        f.write("\n        else => .none,\n    };\n}\n")
+        f.write("\n        else => null,\n    };\n}\n")
