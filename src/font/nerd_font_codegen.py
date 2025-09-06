@@ -282,17 +282,23 @@ def generate_zig_switch_arms(
 
         entries |= {k: v for k, v in attributes.items() if isinstance(k, int)}
 
-        if entry["ScaleRules"] is not None and "ScaleGroups" in entry["ScaleRules"]:
+        if entry["ScaleRules"] is not None:
+            if "ScaleGroups" not in entry["ScaleRules"]:
+                raise ValueError(
+                    f"Scale rule format {entry['ScaleRules']} not implemented."
+                )
             for group in entry["ScaleRules"]["ScaleGroups"]:
                 xMin = math.inf
                 yMin = math.inf
                 xMax = -math.inf
                 yMax = -math.inf
                 individual_bounds: dict[int, tuple[int, int, int, int]] = {}
+                individual_advances: set[float] = set()
                 for cp in group:
                     if cp not in cmap:
                         continue
                     glyph = glyphs[cmap[cp]]
+                    individual_advances.add(glyph.width)
                     bounds = BoundsPen(glyphSet=glyphs)
                     glyph.draw(bounds)
                     individual_bounds[cp] = bounds.bounds
@@ -302,16 +308,32 @@ def generate_zig_switch_arms(
                     yMax = max(bounds.bounds[3], yMax)
                 group_width = xMax - xMin
                 group_height = yMax - yMin
+                group_is_monospace = (len(individual_bounds) > 1) and (
+                    len(individual_advances) == 1
+                )
                 for cp in group:
-                    if cp not in cmap or cp not in entries:
+                    if (
+                        cp not in cmap
+                        or cp not in entries
+                        # Codepoints may contribute to the bounding box of multiple groups,
+                        # but should be scaled according to the first group they are found
+                        # in. Hence, to avoid overwriting, we need to skip codepoints that
+                        # have already been assigned a scale group.
+                        or "relative_height" in entries[cp]
+                    ):
                         continue
                     this_bounds = individual_bounds[cp]
-                    this_width = this_bounds[2] - this_bounds[0]
                     this_height = this_bounds[3] - this_bounds[1]
-                    entries[cp]["relative_width"] = this_width / group_width
                     entries[cp]["relative_height"] = this_height / group_height
-                    entries[cp]["relative_x"] = (this_bounds[0] - xMin) / group_width
                     entries[cp]["relative_y"] = (this_bounds[1] - yMin) / group_height
+                    # Horizontal alignment should only be grouped if the group is monospace,
+                    # that is, if all glyphs in the group have the same advance width.
+                    if group_is_monospace:
+                        this_width = this_bounds[2] - this_bounds[0]
+                        entries[cp]["relative_width"] = this_width / group_width
+                        entries[cp]["relative_x"] = (
+                            this_bounds[0] - xMin
+                        ) / group_width
 
     del entries[0]
 
