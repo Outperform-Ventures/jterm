@@ -121,11 +121,7 @@ fn stepWcwidth(ptr: *anyopaque) Benchmark.Error!void {
             const cp_, const consumed = d.next(c);
             assert(consumed);
             if (cp_) |cp| {
-                const width = wcwidth(cp);
-
-                // Write the width to the buffer to avoid it being compiled
-                // away
-                buf[0] = @intCast(width);
+                std.mem.doNotOptimizeAway(wcwidth(cp));
             }
         }
     }
@@ -151,14 +147,10 @@ fn stepTable(ptr: *anyopaque) Benchmark.Error!void {
             if (cp_) |cp| {
                 // This is the same trick we do in terminal.zig so we
                 // keep it here.
-                const width = if (cp <= 0xFF)
+                std.mem.doNotOptimizeAway(if (cp <= 0xFF)
                     1
                 else
-                    table.get(@intCast(cp)).width;
-
-                // Write the width to the buffer to avoid it being compiled
-                // away
-                buf[0] = @intCast(width);
+                    table.get(@intCast(cp)).width);
             }
         }
     }
@@ -182,11 +174,7 @@ fn stepSimd(ptr: *anyopaque) Benchmark.Error!void {
             const cp_, const consumed = d.next(c);
             assert(consumed);
             if (cp_) |cp| {
-                const width = simd.codepointWidth(cp);
-
-                // Write the width to the buffer to avoid it being compiled
-                // away
-                buf[0] = @intCast(width);
+                std.mem.doNotOptimizeAway(simd.codepointWidth(cp));
             }
         }
     }
