@@ -21,7 +21,7 @@ data_f: ?std.fs.File = null,
 
 pub const Options = struct {
     /// The type of codepoint width calculation to use.
-    mode: Mode = .table,
+    mode: Mode = .noop,
 
     /// The data to read as a filepath. If this is "-" then
     /// we will read stdin. If this is unset, then we will
@@ -40,7 +40,7 @@ pub const Mode = enum {
     /// Ghostty's table-based approach.
     table,
 
-    /// Uucode
+    /// uucode implementation
     uucode,
 };
 
@@ -131,8 +131,7 @@ fn stepTable(ptr: *anyopaque) Benchmark.Error!void {
             const cp_, const consumed = d.next(c);
             assert(consumed);
             if (cp_) |cp2| {
-                const v = unicode.graphemeBreak(cp1, @intCast(cp2), &state);
-                buf[0] = @intCast(@intFromBool(v));
+                std.mem.doNotOptimizeAway(unicode.graphemeBreak(cp1, @intCast(cp2), &state));
                 cp1 = cp2;
             }
         }
@@ -141,10 +140,16 @@ fn stepTable(ptr: *anyopaque) Benchmark.Error!void {
 
 const GraphemeBoundaryClass = uucode.TypeOfX(.grapheme_boundary_class);
 
+const BreakState = enum(u3) {
+    default,
+    regional_indicator,
+    extended_pictographic,
+};
+
 pub fn computeGraphemeBoundaryClass(
     gb1: GraphemeBoundaryClass,
     gb2: GraphemeBoundaryClass,
-    state: *uucode.grapheme.BreakState,
+    state: *BreakState,
 ) bool {
     // Set state back to default when `gb1` or `gb2` is not expected in sequence.
     switch (state.*) {
@@ -172,7 +177,7 @@ pub fn computeGraphemeBoundaryClass(
                 else => state.* = .default,
             }
         },
-        .default, .indic_conjunct_break_consonant, .indic_conjunct_break_linker => {},
+        .default => {},
     }
 
     // GB6: L x (L | V | LV | VT)
@@ -252,10 +257,11 @@ pub fn computeGraphemeBoundaryClass(
 pub fn isBreak(
     cp1: u21,
     cp2: u21,
-    state: *uucode.grapheme.BreakState,
+    state: *BreakState,
 ) bool {
     const table = comptime uucode.grapheme.precomputeGraphemeBreak(
         GraphemeBoundaryClass,
+        BreakState,
         computeGraphemeBoundaryClass,
     );
     const gb1 = uucode.getX(.grapheme_boundary_class, cp1);
@@ -271,7 +277,7 @@ fn stepUucode(ptr: *anyopaque) Benchmark.Error!void {
     const f = self.data_f orelse return;
     var r = std.io.bufferedReader(f.reader());
     var d: UTF8Decoder = .{};
-    var state: uucode.grapheme.BreakState = .default;
+    var state: BreakState = .default;
     var cp1: u21 = 0;
     var buf: [4096]u8 = undefined;
     while (true) {
@@ -285,8 +291,7 @@ fn stepUucode(ptr: *anyopaque) Benchmark.Error!void {
             const cp_, const consumed = d.next(c);
             assert(consumed);
             if (cp_) |cp2| {
-                const v = isBreak(cp1, @intCast(cp2), &state);
-                buf[0] = @intCast(@intFromBool(v));
+                std.mem.doNotOptimizeAway(isBreak(cp1, @intCast(cp2), &state));
                 cp1 = cp2;
             }
         }
