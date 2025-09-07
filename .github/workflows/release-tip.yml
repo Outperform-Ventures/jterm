@@ -430,6 +430,13 @@ jobs:
           source-dir: blob
           destination-dir: ./
 
+      - name: Echo Release URLs
+        run: |
+          echo "Release URLs:"
+          echo "  App Bundle: https://tip.files.ghostty.org/${GHOSTTY_COMMIT_LONG}/ghostty-macos-universal.zip"
+          echo "  Debug Symbols: https://tip.files.ghostty.org/${GHOSTTY_COMMIT_LONG}/ghostty-macos-universal-dsym.zip"
+          echo "  DMG: https://tip.files.ghostty.org/${GHOSTTY_COMMIT_LONG}/Ghostty.dmg"
+
   build-macos-debug-slow:
     needs: [setup]
     if: |
@@ -609,6 +616,12 @@ jobs:
           source-dir: blob
           destination-dir: ./
 
+      - name: Echo Release URLs
+        run: |
+          echo "Release URLs:"
+          echo "  App Bundle: https://tip.files.ghostty.org/${GHOSTTY_COMMIT_LONG}/ghostty-macos-universal-debug-slow.zip"
+          echo "  Debug Symbols: https://tip.files.ghostty.org/${GHOSTTY_COMMIT_LONG}/ghostty-macos-universal-debug-slow-dsym.zip"
+
   build-macos-debug-fast:
     needs: [setup]
     if: |
@@ -787,3 +800,9 @@ jobs:
           r2-bucket: ghostty-tip
           source-dir: blob
           destination-dir: ./
+
+      - name: Echo Release URLs
+        run: |
+          echo "Release URLs:"
+          echo "  App Bundle: https://tip.files.ghostty.org/${GHOSTTY_COMMIT_LONG}/ghostty-macos-universal-debug-fast.zip"
+          echo "  Debug Symbols: https://tip.files.ghostty.org/${GHOSTTY_COMMIT_LONG}/ghostty-macos-universal-debug-fast-dsym.zip"
