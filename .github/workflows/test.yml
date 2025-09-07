@@ -281,7 +281,7 @@ jobs:
 
       - name: Trigger Snap workflow
         run: |
-          gh workflow run snap.yml --ref ${{ github.sha }} --field source-tarball-id=${{ needs.build-dist.outputs.artifact-id }}
+          gh workflow run snap.yml --ref ${{ github.ref_name || 'main' }} --field source-tarball-id=${{ needs.build-dist.outputs.artifact-id }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
