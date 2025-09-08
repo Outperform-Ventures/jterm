@@ -23,7 +23,9 @@ pub const TextRun = struct {
     /// to share the same cache entry, improving cache efficiency.
     hash: u64,
 
-    /// The offset in the row where this run started
+    /// The offset in the row where this run started. This is added to the
+    /// X position of the final shaped cells to get the absolute position
+    /// in the row where they belong.
     offset: u16,
 
     /// The total number of cells produced by this run.
