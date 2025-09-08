@@ -391,6 +391,24 @@ pub fn print(self: *Terminal, c: u21) !void {
                         const cell = self.screen.cursorCellLeft(prev.left - 1);
                         cell.wide = .narrow;
 
+                        // Back track the cursor so that we don't end up with
+                        // an extra space after the character. Since xterm is
+                        // not VS aware, it cannot be used as a reference for
+                        // this behavior; but it does follow the principle of
+                        // least surprise, and also matches the behavior that
+                        // can be observed in Kitty, which is one of the only
+                        // other VS aware terminals.
+                        if (self.screen.cursor.x == right_limit - 1) {
+                            // If we're already at the right edge, we stay
+                            // here and set the pending wrap to false since
+                            // when we pend a wrap, we only move our cursor once
+                            // even for wide chars (tests verify).
+                            self.screen.cursor.pending_wrap = false;
+                        } else {
+                            // Otherwise, move back.
+                            self.screen.cursorLeft(1);
+                        }
+
                         break :narrow;
                     },
 
@@ -3348,12 +3366,56 @@ test "Terminal: VS15 to make narrow character" {
     // Enable grapheme clustering
     t.modes.set(.grapheme_cluster, true);
 
-    try t.print(0x26C8); // Thunder cloud and rain
+    try t.print(0x2614); // Umbrella with rain drops, width=2
+    try testing.expect(t.isDirty(.{ .screen = .{ .x = 0, .y = 0 } }));
+    t.clearDirty();
+
+    // We should have 2 cells taken up. It is one character but "wide".
+    try testing.expectEqual(@as(usize, 0), t.screen.cursor.y);
+    try testing.expectEqual(@as(usize, 2), t.screen.cursor.x);
+
+    try t.print(0xFE0E); // VS15 to make narrow
+    try testing.expect(t.isDirty(.{ .screen = .{ .x = 0, .y = 0 } }));
+    t.clearDirty();
+
+    // VS15 should send us back a cell since our char is no longer wide.
+    try testing.expectEqual(@as(usize, 0), t.screen.cursor.y);
+    try testing.expectEqual(@as(usize, 1), t.screen.cursor.x);
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("☔︎", str);
+    }
+
+    {
+        const list_cell = t.screen.pages.getCell(.{ .screen = .{ .x = 0, .y = 0 } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(@as(u21, 0x2614), cell.content.codepoint);
+        try testing.expect(cell.hasGrapheme());
+        try testing.expectEqual(Cell.Wide.narrow, cell.wide);
+        const cps = list_cell.node.data.lookupGrapheme(cell).?;
+        try testing.expectEqual(@as(usize, 1), cps.len);
+    }
+}
+
+test "Terminal: VS15 on already narrow emoji" {
+    var t = try init(testing.allocator, .{ .rows = 5, .cols = 5 });
+    defer t.deinit(testing.allocator);
+
+    // Enable grapheme clustering
+    t.modes.set(.grapheme_cluster, true);
+
+    try t.print(0x26C8); // Thunder cloud and rain, width=1
     try testing.expect(t.isDirty(.{ .screen = .{ .x = 0, .y = 0 } }));
     t.clearDirty();
     try t.print(0xFE0E); // VS15 to make narrow
     try testing.expect(t.isDirty(.{ .screen = .{ .x = 0, .y = 0 } }));
     t.clearDirty();
+
+    // Character takes up one cell
+    try testing.expectEqual(@as(usize, 0), t.screen.cursor.y);
+    try testing.expectEqual(@as(usize, 1), t.screen.cursor.x);
 
     {
         const str = try t.plainString(testing.allocator);
@@ -3365,6 +3427,48 @@ test "Terminal: VS15 to make narrow character" {
         const list_cell = t.screen.pages.getCell(.{ .screen = .{ .x = 0, .y = 0 } }).?;
         const cell = list_cell.cell;
         try testing.expectEqual(@as(u21, 0x26C8), cell.content.codepoint);
+        try testing.expect(cell.hasGrapheme());
+        try testing.expectEqual(Cell.Wide.narrow, cell.wide);
+        const cps = list_cell.node.data.lookupGrapheme(cell).?;
+        try testing.expectEqual(@as(usize, 1), cps.len);
+    }
+}
+
+test "Terminal: VS15 to make narrow character with pending wrap" {
+    var t = try init(testing.allocator, .{ .rows = 5, .cols = 2 });
+    defer t.deinit(testing.allocator);
+
+    // Enable grapheme clustering
+    t.modes.set(.grapheme_cluster, true);
+
+    try t.print(0x2614); // Umbrella with rain drops, width=2
+    try testing.expect(t.isDirty(.{ .screen = .{ .x = 0, .y = 0 } }));
+    t.clearDirty();
+
+    // We only move one because we're in a pending wrap state.
+    try testing.expectEqual(@as(usize, 0), t.screen.cursor.y);
+    try testing.expectEqual(@as(usize, 1), t.screen.cursor.x);
+    try testing.expect(t.screen.cursor.pending_wrap);
+
+    try t.print(0xFE0E); // VS15 to make narrow
+    try testing.expect(t.isDirty(.{ .screen = .{ .x = 0, .y = 0 } }));
+    t.clearDirty();
+
+    // VS15 should clear the pending wrap state
+    try testing.expectEqual(@as(usize, 0), t.screen.cursor.y);
+    try testing.expectEqual(@as(usize, 1), t.screen.cursor.x);
+    try testing.expect(!t.screen.cursor.pending_wrap);
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("☔︎", str);
+    }
+
+    {
+        const list_cell = t.screen.pages.getCell(.{ .screen = .{ .x = 0, .y = 0 } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(@as(u21, 0x2614), cell.content.codepoint);
         try testing.expect(cell.hasGrapheme());
         try testing.expectEqual(Cell.Wide.narrow, cell.wide);
         const cps = list_cell.node.data.lookupGrapheme(cell).?;
