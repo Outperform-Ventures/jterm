@@ -188,7 +188,7 @@ jobs:
           nix develop -c minisign -S -m ghostty-source.tar.gz -s minisign.key < minisign.password
 
       - name: Update Release
-        uses: softprops/action-gh-release@72f2c25fcb47643c292f7107632f7a47c1df5cd8 # v2.3.2
+        uses: softprops/action-gh-release@6cbd405e2c4e67a21c47fa9e383d020e4e28b836 # v2.3.3
         with:
           name: 'Ghostty Tip ("Nightly")'
           prerelease: true
@@ -359,7 +359,7 @@ jobs:
 
       # Update Release
       - name: Release
-        uses: softprops/action-gh-release@72f2c25fcb47643c292f7107632f7a47c1df5cd8 # v2.3.2
+        uses: softprops/action-gh-release@6cbd405e2c4e67a21c47fa9e383d020e4e28b836 # v2.3.3
         with:
           name: 'Ghostty Tip ("Nightly")'
           prerelease: true
@@ -590,7 +590,7 @@ jobs:
 
       # Update Release
       - name: Release
-        uses: softprops/action-gh-release@72f2c25fcb47643c292f7107632f7a47c1df5cd8 # v2.3.2
+        uses: softprops/action-gh-release@6cbd405e2c4e67a21c47fa9e383d020e4e28b836 # v2.3.3
         with:
           name: 'Ghostty Tip ("Nightly")'
           prerelease: true
@@ -775,7 +775,7 @@ jobs:
 
       # Update Release
       - name: Release
-        uses: softprops/action-gh-release@72f2c25fcb47643c292f7107632f7a47c1df5cd8 # v2.3.2
+        uses: softprops/action-gh-release@6cbd405e2c4e67a21c47fa9e383d020e4e28b836 # v2.3.3
         with:
           name: 'Ghostty Tip ("Nightly")'
           prerelease: true
