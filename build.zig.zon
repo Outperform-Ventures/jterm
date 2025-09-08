@@ -20,8 +20,8 @@
         },
         .z2d = .{
             // vancluever/z2d
-            .url = "https://github.com/vancluever/z2d/archive/refs/tags/v0.7.2.tar.gz",
-            .hash = "z2d-0.7.2-j5P_Hm1oDQDQsWpGfSCMARhowBnuTHlQ_sBfij6TuG7l",
+            .url = "https://github.com/vancluever/z2d/archive/refs/tags/v0.8.0.tar.gz",
+            .hash = "z2d-0.8.0-j5P_HgW8DQBvCefcGWPZA1WC5Nco08WhKjG3XCW3thMr",
             .lazy = true,
         },
         .zig_objc = .{
