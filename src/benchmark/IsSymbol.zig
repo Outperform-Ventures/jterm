@@ -92,7 +92,7 @@ fn stepUucode(ptr: *anyopaque) Benchmark.Error!void {
     const f = self.data_f orelse return;
     var r = std.io.bufferedReader(f.reader());
     var d: UTF8Decoder = .{};
-    var buf: [4096]u8 = undefined;
+    var buf: [4096]u8 align(std.atomic.cache_line) = undefined;
     while (true) {
         const n = r.read(&buf) catch |err| {
             log.warn("error reading data file err={}", .{err});
@@ -116,7 +116,7 @@ fn stepTable(ptr: *anyopaque) Benchmark.Error!void {
     const f = self.data_f orelse return;
     var r = std.io.bufferedReader(f.reader());
     var d: UTF8Decoder = .{};
-    var buf: [4096]u8 = undefined;
+    var buf: [4096]u8 align(std.atomic.cache_line) = undefined;
     while (true) {
         const n = r.read(&buf) catch |err| {
             log.warn("error reading data file err={}", .{err});
@@ -128,7 +128,14 @@ fn stepTable(ptr: *anyopaque) Benchmark.Error!void {
             const cp_, const consumed = d.next(c);
             assert(consumed);
             if (cp_) |cp| {
-                std.mem.doNotOptimizeAway(symbols.table.get(cp));
+                if (uucode.getX(.is_symbol, cp) != symbols.table.get(cp)) {
+                    std.debug.panic("uucode and table disagree on codepoint {d}: uucode={}, table={}", .{
+                        cp,
+                        uucode.getX(.is_symbol, cp),
+                        symbols.table.get(cp),
+                    });
+                }
+                //std.mem.doNotOptimizeAway(symbols.table.get(cp));
             }
         }
     }

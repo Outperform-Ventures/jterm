@@ -41,12 +41,22 @@ pub fn main() !void {
     defer arena_state.deinit();
     const alloc = arena_state.allocator();
 
+    var args_iter = try std.process.argsWithAllocator(alloc);
+    defer args_iter.deinit();
+    _ = args_iter.skip(); // Skip program name
+
+    const output_path = args_iter.next() orelse std.debug.panic("No output file arg for symbols exe!", .{});
+    std.debug.print("Unicode symbols_table output_path = {s}\n", .{output_path});
+
     const gen: lut.Generator(
         bool,
         struct {
             pub fn get(ctx: @This(), cp: u21) !bool {
                 _ = ctx;
-                return isSymbol(cp);
+                return if (cp > uucode.config.max_code_point)
+                    false
+                else
+                    isSymbol(@intCast(cp));
             }
 
             pub fn eql(ctx: @This(), a: bool, b: bool) bool {
@@ -60,7 +70,10 @@ pub fn main() !void {
     defer alloc.free(t.stage1);
     defer alloc.free(t.stage2);
     defer alloc.free(t.stage3);
-    try t.writeZig(std.io.getStdOut().writer());
+    var out_file = try std.fs.cwd().createFile(output_path, .{});
+    defer out_file.close();
+    const writer = out_file.writer();
+    try t.writeZig(writer);
 
     // Uncomment when manually debugging to see our table sizes.
     // std.log.warn("stage1={} stage2={} stage3={}", .{
@@ -79,10 +92,13 @@ test "unicode symbols: tables match uucode" {
 
     for (0..std.math.maxInt(u21)) |cp| {
         const t = table.get(@intCast(cp));
-        const zg = isSymbol(@intCast(cp));
+        const uu = if (cp > uucode.config.max_code_point)
+            false
+        else
+            isSymbol(@intCast(cp));
 
-        if (t != zg) {
-            std.log.warn("mismatch cp=U+{x} t={} zg={}", .{ cp, t, zg });
+        if (t != uu) {
+            std.log.warn("mismatch cp=U+{x} t={} uu={}", .{ cp, t, uu });
             try testing.expect(false);
         }
     }

@@ -114,7 +114,7 @@ fn stepWcwidth(ptr: *anyopaque) Benchmark.Error!void {
     const f = self.data_f orelse return;
     var r = std.io.bufferedReader(f.reader());
     var d: UTF8Decoder = .{};
-    var buf: [4096]u8 = undefined;
+    var buf: [4096]u8 align(std.atomic.cache_line) = undefined;
     while (true) {
         const n = r.read(&buf) catch |err| {
             log.warn("error reading data file err={}", .{err});
@@ -138,7 +138,7 @@ fn stepTable(ptr: *anyopaque) Benchmark.Error!void {
     const f = self.data_f orelse return;
     var r = std.io.bufferedReader(f.reader());
     var d: UTF8Decoder = .{};
-    var buf: [4096]u8 = undefined;
+    var buf: [4096]u8 align(std.atomic.cache_line) = undefined;
     while (true) {
         const n = r.read(&buf) catch |err| {
             log.warn("error reading data file err={}", .{err});
@@ -167,7 +167,7 @@ fn stepSimd(ptr: *anyopaque) Benchmark.Error!void {
     const f = self.data_f orelse return;
     var r = std.io.bufferedReader(f.reader());
     var d: UTF8Decoder = .{};
-    var buf: [4096]u8 = undefined;
+    var buf: [4096]u8 align(std.atomic.cache_line) = undefined;
     while (true) {
         const n = r.read(&buf) catch |err| {
             log.warn("error reading data file err={}", .{err});
@@ -191,7 +191,7 @@ fn stepUucode(ptr: *anyopaque) Benchmark.Error!void {
     const f = self.data_f orelse return;
     var r = std.io.bufferedReader(f.reader());
     var d: UTF8Decoder = .{};
-    var buf: [4096]u8 = undefined;
+    var buf: [4096]u8 align(std.atomic.cache_line) = undefined;
     while (true) {
         const n = r.read(&buf) catch |err| {
             log.warn("error reading data file err={}", .{err});
@@ -208,9 +208,7 @@ fn stepUucode(ptr: *anyopaque) Benchmark.Error!void {
                 std.mem.doNotOptimizeAway(if (cp <= 0xFF)
                     1
                 else
-                    //uucode.getX(.width, @intCast(cp));
-                    //uucode.getWidth(@intCast(cp));
-                    uucode.getSpecial(@intCast(cp)).width);
+                    uucode.getX(.width, @intCast(cp)));
             }
         }
     }

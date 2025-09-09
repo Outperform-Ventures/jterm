@@ -66,7 +66,8 @@ pub const GraphemeBoundaryClass = uucode.TypeOfX(.grapheme_boundary_class);
 
 /// Gets the grapheme boundary class for a codepoint.
 /// The use case for this is only in generating lookup tables.
-pub fn computeGraphemeBoundaryClass(cp: u21) GraphemeBoundaryClass {
+fn computeGraphemeBoundaryClass(cp: u21) GraphemeBoundaryClass {
+    if (cp > uucode.config.max_code_point) return .invalid;
     if (uucode.get(.is_emoji_modifier, cp)) return .emoji_modifier;
     if (uucode.get(.is_emoji_modifier_base, cp)) return .extended_pictographic_base;
 
@@ -113,7 +114,10 @@ pub fn isExtendedPictographic(self: GraphemeBoundaryClass) bool {
 }
 
 pub fn get(cp: u21) Properties {
-    const wcwidth = uucode.get(.wcwidth, cp);
+    const wcwidth = if (cp > uucode.config.max_code_point)
+        0
+    else
+        uucode.get(.wcwidth, cp);
 
     return .{
         .width = @intCast(@min(2, @max(0, wcwidth))),
@@ -131,8 +135,8 @@ pub fn main() !void {
     defer args_iter.deinit();
     _ = args_iter.skip(); // Skip program name
 
-    const output_path = args_iter.next() orelse std.debug.panic("No output file arg!", .{});
-    std.debug.print("Unicode tables output_path = {s}\n", .{output_path});
+    const output_path = args_iter.next() orelse std.debug.panic("No output file arg for props exe!", .{});
+    std.debug.print("Unicode props_table output_path = {s}\n", .{output_path});
 
     const gen: lut.Generator(
         Properties,

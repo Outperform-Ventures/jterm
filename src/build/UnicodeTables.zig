@@ -47,12 +47,13 @@ pub fn init(b: *std.Build, uucode_tables_zig: std.Build.LazyPath) !UnicodeTables
     const props_run = b.addRunArtifact(props_exe);
     const symbols_run = b.addRunArtifact(symbols_exe);
     const props_output = props_run.addOutputFileArg("props_table.zig");
+    const symbols_output = symbols_run.addOutputFileArg("symbols_table.zig");
 
     return .{
         .props_exe = props_exe,
         .symbols_exe = symbols_exe,
         .props_output = props_output,
-        .symbols_output = symbols_run.captureStdOut(),
+        .symbols_output = symbols_output,
     };
 }
 

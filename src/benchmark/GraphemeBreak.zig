@@ -146,7 +146,7 @@ const BreakState = enum(u3) {
     extended_pictographic,
 };
 
-pub fn computeGraphemeBoundaryClass(
+fn computeGraphemeBoundaryClass(
     gb1: GraphemeBoundaryClass,
     gb2: GraphemeBoundaryClass,
     state: *BreakState,
