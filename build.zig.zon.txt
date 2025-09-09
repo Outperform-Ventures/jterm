@@ -32,4 +32,4 @@ https://github.com/mbadolato/iTerm2-Color-Schemes/archive/b314fc540434cc037c2811
 https://github.com/mitchellh/libxev/archive/7f803181b158a10fec8619f793e3b4df515566cb.tar.gz
 https://github.com/mitchellh/zig-objc/archive/c9e917a4e15a983b672ca779c7985d738a2d517c.tar.gz
 https://github.com/natecraddock/zf/archive/7aacbe6d155d64d15937ca95ca6c014905eb531f.tar.gz
-https://github.com/vancluever/z2d/archive/refs/tags/v0.7.2.tar.gz
+https://github.com/vancluever/z2d/archive/refs/tags/v0.8.0.tar.gz
