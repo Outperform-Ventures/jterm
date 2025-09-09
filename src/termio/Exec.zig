@@ -1698,7 +1698,7 @@ test "execCommand: direct command, config freed" {
     defer arena.deinit();
     const alloc = arena.allocator();
 
-    var command_arena = ArenaAllocator.init(alloc);
+    var command_arena = ArenaAllocator.init(testing.allocator);
     const command_alloc = command_arena.allocator();
     const command = try (configpkg.Command{
         .direct = &.{
