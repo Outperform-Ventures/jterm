@@ -92,7 +92,7 @@ fn stepNoop(ptr: *anyopaque) Benchmark.Error!void {
     const f = self.data_f orelse return;
     var r = std.io.bufferedReader(f.reader());
     var d: UTF8Decoder = .{};
-    var buf: [4096]u8 = undefined;
+    var buf: [4096]u8 align(std.atomic.cache_line) = undefined;
     while (true) {
         const n = r.read(&buf) catch |err| {
             log.warn("error reading data file err={}", .{err});
@@ -114,7 +114,7 @@ fn stepTable(ptr: *anyopaque) Benchmark.Error!void {
     var d: UTF8Decoder = .{};
     var state: unicode.GraphemeBreakState = .{};
     var cp1: u21 = 0;
-    var buf: [4096]u8 = undefined;
+    var buf: [4096]u8 align(std.atomic.cache_line) = undefined;
     while (true) {
         const n = r.read(&buf) catch |err| {
             log.warn("error reading data file err={}", .{err});
