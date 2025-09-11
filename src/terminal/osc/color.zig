@@ -162,6 +162,9 @@ fn parseResetAnsiColor(
             return result;
         };
 
+        // Empty color strings are ignored, not treated as an error.
+        if (color_str.len == 0) continue;
+
         // Color must be numeric. u9 because that'll fit our palette + special
         const color: u9 = std.fmt.parseInt(
             u9,
@@ -530,6 +533,23 @@ test "osc104" {
             );
         }
     }
+}
+
+test "osc104 empty index" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var list = try parse(alloc, .osc_104, "0;;1");
+    defer list.deinit(alloc);
+    try testing.expectEqual(2, list.count());
+    try testing.expectEqual(
+        Request{ .reset = .{ .palette = 0 } },
+        list.at(0).*,
+    );
+    try testing.expectEqual(
+        Request{ .reset = .{ .palette = 1 } },
+        list.at(1).*,
+    );
 }
 
 test "osc104 reset all" {
