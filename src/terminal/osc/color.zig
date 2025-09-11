@@ -146,6 +146,11 @@ fn parseResetAnsiColor(
     comptime op: Operation,
     it: *std.mem.TokenIterator(u8, .scalar),
 ) Allocator.Error!List {
+    // Note: xterm stops parsing the reset list on any error, but we're
+    // more flexible and try the next value. This matches the behavior of
+    // Kitty and I don't see a downside to being more flexible here. Hopefully
+    // no one depends on the exact behavior of xterm.
+
     var result: List = .{};
     errdefer result.deinit(alloc);
     while (true) {
@@ -170,15 +175,15 @@ fn parseResetAnsiColor(
             u9,
             color_str,
             10,
-        ) catch return result;
+        ) catch continue;
 
         // Parse the color.
         const target: Request.Target = switch (op) {
             // OSC105 maps directly to the Special enum.
             .osc_105 => .{ .special = std.meta.intToEnum(
                 SpecialColor,
-                std.math.cast(u3, color) orelse return result,
-            ) catch return result },
+                std.math.cast(u3, color) orelse continue,
+            ) catch continue },
 
             // OSC104 maps 0-255 to palette, 256-259 to special offset
             // by the palette count.
@@ -186,8 +191,8 @@ fn parseResetAnsiColor(
                 .palette = idx,
             } else .{ .special = std.meta.intToEnum(
                 SpecialColor,
-                std.math.cast(u3, color - 256) orelse return result,
-            ) catch return result },
+                std.math.cast(u3, color - 256) orelse continue,
+            ) catch continue },
 
             else => comptime unreachable,
         };
@@ -549,6 +554,19 @@ test "osc104 empty index" {
     try testing.expectEqual(
         Request{ .reset = .{ .palette = 1 } },
         list.at(1).*,
+    );
+}
+
+test "osc104 invalid index" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var list = try parse(alloc, .osc_104, "ffff;1");
+    defer list.deinit(alloc);
+    try testing.expectEqual(1, list.count());
+    try testing.expectEqual(
+        Request{ .reset = .{ .palette = 1 } },
+        list.at(0).*,
     );
 }
 
