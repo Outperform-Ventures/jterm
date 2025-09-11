@@ -165,7 +165,12 @@ fileprivate struct CommandPaletteQuery: View {
                 .textFieldStyle(.plain)
                 .focused($isTextFieldFocused)
                 .onAppear {
-                    isTextFieldFocused = true
+                    // We want to grab focus on appearance. We have to do this after a tick
+                    // on macOS Tahoe otherwise this doesn't work. See:
+                    // https://github.com/ghostty-org/ghostty/issues/8497
+                    DispatchQueue.main.async {
+                        isTextFieldFocused = true
+                    }
                 }
                 .onChange(of: isTextFieldFocused) { focused in
                     if !focused {
