@@ -12,6 +12,7 @@ const assert = std.debug.assert;
 const Allocator = mem.Allocator;
 const RGB = @import("color.zig").RGB;
 const kitty = @import("kitty.zig");
+const osc_color = @import("osc/color.zig");
 
 const log = std.log.scoped(.osc);
 
@@ -1709,6 +1710,10 @@ pub const Parser = struct {
         return self.command;
     }
 };
+
+test {
+    _ = osc_color;
+}
 
 test "OSC: change_window_title" {
     const testing = std.testing;
