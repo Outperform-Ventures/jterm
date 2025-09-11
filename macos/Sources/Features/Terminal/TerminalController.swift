@@ -1219,6 +1219,23 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
         // Get our target window
         let targetWindow = tabbedWindows[finalIndex]
+        
+        // Moving tabs on macOS 26 RC causes very nasty visual glitches in the titlebar tabs.
+        // I believe this is due to messed up constraints for our hacky tab bar. I'd like to
+        // find a better workaround. For now, this improves things dramatically.
+        //
+        // Reproduction: titlebar tabs, create two tabs, "move tab left"
+        if #available(macOS 26, *) {
+            if window is TitlebarTabsTahoeTerminalWindow {
+                tabGroup.removeWindow(selectedWindow)
+                targetWindow.addTabbedWindow(selectedWindow, ordered: action.amount < 0 ? .below : .above)
+                DispatchQueue.main.async {
+                    selectedWindow.makeKey()
+                }
+                
+                return
+            }
+        }
 
         // Begin a group of window operations to minimize visual updates
         NSAnimationContext.beginGrouping()
