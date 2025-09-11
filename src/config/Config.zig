@@ -5564,6 +5564,17 @@ pub const Keybinds = struct {
         );
 
         {
+            try self.set.put(
+                alloc,
+                .{ .key = .{ .physical = .copy } },
+                .{ .copy_to_clipboard = {} },
+            );
+            try self.set.put(
+                alloc,
+                .{ .key = .{ .physical = .paste } },
+                .{ .paste_from_clipboard = {} },
+            );
+
             // On non-MacOS desktop envs (Windows, KDE, Gnome, Xfce), ctrl+insert is an
             // alt keybinding for Copy and shift+ins is an alt keybinding for Paste
             //
