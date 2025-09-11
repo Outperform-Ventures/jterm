@@ -22,6 +22,8 @@ pub const Operation = enum {
     osc_17,
     osc_18,
     osc_19,
+    osc_104,
+    osc_105,
     osc_110,
     osc_111,
     osc_112,
@@ -53,6 +55,8 @@ pub fn parse(
     return switch (op) {
         .osc_4 => try parseGetSetAnsiColor(alloc, .osc_4, &it),
         .osc_5 => try parseGetSetAnsiColor(alloc, .osc_5, &it),
+        .osc_104 => try parseResetAnsiColor(alloc, .osc_104, &it),
+        .osc_105 => try parseResetAnsiColor(alloc, .osc_105, &it),
         .osc_10 => try parseGetSetDynamicColor(alloc, .foreground, &it),
         .osc_11 => try parseGetSetDynamicColor(alloc, .background, &it),
         .osc_12 => try parseGetSetDynamicColor(alloc, .cursor, &it),
@@ -136,6 +140,60 @@ fn parseGetSetAnsiColor(
     }
 }
 
+/// OSC 104/105: Reset ANSI Colors
+fn parseResetAnsiColor(
+    alloc: Allocator,
+    comptime op: Operation,
+    it: *std.mem.TokenIterator(u8, .scalar),
+) Allocator.Error!List {
+    var result: List = .{};
+    errdefer result.deinit(alloc);
+    while (true) {
+        const color_str = it.next() orelse {
+            // If no parameters are given, we reset the full table.
+            if (result.count() == 0) {
+                const req = try result.addOne(alloc);
+                req.* = switch (op) {
+                    .osc_104 => .reset_palette,
+                    .osc_105 => .reset_special,
+                    else => comptime unreachable,
+                };
+            }
+            return result;
+        };
+
+        // Color must be numeric. u9 because that'll fit our palette + special
+        const color: u9 = std.fmt.parseInt(
+            u9,
+            color_str,
+            10,
+        ) catch return result;
+
+        // Parse the color.
+        const target: Request.Target = switch (op) {
+            // OSC105 maps directly to the Special enum.
+            .osc_105 => .{ .special = std.meta.intToEnum(
+                SpecialColor,
+                std.math.cast(u3, color) orelse return result,
+            ) catch return result },
+
+            // OSC104 maps 0-255 to palette, 256-259 to special offset
+            // by the palette count.
+            .osc_104 => if (std.math.cast(u8, color)) |idx| .{
+                .palette = idx,
+            } else .{ .special = std.meta.intToEnum(
+                SpecialColor,
+                std.math.cast(u3, color - 256) orelse return result,
+            ) catch return result },
+
+            else => comptime unreachable,
+        };
+
+        const req = try result.addOne(alloc);
+        req.* = .{ .reset = target };
+    }
+}
+
 /// OSC 10-19: Get/Set Dynamic Colors
 fn parseGetSetDynamicColor(
     alloc: Allocator,
@@ -202,6 +260,7 @@ pub const Request = union(enum) {
     query: Target,
     reset: Target,
     reset_palette,
+    reset_special,
 
     pub const Target = union(enum) {
         palette: u8,
@@ -423,6 +482,83 @@ test "osc4: multiple requests" {
             list.at(1).*,
         );
     }
+}
+
+test "osc104" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    // Test every palette index
+    for (0..std.math.maxInt(u8)) |idx| {
+        // Simple color set
+        // printf '\e]104;0\\'
+        {
+            const body = try std.fmt.allocPrint(
+                alloc,
+                "{d}",
+                .{idx},
+            );
+            defer alloc.free(body);
+
+            var list = try parse(alloc, .osc_104, body);
+            defer list.deinit(alloc);
+            try testing.expectEqual(1, list.count());
+            try testing.expectEqual(
+                Request{ .reset = .{ .palette = @intCast(idx) } },
+                list.at(0).*,
+            );
+        }
+    }
+
+    // Test every special color
+    for (0..@typeInfo(SpecialColor).@"enum".fields.len) |i| {
+        const special = try std.meta.intToEnum(SpecialColor, i);
+
+        // Simple color set
+        // printf '\e]104;256\\'
+        {
+            const body = try std.fmt.allocPrint(
+                alloc,
+                "{d}",
+                .{256 + i},
+            );
+            defer alloc.free(body);
+
+            var list = try parse(alloc, .osc_104, body);
+            defer list.deinit(alloc);
+            try testing.expectEqual(1, list.count());
+            try testing.expectEqual(
+                Request{ .reset = .{ .special = special } },
+                list.at(0).*,
+            );
+        }
+    }
+}
+
+test "osc104 reset all" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var list = try parse(alloc, .osc_104, "");
+    defer list.deinit(alloc);
+    try testing.expectEqual(1, list.count());
+    try testing.expectEqual(
+        Request{ .reset_palette = {} },
+        list.at(0).*,
+    );
+}
+
+test "osc105 reset all" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var list = try parse(alloc, .osc_105, "");
+    defer list.deinit(alloc);
+    try testing.expectEqual(1, list.count());
+    try testing.expectEqual(
+        Request{ .reset_special = {} },
+        list.at(0).*,
+    );
 }
 
 // OSC 10-19: Get/Set Dynamic Colors
