@@ -221,10 +221,7 @@ fn parseGetSetDynamicColor(
         }
 
         // Each successive value uses the next color so long as it exists.
-        color = std.meta.intToEnum(
-            DynamicColor,
-            @intFromEnum(color) + 1,
-        ) catch return result;
+        color = color.next() orelse return result;
     }
 }
 
