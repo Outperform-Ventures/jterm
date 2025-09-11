@@ -863,18 +863,24 @@ pub fn handleMessage(self: *Surface, msg: Message) !void {
             }, .unlocked);
         },
 
-        .color_change => |change| {
+        .color_change => |change| color_change: {
             // Notify our apprt, but don't send a mode 2031 DSR report
             // because VT sequences were used to change the color.
             _ = try self.rt_app.performAction(
                 .{ .surface = self },
                 .color_change,
                 .{
-                    .kind = switch (change.kind) {
-                        .background => .background,
-                        .foreground => .foreground,
-                        .cursor => .cursor,
+                    .kind = switch (change.target) {
                         .palette => |v| @enumFromInt(v),
+                        .dynamic => |dyn| switch (dyn) {
+                            .foreground => .foreground,
+                            .background => .background,
+                            .cursor => .cursor,
+                            // Unsupported dynamic color change notification type
+                            else => break :color_change,
+                        },
+                        // Special colors aren't supported for change notification
+                        .special => break :color_change,
                     },
                     .r = change.color.r,
                     .g = change.color.g,

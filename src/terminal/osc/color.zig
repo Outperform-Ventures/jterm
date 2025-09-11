@@ -105,7 +105,7 @@ fn parseGetSetAnsiColor(
         ) catch return result;
 
         // Parse the color.
-        const target: Request.Target = switch (op) {
+        const target: Target = switch (op) {
             // OSC5 maps directly to the Special enum.
             .osc_5 => .{ .special = std.meta.intToEnum(
                 SpecialColor,
@@ -178,7 +178,7 @@ fn parseResetAnsiColor(
         ) catch continue;
 
         // Parse the color.
-        const target: Request.Target = switch (op) {
+        const target: Target = switch (op) {
             // OSC105 maps directly to the Special enum.
             .osc_105 => .{ .special = std.meta.intToEnum(
                 SpecialColor,
@@ -266,17 +266,17 @@ pub const Request = union(enum) {
     reset: Target,
     reset_palette,
     reset_special,
+};
 
-    pub const Target = union(enum) {
-        palette: u8,
-        special: SpecialColor,
-        dynamic: DynamicColor,
-    };
+pub const Target = union(enum) {
+    palette: u8,
+    special: SpecialColor,
+    dynamic: DynamicColor,
+};
 
-    pub const ColoredTarget = struct {
-        target: Target,
-        color: RGB,
-    };
+pub const ColoredTarget = struct {
+    target: Target,
+    color: RGB,
 };
 
 test "osc4" {

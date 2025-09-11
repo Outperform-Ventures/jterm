@@ -78,10 +78,7 @@ pub const Message = union(enum) {
     password_input: bool,
 
     /// A terminal color was changed using OSC sequences.
-    color_change: struct {
-        kind: terminal.osc.Command.ColorOperation.Kind,
-        color: terminal.color.RGB,
-    },
+    color_change: terminal.osc.color.ColoredTarget,
 
     /// Notifies the surface that a tick of the timer that is timing
     /// out selection scrolling has occurred. "selection scrolling"
