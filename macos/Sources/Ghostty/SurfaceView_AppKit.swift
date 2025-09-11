@@ -509,13 +509,14 @@ extension Ghostty {
             // Make the text field the first responder so it gets focus
             alert.window.initialFirstResponder = textField
             
-            let response = alert.runModal()
-
-            // Check if the user clicked "OK"
-            if response == .alertFirstButtonReturn {
+            let completionHandler: (NSApplication.ModalResponse) -> Void = { [weak self] response in
+                guard let self else { return }
+                
+                // Check if the user clicked "OK"
+                guard response == .alertFirstButtonReturn  else { return }
+                
                 // Get the input text
                 let newTitle = textField.stringValue
-
                 if newTitle.isEmpty {
                     // Empty means that user wants the title to be set automatically
                     // We also need to reload the config for the "title" property to be
@@ -528,6 +529,16 @@ extension Ghostty {
                     titleFromTerminal = title
                     title = newTitle
                 }
+            }
+
+            // We prefer to run our alert in a sheet modal if we have a window.
+            if let window {
+                alert.beginSheetModal(for: window, completionHandler: completionHandler)
+            } else {
+                // On macOS 26 RC, this codepath results in the "OK" button not being
+                // visible. The above codepath should be taken most times but I'm just
+                // noting this as something I noticed consistently.
+                completionHandler(alert.runModal())
             }
         }
 
