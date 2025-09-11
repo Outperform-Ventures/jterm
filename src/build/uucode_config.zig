@@ -130,6 +130,7 @@ pub const tables = [_]config.Table{
         },
     },
     .{
+        .stages = .two,
         .extensions = &.{ wcwidth, width, grapheme_boundary_class },
         .fields = &.{
             width.field("width"),
@@ -137,6 +138,7 @@ pub const tables = [_]config.Table{
         },
     },
     .{
+        .stages = .two,
         .extensions = &.{is_symbol},
         .fields = &.{
             is_symbol.field("is_symbol"),

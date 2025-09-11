@@ -6,11 +6,10 @@ const lut = @import("lut.zig");
 
 /// The lookup tables for Ghostty.
 pub const table = table: {
-    const Props = uucode.PackedTypeOf("1");
     // This is only available after running main() below as part of the Ghostty
     // build.zig, but due to Zig's lazy analysis we can still reference it here.
-    const generated = @import("unicode_tables").Tables(Props);
-    const Tables = lut.Tables(Props);
+    const generated = @import("unicode_tables").Tables(Properties);
+    const Tables = lut.Tables(Properties);
     break :table Tables{
         .stage1 = &generated.stage1,
         .stage2 = &generated.stage2,
