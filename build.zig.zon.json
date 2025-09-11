@@ -129,10 +129,10 @@
     "url": "https://deps.files.ghostty.org/wuffs-122037b39d577ec2db3fd7b2130e7b69ef6cc1807d68607a7c232c958315d381b5cd.tar.gz",
     "hash": "sha256-nkzSCr6W5sTG7enDBXEIhgEm574uLD41UVR2wlC+HBM="
   },
-  "z2d-0.8.0-j5P_HgW8DQBvCefcGWPZA1WC5Nco08WhKjG3XCW3thMr": {
+  "z2d-0.8.1-j5P_Hq8vDwB8ZaDA54-SzESDLF2zznG_zvTHiQNJImZP": {
     "name": "z2d",
-    "url": "https://github.com/vancluever/z2d/archive/refs/tags/v0.8.0.tar.gz",
-    "hash": "sha256-0yR5Yc5MxOJBV1cv4LOWBwWkZYcGU53qFZd40TlZPcg="
+    "url": "https://github.com/vancluever/z2d/archive/refs/tags/v0.8.1.tar.gz",
+    "hash": "sha256-0DbDKSYA1ejhVx/WbOkwTgD57PNRFcnRviqBh8xpPZ0="
   },
   "zf-0.10.3-OIRy8aiIAACLrBllz0zjxaH0aOe5oNm3KtEMyCntST-9": {
     "name": "zf",
