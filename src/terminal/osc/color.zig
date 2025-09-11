@@ -12,6 +12,16 @@ pub const ParseError = Allocator.Error || error{
 pub const Operation = enum {
     osc_4,
     osc_5,
+    osc_10,
+    osc_11,
+    osc_12,
+    osc_13,
+    osc_14,
+    osc_15,
+    osc_16,
+    osc_17,
+    osc_18,
+    osc_19,
     osc_110,
     osc_111,
     osc_112,
@@ -43,6 +53,16 @@ pub fn parse(
     return switch (op) {
         .osc_4 => try parseGetSetAnsiColor(alloc, .osc_4, &it),
         .osc_5 => try parseGetSetAnsiColor(alloc, .osc_5, &it),
+        .osc_10 => try parseGetSetDynamicColor(alloc, .foreground, &it),
+        .osc_11 => try parseGetSetDynamicColor(alloc, .background, &it),
+        .osc_12 => try parseGetSetDynamicColor(alloc, .cursor, &it),
+        .osc_13 => try parseGetSetDynamicColor(alloc, .pointer_foreground, &it),
+        .osc_14 => try parseGetSetDynamicColor(alloc, .pointer_background, &it),
+        .osc_15 => try parseGetSetDynamicColor(alloc, .tektronix_foreground, &it),
+        .osc_16 => try parseGetSetDynamicColor(alloc, .tektronix_background, &it),
+        .osc_17 => try parseGetSetDynamicColor(alloc, .highlight_background, &it),
+        .osc_18 => try parseGetSetDynamicColor(alloc, .tektronix_cursor, &it),
+        .osc_19 => try parseGetSetDynamicColor(alloc, .highlight_foreground, &it),
         .osc_110 => try parseResetDynamicColor(alloc, .foreground, &it),
         .osc_111 => try parseResetDynamicColor(alloc, .background, &it),
         .osc_112 => try parseResetDynamicColor(alloc, .cursor, &it),
@@ -113,6 +133,40 @@ fn parseGetSetAnsiColor(
             .target = target,
             .color = rgb,
         } };
+    }
+}
+
+/// OSC 10-19: Get/Set Dynamic Colors
+fn parseGetSetDynamicColor(
+    alloc: Allocator,
+    start: DynamicColor,
+    it: *std.mem.TokenIterator(u8, .scalar),
+) Allocator.Error!List {
+    // Note: in ANY error scenario below we return the accumulated results.
+    // This matches the xterm behavior (see misc.c ChangeColorsRequest)
+
+    var result: List = .{};
+    var color: DynamicColor = start;
+    while (true) {
+        const spec_str = it.next() orelse return result;
+
+        if (std.mem.eql(u8, spec_str, "?")) {
+            const req = try result.addOne(alloc);
+            req.* = .{ .query = .{ .dynamic = color } };
+        } else {
+            const rgb = RGB.parse(spec_str) catch return result;
+            const req = try result.addOne(alloc);
+            req.* = .{ .set = .{
+                .target = .{ .dynamic = color },
+                .color = rgb,
+            } };
+        }
+
+        // Each successive value uses the next color so long as it exists.
+        color = std.meta.intToEnum(
+            DynamicColor,
+            @intFromEnum(color) + 1,
+        ) catch return result;
     }
 }
 
@@ -364,6 +418,66 @@ test "osc4: multiple requests" {
         try testing.expectEqual(
             Request{ .set = .{
                 .target = .{ .palette = 0 },
+                .color = RGB{ .r = 0, .g = 0, .b = 255 },
+            } },
+            list.at(1).*,
+        );
+    }
+}
+
+// OSC 10-19: Get/Set Dynamic Colors
+test "dynamic" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    inline for (@typeInfo(DynamicColor).@"enum".fields) |field| {
+        const color = @field(DynamicColor, field.name);
+        const op = @field(Operation, std.fmt.comptimePrint(
+            "osc_{d}",
+            .{field.value},
+        ));
+
+        // Example script:
+        // printf '\e]10;red\e\\'
+        {
+            var list = try parse(alloc, op, "red");
+            defer list.deinit(alloc);
+            try testing.expectEqual(1, list.count());
+            try testing.expectEqual(
+                Request{ .set = .{
+                    .target = .{ .dynamic = color },
+                    .color = RGB{ .r = 255, .g = 0, .b = 0 },
+                } },
+                list.at(0).*,
+            );
+        }
+    }
+}
+
+test "dynamic multiple" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    // Example script:
+    // printf '\e]11;red;blue\e\\'
+    {
+        var list = try parse(
+            alloc,
+            .osc_11,
+            "red;blue",
+        );
+        defer list.deinit(alloc);
+        try testing.expectEqual(2, list.count());
+        try testing.expectEqual(
+            Request{ .set = .{
+                .target = .{ .dynamic = .background },
+                .color = RGB{ .r = 255, .g = 0, .b = 0 },
+            } },
+            list.at(0).*,
+        );
+        try testing.expectEqual(
+            Request{ .set = .{
+                .target = .{ .dynamic = .cursor },
                 .color = RGB{ .r = 0, .g = 0, .b = 255 },
             } },
             list.at(1).*,
