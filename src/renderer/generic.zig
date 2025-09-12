@@ -2528,9 +2528,11 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                                 break :cache cells;
                             };
 
+                        const cells = shaper_cells.?;
+
                         // Advance our index until we reach or pass
                         // our current x position in the shaper cells.
-                        while (shaper_cells.?[shaper_cells_i].x < x) {
+                        while (run.offset + cells[shaper_cells_i].x < x) {
                             shaper_cells_i += 1;
                         }
                     }
@@ -2769,13 +2771,13 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                         // If we encounter a shaper cell to the left of the current
                         // cell then we have some problems. This logic relies on x
                         // position monotonically increasing.
-                        assert(cells[shaper_cells_i].x >= x);
+                        assert(run.offset + cells[shaper_cells_i].x >= x);
 
                         // NOTE: An assumption is made here that a single cell will never
                         // be present in more than one shaper run. If that assumption is
                         // violated, this logic breaks.
 
-                        while (shaper_cells_i < cells.len and cells[shaper_cells_i].x == x) : ({
+                        while (shaper_cells_i < cells.len and run.offset + cells[shaper_cells_i].x == x) : ({
                             shaper_cells_i += 1;
                         }) {
                             self.addGlyph(
