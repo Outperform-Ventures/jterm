@@ -273,6 +273,7 @@ jobs:
             ghostty-source.tar.gz
 
   trigger-snap:
+    if: github.event_name != 'pull_request'
     runs-on: namespace-profile-ghostty-xsm
     needs: build-dist
     steps:
