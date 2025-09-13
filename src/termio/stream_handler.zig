@@ -1429,7 +1429,6 @@ pub const StreamHandler = struct {
         if (response.items.len > 0) {
             // If any of the operations were reports, finalize the report
             // string and send it to the terminal.
-            try writer.writeAll(terminator.string());
             const msg = try termio.Message.writeReq(self.alloc, response.items);
             self.messageWriter(msg);
         }
