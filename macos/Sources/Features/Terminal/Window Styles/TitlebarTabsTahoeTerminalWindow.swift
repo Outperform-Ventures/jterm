@@ -156,7 +156,7 @@ class TitlebarTabsTahoeTerminalWindow: TransparentTitlebarTerminalWindow, NSTool
         accessoryView.needsLayout = true
 
         // Setup an observer for the NSTabBar frame. When system appearance changes or
-        // other events occur, the tab bar can temporarily become zero-sized. When this
+        // other events occur, the tab bar can resize and clear our constraints. When this
         // happens, we need to remove our custom constraints and re-apply them once the
         // tab bar has proper dimensions again to avoid constraint conflicts.
         tabBar.postsFrameChangedNotifications = true
@@ -166,9 +166,6 @@ class TitlebarTabsTahoeTerminalWindow: TransparentTitlebarTerminalWindow, NSTool
             queue: .main
         ) { [weak self] _ in
             guard let self else { return }
-
-            // Check if either width or height is zero
-            guard tabBar.frame.size.width == 0 || tabBar.frame.size.height == 0 else { return }
 
             // Remove the observer so we can call setup again.
             self.tabBarObserver = nil
