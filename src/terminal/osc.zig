@@ -557,7 +557,11 @@ pub const Parser = struct {
                     self.buf_start = self.buf_idx;
                     self.complete = true;
                 },
-                '4' => self.state = .@"104",
+                '4' => {
+                    self.state = .@"104";
+                    // If we have an allocator, then we can complete the OSC104
+                    if (self.alloc != null) self.complete = true;
+                },
                 else => self.state = .invalid,
             },
 
@@ -1583,6 +1587,16 @@ pub const Parser = struct {
             .kitty_color_protocol_key => self.endKittyColorProtocolOption(.key_only, true),
             .kitty_color_protocol_value => self.endKittyColorProtocolOption(.key_and_value, true),
             .osc_color => self.endOscColor(),
+
+            // 104 abruptly ended turns into a reset palette command.
+            .@"104" => {
+                self.command = .{ .color_operation = .{
+                    .op = .osc_104,
+                } };
+                self.state = .osc_color;
+                self.buf_start = self.buf_idx;
+                self.endOscColor();
+            },
 
             // We received OSC 9;X ST, but nothing else, finish off as a
             // desktop notification with "X" as the body.

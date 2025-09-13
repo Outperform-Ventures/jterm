@@ -930,6 +930,38 @@ test "osc: 112 incomplete sequence" {
     }
 }
 
+test "osc: 104 empty" {
+    var p: Parser = init();
+    defer p.deinit();
+    p.osc_parser.alloc = std.testing.allocator;
+
+    _ = p.next(0x1B);
+    _ = p.next(']');
+    _ = p.next('1');
+    _ = p.next('0');
+    _ = p.next('4');
+
+    {
+        const a = p.next(0x07);
+        try testing.expect(p.state == .ground);
+        try testing.expect(a[0].? == .osc_dispatch);
+        try testing.expect(a[1] == null);
+        try testing.expect(a[2] == null);
+
+        const cmd = a[0].?.osc_dispatch;
+        try testing.expect(cmd == .color_operation);
+        try testing.expectEqual(cmd.color_operation.terminator, .bel);
+        try testing.expect(cmd.color_operation.op == .osc_104);
+        try testing.expect(cmd.color_operation.requests.count() == 1);
+        var it = cmd.color_operation.requests.constIterator(0);
+        {
+            const op = it.next().?;
+            try testing.expect(op.* == .reset_palette);
+        }
+        try std.testing.expect(it.next() == null);
+    }
+}
+
 test "csi: too many params" {
     var p = init();
     _ = p.next(0x1B);
