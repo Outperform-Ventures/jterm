@@ -39,6 +39,8 @@ jobs:
 
       - name: Run zig fetch
         id: zig_fetch
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           # Get the latest release from iTerm2-Color-Schemes
           RELEASE_INFO=$(gh api repos/mbadolato/iTerm2-Color-Schemes/releases/latest)
