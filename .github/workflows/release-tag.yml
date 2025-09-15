@@ -100,8 +100,10 @@ jobs:
 
       - name: Create Tarball
         run: |
+          rm -rf zig-out/dist
           nix develop -c zig build distcheck
           cp zig-out/dist/ghostty-${GHOSTTY_VERSION}.tar.gz .
+          cp zig-out/dist/ghostty-${GHOSTTY_VERSION}.tar.gz ghostty-source.tar.gz
 
       - name: Sign Tarball
         run: |
