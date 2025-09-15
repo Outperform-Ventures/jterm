@@ -119,6 +119,8 @@ jobs:
           path: |-
             ghostty-${{ env.GHOSTTY_VERSION }}.tar.gz
             ghostty-${{ env.GHOSTTY_VERSION }}.tar.gz.minisig
+            ghostty-source.tar.gz
+            ghostty-source.tar.gz.minisig
 
   build-macos:
     needs: [setup]
