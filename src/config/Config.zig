@@ -127,9 +127,6 @@ pub const compatibility = std.StaticStringMap(
 /// this within config files if you want to clear previously set values in
 /// configuration files or on the CLI if you want to clear values set on the
 /// CLI.
-///
-/// Changing this configuration at runtime will only affect new terminals, i.e.
-/// new windows, tabs, etc.
 @"font-family": RepeatableString = .{},
 @"font-family-bold": RepeatableString = .{},
 @"font-family-italic": RepeatableString = .{},
@@ -214,11 +211,12 @@ pub const compatibility = std.StaticStringMap(
 ///
 /// For example, 13.5pt @ 2px/pt = 27px
 ///
-/// Changing this configuration at runtime will only affect new terminals,
-/// i.e. new windows, tabs, etc. Note that you may still not see the change
-/// depending on your `window-inherit-font-size` setting. If that setting is
-/// true, only the first window will be affected by this change since all
-/// subsequent windows will inherit the font size of the previous window.
+/// Changing this configuration at runtime will only affect existing
+/// terminals that have NOT manually adjusted their font size in some way
+/// (e.g. increased or decreased the font size). Terminals that have manually
+/// adjusted their font size will retain their manually adjusted size.
+/// Otherwise, the font size of existing terminals will be updated on
+/// reload.
 ///
 /// On Linux with GTK, font size is scaled according to both display-wide and
 /// text-specific scaling factors, which are often managed by your desktop
@@ -515,7 +513,7 @@ pub const compatibility = std.StaticStringMap(
 ///
 /// To specify a different theme for light and dark mode, use the following
 /// syntax: `light:theme-name,dark:theme-name`. For example:
-/// `light:rose-pine-dawn,dark:rose-pine`. Whitespace around all values are
+/// `light:Rose Pine Dawn,dark:Rose Pine`. Whitespace around all values are
 /// trimmed and order of light and dark does not matter. Both light and dark
 /// must be specified in this form. In this form, the theme used will be
 /// based on the current desktop environment theme.
@@ -2146,6 +2144,8 @@ keybind: Keybinds = .{},
 /// from the first by a comma (`,`). Percentage and pixel sizes can be mixed
 /// together: for instance, a size of `50%,500px` for a top-positioned quick
 /// terminal would be half a screen tall, and 500 pixels wide.
+///
+/// Available since: 1.2.0
 @"quick-terminal-size": QuickTerminalSize = .{},
 
 /// The layer of the quick terminal window. The higher the layer,
@@ -5564,6 +5564,17 @@ pub const Keybinds = struct {
         );
 
         {
+            try self.set.put(
+                alloc,
+                .{ .key = .{ .physical = .copy } },
+                .{ .copy_to_clipboard = {} },
+            );
+            try self.set.put(
+                alloc,
+                .{ .key = .{ .physical = .paste } },
+                .{ .paste_from_clipboard = {} },
+            );
+
             // On non-MacOS desktop envs (Windows, KDE, Gnome, Xfce), ctrl+insert is an
             // alt keybinding for Copy and shift+ins is an alt keybinding for Paste
             //

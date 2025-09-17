@@ -163,11 +163,11 @@ in
       };
     }
     {
-      name = "N-V-__8AAGupuwFrRxb2dkqFqmEChLEa4J3e95GReqvomV1b";
+      name = "N-V-__8AANodAwDnyHwhlOv5cVRn2rx_dTvija-wy5YtTw1B";
       path = fetchZigArtifact {
         name = "iterm2_themes";
-        url = "https://github.com/mbadolato/iTerm2-Color-Schemes/archive/b314fc540434cc037c2811fc048d32854b5b78c3.tar.gz";
-        hash = "sha256-3vPlDDjv6BCLyro1YytzPtF0FfBH20skYuA9laDWhac=";
+        url = "https://deps.files.ghostty.org/ghostty-themes-20250915-162204-b1fe546.tgz";
+        hash = "sha256-6rKNFpaUvSbvNZ0/+u0h4I/RRaV5V7xIPQ9y7eNVbCA=";
       };
     }
     {
@@ -299,11 +299,11 @@ in
       };
     }
     {
-      name = "z2d-0.8.0-j5P_HgW8DQBvCefcGWPZA1WC5Nco08WhKjG3XCW3thMr";
+      name = "z2d-0.8.1-j5P_Hq8vDwB8ZaDA54-SzESDLF2zznG_zvTHiQNJImZP";
       path = fetchZigArtifact {
         name = "z2d";
-        url = "https://github.com/vancluever/z2d/archive/refs/tags/v0.8.0.tar.gz";
-        hash = "sha256-0yR5Yc5MxOJBV1cv4LOWBwWkZYcGU53qFZd40TlZPcg=";
+        url = "https://github.com/vancluever/z2d/archive/refs/tags/v0.8.1.tar.gz";
+        hash = "sha256-0DbDKSYA1ejhVx/WbOkwTgD57PNRFcnRviqBh8xpPZ0=";
       };
     }
     {

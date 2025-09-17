@@ -64,11 +64,35 @@ pub const Parser = struct {
         const flags, const start_idx = try parseFlags(raw_input);
         const input = raw_input[start_idx..];
 
-        // Find the last = which splits are mapping into the trigger
-        // and action, respectively.
-        // We use the last = because the keybind itself could contain
-        // raw equal signs (for the = codepoint)
-        const eql_idx = std.mem.lastIndexOf(u8, input, "=") orelse return Error.InvalidFormat;
+        // Find the equal sign. This is more complicated than it seems on
+        // the surface because we need to ignore equal signs that are
+        // part of the trigger.
+        const eql_idx: usize = eql: {
+            // TODO: We should change this parser into a real state machine
+            // based parser that parses the trigger fully, then yields the
+            // action after. The loop below is a total mess.
+            var offset: usize = 0;
+            while (std.mem.indexOfScalar(
+                u8,
+                input[offset..],
+                '=',
+            )) |offset_idx| {
+                // Find: '=+ctrl' or '==action'
+                const idx = offset + offset_idx;
+                if (idx < input.len - 1 and
+                    (input[idx + 1] == '+' or
+                        input[idx + 1] == '='))
+                {
+                    offset += offset_idx + 1;
+                    continue;
+                }
+
+                // Looks like the real equal sign.
+                break :eql idx;
+            }
+
+            return Error.InvalidFormat;
+        };
 
         // Sequence iterator goes up to the equal, action is after. We can
         // parse the action now.
@@ -698,7 +722,7 @@ pub const Action = union(enum) {
     /// All actions are only undoable/redoable for a limited time.
     /// For example, restoring a closed split can only be done for
     /// some number of seconds since the split was closed. The exact
-    /// amount is configured with `TODO`.
+    /// amount is configured with the `undo-timeout` configuration settings.
     ///
     /// The undo/redo actions being limited ensures that there is
     /// bounded memory usage over time, closed surfaces don't continue running
@@ -2299,6 +2323,39 @@ test "parse: equals sign" {
     );
 
     try testing.expectError(Error.InvalidFormat, parseSingle("=ignore"));
+}
+
+test "parse: text action equals sign" {
+    const testing = std.testing;
+    {
+        const binding = try parseSingle("==text:=");
+        try testing.expectEqual(Trigger{ .key = .{ .unicode = '=' } }, binding.trigger);
+        try testing.expectEqualStrings("=", binding.action.text);
+    }
+
+    {
+        const binding = try parseSingle("==text:=hello");
+        try testing.expectEqual(Trigger{ .key = .{ .unicode = '=' } }, binding.trigger);
+        try testing.expectEqualStrings("=hello", binding.action.text);
+    }
+
+    {
+        const binding = try parseSingle("ctrl+==text:=hello");
+        try testing.expectEqual(Trigger{
+            .key = .{ .unicode = '=' },
+            .mods = .{ .ctrl = true },
+        }, binding.trigger);
+        try testing.expectEqualStrings("=hello", binding.action.text);
+    }
+
+    {
+        const binding = try parseSingle("=+ctrl=text:=hello");
+        try testing.expectEqual(Trigger{
+            .key = .{ .unicode = '=' },
+            .mods = .{ .ctrl = true },
+        }, binding.trigger);
+        try testing.expectEqualStrings("=hello", binding.action.text);
+    }
 }
 
 // For Ghostty 1.2+ we changed our key names to match the W3C and removed

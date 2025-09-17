@@ -150,7 +150,7 @@ hash in CI, and builds will fail if it drifts.
 To update it, you can run the following in the repository root:
 
 ```
-./nix/build-support/check-zig-cache-hash.sh --update
+./nix/build-support/check-zig-cache.sh --update
 ```
 
 This will write out the `nix/zigCacheHash.nix` file with the updated hash

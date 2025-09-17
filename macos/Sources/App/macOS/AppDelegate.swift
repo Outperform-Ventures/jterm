@@ -147,6 +147,16 @@ class AppDelegate: NSObject,
             // Disable the automatic full screen menu item because we handle
             // it manually.
             "NSFullScreenMenuItemEverywhere": false,
+            
+            // On macOS 26 RC1, the autofill heuristic controller causes unusable levels
+            // of slowdowns and CPU usage in the terminal window under certain [unknown]
+            // conditions. We don't know exactly why/how. This disables the full heuristic
+            // controller.
+            //
+            // Practically, this means things like SMS autofill don't work, but that is
+            // a desirable behavior to NOT have happen for a terminal, so this is a win.
+            // Manual autofill via the `Edit => AutoFill` menu item still work as expected.
+            "NSAutoFillHeuristicControllerEnabled": false,
         ])
     }
 

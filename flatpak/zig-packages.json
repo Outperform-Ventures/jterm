@@ -61,9 +61,9 @@
   },
   {
     "type": "archive",
-    "url": "https://github.com/mbadolato/iTerm2-Color-Schemes/archive/b314fc540434cc037c2811fc048d32854b5b78c3.tar.gz",
-    "dest": "vendor/p/N-V-__8AAGupuwFrRxb2dkqFqmEChLEa4J3e95GReqvomV1b",
-    "sha256": "def3e50c38efe8108bcaba35632b733ed17415f047db4b2462e03d95a0d685a7"
+    "url": "https://deps.files.ghostty.org/ghostty-themes-20250915-162204-b1fe546.tgz",
+    "dest": "vendor/p/N-V-__8AANodAwDnyHwhlOv5cVRn2rx_dTvija-wy5YtTw1B",
+    "sha256": "eab28d169694bd26ef359d3ffaed21e08fd145a57957bc483d0f72ede3556c20"
   },
   {
     "type": "archive",
@@ -163,9 +163,9 @@
   },
   {
     "type": "archive",
-    "url": "https://github.com/vancluever/z2d/archive/refs/tags/v0.8.0.tar.gz",
-    "dest": "vendor/p/z2d-0.8.0-j5P_HgW8DQBvCefcGWPZA1WC5Nco08WhKjG3XCW3thMr",
-    "sha256": "d3247961ce4cc4e24157572fe0b3960705a4658706539dea159778d139593dc8"
+    "url": "https://github.com/vancluever/z2d/archive/refs/tags/v0.8.1.tar.gz",
+    "dest": "vendor/p/z2d-0.8.1-j5P_Hq8vDwB8ZaDA54-SzESDLF2zznG_zvTHiQNJImZP",
+    "sha256": "d036c3292600d5e8e1571fd66ce9304e00f9ecf35115c9d1be2a8187cc693d9d"
   },
   {
     "type": "archive",
