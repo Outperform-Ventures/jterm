@@ -32,7 +32,10 @@ test "codepointWidth basic" {
 //     const max = std.math.maxInt(u21) + 1;
 //     for (min..max) |cp| {
 //         const simd = codepointWidth(@intCast(cp));
-//         const uu = @min(2, @max(0, uucode.get(.wcwidth, @intCast(cp))));
+//         const uu = if (cp > uucode.config.max_code_point)
+//             1
+//         else
+//             uucode.getX(.width, @intCast(cp));
 //         if (simd != uu) mismatch: {
 //             if (cp == 0x2E3B) {
 //                 try testing.expectEqual(@as(i8, 2), simd);
