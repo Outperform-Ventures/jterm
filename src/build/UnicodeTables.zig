@@ -48,11 +48,16 @@ pub fn init(b: *std.Build) !UnicodeTables {
     const props_run = b.addRunArtifact(props_exe);
     const symbols_run = b.addRunArtifact(symbols_exe);
 
+    // Generated Zig files have to end with .zig
+    const wf = b.addWriteFiles();
+    const props_output = wf.addCopyFile(props_run.captureStdOut(), "props.zig");
+    const symbols_output = wf.addCopyFile(symbols_run.captureStdOut(), "symbols.zig");
+
     return .{
         .props_exe = props_exe,
         .symbols_exe = symbols_exe,
-        .props_output = props_run.captureStdOut(),
-        .symbols_output = symbols_run.captureStdOut(),
+        .props_output = props_output,
+        .symbols_output = symbols_output,
     };
 }
 
