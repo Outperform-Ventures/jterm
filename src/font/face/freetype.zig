@@ -985,14 +985,21 @@ pub const Face = struct {
                             f26dot6ToF64(glyph.*.advance.x),
                             max,
                         );
-                        top = @max(
-                            f26dot6ToF64(glyph.*.metrics.horiBearingY),
-                            top,
-                        );
-                        bottom = @min(
-                            f26dot6ToF64(glyph.*.metrics.horiBearingY - glyph.*.metrics.height),
-                            bottom,
-                        );
+                        // We use the outline's bbox instead of the built-in
+                        // metrics for better accuracy (see renderGlyph()).
+                        const ymin, const ymax = metrics: {
+                            if (glyph.*.format == freetype.c.FT_GLYPH_FORMAT_OUTLINE) {
+                                var bbox: freetype.c.FT_BBox = undefined;
+                                _ = freetype.c.FT_Outline_Get_BBox(&glyph.*.outline, &bbox);
+                                break :metrics .{ bbox.yMin, bbox.yMax };
+                            }
+                            break :metrics .{
+                                glyph.*.metrics.horiBearingY - glyph.*.metrics.height,
+                                glyph.*.metrics.horiBearingY,
+                            };
+                        };
+                        top = @max(f26dot6ToF64(ymax), top);
+                        bottom = @min(f26dot6ToF64(ymin), bottom);
                     } else |_| {}
                 }
             }
@@ -1035,7 +1042,15 @@ pub const Face = struct {
                             .render = false,
                             .no_svg = true,
                         })) {
-                            break :cap f26dot6ToF64(face.handle.*.glyph.*.metrics.height);
+                            const glyph = face.handle.*.glyph;
+                            // We use the outline's bbox instead of the built-in
+                            // metrics for better accuracy (see renderGlyph()).
+                            if (glyph.*.format == freetype.c.FT_GLYPH_FORMAT_OUTLINE) {
+                                var bbox: freetype.c.FT_BBox = undefined;
+                                _ = freetype.c.FT_Outline_Get_BBox(&glyph.*.outline, &bbox);
+                                break :cap f26dot6ToF64(bbox.yMax - bbox.yMin);
+                            }
+                            break :cap f26dot6ToF64(glyph.*.metrics.height);
                         } else |_| {}
                     }
                     break :cap null;
@@ -1048,7 +1063,15 @@ pub const Face = struct {
                             .render = false,
                             .no_svg = true,
                         })) {
-                            break :ex f26dot6ToF64(face.handle.*.glyph.*.metrics.height);
+                            const glyph = face.handle.*.glyph;
+                            // We use the outline's bbox instead of the built-in
+                            // metrics for better accuracy (see renderGlyph()).
+                            if (glyph.*.format == freetype.c.FT_GLYPH_FORMAT_OUTLINE) {
+                                var bbox: freetype.c.FT_BBox = undefined;
+                                _ = freetype.c.FT_Outline_Get_BBox(&glyph.*.outline, &bbox);
+                                break :ex f26dot6ToF64(bbox.yMax - bbox.yMin);
+                            }
+                            break :ex f26dot6ToF64(glyph.*.metrics.height);
                         } else |_| {}
                     }
                     break :ex null;
@@ -1078,14 +1101,24 @@ pub const Face = struct {
             // This can sometimes happen if there's a CJK font that has been
             // patched with the nerd fonts patcher and it butchers the advance
             // values so the advance ends up half the width of the actual glyph.
-            if (ft_glyph.*.metrics.width > ft_glyph.*.advance.x) {
+            const ft_glyph_width = ft_glyph_width: {
+                // We use the outline's bbox instead of the built-in
+                // metrics for better accuracy (see renderGlyph()).
+                if (ft_glyph.*.format == freetype.c.FT_GLYPH_FORMAT_OUTLINE) {
+                    var bbox: freetype.c.FT_BBox = undefined;
+                    _ = freetype.c.FT_Outline_Get_BBox(&ft_glyph.*.outline, &bbox);
+                    break :ft_glyph_width bbox.xMax - bbox.xMin;
+                }
+                break :ft_glyph_width ft_glyph.*.metrics.width;
+            };
+            if (ft_glyph_width > ft_glyph.*.advance.x) {
                 var buf: [1024]u8 = undefined;
                 const font_name = self.name(&buf) catch "<Error getting font name>";
                 log.warn(
                     "(getMetrics) Width of glyph '水' for font \"{s}\" is greater than its advance ({d} > {d}), discarding ic_width metric.",
                     .{
                         font_name,
-                        f26dot6ToF64(ft_glyph.*.metrics.width),
+                        f26dot6ToF64(ft_glyph_width),
                         f26dot6ToF64(ft_glyph.*.advance.x),
                     },
                 );
