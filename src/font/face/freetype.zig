@@ -351,26 +351,16 @@ pub const Face = struct {
         return glyph.*.bitmap.pixel_mode == freetype.c.FT_PIXEL_MODE_BGRA;
     }
 
-    /// Render a glyph using the glyph index. The rendered glyph is stored in the
-    /// given texture atlas.
-    pub fn renderGlyph(
-        self: Face,
-        alloc: Allocator,
-        atlas: *font.Atlas,
-        glyph_index: u32,
-        opts: font.face.RenderOptions,
-    ) !Glyph {
-        self.ft_mutex.lock();
-        defer self.ft_mutex.unlock();
-
+    /// Set the load flags to use when loading a glyph for measurement or
+    /// rendering.
+    fn glyphLoadFlags(self: Face, constrained: bool) freetype.LoadFlags {
         // Hinting should only be enabled if the configured load flags specify
         // it and the provided constraint doesn't actually do anything, since
         // if it does, then it'll mess up the hinting anyway when it moves or
         // resizes the glyph.
-        const do_hinting = self.load_flags.hinting and !opts.constraint.doesAnything();
+        const do_hinting = self.load_flags.hinting and !constrained;
 
-        // Load the glyph.
-        try self.face.loadGlyph(glyph_index, .{
+        return .{
             // If our glyph has color, we want to render the color
             .color = self.face.hasColor(),
 
@@ -392,7 +382,23 @@ pub const Face = struct {
             // SVG glyphs under FreeType, since that requires bundling another
             // dependency to handle rendering the SVG.
             .no_svg = true,
-        });
+        };
+    }
+
+    /// Render a glyph using the glyph index. The rendered glyph is stored in the
+    /// given texture atlas.
+    pub fn renderGlyph(
+        self: Face,
+        alloc: Allocator,
+        atlas: *font.Atlas,
+        glyph_index: u32,
+        opts: font.face.RenderOptions,
+    ) !Glyph {
+        self.ft_mutex.lock();
+        defer self.ft_mutex.unlock();
+
+        // Load the glyph.
+        try self.face.loadGlyph(glyph_index, self.glyphLoadFlags(opts.constraint.doesAnything()));
         const glyph = self.face.handle.*.glyph;
 
         // We get a rect that represents the position
@@ -956,17 +962,6 @@ pub const Face = struct {
             break :st .{ pos, thick };
         };
 
-        // Set the load flags to use when measuring glyphs. For consistency, we
-        // use same hinting settings as when rendering for consistency.
-        const measurement_load_flags: freetype.LoadFlags = .{
-            .render = false,
-            .no_hinting = !self.load_flags.hinting,
-            .force_autohint = self.load_flags.@"force-autohint",
-            .no_autohint = !self.load_flags.autohint,
-            .target_mono = self.load_flags.monochrome,
-            .no_svg = true,
-        };
-
         // Cell width is calculated by calculating the widest width of the
         // visible ASCII characters. Usually 'M' is widest but we just take
         // whatever is widest.
@@ -987,7 +982,7 @@ pub const Face = struct {
             var c: u8 = ' ';
             while (c < 127) : (c += 1) {
                 if (face.getCharIndex(c)) |glyph_index| {
-                    if (face.loadGlyph(glyph_index, measurement_load_flags)) {
+                    if (face.loadGlyph(glyph_index, self.glyphLoadFlags(false))) {
                         const glyph = face.handle.*.glyph;
                         max = @max(
                             f26dot6ToF64(glyph.*.advance.x),
@@ -1046,7 +1041,7 @@ pub const Face = struct {
                     self.ft_mutex.lock();
                     defer self.ft_mutex.unlock();
                     if (face.getCharIndex('H')) |glyph_index| {
-                        if (face.loadGlyph(glyph_index, measurement_load_flags)) {
+                        if (face.loadGlyph(glyph_index, self.glyphLoadFlags(false))) {
                             const glyph = face.handle.*.glyph;
                             // We use the outline's bbox instead of the built-in
                             // metrics for better accuracy (see renderGlyph()).
@@ -1064,7 +1059,7 @@ pub const Face = struct {
                     self.ft_mutex.lock();
                     defer self.ft_mutex.unlock();
                     if (face.getCharIndex('x')) |glyph_index| {
-                        if (face.loadGlyph(glyph_index, measurement_load_flags)) {
+                        if (face.loadGlyph(glyph_index, self.glyphLoadFlags(false))) {
                             const glyph = face.handle.*.glyph;
                             // We use the outline's bbox instead of the built-in
                             // metrics for better accuracy (see renderGlyph()).
@@ -1088,7 +1083,7 @@ pub const Face = struct {
 
             const glyph = face.getCharIndex('水') orelse break :ic_width null;
 
-            face.loadGlyph(glyph, measurement_load_flags) catch break :ic_width null;
+            face.loadGlyph(glyph, self.glyphLoadFlags(false)) catch break :ic_width null;
 
             const ft_glyph = face.handle.*.glyph;
 
