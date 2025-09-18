@@ -161,7 +161,7 @@ pub fn main() !void {
 
     // Set the min and max to control the test range.
     const min = 0;
-    const max = std.math.maxInt(u21) + 1;
+    const max = uucode.config.max_code_point + 1;
 
     var state: BreakState = .{};
     var uu_state: uucode.grapheme.BreakState = .default;
