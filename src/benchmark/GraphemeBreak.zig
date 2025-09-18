@@ -146,7 +146,7 @@ fn stepUucode(ptr: *anyopaque) Benchmark.Error!void {
     var d: UTF8Decoder = .{};
     var state: uucode.grapheme.BreakState = .default;
     var cp1: u21 = 0;
-    var buf: [4096]u8 = undefined;
+    var buf: [4096]u8 align(std.atomic.cache_line) = undefined;
     while (true) {
         const n = r.read(&buf) catch |err| {
             log.warn("error reading data file err={}", .{err});
