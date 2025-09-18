@@ -236,8 +236,8 @@ pub fn isCovering(cp: u21) bool {
 }
 
 /// Returns true of the codepoint is a "symbol-like" character, which
-/// for now we define as anything in a private use area and anything
-/// in several unicode blocks:
+/// for now we define as anything in a private use area, except
+/// the Powerline range, and anything in several unicode blocks:
 /// - Dingbats
 /// - Emoticons
 /// - Miscellaneous Symbols
@@ -249,11 +249,13 @@ pub fn isCovering(cp: u21) bool {
 /// In the future it may be prudent to expand this to encompass more
 /// symbol-like characters, and/or exclude some PUA sections.
 pub fn isSymbol(cp: u21) bool {
-    return symbols.get(cp);
+    return symbols.get(cp) and !isPowerline(cp);
 }
 
 /// Returns the appropriate `constraint_width` for
 /// the provided cell when rendering its glyph(s).
+///
+/// Tested as part of the Screen tests.
 pub fn constraintWidth(cell_pin: terminal.Pin) u2 {
     const cell = cell_pin.rowAndCell().cell;
     const cp = cell.codepoint();
@@ -274,18 +276,13 @@ pub fn constraintWidth(cell_pin: terminal.Pin) u2 {
 
     // If we have a previous cell and it was a symbol then we need
     // to also constrain. This is so that multiple PUA glyphs align.
-    // As an exception, we ignore powerline glyphs since they are
-    // used for box drawing and we consider them whitespace.
-    if (cell_pin.x > 0) prev: {
+    if (cell_pin.x > 0) {
         const prev_cp = prev_cp: {
             var copy = cell_pin;
             copy.x -= 1;
             const prev_cell = copy.rowAndCell().cell;
             break :prev_cp prev_cell.codepoint();
         };
-
-        // We consider powerline glyphs whitespace.
-        if (isPowerline(prev_cp)) break :prev;
 
         if (isSymbol(prev_cp)) {
             return 1;
@@ -300,10 +297,7 @@ pub fn constraintWidth(cell_pin: terminal.Pin) u2 {
         const next_cell = copy.rowAndCell().cell;
         break :next_cp next_cell.codepoint();
     };
-    if (next_cp == 0 or
-        isSpace(next_cp) or
-        isPowerline(next_cp))
-    {
+    if (next_cp == 0 or isSpace(next_cp)) {
         return 2;
     }
 
