@@ -5,7 +5,6 @@ const d = config.default;
 const wcwidth = config_x.wcwidth;
 
 const Allocator = std.mem.Allocator;
-pub const log_level = .debug;
 
 fn computeWidth(
     alloc: std.mem.Allocator,
