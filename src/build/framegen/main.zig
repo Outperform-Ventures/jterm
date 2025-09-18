@@ -9,12 +9,12 @@ pub fn main() !void {
     // Skip the exe name
     _ = arg_iter.skip();
 
-    const output_path = arg_iter.next() orelse return error.MissingOutputPath;
+    const out_dir_path = arg_iter.next() orelse return error.MissingOutputPath;
+    const compressed_out = "framedata.compressed";
+    const zig_out = "framedata.zig";
 
-    const out_dir_path = fs.path.dirname(output_path) orelse return error.InvalidOutputPath;
     const out_dir = try fs.cwd().openDir(out_dir_path, .{});
-
-    const compressed_file = try out_dir.createFile(fs.path.basename(output_path), .{});
+    const compressed_file = try out_dir.createFile(compressed_out, .{});
 
     // Join the frames with a null byte. We'll split on this later
     const all_frames = try std.mem.join(gpa.allocator(), "\x01", &frames);
@@ -23,13 +23,15 @@ pub fn main() !void {
     const reader = fbs.reader();
     try std.compress.flate.compress(reader, compressed_file.writer(), .{});
 
-    const stdout = std.io.getStdOut().writer();
+    const compressed_path = try std.fs.path.join(gpa.allocator(), &.{ out_dir_path, compressed_out });
 
-    try stdout.print(
+    const zig_file = try out_dir.createFile(zig_out, .{});
+
+    try zig_file.writer().print(
         \\//! This file is auto-generated. Do not edit.
         \\
         \\pub const compressed = @embedFile("{s}");
-    , .{output_path});
+    , .{compressed_path});
 }
 
 const frames = [_][]const u8{
