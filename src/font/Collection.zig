@@ -1489,11 +1489,10 @@ test "face metrics" {
             const actual = @field(metricsActual, field.name);
             // Unwrap optional fields
             const expectedValue, const actualValue = unwrap: switch (@typeInfo(field.type)) {
-                .optional => |Tinfo| {
-                    if (expected) |expectedValue| {
-                        const actualValue = actual orelse std.math.nan(Tinfo.child);
+                .optional => {
+                    if (expected) |expectedValue| if (actual) |actualValue| {
                         break :unwrap .{ expectedValue, actualValue };
-                    }
+                    };
                     // Null values can be compared directly
                     try std.testing.expectEqual(expected, actual);
                     continue;
