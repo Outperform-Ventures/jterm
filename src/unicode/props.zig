@@ -61,7 +61,22 @@ pub const Properties = struct {
 /// Possible grapheme boundary classes. This isn't an exhaustive list:
 /// we omit control, CR, LF, etc. because in Ghostty's usage that are
 /// impossible because they're handled by the terminal.
-pub const GraphemeBoundaryClass = uucode.TypeOfX(.grapheme_boundary_class);
+pub const GraphemeBoundaryClass = enum(u4) {
+    invalid,
+    L,
+    V,
+    T,
+    LV,
+    LVT,
+    prepend,
+    extend,
+    zwj,
+    spacing_mark,
+    regional_indicator,
+    extended_pictographic,
+    extended_pictographic_base, // \p{Extended_Pictographic} & \p{Emoji_Modifier_Base}
+    emoji_modifier, // \p{Emoji_Modifier}
+};
 
 /// Gets the grapheme boundary class for a codepoint.
 /// The use case for this is only in generating lookup tables.
@@ -113,13 +128,13 @@ pub fn isExtendedPictographic(self: GraphemeBoundaryClass) bool {
 }
 
 pub fn get(cp: u21) Properties {
-    const wcwidth = if (cp > uucode.config.max_code_point)
+    const width = if (cp > uucode.config.max_code_point)
         0
     else
-        uucode.get(.wcwidth, cp);
+        uucode.getX(.width, cp);
 
     return .{
-        .width = @intCast(@min(2, @max(0, wcwidth))),
+        .width = width,
         .grapheme_boundary_class = computeGraphemeBoundaryClass(cp),
     };
 }

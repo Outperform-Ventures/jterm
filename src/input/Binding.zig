@@ -1629,7 +1629,11 @@ pub const Trigger = struct {
         // If more codepoints are produced then we return the codepoint
         // as-is which isn't correct but until we have a failing test
         // then I don't want to handle this.
-        return uucode.get(.case_folding_full, cp).array(cp);
+        var buffer: [1]u21 = undefined;
+        const slice = uucode.get(.case_folding_full, cp).with(&buffer, cp);
+        var array: [3]u21 = [_]u21{0} ** 3;
+        @memcpy(array[0..slice.len], slice);
+        return array;
     }
 
     /// Convert the trigger to a C API compatible trigger.
