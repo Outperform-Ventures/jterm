@@ -17,36 +17,11 @@ pub const table = table: {
     };
 };
 
-/// Returns true of the codepoint is a "symbol-like" character, which
-/// for now we define as anything in a private use area and anything
-/// in several unicode blocks:
-/// - Dingbats
-/// - Emoticons
-/// - Miscellaneous Symbols
-/// - Enclosed Alphanumerics
-/// - Enclosed Alphanumeric Supplement
-/// - Miscellaneous Symbols and Pictographs
-/// - Transport and Map Symbols
-///
-/// In the future it may be prudent to expand this to encompass more
-/// symbol-like characters, and/or exclude some PUA sections.
-pub fn isSymbol(cp: u21) bool {
-    // TODO: probably can remove this method and just call uucode directly
-    return uucode.getX(.is_symbol, cp);
-}
-
 /// Runnable binary to generate the lookup tables and output to stdout.
 pub fn main() !void {
     var arena_state = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena_state.deinit();
     const alloc = arena_state.allocator();
-
-    var args_iter = try std.process.argsWithAllocator(alloc);
-    defer args_iter.deinit();
-    _ = args_iter.skip(); // Skip program name
-
-    const output_path = args_iter.next() orelse std.debug.panic("No output file arg for symbols exe!", .{});
-    std.debug.print("Unicode symbols_table output_path = {s}\n", .{output_path});
 
     const gen: lut.Generator(
         bool,
@@ -56,7 +31,7 @@ pub fn main() !void {
                 return if (cp > uucode.config.max_code_point)
                     false
                 else
-                    isSymbol(@intCast(cp));
+                    uucode.getX(.is_symbol, @intCast(cp));
             }
 
             pub fn eql(ctx: @This(), a: bool, b: bool) bool {
@@ -70,10 +45,7 @@ pub fn main() !void {
     defer alloc.free(t.stage1);
     defer alloc.free(t.stage2);
     defer alloc.free(t.stage3);
-    var out_file = try std.fs.cwd().createFile(output_path, .{});
-    defer out_file.close();
-    const writer = out_file.writer();
-    try t.writeZig(writer);
+    try t.writeZig(std.io.getStdOut().writer());
 
     // Uncomment when manually debugging to see our table sizes.
     // std.log.warn("stage1={} stage2={} stage3={}", .{
@@ -83,8 +55,6 @@ pub fn main() !void {
     // });
 }
 
-// This is not very fast in debug modes, so its commented by default.
-// IMPORTANT: UNCOMMENT THIS WHENEVER MAKING CHANGES.
 test "unicode symbols: tables match uucode" {
     if (std.valgrind.runningOnValgrind() > 0) return error.SkipZigTest;
 
@@ -95,10 +65,35 @@ test "unicode symbols: tables match uucode" {
         const uu = if (cp > uucode.config.max_code_point)
             false
         else
-            isSymbol(@intCast(cp));
+            uucode.getX(.is_symbol, @intCast(cp));
 
         if (t != uu) {
             std.log.warn("mismatch cp=U+{x} t={} uu={}", .{ cp, t, uu });
+            try testing.expect(false);
+        }
+    }
+}
+
+test "unicode symbols: tables match ziglyph" {
+    if (std.valgrind.runningOnValgrind() > 0) return error.SkipZigTest;
+
+    const ziglyph = @import("ziglyph");
+    const testing = std.testing;
+
+    for (0..std.math.maxInt(u21)) |cp_usize| {
+        const cp: u21 = @intCast(cp_usize);
+        const t = table.get(cp);
+        const zg = ziglyph.general_category.isPrivateUse(cp) or
+            ziglyph.blocks.isDingbats(cp) or
+            ziglyph.blocks.isEmoticons(cp) or
+            ziglyph.blocks.isMiscellaneousSymbols(cp) or
+            ziglyph.blocks.isEnclosedAlphanumerics(cp) or
+            ziglyph.blocks.isEnclosedAlphanumericSupplement(cp) or
+            ziglyph.blocks.isMiscellaneousSymbolsAndPictographs(cp) or
+            ziglyph.blocks.isTransportAndMapSymbols(cp);
+
+        if (t != zg) {
+            std.log.warn("mismatch cp=U+{x} t={} zg={}", .{ cp, t, zg });
             try testing.expect(false);
         }
     }

@@ -15,13 +15,13 @@ help_strings: HelpStrings,
 metallib: ?*MetallibStep,
 unicode_tables: UnicodeTables,
 framedata: GhosttyFrameData,
-uucode_tables_zig: std.Build.LazyPath,
+uucode_tables: std.Build.LazyPath,
 
 /// Used to keep track of a list of file sources.
 pub const LazyPathList = std.ArrayList(std.Build.LazyPath);
 
 pub fn init(b: *std.Build, cfg: *const Config) !SharedDeps {
-    const uucode_tables_zig = blk: {
+    const uucode_tables = blk: {
         const uucode = b.dependency("uucode", .{
             .build_config_path = b.path("src/build/uucode_config.zig"),
         });
@@ -32,9 +32,9 @@ pub fn init(b: *std.Build, cfg: *const Config) !SharedDeps {
     var result: SharedDeps = .{
         .config = cfg,
         .help_strings = try .init(b, cfg),
-        .unicode_tables = try .init(b, uucode_tables_zig),
+        .unicode_tables = try .init(b, uucode_tables),
         .framedata = try .init(b),
-        .uucode_tables_zig = uucode_tables_zig,
+        .uucode_tables = uucode_tables,
 
         // Setup by retarget
         .options = undefined,
@@ -423,7 +423,7 @@ pub fn add(
     if (b.lazyDependency("uucode", .{
         .target = target,
         .optimize = optimize,
-        .@"tables.zig" = self.uucode_tables_zig,
+        .tables_path = self.uucode_tables,
         .build_config_path = b.path("src/build/uucode_config.zig"),
     })) |dep| {
         step.root_module.addImport("uucode", dep.module("uucode"));

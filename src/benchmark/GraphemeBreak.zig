@@ -21,7 +21,7 @@ data_f: ?std.fs.File = null,
 
 pub const Options = struct {
     /// The type of codepoint width calculation to use.
-    mode: Mode = .noop,
+    mode: Mode = .table,
 
     /// The data to read as a filepath. If this is "-" then
     /// we will read stdin. If this is unset, then we will

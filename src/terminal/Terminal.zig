@@ -345,7 +345,7 @@ pub fn print(self: *Terminal, c: u21) !void {
             if (c == 0xFE0F or c == 0xFE0E) {
                 // This only applies to emoji
                 const prev_props = unicode.getProperties(prev.cell.content.codepoint);
-                const emoji = unicode.isExtendedPictographic(prev_props.grapheme_boundary_class);
+                const emoji = prev_props.grapheme_boundary_class.isExtendedPictographic();
                 if (!emoji) return;
 
                 switch (c) {

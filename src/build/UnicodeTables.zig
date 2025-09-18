@@ -11,7 +11,7 @@ symbols_exe: *std.Build.Step.Compile,
 props_output: std.Build.LazyPath,
 symbols_output: std.Build.LazyPath,
 
-pub fn init(b: *std.Build, uucode_tables_zig: std.Build.LazyPath) !UnicodeTables {
+pub fn init(b: *std.Build, uucode_tables: std.Build.LazyPath) !UnicodeTables {
     const props_exe = b.addExecutable(.{
         .name = "props-unigen",
         .root_module = b.createModule(.{
@@ -36,7 +36,7 @@ pub fn init(b: *std.Build, uucode_tables_zig: std.Build.LazyPath) !UnicodeTables
 
     if (b.lazyDependency("uucode", .{
         .target = b.graph.host,
-        .@"tables.zig" = uucode_tables_zig,
+        .tables_path = uucode_tables,
         .build_config_path = b.path("src/build/uucode_config.zig"),
     })) |dep| {
         inline for (&.{ props_exe, symbols_exe }) |exe| {
@@ -46,14 +46,12 @@ pub fn init(b: *std.Build, uucode_tables_zig: std.Build.LazyPath) !UnicodeTables
 
     const props_run = b.addRunArtifact(props_exe);
     const symbols_run = b.addRunArtifact(symbols_exe);
-    const props_output = props_run.addOutputFileArg("props_table.zig");
-    const symbols_output = symbols_run.addOutputFileArg("symbols_table.zig");
 
     return .{
         .props_exe = props_exe,
         .symbols_exe = symbols_exe,
-        .props_output = props_output,
-        .symbols_output = symbols_output,
+        .props_output = props_run.captureStdOut(),
+        .symbols_output = symbols_run.captureStdOut(),
     };
 }
 

@@ -128,14 +128,7 @@ fn stepTable(ptr: *anyopaque) Benchmark.Error!void {
             const cp_, const consumed = d.next(c);
             assert(consumed);
             if (cp_) |cp| {
-                if (uucode.getX(.is_symbol, cp) != symbols.table.get(cp)) {
-                    std.debug.panic("uucode and table disagree on codepoint {d}: uucode={}, table={}", .{
-                        cp,
-                        uucode.getX(.is_symbol, cp),
-                        symbols.table.get(cp),
-                    });
-                }
-                //std.mem.doNotOptimizeAway(symbols.table.get(cp));
+                std.mem.doNotOptimizeAway(symbols.table.get(cp));
             }
         }
     }

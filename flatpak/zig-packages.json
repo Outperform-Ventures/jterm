@@ -133,9 +133,9 @@
   },
   {
     "type": "archive",
-    "url": "https://github.com/jacobsandlund/uucode/archive/ef173d765bd756eeecf7ce89f93c4f70c9038ab6.tar.gz",
-    "dest": "vendor/p/uucode-0.0.0-ZZjBPtMqQABaVqHdy8MX_XwChpQyZBAGchp-1cPuiQ6J",
-    "sha256": "345047f7890799ac6c14b04478f81d2e33addc97db3e7f1c4d0d591e21fac418"
+    "url": "https://github.com/jacobsandlund/uucode/archive/3512203ca991c02b2500392d1d51226c48131c99.tar.gz",
+    "dest": "vendor/p/uucode-0.0.0-ZZjBPgErQADBJsnLdcZKdRk94lB28CbKC4OrUDPOnSeV",
+    "sha256": "9db6de1e0be4a0c9abe4324dd2a445efbea1bb7c1a4cbf3977c746a6f62c641c"
   },
   {
     "type": "git",
@@ -202,6 +202,12 @@
     "url": "https://github.com/TUSF/zigimg",
     "commit": "31268548fe3276c0e95f318a6c0d2ab10565b58d",
     "dest": "vendor/p/zigimg-0.1.0-lly-O6N2EABOxke8dqyzCwhtUCAafqP35zC7wsZ4Ddxj"
+  },
+  {
+    "type": "archive",
+    "url": "https://deps.files.ghostty.org/ziglyph-b89d43d1e3fb01b6074bc1f7fc980324b04d26a5.tar.gz",
+    "dest": "vendor/p/ziglyph-0.11.2-AAAAAHPtHwB4Mbzn1KvOV7Wpjo82NYEc_v0WC8oCLrkf",
+    "sha256": "72c7bdf3e16df105235fe3fcf32c987dac49389190f4ced89b0ee31710f3f3d9"
   },
   {
     "type": "archive",

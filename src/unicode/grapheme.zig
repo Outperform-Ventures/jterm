@@ -2,7 +2,6 @@ const std = @import("std");
 const props = @import("props.zig");
 const GraphemeBoundaryClass = props.GraphemeBoundaryClass;
 const table = props.table;
-const isExtendedPictographic = props.isExtendedPictographic;
 
 /// Determines if there is a grapheme break between two codepoints. This
 /// must be called sequentially maintaining the state between calls.
@@ -81,7 +80,7 @@ fn graphemeBreakClass(
     state: *BreakState,
 ) bool {
     // GB11: Emoji Extend* ZWJ x Emoji
-    if (!state.extended_pictographic and isExtendedPictographic(gbc1)) {
+    if (!state.extended_pictographic and gbc1.isExtendedPictographic()) {
         state.extended_pictographic = true;
     }
 
@@ -132,7 +131,7 @@ fn graphemeBreakClass(
     // GB11: Emoji Extend* ZWJ x Emoji
     if (state.extended_pictographic and
         gbc1 == .zwj and
-        isExtendedPictographic(gbc2))
+        gbc2.isExtendedPictographic())
     {
         state.extended_pictographic = false;
         return false;
@@ -156,38 +155,36 @@ fn graphemeBreakClass(
 /// TODO: this is hard to build with newer zig build, so
 /// https://github.com/ghostty-org/ghostty/pull/7806 took the approach of
 /// adding a `-Demit-unicode-test` option for `zig build`, but that
-/// hasn't been done here yet.
-/// TODO: this also still uses `ziglyph`, but could be switched to use
-/// `uucode`'s grapheme break once that is implemented.
+/// hasn't been done here.
 pub fn main() !void {
-    const ziglyph = @import("ziglyph");
+    const uucode = @import("uucode");
 
     // Set the min and max to control the test range.
     const min = 0;
     const max = std.math.maxInt(u21) + 1;
 
     var state: BreakState = .{};
-    var zg_state: u3 = 0;
+    var uu_state: uucode.grapheme.BreakState = .default;
     for (min..max) |cp1| {
         if (cp1 % 1000 == 0) std.log.warn("progress cp1={}", .{cp1});
 
         if (cp1 == '\r' or cp1 == '\n' or
-            ziglyph.grapheme_break.isControl(@intCast(cp1))) continue;
+            uucode.get(.grapheme_break, @intCast(cp1)) == .control) continue;
 
         for (min..max) |cp2| {
             if (cp2 == '\r' or cp2 == '\n' or
-                ziglyph.grapheme_break.isControl(@intCast(cp2))) continue;
+                uucode.get(.grapheme_break, @intCast(cp1)) == .control) continue;
 
             const gb = graphemeBreak(@intCast(cp1), @intCast(cp2), &state);
-            const zg_gb = ziglyph.graphemeBreak(@intCast(cp1), @intCast(cp2), &zg_state);
-            if (gb != zg_gb) {
-                std.log.warn("cp1={x} cp2={x} gb={} state={} zg_gb={} zg_state={}", .{
+            const uu_gb = uucode.grapheme.isBreak(@intCast(cp1), @intCast(cp2), &uu_state);
+            if (gb != uu_gb) {
+                std.log.warn("cp1={x} cp2={x} gb={} state={} uu_gb={} uu_state={}", .{
                     cp1,
                     cp2,
                     gb,
                     state,
-                    zg_gb,
-                    zg_state,
+                    uu_gb,
+                    uu_state,
                 });
             }
         }
