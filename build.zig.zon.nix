@@ -259,11 +259,11 @@ in
       };
     }
     {
-      name = "uucode-0.0.0-ZZjBPl_dPwC-BPhSJLID4Hs9O0zw-vZKGXdaOBFch8c8";
+      name = "uucode-0.0.0-ZZjBPtMqQABaVqHdy8MX_XwChpQyZBAGchp-1cPuiQ6J";
       path = fetchZigArtifact {
         name = "uucode";
-        url = "https://github.com/jacobsandlund/uucode/archive/69782fbe79e06a34ee177978d3479ed5801ce0af.tar.gz";
-        hash = "sha256-wTtlHjbl17xNeg67vNELNJs9lXX3wndV5+6dqZOEvbQ=";
+        url = "https://github.com/jacobsandlund/uucode/archive/ef173d765bd756eeecf7ce89f93c4f70c9038ab6.tar.gz";
+        hash = "sha256-NFBH94kHmaxsFLBEePgdLjOt3JfbPn8cTQ1ZHiH6xBg=";
       };
     }
     {
