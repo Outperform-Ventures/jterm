@@ -857,6 +857,7 @@ jobs:
   test-debian-13:
     name: Test build on Debian 13
     runs-on: namespace-profile-ghostty-sm
+    timeout-minutes: 10
     needs: [test, build-dist]
     steps:
       - name: Install and configure Namespace CLI
