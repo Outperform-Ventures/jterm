@@ -5,9 +5,9 @@ const Config = @This();
 const std = @import("std");
 const builtin = @import("builtin");
 
-const apprt = @import("../apprt.zig");
-const font = @import("../font/main.zig");
-const rendererpkg = @import("../renderer.zig");
+const ApprtRuntime = @import("../apprt/runtime.zig").Runtime;
+const FontBackend = @import("../font/backend.zig").Backend;
+const RendererBackend = @import("../renderer/backend.zig").Backend;
 const Command = @import("../Command.zig");
 const XCFramework = @import("GhosttyXCFramework.zig");
 const WasmTarget = @import("../os/wasm/target.zig").Target;
@@ -29,9 +29,9 @@ xcframework_target: XCFramework.Target = .universal,
 wasm_target: WasmTarget,
 
 /// Comptime interfaces
-app_runtime: apprt.Runtime = .none,
-renderer: rendererpkg.Impl = .opengl,
-font_backend: font.Backend = .freetype,
+app_runtime: ApprtRuntime = .none,
+renderer: RendererBackend = .opengl,
+font_backend: FontBackend = .freetype,
 
 /// Feature flags
 x11: bool = false,
@@ -126,22 +126,22 @@ pub fn init(b: *std.Build) !Config {
     //---------------------------------------------------------------
     // Comptime Interfaces
     config.font_backend = b.option(
-        font.Backend,
+        FontBackend,
         "font-backend",
         "The font backend to use for discovery and rasterization.",
-    ) orelse font.Backend.default(target.result, wasm_target);
+    ) orelse FontBackend.default(target.result, wasm_target);
 
     config.app_runtime = b.option(
-        apprt.Runtime,
+        ApprtRuntime,
         "app-runtime",
         "The app runtime to use. Not all values supported on all platforms.",
-    ) orelse apprt.Runtime.default(target.result);
+    ) orelse ApprtRuntime.default(target.result);
 
     config.renderer = b.option(
-        rendererpkg.Impl,
+        RendererBackend,
         "renderer",
         "The app runtime to use. Not all values supported on all platforms.",
-    ) orelse rendererpkg.Impl.default(target.result, wasm_target);
+    ) orelse RendererBackend.default(target.result, wasm_target);
 
     //---------------------------------------------------------------
     // Feature Flags
@@ -446,9 +446,9 @@ pub fn addOptions(self: *const Config, step: *std.Build.Step.Options) !void {
     step.addOption(bool, "wayland", self.wayland);
     step.addOption(bool, "sentry", self.sentry);
     step.addOption(bool, "i18n", self.i18n);
-    step.addOption(apprt.Runtime, "app_runtime", self.app_runtime);
-    step.addOption(font.Backend, "font_backend", self.font_backend);
-    step.addOption(rendererpkg.Impl, "renderer", self.renderer);
+    step.addOption(ApprtRuntime, "app_runtime", self.app_runtime);
+    step.addOption(FontBackend, "font_backend", self.font_backend);
+    step.addOption(RendererBackend, "renderer", self.renderer);
     step.addOption(ExeEntrypoint, "exe_entrypoint", self.exe_entrypoint);
     step.addOption(WasmTarget, "wasm_target", self.wasm_target);
     step.addOption(bool, "wasm_shared", self.wasm_shared);
@@ -503,9 +503,9 @@ pub fn fromOptions() Config {
 
         .version = options.app_version,
         .flatpak = options.flatpak,
-        .app_runtime = std.meta.stringToEnum(apprt.Runtime, @tagName(options.app_runtime)).?,
-        .font_backend = std.meta.stringToEnum(font.Backend, @tagName(options.font_backend)).?,
-        .renderer = std.meta.stringToEnum(rendererpkg.Impl, @tagName(options.renderer)).?,
+        .app_runtime = std.meta.stringToEnum(ApprtRuntime, @tagName(options.app_runtime)).?,
+        .font_backend = std.meta.stringToEnum(FontBackend, @tagName(options.font_backend)).?,
+        .renderer = std.meta.stringToEnum(RendererBackend, @tagName(options.renderer)).?,
         .exe_entrypoint = std.meta.stringToEnum(ExeEntrypoint, @tagName(options.exe_entrypoint)).?,
         .wasm_target = std.meta.stringToEnum(WasmTarget, @tagName(options.wasm_target)).?,
         .wasm_shared = options.wasm_shared,
