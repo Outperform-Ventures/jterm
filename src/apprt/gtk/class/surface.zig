@@ -9,6 +9,7 @@ const gobject = @import("gobject");
 const gtk = @import("gtk");
 
 const apprt = @import("../../../apprt.zig");
+const build_config = @import("../../../build_config.zig");
 const datastruct = @import("../../../datastruct/main.zig");
 const font = @import("../../../font/main.zig");
 const input = @import("../../../input.zig");
@@ -1227,8 +1228,10 @@ pub const Surface = extern struct {
 
         // Unset environment varies set by snaps if we're running in a snap.
         // This allows Ghostty to further launch additional snaps.
-        if (env.get("SNAP")) |_| {
-            try filterSnapPaths(alloc, &env);
+        if (comptime build_config.snap) {
+            if (env.get("SNAP")) |_| {
+                try filterSnapPaths(alloc, &env);
+            }
         }
 
         // This is a hack because it ties ourselves (optionally) to the
