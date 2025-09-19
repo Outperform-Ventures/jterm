@@ -1609,9 +1609,6 @@ pub const Trigger = struct {
             .unicode => |cp| std.hash.autoHash(
                 hasher,
                 foldedCodepoint(cp),
-                // TODO: Alternatively, just use simple case folding, and
-                // delete `foldedCodepoint` below:
-                // uucode.get(.case_folding_simple, cp),
             ),
         }
         std.hash.autoHash(hasher, self.mods.binding());

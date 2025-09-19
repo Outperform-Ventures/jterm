@@ -208,7 +208,7 @@ fn stepUucode(ptr: *anyopaque) Benchmark.Error!void {
                 std.mem.doNotOptimizeAway(if (cp <= 0xFF)
                     1
                 else
-                    uucode.getX(.width, @intCast(cp)));
+                    uucode.get(.width, @intCast(cp)));
             }
         }
     }

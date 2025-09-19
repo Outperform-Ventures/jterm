@@ -64,28 +64,22 @@ pub const tables = [_]config.Table{
         .fields = &.{
             d.field("is_emoji_presentation"),
             d.field("case_folding_full"),
-            // TODO: Alternatively, use:
-            // d.field("case_folding_simple"),
             d.field("is_emoji_modifier"),
             d.field("is_emoji_modifier_base"),
         },
     },
     .{
-        .stages = .two,
         .extensions = &.{ wcwidth, width },
         .fields = &.{
             width.field("width"),
         },
     },
     .{
-        .stages = .two,
-        .extensions = &.{},
         .fields = &.{
             d.field("grapheme_break"),
         },
     },
     .{
-        .stages = .two,
         .extensions = &.{is_symbol},
         .fields = &.{
             is_symbol.field("is_symbol"),

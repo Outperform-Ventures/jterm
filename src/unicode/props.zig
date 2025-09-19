@@ -131,7 +131,7 @@ pub fn get(cp: u21) Properties {
     const width = if (cp > uucode.config.max_code_point)
         1
     else
-        uucode.getX(.width, cp);
+        uucode.get(.width, cp);
 
     return .{
         .width = width,
@@ -188,7 +188,7 @@ test "unicode props: tables match uucode" {
         const uu = if (cp > uucode.config.max_code_point)
             1
         else
-            uucode.getX(.width, @intCast(cp));
+            uucode.get(.width, @intCast(cp));
         if (t.width != uu) {
             std.log.warn("mismatch cp=U+{x} t={} uu={}", .{ cp, t.width, uu });
             try testing.expect(false);

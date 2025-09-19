@@ -35,7 +35,7 @@ test "codepointWidth basic" {
 //         const uu = if (cp > uucode.config.max_code_point)
 //             1
 //         else
-//             uucode.getX(.width, @intCast(cp));
+//             uucode.get(.width, @intCast(cp));
 //         if (simd != uu) mismatch: {
 //             if (cp == 0x2E3B) {
 //                 try testing.expectEqual(@as(i8, 2), simd);

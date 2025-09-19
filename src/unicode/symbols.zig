@@ -31,7 +31,7 @@ pub fn main() !void {
                 return if (cp > uucode.config.max_code_point)
                     false
                 else
-                    uucode.getX(.is_symbol, @intCast(cp));
+                    uucode.get(.is_symbol, @intCast(cp));
             }
 
             pub fn eql(ctx: @This(), a: bool, b: bool) bool {
@@ -65,7 +65,7 @@ test "unicode symbols: tables match uucode" {
         const uu = if (cp > uucode.config.max_code_point)
             false
         else
-            uucode.getX(.is_symbol, @intCast(cp));
+            uucode.get(.is_symbol, @intCast(cp));
 
         if (t != uu) {
             std.log.warn("mismatch cp=U+{x} t={} uu={}", .{ cp, t, uu });

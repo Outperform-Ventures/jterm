@@ -104,7 +104,7 @@ fn stepUucode(ptr: *anyopaque) Benchmark.Error!void {
             const cp_, const consumed = d.next(c);
             assert(consumed);
             if (cp_) |cp| {
-                std.mem.doNotOptimizeAway(uucode.getX(.is_symbol, cp));
+                std.mem.doNotOptimizeAway(uucode.get(.is_symbol, cp));
             }
         }
     }
