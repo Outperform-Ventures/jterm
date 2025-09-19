@@ -1229,9 +1229,10 @@ pub const Surface = extern struct {
         // Unset environment varies set by snaps if we're running in a snap.
         // This allows Ghostty to further launch additional snaps.
         if (comptime build_config.snap) {
-            if (env.get("SNAP")) |_| {
-                try filterSnapPaths(alloc, &env);
-            }
+            if (env.get("SNAP") != null) try filterSnapPaths(
+                alloc,
+                &env,
+            );
         }
 
         // This is a hack because it ties ourselves (optionally) to the
@@ -1245,9 +1246,11 @@ pub const Surface = extern struct {
         return env;
     }
 
-    /// Filter out environment variables that start with forbidden prefixes
-    fn filterSnapPaths(allocator: std.mem.Allocator, env_map: *std.process.EnvMap) !void {
-        const snap_paths_vars = [_][]const u8{
+    /// Filter out environment variables that start with forbidden prefixes.
+    fn filterSnapPaths(gpa: std.mem.Allocator, env_map: *std.process.EnvMap) !void {
+        comptime assert(build_config.snap);
+
+        const snap_vars = [_][]const u8{
             "SNAP",
             "SNAP_USER_COMMON",
             "SNAP_USER_DATA",
@@ -1255,68 +1258,53 @@ pub const Surface = extern struct {
             "SNAP_COMMON",
         };
 
-        var env_to_remove = std.ArrayList([]const u8).init(allocator);
-        defer env_to_remove.deinit();
+        // Use an arena because everything in this function is temporary.
+        var arena = std.heap.ArenaAllocator.init(gpa);
+        defer arena.deinit();
+        const alloc = arena.allocator();
 
+        var env_to_remove = std.ArrayList([]const u8).init(alloc);
         var env_to_update = std.ArrayList(struct {
             key: []const u8,
             value: []const u8,
-        }).init(allocator);
-        defer {
-            for (env_to_update.items) |item| {
-                allocator.free(item.value);
-            }
-            env_to_update.deinit();
-        }
+        }).init(alloc);
 
         var it = env_map.iterator();
         while (it.next()) |entry| {
             const key = entry.key_ptr.*;
             const value = entry.value_ptr.*;
 
-            if (std.mem.eql(u8, key, "TERMINFO")) {
-                continue;
-            }
+            // Ignore fields we set ourself
+            if (std.mem.eql(u8, key, "TERMINFO")) continue;
+            if (std.mem.startsWith(u8, key, "GHOSTTY")) continue;
 
-            if (std.mem.startsWith(u8, key, "GHOSTTY")) {
-                continue;
-            }
-
+            // Any env var starting with SNAP must be removed
             if (std.mem.startsWith(u8, key, "SNAP_")) {
                 try env_to_remove.append(key);
                 continue;
             }
 
-            var paths = std.mem.splitAny(u8, value, ":");
-            var filtered_paths = std.ArrayList([]const u8).init(allocator);
+            var filtered_paths = std.ArrayList([]const u8).init(alloc);
             defer filtered_paths.deinit();
 
             var modified = false;
+            var paths = std.mem.splitAny(u8, value, ":");
             while (paths.next()) |path| {
                 var include = true;
-                for (snap_paths_vars) |snap_path_var| {
-                    const snap_path_val = env_map.get(snap_path_var);
-
-                    if (snap_path_val) |snap_path| {
-                        if (snap_path.len == 0) {
-                            continue;
-                        }
-
-                        if (std.mem.startsWith(u8, path, snap_path)) {
-                            include = false;
-                            modified = true;
-                            break;
-                        }
+                for (snap_vars) |k| if (env_map.get(k)) |snap_path| {
+                    if (snap_path.len == 0) continue;
+                    if (std.mem.startsWith(u8, path, snap_path)) {
+                        include = false;
+                        modified = true;
+                        break;
                     }
-                }
-                if (include) {
-                    try filtered_paths.append(path);
-                }
+                };
+                if (include) try filtered_paths.append(path);
             }
 
             if (modified) {
                 if (filtered_paths.items.len > 0) {
-                    const new_value = try std.mem.join(allocator, ":", filtered_paths.items);
+                    const new_value = try std.mem.join(alloc, ":", filtered_paths.items);
                     try env_to_update.append(.{ .key = key, .value = new_value });
                 } else {
                     try env_to_remove.append(key);
@@ -1324,13 +1312,11 @@ pub const Surface = extern struct {
             }
         }
 
-        for (env_to_update.items) |item| {
-            try env_map.put(item.key, item.value);
-        }
-
-        for (env_to_remove.items) |key| {
-            _ = env_map.remove(key);
-        }
+        for (env_to_update.items) |item| try env_map.put(
+            item.key,
+            item.value,
+        );
+        for (env_to_remove.items) |key| _ = env_map.remove(key);
     }
 
     pub fn clipboardRequest(
