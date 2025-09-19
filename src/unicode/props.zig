@@ -174,8 +174,6 @@ pub fn main() !void {
     // });
 }
 
-// This is not very fast in debug modes, so its commented by default.
-// IMPORTANT: UNCOMMENT THIS WHENEVER MAKING CODEPOINTWIDTH CHANGES.
 test "unicode props: tables match uucode" {
     if (std.valgrind.runningOnValgrind() > 0) return error.SkipZigTest;
 
