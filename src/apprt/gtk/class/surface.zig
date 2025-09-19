@@ -1228,18 +1228,7 @@ pub const Surface = extern struct {
         // Unset environment varies set by snaps if we're running in a snap.
         // This allows Ghostty to further launch additional snaps.
         if (env.get("SNAP")) |_| {
-            env.remove("SNAP");
-            env.remove("DRIRC_CONFIGDIR");
-            env.remove("__EGL_EXTERNAL_PLATFORM_CONFIG_DIRS");
-            env.remove("__EGL_VENDOR_LIBRARY_DIRS");
-            env.remove("LD_LIBRARY_PATH");
-            env.remove("LIBGL_DRIVERS_PATH");
-            env.remove("LIBVA_DRIVERS_PATH");
-            env.remove("VK_LAYER_PATH");
-            env.remove("XLOCALEDIR");
-            env.remove("GDK_PIXBUF_MODULEDIR");
-            env.remove("GDK_PIXBUF_MODULE_FILE");
-            env.remove("GTK_PATH");
+            try filterSnapPaths(alloc, &env);
         }
 
         // This is a hack because it ties ourselves (optionally) to the
@@ -1251,6 +1240,94 @@ pub const Surface = extern struct {
         }
 
         return env;
+    }
+
+    /// Filter out environment variables that start with forbidden prefixes
+    fn filterSnapPaths(allocator: std.mem.Allocator, env_map: *std.process.EnvMap) !void {
+        const snap_paths_vars = [_][]const u8{
+            "SNAP",
+            "SNAP_USER_COMMON",
+            "SNAP_USER_DATA",
+            "SNAP_DATA",
+            "SNAP_COMMON",
+        };
+
+        var env_to_remove = std.ArrayList([]const u8).init(allocator);
+        defer env_to_remove.deinit();
+
+        var env_to_update = std.ArrayList(struct {
+            key: []const u8,
+            value: []const u8,
+        }).init(allocator);
+        defer {
+            for (env_to_update.items) |item| {
+                allocator.free(item.value);
+            }
+            env_to_update.deinit();
+        }
+
+        var it = env_map.iterator();
+        while (it.next()) |entry| {
+            const key = entry.key_ptr.*;
+            const value = entry.value_ptr.*;
+
+            if (std.mem.eql(u8, key, "TERMINFO")) {
+                continue;
+            }
+
+            if (std.mem.startsWith(u8, key, "GHOSTTY")) {
+                continue;
+            }
+
+            if (std.mem.startsWith(u8, key, "SNAP_")) {
+                try env_to_remove.append(key);
+                continue;
+            }
+
+            var paths = std.mem.splitAny(u8, value, ":");
+            var filtered_paths = std.ArrayList([]const u8).init(allocator);
+            defer filtered_paths.deinit();
+
+            var modified = false;
+            while (paths.next()) |path| {
+                var include = true;
+                for (snap_paths_vars) |snap_path_var| {
+                    const snap_path_val = env_map.get(snap_path_var);
+
+                    if (snap_path_val) |snap_path| {
+                        if (snap_path.len == 0) {
+                            continue;
+                        }
+
+                        if (std.mem.startsWith(u8, path, snap_path)) {
+                            include = false;
+                            modified = true;
+                            break;
+                        }
+                    }
+                }
+                if (include) {
+                    try filtered_paths.append(path);
+                }
+            }
+
+            if (modified) {
+                if (filtered_paths.items.len > 0) {
+                    const new_value = try std.mem.join(allocator, ":", filtered_paths.items);
+                    try env_to_update.append(.{ .key = key, .value = new_value });
+                } else {
+                    try env_to_remove.append(key);
+                }
+            }
+        }
+
+        for (env_to_update.items) |item| {
+            try env_map.put(item.key, item.value);
+        }
+
+        for (env_to_remove.items) |key| {
+            _ = env_map.remove(key);
+        }
     }
 
     pub fn clipboardRequest(
