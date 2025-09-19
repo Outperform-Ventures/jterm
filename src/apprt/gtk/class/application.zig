@@ -42,6 +42,70 @@ const GlobalShortcuts = @import("global_shortcuts.zig").GlobalShortcuts;
 
 const log = std.log.scoped(.gtk_ghostty_application);
 
+/// Function used to funnel GLib/GObject/GTK log messages into Zig's logging
+/// system rather than just getting dumped directly to stderr.
+fn glibLogWriterFunction(
+    level: glib.LogLevelFlags,
+    fields: [*]const glib.LogField,
+    n_fields: usize,
+    _: ?*anyopaque,
+) callconv(.c) glib.LogWriterOutput {
+    const glib_log = std.log.scoped(.glib);
+
+    var message_: ?[]const u8 = null;
+    var domain_: ?[]const u8 = null;
+    for (0..n_fields) |i| {
+        const field = fields[i];
+        const k = std.mem.span(field.f_key orelse continue);
+        const v: []const u8 = v: {
+            if (field.f_length >= 0) {
+                const v: [*]const u8 = @ptrCast(field.f_value orelse continue);
+                break :v v[0..@intCast(field.f_length)];
+            }
+            const v: [*:0]const u8 = @ptrCast(field.f_value orelse continue);
+            break :v std.mem.span(v);
+        };
+        if (std.mem.eql(u8, k, "MESSAGE")) {
+            message_ = v;
+            continue;
+        }
+        if (std.mem.eql(u8, k, "GLIB_DOMAIN")) {
+            domain_ = v;
+            continue;
+        }
+    }
+
+    const message = message_ orelse return .unhandled;
+    const domain = domain_ orelse "«unknown»";
+
+    if (level.level_error) {
+        glib_log.err("ERROR: {s}: {s}", .{ domain, message });
+        return .handled;
+    }
+    if (level.level_critical) {
+        glib_log.err("CRITICAL: {s}: {s}", .{ domain, message });
+        return .handled;
+    }
+    if (level.level_warning) {
+        glib_log.warn("WARNING: {s}: {s}", .{ domain, message });
+        return .handled;
+    }
+    if (level.level_message) {
+        glib_log.info("MESSAGE: {s}: {s}", .{ domain, message });
+        return .handled;
+    }
+    if (level.level_info) {
+        glib_log.info("INFO: {s}: {s}", .{ domain, message });
+        return .handled;
+    }
+    if (level.level_debug) {
+        glib_log.debug("DEBUG: {s}: {s}", .{ domain, message });
+        return .handled;
+    }
+    glib_log.debug("UNKNOWN: {s}: {s}", .{ domain, message });
+    return .handled;
+}
+
 /// The primary entrypoint for the Ghostty GTK application.
 ///
 /// This requires a `ghostty.App` and `ghostty.Config` and takes
@@ -176,6 +240,10 @@ pub const Application = extern struct {
         core_app: *CoreApp,
     ) Allocator.Error!*Self {
         const alloc = core_app.alloc;
+
+        // Capture GLib/GObject/GTK log messages and funnel them through Zig's
+        // logging system rather than just getting dumped directly to stderr.
+        _ = glib.logSetWriterFunc(glibLogWriterFunction, null, null);
 
         // Log our GTK versions
         gtk_version.logVersion();
