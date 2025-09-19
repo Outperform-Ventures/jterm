@@ -1,5 +1,5 @@
 const std = @import("std");
-const Config = @import("Config.zig");
+const Config = @import("../config/Config.zig");
 
 /// This is the associated Vim file as named by the variable.
 pub const syntax = comptimeGenSyntax();

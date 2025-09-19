@@ -1,5 +1,5 @@
 const std = @import("std");
-const Config = @import("Config.zig");
+const Config = @import("../config/Config.zig");
 
 const Template = struct {
     const header =

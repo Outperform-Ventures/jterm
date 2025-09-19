@@ -4,7 +4,7 @@
 
 const std = @import("std");
 const Config = @import("config/Config.zig");
-const Action = @import("cli.zig").ghostty.Action;
+const Action = @import("cli/ghostty.zig").Action;
 const KeybindAction = @import("input/Binding.zig").Action;
 
 pub fn main() !void {

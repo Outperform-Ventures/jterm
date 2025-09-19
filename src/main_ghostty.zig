@@ -191,4 +191,11 @@ test {
     _ = @import("simd/main.zig");
     _ = @import("synthetic/main.zig");
     _ = @import("unicode/main.zig");
+
+    // Extra
+    _ = @import("extra/bash.zig");
+    _ = @import("extra/fish.zig");
+    _ = @import("extra/sublime.zig");
+    _ = @import("extra/vim.zig");
+    _ = @import("extra/zsh.zig");
 }
