@@ -20,7 +20,7 @@ platforms:
 apps:
   ghostty:
     command: bin/ghostty
-    command-chain: [bin/launcher]
+    command-chain: [app/launcher]
     completer: share/bash-completion/completions/ghostty.bash
     desktop: share/applications/com.mitchellh.ghostty.desktop
     #refresh-mode: ignore-running # Store rejects this, needs fix in review-tools
@@ -35,7 +35,7 @@ parts:
     source: snap/local
     source-type: local
     organize:
-      launcher: bin/
+      launcher: app/
 
   zig:
     plugin: nil
