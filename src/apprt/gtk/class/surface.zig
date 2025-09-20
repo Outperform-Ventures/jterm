@@ -435,6 +435,7 @@ pub const Surface = extern struct {
         /// The current focus state of the terminal based on the
         /// focus events.
         focused: bool = true,
+        unfocused_widget: ?*gtk.Widget = null,
 
         /// Whether this surface is "zoomed" or not. A zoomed surface
         /// shows up taking the full bounds of a split view.
@@ -1989,6 +1990,11 @@ pub const Surface = extern struct {
         _ = glib.idleAddOnce(idleFocus, self.ref());
         self.as(gobject.Object).notifyByPspec(properties.focused.impl.param_spec);
 
+        if (priv.unfocused_widget) |widget| {
+            priv.terminal_page.removeOverlay(widget);
+            priv.unfocused_widget = null;
+        }
+
         // Bell stops ringing as soon as we gain focus
         self.setBellRinging(false);
     }
@@ -1999,6 +2005,16 @@ pub const Surface = extern struct {
         priv.im_context.as(gtk.IMContext).focusOut();
         _ = glib.idleAddOnce(idleFocus, self.ref());
         self.as(gobject.Object).notifyByPspec(properties.focused.impl.param_spec);
+
+        if (priv.unfocused_widget) |_| return;
+        // add unfocused-split-fill
+        priv.unfocused_widget = unfocused_widget: {
+            const drawing_area = gtk.DrawingArea.new();
+            const unfocused_widget = drawing_area.as(gtk.Widget);
+            unfocused_widget.addCssClass("unfocused-split");
+            priv.terminal_page.addOverlay(unfocused_widget);
+            break :unfocused_widget unfocused_widget;
+        };
     }
 
     /// The focus callback must be triggered on an idle loop source because
