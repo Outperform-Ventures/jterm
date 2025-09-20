@@ -107,6 +107,21 @@ pub fn add(
     // Every exe gets build options populated
     step.root_module.addOptions("build_options", self.options);
 
+    // Every exe needs the terminal options
+    {
+        const vt_options = @import("../terminal/build_options.zig");
+        vt_options.addOptions(b, step.root_module, .{
+            .artifact = .ghostty,
+            .slow_runtime_safety = switch (optimize) {
+                .Debug => true,
+                .ReleaseSafe,
+                .ReleaseSmall,
+                .ReleaseFast,
+                => false,
+            },
+        });
+    }
+
     // Freetype
     _ = b.systemIntegrationOption("freetype", .{}); // Shows it in help
     if (self.config.font_backend.hasFreetype()) {

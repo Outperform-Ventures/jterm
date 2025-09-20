@@ -4,7 +4,7 @@
 const PageList = @This();
 
 const std = @import("std");
-const build_config = @import("../build_config.zig");
+const build_options = @import("terminal_options");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const fastmem = @import("../fastmem.zig");
@@ -1492,7 +1492,7 @@ fn resizeWithoutReflow(self: *PageList, opts: Resize) !void {
             },
         }
 
-        if (build_config.slow_runtime_safety) {
+        if (build_options.slow_runtime_safety) {
             assert(self.totalRows() >= self.rows);
         }
     }
@@ -2524,7 +2524,7 @@ pub fn pin(self: *const PageList, pt: point.Point) ?Pin {
 /// pin points to is removed completely, the tracked pin will be updated
 /// to the top-left of the screen.
 pub fn trackPin(self: *PageList, p: Pin) Allocator.Error!*Pin {
-    if (build_config.slow_runtime_safety) assert(self.pinIsValid(p));
+    if (build_options.slow_runtime_safety) assert(self.pinIsValid(p));
 
     // Create our tracked pin
     const tracked = try self.pool.pins.create();
@@ -2556,7 +2556,7 @@ pub fn countTrackedPins(self: *const PageList) usize {
 pub fn pinIsValid(self: *const PageList, p: Pin) bool {
     // This is very slow so we want to ensure we only ever
     // call this during slow runtime safety builds.
-    comptime assert(build_config.slow_runtime_safety);
+    comptime assert(build_options.slow_runtime_safety);
 
     var it = self.pages.first;
     while (it) |node| : (it = node.next) {
@@ -3234,7 +3234,7 @@ pub fn pageIterator(
     else
         self.getBottomRight(tl_pt) orelse return .{ .row = null };
 
-    if (build_config.slow_runtime_safety) {
+    if (build_options.slow_runtime_safety) {
         assert(tl_pin.eql(bl_pin) or tl_pin.before(bl_pin));
     }
 
@@ -3510,7 +3510,7 @@ pub const Pin = struct {
         direction: Direction,
         limit: ?Pin,
     ) PageIterator {
-        if (build_config.slow_runtime_safety) {
+        if (build_options.slow_runtime_safety) {
             if (limit) |l| {
                 // Check the order according to the iteration direction.
                 switch (direction) {
@@ -3560,7 +3560,7 @@ pub const Pin = struct {
     // Note: this is primarily unit tested as part of the Kitty
     // graphics deletion code.
     pub fn isBetween(self: Pin, top: Pin, bottom: Pin) bool {
-        if (build_config.slow_runtime_safety) {
+        if (build_options.slow_runtime_safety) {
             if (top.node == bottom.node) {
                 // If top is bottom, must be ordered.
                 assert(top.y <= bottom.y);

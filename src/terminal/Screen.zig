@@ -1,7 +1,7 @@
 const Screen = @This();
 
 const std = @import("std");
-const build_config = @import("../build_config.zig");
+const build_options = @import("terminal_options");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const ansi = @import("ansi.zig");
@@ -23,6 +23,8 @@ const Page = pagepkg.Page;
 const Row = pagepkg.Row;
 const Cell = pagepkg.Cell;
 const Pin = PageList.Pin;
+
+pub const CursorStyle = @import("cursor.zig").Style;
 
 const log = std.log.scoped(.screen);
 
@@ -141,22 +143,6 @@ pub const Cursor = struct {
     }
 };
 
-/// The visual style of the cursor. Whether or not it blinks
-/// is determined by mode 12 (modes.zig). This mode is synchronized
-/// with CSI q, the same as xterm.
-pub const CursorStyle = enum {
-    bar, // DECSCUSR 5, 6
-    block, // DECSCUSR 1, 2
-    underline, // DECSCUSR 3, 4
-
-    /// The cursor styles below aren't known by DESCUSR and are custom
-    /// implemented in Ghostty. They are reported as some standard style
-    /// if requested, though.
-    /// Hollow block cursor. This is a block cursor with the center empty.
-    /// Reported as DECSCUSR 1 or 2 (block).
-    block_hollow,
-};
-
 /// Saved cursor state.
 pub const SavedCursor = struct {
     x: size.CellCountInt,
@@ -232,7 +218,7 @@ pub fn deinit(self: *Screen) void {
 /// tests. This only asserts the screen specific data so callers should
 /// ensure they're also calling page integrity checks if necessary.
 pub fn assertIntegrity(self: *const Screen) void {
-    if (build_config.slow_runtime_safety) {
+    if (build_options.slow_runtime_safety) {
         // We don't run integrity checks on Valgrind because its soooooo slow,
         // Valgrind is our integrity checker, and we run these during unit
         // tests (non-Valgrind) anyways so we're verifying anyways.
@@ -772,7 +758,7 @@ pub fn cursorDownScroll(self: *Screen) !void {
 
         // These assertions help catch some pagelist math errors. Our
         // x/y should be unchanged after the grow.
-        if (build_config.slow_runtime_safety) {
+        if (build_options.slow_runtime_safety) {
             const active = self.pages.pointFromPin(
                 .active,
                 page_pin,

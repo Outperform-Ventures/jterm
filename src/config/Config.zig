@@ -19,7 +19,6 @@ const ArenaAllocator = std.heap.ArenaAllocator;
 const global_state = &@import("../global.zig").state;
 const fontpkg = @import("../font/main.zig");
 const inputpkg = @import("../input.zig");
-const terminal = @import("../terminal/main.zig");
 const internal_os = @import("../os/main.zig");
 const cli = @import("../cli.zig");
 
@@ -38,6 +37,16 @@ const RepeatableReadableIO = @import("io.zig").RepeatableReadableIO;
 const RepeatableStringMap = @import("RepeatableStringMap.zig");
 pub const Path = @import("path.zig").Path;
 pub const RepeatablePath = @import("path.zig").RepeatablePath;
+
+// We do this instead of importing all of terminal/main.zig to
+// limit the dependency graph. This is important because some things
+// like the `ghostty-build-data` binary depend on the Config but don't
+// want to include all the other stuff.
+const terminal = struct {
+    const CursorStyle = @import("../terminal/cursor.zig").Style;
+    const color = @import("../terminal/color.zig");
+    const x11_color = @import("../terminal/x11_color.zig");
+};
 
 const log = std.log.scoped(.config);
 

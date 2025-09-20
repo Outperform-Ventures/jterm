@@ -64,11 +64,19 @@ pub fn init(b: *std.Build) !UnicodeTables {
 /// Add the "unicode_tables" import.
 pub fn addImport(self: *const UnicodeTables, step: *std.Build.Step.Compile) void {
     self.props_output.addStepDependencies(&step.step);
-    step.root_module.addAnonymousImport("unicode_tables", .{
+    self.symbols_output.addStepDependencies(&step.step);
+    self.addModuleImport(step.root_module);
+}
+
+/// Add the "unicode_tables" import to a module.
+pub fn addModuleImport(
+    self: *const UnicodeTables,
+    module: *std.Build.Module,
+) void {
+    module.addAnonymousImport("unicode_tables", .{
         .root_source_file = self.props_output,
     });
-    self.symbols_output.addStepDependencies(&step.step);
-    step.root_module.addAnonymousImport("symbols_tables", .{
+    module.addAnonymousImport("symbols_tables", .{
         .root_source_file = self.symbols_output,
     });
 }
