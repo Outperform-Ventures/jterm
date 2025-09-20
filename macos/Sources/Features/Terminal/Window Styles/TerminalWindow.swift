@@ -480,7 +480,7 @@ class TerminalWindow: NSWindow {
             backgroundColor = .white.withAlphaComponent(0.001)
 
             // Add liquid glass behind terminal content
-            if #available(macOS 26.0, *), derivedConfig.macosBackgroundStyle != .blur {
+            if #available(macOS 26.0, *), derivedConfig.macosBackgroundStyle != .defaultStyle {
                 setupGlassLayer()
             } else if let appDelegate = NSApp.delegate as? AppDelegate {
                 ghostty_set_window_background_blur(
@@ -633,7 +633,7 @@ class TerminalWindow: NSWindow {
             self.backgroundColor = NSColor.windowBackgroundColor
             self.backgroundOpacity = 1
             self.macosWindowButtons = .visible
-            self.macosBackgroundStyle = .blur
+            self.macosBackgroundStyle = .defaultStyle
             self.windowCornerRadius = 16
         }
 
