@@ -399,7 +399,12 @@ pub const SplitTree = extern struct {
         const tree = self.getTree() orelse return null;
         var it = tree.iterator();
         while (it.next()) |entry| {
-            if (entry.view.getFocused()) return entry.handle;
+            if (!entry.view.getFocused() and it.nodes.len > 1) {
+                entry.view.setUnfocused();
+            }
+            if (entry.view.getFocused()) {
+                return entry.handle;
+            }
         }
 
         // If none are currently focused, the most previously focused
