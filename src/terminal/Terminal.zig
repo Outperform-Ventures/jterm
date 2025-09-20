@@ -344,7 +344,7 @@ pub fn print(self: *Terminal, c: u21) !void {
             // VS15 makes it narrow.
             if (c == 0xFE0F or c == 0xFE0E) {
                 // This only applies to emoji
-                const prev_props = unicode.getProperties(prev.cell.content.codepoint);
+                const prev_props = unicode.table.get(prev.cell.content.codepoint);
                 const emoji = prev_props.grapheme_boundary_class.isExtendedPictographic();
                 if (!emoji) return;
 
@@ -470,7 +470,7 @@ pub fn print(self: *Terminal, c: u21) !void {
 
         // If this is a emoji variation selector, prev must be an emoji
         if (c == 0xFE0F or c == 0xFE0E) {
-            const prev_props = unicode.getProperties(prev.content.codepoint);
+            const prev_props = unicode.table.get(prev.content.codepoint);
             const emoji = prev_props.grapheme_boundary_class == .extended_pictographic;
             if (!emoji) return;
         }
