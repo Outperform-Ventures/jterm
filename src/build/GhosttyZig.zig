@@ -23,6 +23,7 @@ pub fn init(
     deps.unicode_tables.addModuleImport(vt);
     vt_options.addOptions(b, vt, .{
         .artifact = .lib,
+        .oniguruma = false,
         .slow_runtime_safety = switch (cfg.optimize) {
             .Debug => true,
             .ReleaseSafe,
