@@ -119,7 +119,7 @@ Overlay terminal_page {
   // Apply unfocused-split-fill and unfocused-split-opacity to current surface
   // this is only applied when a tab has more than one surface
   Revealer {
-    reveal-child: bind $should_unfocused_split_be_shown(template.unfocused-split) as <bool>;
+    reveal-child: bind $should_unfocused_split_be_shown(template.focused, template.n-siblings) as <bool>;
     transition-duration: 0;
 
     DrawingArea {

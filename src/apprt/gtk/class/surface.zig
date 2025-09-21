@@ -153,24 +153,6 @@ pub const Surface = extern struct {
             );
         };
 
-        pub const @"unfocused-split" = struct {
-            pub const name = "unfocused-split";
-            const impl = gobject.ext.defineProperty(
-                name,
-                Self,
-                bool,
-                .{
-                    .default = true,
-                    .accessor = gobject.ext.privateFieldAccessor(
-                        Self,
-                        Private,
-                        &Private.offset,
-                        "unfocused_split",
-                    ),
-                },
-            );
-        };
-
         pub const @"min-size" = struct {
             pub const name = "min-size";
             const impl = gobject.ext.defineProperty(
@@ -288,6 +270,26 @@ pub const Surface = extern struct {
                         Private,
                         &Private.offset,
                         "zoom",
+                    ),
+                },
+            );
+        };
+
+        pub const @"n-siblings" = struct {
+            pub const name = "n-siblings";
+            const impl = gobject.ext.defineProperty(
+                name,
+                Self,
+                u64,
+                .{
+                    .default = 0,
+                    .minimum = 0,
+                    .maximum = std.math.maxInt(c_uint),
+                    .accessor = gobject.ext.privateFieldAccessor(
+                        Self,
+                        Private,
+                        &Private.offset,
+                        "n_siblings",
                     ),
                 },
             );
@@ -453,7 +455,6 @@ pub const Surface = extern struct {
         /// The current focus state of the terminal based on the
         /// focus events.
         focused: bool = true,
-        unfocused_split: bool = false,
 
         /// Whether this surface is "zoomed" or not. A zoomed surface
         /// shows up taking the full bounds of a split view.
@@ -520,6 +521,8 @@ pub const Surface = extern struct {
 
         /// A weak reference to an inspector window.
         inspector: ?*InspectorWindow = null,
+
+        n_siblings: u64 = 0,
 
         // Template binds
         child_exited_overlay: *ChildExited,
@@ -623,9 +626,10 @@ pub const Surface = extern struct {
     /// should be applied to the surface
     fn closureShouldUnfocusedSplitBeShown(
         _: *Self,
-        unfocused_split: c_int,
+        focused: c_int,
+        n_siblings: c_int,
     ) callconv(.c) c_int {
-        return @intFromBool(unfocused_split != 0);
+        return @intFromBool(focused == 0 and n_siblings > 0);
     }
 
     pub fn toggleFullscreen(self: *Self) void {
@@ -1332,7 +1336,6 @@ pub const Surface = extern struct {
         priv.mouse_shape = .text;
         priv.mouse_hidden = false;
         priv.focused = true;
-        priv.unfocused_split = false;
         priv.size = .{ .width = 0, .height = 0 };
 
         // If our configuration is null then we get the configuration
@@ -1520,11 +1523,11 @@ pub const Surface = extern struct {
         return self.private().focused;
     }
 
-    /// If unfocused add the unfocused-split widget for this surface
-    pub fn setUnfocusedSplit(self: *Self) void {
+    /// Set number of siblings related to this surface.
+    pub fn setNSiblings(self: *Self, siblings: u64) void {
         const priv = self.private();
-        priv.unfocused_split = !priv.focused;
-        self.as(gobject.Object).notifyByPspec(properties.@"unfocused-split".impl.param_spec);
+        priv.n_siblings = siblings;
+        self.as(gobject.Object).notifyByPspec(properties.@"n-siblings".impl.param_spec);
     }
 
     /// Change the configuration for this surface.
@@ -2024,10 +2027,6 @@ pub const Surface = extern struct {
         priv.im_context.as(gtk.IMContext).focusIn();
         _ = glib.idleAddOnce(idleFocus, self.ref());
         self.as(gobject.Object).notifyByPspec(properties.focused.impl.param_spec);
-
-        // remove unfocused-split-fill and unfocused-split-opacity
-        priv.unfocused_split = false;
-        self.as(gobject.Object).notifyByPspec(properties.@"unfocused-split".impl.param_spec);
 
         // Bell stops ringing as soon as we gain focus
         self.setBellRinging(false);
@@ -2814,7 +2813,6 @@ pub const Surface = extern struct {
                 properties.@"error".impl,
                 properties.@"font-size-request".impl,
                 properties.focused.impl,
-                properties.@"unfocused-split".impl,
                 properties.@"min-size".impl,
                 properties.@"mouse-shape".impl,
                 properties.@"mouse-hidden".impl,
@@ -2823,6 +2821,7 @@ pub const Surface = extern struct {
                 properties.title.impl,
                 properties.@"title-override".impl,
                 properties.zoom.impl,
+                properties.@"n-siblings".impl,
             });
 
             // Signals
