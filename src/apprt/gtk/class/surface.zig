@@ -623,9 +623,9 @@ pub const Surface = extern struct {
     /// should be applied to the surface
     fn closureShouldUnfocusedSplitBeShown(
         _: *Self,
-        unfocused_split_: c_int,
+        unfocused_split: c_int,
     ) callconv(.c) c_int {
-        return @intFromBool(unfocused_split_ != 0);
+        return @intFromBool(unfocused_split != 0);
     }
 
     pub fn toggleFullscreen(self: *Self) void {
@@ -2025,7 +2025,7 @@ pub const Surface = extern struct {
         _ = glib.idleAddOnce(idleFocus, self.ref());
         self.as(gobject.Object).notifyByPspec(properties.focused.impl.param_spec);
 
-        // remove unfocused split fill and opacity
+        // remove unfocused-split-fill and unfocused-split-opacity
         priv.unfocused_split = false;
         self.as(gobject.Object).notifyByPspec(properties.@"unfocused-split".impl.param_spec);
 
