@@ -522,6 +522,9 @@ pub const Surface = extern struct {
         /// A weak reference to an inspector window.
         inspector: ?*InspectorWindow = null,
 
+        /// Number of siblings related to this surface. This is used for
+        /// the unfocused-split-* options which are only applied when ther is
+        /// more than once surface (split) in a tab
         n_siblings: u64 = 0,
 
         // Template binds
