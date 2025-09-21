@@ -306,9 +306,10 @@ pub fn constraintWidth(cell_pin: terminal.Pin) u2 {
 }
 
 /// Whether min contrast should be disabled for a given glyph.
+/// True for glyphs used for terminal graphics, such as box
+/// drawing characters, block elements, and Powerline glyphs.
 pub fn noMinContrast(cp: u21) bool {
-    // TODO: We should disable for all box drawing type characters.
-    return isPowerline(cp);
+    return isBoxDrawing(cp) or isBlockElement(cp) or isLegacyComputing(cp) or isPowerline(cp);
 }
 
 // Some general spaces, others intentionally kept
@@ -318,6 +319,32 @@ fn isSpace(char: u21) bool {
         0x0020, // SPACE
         0x2002, // EN SPACE
         => true,
+        else => false,
+    };
+}
+
+// Returns true if the codepoint is a box drawing character.
+fn isBoxDrawing(char: u21) bool {
+    return switch (char) {
+        0x2500...0x257F => true,
+        else => false,
+    };
+}
+
+// Returns true if the codepoint is a block element.
+fn isBlockElement(char: u21) bool {
+    return switch (char) {
+        0x2580...0x259F => true,
+        else => false,
+    };
+}
+
+// Returns true if the codepoint is in a Symbols for Legacy
+// Computing block, including supplements.
+fn isLegacyComputing(char: u21) bool {
+    return switch (char) {
+        0x1FB00...0x1FBFF => true,
+        0x1CC00...0x1CEBF => true, // Supplement introduced in Unicode 16.0
         else => false,
     };
 }
