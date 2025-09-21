@@ -386,7 +386,7 @@ pub const Face = struct {
     }
 
     /// Get a rect that represents the position and size of the loaded glyph.
-    fn getGlyphSize(glyph: freetype.c.FT_GlyphSlot) font.face.RenderOptions.Constraint.GlyphSize {
+    fn getGlyphSize(glyph: freetype.c.FT_GlyphSlot) font.face.GlyphSize {
         // If we're dealing with an outline glyph then we get the
         // outline's bounding box instead of using the built-in
         // metrics, since that's more precise and allows better
