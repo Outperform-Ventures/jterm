@@ -1492,6 +1492,7 @@ pub const Surface = extern struct {
         return self.private().focused;
     }
 
+    /// If unfocused add the unfocused-split widget for this surface
     pub fn setUnfocused(self: *Self) void {
         const priv = self.private();
         if (!priv.focused and (priv.unfocused_widget == null)) {
@@ -2018,16 +2019,6 @@ pub const Surface = extern struct {
         priv.im_context.as(gtk.IMContext).focusOut();
         _ = glib.idleAddOnce(idleFocus, self.ref());
         self.as(gobject.Object).notifyByPspec(properties.focused.impl.param_spec);
-
-        // if (priv.unfocused_widget) |_| return;
-        // add unfocused-split-fill
-        // priv.unfocused_widget = unfocused_widget: {
-        //     const drawing_area = gtk.DrawingArea.new();
-        //     const unfocused_widget = drawing_area.as(gtk.Widget);
-        //     unfocused_widget.addCssClass("unfocused-split");
-        //     priv.terminal_page.addOverlay(unfocused_widget);
-        //     break :unfocused_widget unfocused_widget;
-        // };
     }
 
     /// The focus callback must be triggered on an idle loop source because

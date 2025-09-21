@@ -399,12 +399,7 @@ pub const SplitTree = extern struct {
         const tree = self.getTree() orelse return null;
         var it = tree.iterator();
         while (it.next()) |entry| {
-            if (!entry.view.getFocused() and it.nodes.len > 1) {
-                entry.view.setUnfocused();
-            }
-            if (entry.view.getFocused()) {
-                return entry.handle;
-            }
+            if (entry.view.getFocused()) return entry.handle;
         }
 
         // If none are currently focused, the most previously focused
@@ -715,7 +710,13 @@ pub const SplitTree = extern struct {
         // We never CLEAR our last_focused because the property is specifically
         // the last focused surface. We let the weakref clear itself when
         // the surface is destroyed.
-        if (!surface.getFocused()) return;
+        if (!surface.getFocused()) {
+            // If we have more than 1 active surface and we aren't focused we want to apply unfocused-split-fill
+            if (self.getTree()) |tree| {
+                if (tree.nodes.len > 1) surface.setUnfocused();
+            }
+            return;
+        }
         self.private().last_focused.set(surface);
 
         // Our active surface probably changed
