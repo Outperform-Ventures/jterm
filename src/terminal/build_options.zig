@@ -5,7 +5,12 @@ pub const Options = struct {
     artifact: Artifact = .ghostty,
 
     /// Whether Oniguruma regex support is available. If this isn't
-    /// available, some features will be disabled.
+    /// available, some features will be disabled. This may be outdated,
+    /// but the specific disabled features are:
+    ///
+    /// - Kitty graphics protocol
+    /// - Tmux control mode
+    ///
     oniguruma: bool = true,
 
     /// True if we should enable the "slow" runtime safety checks. These

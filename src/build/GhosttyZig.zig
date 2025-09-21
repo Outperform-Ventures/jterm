@@ -23,7 +23,12 @@ pub fn init(
     deps.unicode_tables.addModuleImport(vt);
     vt_options.addOptions(b, vt, .{
         .artifact = .lib,
+
+        // We presently don't allow Oniguruma in our Zig module at all.
+        // We should expose this as a build option in the future so we can
+        // conditionally do this.
         .oniguruma = false,
+
         .slow_runtime_safety = switch (cfg.optimize) {
             .Debug => true,
             .ReleaseSafe,
