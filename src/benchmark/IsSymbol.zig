@@ -10,7 +10,8 @@ const Allocator = std.mem.Allocator;
 const Benchmark = @import("Benchmark.zig");
 const options = @import("options.zig");
 const UTF8Decoder = @import("../terminal/UTF8Decoder.zig");
-const symbols = @import("../unicode/symbols.zig");
+const symbols = @import("../unicode/symbols_ziglyph.zig");
+const symbols_table = @import("../unicode/symbols_table.zig").table;
 
 const log = std.log.scoped(.@"is-symbol-bench");
 
@@ -127,7 +128,7 @@ fn stepTable(ptr: *anyopaque) Benchmark.Error!void {
             const cp_, const consumed = d.next(c);
             assert(consumed);
             if (cp_) |cp| {
-                std.mem.doNotOptimizeAway(symbols.table.get(cp));
+                std.mem.doNotOptimizeAway(symbols_table.get(cp));
             }
         }
     }

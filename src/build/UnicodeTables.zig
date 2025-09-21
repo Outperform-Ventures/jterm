@@ -15,7 +15,7 @@ pub fn init(b: *std.Build) !UnicodeTables {
     const props_exe = b.addExecutable(.{
         .name = "props-unigen",
         .root_module = b.createModule(.{
-            .root_source_file = b.path("src/unicode/props.zig"),
+            .root_source_file = b.path("src/unicode/props_ziglyph.zig"),
             .target = b.graph.host,
             .strip = false,
             .omit_frame_pointer = false,
@@ -26,7 +26,7 @@ pub fn init(b: *std.Build) !UnicodeTables {
     const symbols_exe = b.addExecutable(.{
         .name = "symbols-unigen",
         .root_module = b.createModule(.{
-            .root_source_file = b.path("src/unicode/symbols.zig"),
+            .root_source_file = b.path("src/unicode/symbols_ziglyph.zig"),
             .target = b.graph.host,
             .strip = false,
             .omit_frame_pointer = false,
