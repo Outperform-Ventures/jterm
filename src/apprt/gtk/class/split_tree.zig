@@ -713,7 +713,7 @@ pub const SplitTree = extern struct {
         if (!surface.getFocused()) {
             // If we have more than 1 active surface and we aren't focused we want to apply unfocused-split-fill
             if (self.getTree()) |tree| {
-                if (tree.nodes.len > 1) surface.setUnfocusedFill();
+                if (tree.nodes.len > 1) surface.setUnfocusedSplit();
             }
             return;
         }

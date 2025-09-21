@@ -153,6 +153,24 @@ pub const Surface = extern struct {
             );
         };
 
+        pub const @"unfocused-split" = struct {
+            pub const name = "unfocused-split";
+            const impl = gobject.ext.defineProperty(
+                name,
+                Self,
+                bool,
+                .{
+                    .default = true,
+                    .accessor = gobject.ext.privateFieldAccessor(
+                        Self,
+                        Private,
+                        &Private.offset,
+                        "unfocused_split",
+                    ),
+                },
+            );
+        };
+
         pub const @"min-size" = struct {
             pub const name = "min-size";
             const impl = gobject.ext.defineProperty(
@@ -435,7 +453,7 @@ pub const Surface = extern struct {
         /// The current focus state of the terminal based on the
         /// focus events.
         focused: bool = true,
-        unfocused_widget: ?*gtk.Widget = null,
+        unfocused_split: bool = false,
 
         /// Whether this surface is "zoomed" or not. A zoomed surface
         /// shows up taking the full bounds of a split view.
@@ -599,6 +617,15 @@ pub const Surface = extern struct {
         };
 
         return @intFromBool(config.@"bell-features".border);
+    }
+
+    /// Callback used to determine whether unfocused-split-fill / unfocused-split-opacity
+    /// should be applied to the surface
+    fn closureShouldUnfocusedSplitBeShown(
+        _: *Self,
+        unfocused_split_: c_int,
+    ) callconv(.c) c_int {
+        return @intFromBool(unfocused_split_ != 0);
     }
 
     pub fn toggleFullscreen(self: *Self) void {
@@ -1305,6 +1332,7 @@ pub const Surface = extern struct {
         priv.mouse_shape = .text;
         priv.mouse_hidden = false;
         priv.focused = true;
+        priv.unfocused_split = false;
         priv.size = .{ .width = 0, .height = 0 };
 
         // If our configuration is null then we get the configuration
@@ -1493,17 +1521,10 @@ pub const Surface = extern struct {
     }
 
     /// If unfocused add the unfocused-split widget for this surface
-    pub fn setUnfocusedFill(self: *Self) void {
+    pub fn setUnfocusedSplit(self: *Self) void {
         const priv = self.private();
-        if (!priv.focused and (priv.unfocused_widget == null)) {
-            priv.unfocused_widget = unfocused_widget: {
-                const drawing_area = gtk.DrawingArea.new();
-                const unfocused_widget = drawing_area.as(gtk.Widget);
-                unfocused_widget.addCssClass("unfocused-split");
-                priv.terminal_page.addOverlay(unfocused_widget);
-                break :unfocused_widget unfocused_widget;
-            };
-        }
+        priv.unfocused_split = !priv.focused;
+        self.as(gobject.Object).notifyByPspec(properties.@"unfocused-split".impl.param_spec);
     }
 
     /// Change the configuration for this surface.
@@ -2004,10 +2025,9 @@ pub const Surface = extern struct {
         _ = glib.idleAddOnce(idleFocus, self.ref());
         self.as(gobject.Object).notifyByPspec(properties.focused.impl.param_spec);
 
-        if (priv.unfocused_widget) |widget| {
-            priv.terminal_page.removeOverlay(widget);
-            priv.unfocused_widget = null;
-        }
+        // remove unfocused split fill and opacity
+        priv.unfocused_split = false;
+        self.as(gobject.Object).notifyByPspec(properties.@"unfocused-split".impl.param_spec);
 
         // Bell stops ringing as soon as we gain focus
         self.setBellRinging(false);
@@ -2783,6 +2803,7 @@ pub const Surface = extern struct {
             class.bindTemplateCallback("notify_mouse_shape", &propMouseShape);
             class.bindTemplateCallback("notify_bell_ringing", &propBellRinging);
             class.bindTemplateCallback("should_border_be_shown", &closureShouldBorderBeShown);
+            class.bindTemplateCallback("should_unfocused_split_be_shown", &closureShouldUnfocusedSplitBeShown);
 
             // Properties
             gobject.ext.registerProperties(class, &.{
@@ -2793,6 +2814,7 @@ pub const Surface = extern struct {
                 properties.@"error".impl,
                 properties.@"font-size-request".impl,
                 properties.focused.impl,
+                properties.@"unfocused-split".impl,
                 properties.@"min-size".impl,
                 properties.@"mouse-shape".impl,
                 properties.@"mouse-hidden".impl,
