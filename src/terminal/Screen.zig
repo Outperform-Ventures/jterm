@@ -66,7 +66,10 @@ protected_mode: ansi.ProtectedMode = .off,
 kitty_keyboard: kitty.KeyFlagStack = .{},
 
 /// Kitty graphics protocol state.
-kitty_images: kitty.graphics.ImageStorage = .{},
+kitty_images: if (build_options.kitty_graphics)
+    kitty.graphics.ImageStorage
+else
+    struct {} = .{},
 
 /// Dirty flags for the renderer.
 dirty: Dirty = .{},
@@ -208,7 +211,9 @@ pub fn init(
 }
 
 pub fn deinit(self: *Screen) void {
-    self.kitty_images.deinit(self.alloc, self);
+    if (comptime build_options.kitty_graphics) {
+        self.kitty_images.deinit(self.alloc, self);
+    }
     self.cursor.deinit(self.alloc);
     self.pages.deinit();
 }
@@ -269,9 +274,11 @@ pub fn reset(self: *Screen) void {
         .page_cell = cursor_rac.cell,
     };
 
-    // Reset kitty graphics storage
-    self.kitty_images.deinit(self.alloc, self);
-    self.kitty_images = .{ .dirty = true };
+    if (comptime build_options.kitty_graphics) {
+        // Reset kitty graphics storage
+        self.kitty_images.deinit(self.alloc, self);
+        self.kitty_images = .{ .dirty = true };
+    }
 
     // Reset our basic state
     self.saved_cursor = null;
@@ -690,8 +697,10 @@ pub fn cursorDownScroll(self: *Screen) !void {
     assert(self.cursor.y == self.pages.rows - 1);
     defer self.assertIntegrity();
 
-    // Scrolling dirties the images because it updates their placements pins.
-    self.kitty_images.dirty = true;
+    if (comptime build_options.kitty_graphics) {
+        // Scrolling dirties the images because it updates their placements pins.
+        self.kitty_images.dirty = true;
+    }
 
     // If we have no scrollback, then we shift all our rows instead.
     if (self.no_scrollback) {
@@ -1154,10 +1163,12 @@ pub const Scroll = union(enum) {
 pub fn scroll(self: *Screen, behavior: Scroll) void {
     defer self.assertIntegrity();
 
-    // No matter what, scrolling marks our image state as dirty since
-    // it could move placements. If there are no placements or no images
-    // this is still a very cheap operation.
-    self.kitty_images.dirty = true;
+    if (comptime build_options.kitty_graphics) {
+        // No matter what, scrolling marks our image state as dirty since
+        // it could move placements. If there are no placements or no images
+        // this is still a very cheap operation.
+        self.kitty_images.dirty = true;
+    }
 
     switch (behavior) {
         .active => self.pages.scroll(.{ .active = {} }),
@@ -1176,10 +1187,12 @@ pub fn scrollClear(self: *Screen) !void {
     try self.pages.scrollClear();
     self.cursorReload();
 
-    // No matter what, scrolling marks our image state as dirty since
-    // it could move placements. If there are no placements or no images
-    // this is still a very cheap operation.
-    self.kitty_images.dirty = true;
+    if (comptime build_options.kitty_graphics) {
+        // No matter what, scrolling marks our image state as dirty since
+        // it could move placements. If there are no placements or no images
+        // this is still a very cheap operation.
+        self.kitty_images.dirty = true;
+    }
 }
 
 /// Returns true if the viewport is scrolled to the bottom of the screen.
@@ -1299,14 +1312,16 @@ pub fn clearCells(
         if (cells.len == self.pages.cols) row.styled = false;
     }
 
-    if (row.kitty_virtual_placeholder and
-        cells.len == self.pages.cols)
-    {
-        for (cells) |c| {
-            if (c.codepoint() == kitty.graphics.unicode.placeholder) {
-                break;
-            }
-        } else row.kitty_virtual_placeholder = false;
+    if (comptime build_options.kitty_graphics) {
+        if (row.kitty_virtual_placeholder and
+            cells.len == self.pages.cols)
+        {
+            for (cells) |c| {
+                if (c.codepoint() == kitty.graphics.unicode.placeholder) {
+                    break;
+                }
+            } else row.kitty_virtual_placeholder = false;
+        }
     }
 
     @memset(cells, self.blankCell());
@@ -1570,8 +1585,10 @@ fn resizeInternal(
 ) !void {
     defer self.assertIntegrity();
 
-    // No matter what we mark our image state as dirty
-    self.kitty_images.dirty = true;
+    if (comptime build_options.kitty_graphics) {
+        // No matter what we mark our image state as dirty
+        self.kitty_images.dirty = true;
+    }
 
     // Release the cursor style while resizing just
     // in case the cursor ends up on a different page.

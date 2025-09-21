@@ -890,8 +890,10 @@ pub const Page = struct {
                         error.NeedsRehash => return error.StyleSetNeedsRehash,
                     } orelse src_cell.style_id;
                 }
-                if (src_cell.codepoint() == kitty.graphics.unicode.placeholder) {
-                    dst_row.kitty_virtual_placeholder = true;
+                if (comptime build_options.kitty_graphics) {
+                    if (src_cell.codepoint() == kitty.graphics.unicode.placeholder) {
+                        dst_row.kitty_virtual_placeholder = true;
+                    }
                 }
             }
         }
@@ -980,8 +982,10 @@ pub const Page = struct {
                     dst.hyperlink = true;
                     dst_row.hyperlink = true;
                 }
-                if (src.codepoint() == kitty.graphics.unicode.placeholder) {
-                    dst_row.kitty_virtual_placeholder = true;
+                if (comptime build_options.kitty_graphics) {
+                    if (src.codepoint() == kitty.graphics.unicode.placeholder) {
+                        dst_row.kitty_virtual_placeholder = true;
+                    }
                 }
             }
         }
@@ -1002,7 +1006,9 @@ pub const Page = struct {
             src_row.grapheme = false;
             src_row.hyperlink = false;
             src_row.styled = false;
-            src_row.kitty_virtual_placeholder = false;
+            if (comptime build_options.kitty_graphics) {
+                src_row.kitty_virtual_placeholder = false;
+            }
         }
     }
 
@@ -1100,14 +1106,16 @@ pub const Page = struct {
             if (cells.len == self.size.cols) row.styled = false;
         }
 
-        if (row.kitty_virtual_placeholder and
-            cells.len == self.size.cols)
-        {
-            for (cells) |c| {
-                if (c.codepoint() == kitty.graphics.unicode.placeholder) {
-                    break;
-                }
-            } else row.kitty_virtual_placeholder = false;
+        if (comptime build_options.kitty_graphics) {
+            if (row.kitty_virtual_placeholder and
+                cells.len == self.size.cols)
+            {
+                for (cells) |c| {
+                    if (c.codepoint() == kitty.graphics.unicode.placeholder) {
+                        break;
+                    }
+                } else row.kitty_virtual_placeholder = false;
+            }
         }
 
         // Zero the cells as u64s since empirically this seems
@@ -1929,6 +1937,9 @@ pub const Row = packed struct(u64) {
 
     /// True if this row contains a virtual placeholder for the Kitty
     /// graphics protocol. (U+10EEEE)
+    // Note: We keep this as memory-using even if the kitty graphics
+    // feature is disabled because we want to keep our padding and
+    // everything throughout the same.
     kitty_virtual_placeholder: bool = false,
 
     _padding: u23 = 0,

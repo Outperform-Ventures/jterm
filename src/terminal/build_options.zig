@@ -34,6 +34,7 @@ pub fn addOptions(
     opts.addOption(bool, "slow_runtime_safety", v.slow_runtime_safety);
 
     // These are synthesized based on other options.
+    opts.addOption(bool, "kitty_graphics", v.oniguruma);
     opts.addOption(bool, "tmux_control_mode", v.oniguruma);
 
     m.addOptions("terminal_options", opts);

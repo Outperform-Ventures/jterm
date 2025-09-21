@@ -1153,9 +1153,11 @@ const ReflowCursor = struct {
                 self.page_cell.style_id = id;
             }
 
-            // Copy Kitty virtual placeholder status
-            if (cell.codepoint() == kitty.graphics.unicode.placeholder) {
-                self.page_row.kitty_virtual_placeholder = true;
+            if (comptime build_options.kitty_graphics) {
+                // Copy Kitty virtual placeholder status
+                if (cell.codepoint() == kitty.graphics.unicode.placeholder) {
+                    self.page_row.kitty_virtual_placeholder = true;
+                }
             }
 
             self.cursorForward();
@@ -8917,6 +8919,8 @@ test "PageList resize reflow less cols to wrap a multi-codepoint grapheme with a
 }
 
 test "PageList resize reflow less cols copy kitty placeholder" {
+    if (comptime !build_options.kitty_graphics) return error.SkipZigTest;
+
     const testing = std.testing;
     const alloc = testing.allocator;
 
@@ -8956,6 +8960,8 @@ test "PageList resize reflow less cols copy kitty placeholder" {
 }
 
 test "PageList resize reflow more cols clears kitty placeholder" {
+    if (comptime !build_options.kitty_graphics) return error.SkipZigTest;
+
     const testing = std.testing;
     const alloc = testing.allocator;
 
@@ -8997,6 +9003,8 @@ test "PageList resize reflow more cols clears kitty placeholder" {
 }
 
 test "PageList resize reflow wrap moves kitty placeholder" {
+    if (comptime !build_options.kitty_graphics) return error.SkipZigTest;
+
     const testing = std.testing;
     const alloc = testing.allocator;
 
