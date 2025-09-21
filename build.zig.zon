@@ -45,6 +45,7 @@
             // codeberg ifreund/zig-wayland
             .url = "https://codeberg.org/ifreund/zig-wayland/archive/f3c5d503e540ada8cbcb056420de240af0c094f7.tar.gz",
             .hash = "wayland-0.4.0-dev-lQa1kjfIAQCmhhQu3xF0KH-94-TzeMXOqfnP0-Dg6Wyy",
+            .lazy = true,
         },
         .zf = .{
             // natecraddock/zf
@@ -103,10 +104,12 @@
         .jetbrains_mono = .{
             .url = "https://deps.files.ghostty.org/JetBrainsMono-2.304.tar.gz",
             .hash = "N-V-__8AAIC5lwAVPJJzxnCAahSvZTIlG-HhtOvnM1uh-66x",
+            .lazy = true,
         },
         .nerd_fonts_symbols_only = .{
             .url = "https://deps.files.ghostty.org/NerdFontsSymbolsOnly-3.4.0.tar.gz",
             .hash = "N-V-__8AAMVLTABmYkLqhZPLXnMl-KyN38R8UVYqGrxqO26s",
+            .lazy = true,
         },
 
         // Other

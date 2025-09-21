@@ -4,7 +4,7 @@ pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    const upstream = b.dependency("libxml2", .{});
+    const upstream_ = b.lazyDependency("libxml2", .{});
 
     const lib = b.addLibrary(.{
         .name = "xml2",
@@ -16,7 +16,7 @@ pub fn build(b: *std.Build) !void {
     });
     lib.linkLibC();
 
-    lib.addIncludePath(upstream.path("include"));
+    if (upstream_) |upstream| lib.addIncludePath(upstream.path("include"));
     lib.addIncludePath(b.path("override/include"));
     if (target.result.os.tag == .windows) {
         lib.addIncludePath(b.path("override/config/win32"));
@@ -97,21 +97,23 @@ pub fn build(b: *std.Build) !void {
         }
     }
 
-    lib.addCSourceFiles(.{
-        .root = upstream.path(""),
-        .files = srcs,
-        .flags = flags.items,
-    });
+    if (upstream_) |upstream| {
+        lib.addCSourceFiles(.{
+            .root = upstream.path(""),
+            .files = srcs,
+            .flags = flags.items,
+        });
 
-    lib.installHeader(
-        b.path("override/include/libxml/xmlversion.h"),
-        "libxml/xmlversion.h",
-    );
-    lib.installHeadersDirectory(
-        upstream.path("include"),
-        "",
-        .{ .include_extensions = &.{".h"} },
-    );
+        lib.installHeader(
+            b.path("override/include/libxml/xmlversion.h"),
+            "libxml/xmlversion.h",
+        );
+        lib.installHeadersDirectory(
+            upstream.path("include"),
+            "",
+            .{ .include_extensions = &.{".h"} },
+        );
+    }
 
     b.installArtifact(lib);
 }
