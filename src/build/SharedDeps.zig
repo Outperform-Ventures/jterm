@@ -502,38 +502,40 @@ pub fn add(
     // Fonts
     {
         // JetBrains Mono
-        const jb_mono = b.dependency("jetbrains_mono", .{});
-        step.root_module.addAnonymousImport(
-            "jetbrains_mono_regular",
-            .{ .root_source_file = jb_mono.path("fonts/ttf/JetBrainsMono-Regular.ttf") },
-        );
-        step.root_module.addAnonymousImport(
-            "jetbrains_mono_bold",
-            .{ .root_source_file = jb_mono.path("fonts/ttf/JetBrainsMono-Bold.ttf") },
-        );
-        step.root_module.addAnonymousImport(
-            "jetbrains_mono_italic",
-            .{ .root_source_file = jb_mono.path("fonts/ttf/JetBrainsMono-Italic.ttf") },
-        );
-        step.root_module.addAnonymousImport(
-            "jetbrains_mono_bold_italic",
-            .{ .root_source_file = jb_mono.path("fonts/ttf/JetBrainsMono-BoldItalic.ttf") },
-        );
-        step.root_module.addAnonymousImport(
-            "jetbrains_mono_variable",
-            .{ .root_source_file = jb_mono.path("fonts/variable/JetBrainsMono[wght].ttf") },
-        );
-        step.root_module.addAnonymousImport(
-            "jetbrains_mono_variable_italic",
-            .{ .root_source_file = jb_mono.path("fonts/variable/JetBrainsMono-Italic[wght].ttf") },
-        );
+        if (b.lazyDependency("jetbrains_mono", .{})) |jb_mono| {
+            step.root_module.addAnonymousImport(
+                "jetbrains_mono_regular",
+                .{ .root_source_file = jb_mono.path("fonts/ttf/JetBrainsMono-Regular.ttf") },
+            );
+            step.root_module.addAnonymousImport(
+                "jetbrains_mono_bold",
+                .{ .root_source_file = jb_mono.path("fonts/ttf/JetBrainsMono-Bold.ttf") },
+            );
+            step.root_module.addAnonymousImport(
+                "jetbrains_mono_italic",
+                .{ .root_source_file = jb_mono.path("fonts/ttf/JetBrainsMono-Italic.ttf") },
+            );
+            step.root_module.addAnonymousImport(
+                "jetbrains_mono_bold_italic",
+                .{ .root_source_file = jb_mono.path("fonts/ttf/JetBrainsMono-BoldItalic.ttf") },
+            );
+            step.root_module.addAnonymousImport(
+                "jetbrains_mono_variable",
+                .{ .root_source_file = jb_mono.path("fonts/variable/JetBrainsMono[wght].ttf") },
+            );
+            step.root_module.addAnonymousImport(
+                "jetbrains_mono_variable_italic",
+                .{ .root_source_file = jb_mono.path("fonts/variable/JetBrainsMono-Italic[wght].ttf") },
+            );
+        }
 
         // Symbols-only nerd font
-        const nf_symbols = b.dependency("nerd_fonts_symbols_only", .{});
-        step.root_module.addAnonymousImport(
-            "nerd_fonts_symbols_only",
-            .{ .root_source_file = nf_symbols.path("SymbolsNerdFont-Regular.ttf") },
-        );
+        if (b.lazyDependency("nerd_fonts_symbols_only", .{})) |nf_symbols| {
+            step.root_module.addAnonymousImport(
+                "nerd_fonts_symbols_only",
+                .{ .root_source_file = nf_symbols.path("SymbolsNerdFont-Regular.ttf") },
+            );
+        }
     }
 
     // If we're building an exe then we have additional dependencies.
@@ -615,17 +617,20 @@ fn addGtkNg(
             "plasma_wayland_protocols",
             .{},
         );
+        const zig_wayland_import_ = b.lazyImport(
+            @import("../../build.zig"),
+            "zig_wayland",
+        );
+        const zig_wayland_dep_ = b.lazyDependency("zig_wayland", .{});
 
         // Unwrap or return, there are no more dependencies below.
         const wayland_dep = wayland_dep_ orelse break :wayland;
         const wayland_protocols_dep = wayland_protocols_dep_ orelse break :wayland;
         const plasma_wayland_protocols_dep = plasma_wayland_protocols_dep_ orelse break :wayland;
+        const zig_wayland_import = zig_wayland_import_ orelse break :wayland;
+        const zig_wayland_dep = zig_wayland_dep_ orelse break :wayland;
 
-        // Note that zig_wayland cannot be lazy because lazy dependencies
-        // can't be imported since they don't exist and imports are
-        // resolved at compile time of the build.
-        const zig_wayland_dep = b.dependency("zig_wayland", .{});
-        const Scanner = @import("zig_wayland").Scanner;
+        const Scanner = zig_wayland_import.Scanner;
         const scanner = Scanner.create(zig_wayland_dep.builder, .{
             .wayland_xml = wayland_dep.path("protocol/wayland.xml"),
             .wayland_protocols = wayland_protocols_dep.path(""),

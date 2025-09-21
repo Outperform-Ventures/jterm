@@ -4,10 +4,10 @@ pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    const upstream = b.dependency("spirv_cross", .{});
+    const upstream = b.lazyDependency("spirv_cross", .{});
 
     const module = b.addModule("spirv_cross", .{ .root_source_file = b.path("main.zig") });
-    module.addIncludePath(upstream.path(""));
+    if (upstream) |v| module.addIncludePath(v.path(""));
 
     const lib = try buildSpirvCross(b, upstream, target, optimize);
     b.installArtifact(lib);
@@ -33,7 +33,7 @@ pub fn build(b: *std.Build) !void {
 
 fn buildSpirvCross(
     b: *std.Build,
-    upstream: *std.Build.Dependency,
+    upstream_: ?*std.Build.Dependency,
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
 ) !*std.Build.Step.Compile {
@@ -62,6 +62,7 @@ fn buildSpirvCross(
         "-fno-sanitize-trap=undefined",
     });
 
+    const upstream = upstream_ orelse return lib;
     lib.addCSourceFiles(.{
         .root = upstream.path(""),
         .flags = flags.items,
