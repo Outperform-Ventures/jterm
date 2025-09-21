@@ -30,19 +30,6 @@ modules:
         contents: INPUT(libbz2.so)
         dest-filename: libbzip2.so
 
-  - name: blueprint-compiler
-    buildsystem: meson
-    cleanup:
-      - "*"
-    sources:
-      - type: git
-        url: https://gitlab.gnome.org/jwestman/blueprint-compiler.git
-        tag: v0.16.0
-        commit: 04ef0944db56ab01307a29aaa7303df6067cb3c0
-        x-checker-data:
-          type: git
-          tag-pattern: ^v([\d.]+)$
-
   - name: gtk4-layer-shell
     buildsystem: meson
     sources:
