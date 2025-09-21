@@ -1493,7 +1493,7 @@ pub const Surface = extern struct {
     }
 
     /// If unfocused add the unfocused-split widget for this surface
-    pub fn setUnfocused(self: *Self) void {
+    pub fn setUnfocusedFill(self: *Self) void {
         const priv = self.private();
         if (!priv.focused and (priv.unfocused_widget == null)) {
             priv.unfocused_widget = unfocused_widget: {
