@@ -4,19 +4,6 @@ const assert = std.debug.assert;
 const ziglyph = @import("ziglyph");
 const lut = @import("lut.zig");
 
-/// The lookup tables for Ghostty.
-pub const table = table: {
-    // This is only available after running main() below as part of the Ghostty
-    // build.zig, but due to Zig's lazy analysis we can still reference it here.
-    const generated = @import("symbols_tables").Tables(bool);
-    const Tables = lut.Tables(bool);
-    break :table Tables{
-        .stage1 = &generated.stage1,
-        .stage2 = &generated.stage2,
-        .stage3 = &generated.stage3,
-    };
-};
-
 /// Returns true of the codepoint is a "symbol-like" character, which
 /// for now we define as anything in a private use area and anything
 /// in several unicode blocks:
@@ -82,6 +69,7 @@ test "unicode symbols: tables match ziglyph" {
     if (std.valgrind.runningOnValgrind() > 0) return error.SkipZigTest;
 
     const testing = std.testing;
+    const table = @import("symbols_table.zig").table;
 
     for (0..std.math.maxInt(u21)) |cp| {
         const t = table.get(@intCast(cp));

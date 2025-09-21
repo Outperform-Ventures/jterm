@@ -40,7 +40,7 @@ pub fn get(cp: u21) Properties {
     const zg_width = ziglyph.display_width.codePointWidth(cp, .half);
     return .{
         .width = @intCast(@min(2, @max(0, zg_width))),
-        .grapheme_boundary_class = .init(cp),
+        .grapheme_boundary_class = graphemeBoundaryClass(cp),
     };
 }
 
