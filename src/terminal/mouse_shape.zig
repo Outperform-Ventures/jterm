@@ -50,8 +50,8 @@ pub const MouseShape = enum(c_int) {
     /// Make this a valid gobject if we're in a GTK environment.
     pub const getGObjectType = gtk: {
         switch (build_options.artifact) {
-            .ghostty => break :gtk void,
-            .lib => {},
+            .ghostty => {},
+            .lib => break :gtk void,
         }
 
         break :gtk switch (@import("../build_config.zig").app_runtime) {
