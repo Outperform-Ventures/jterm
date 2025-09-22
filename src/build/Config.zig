@@ -8,6 +8,7 @@ const builtin = @import("builtin");
 const ApprtRuntime = @import("../apprt/runtime.zig").Runtime;
 const FontBackend = @import("../font/backend.zig").Backend;
 const RendererBackend = @import("../renderer/backend.zig").Backend;
+const TerminalBuildOptions = @import("../terminal/build_options.zig").Options;
 const XCFramework = @import("GhosttyXCFramework.zig");
 const WasmTarget = @import("../os/wasm/target.zig").Target;
 const expandPath = @import("../os/path.zig").expand;
@@ -37,6 +38,7 @@ font_backend: FontBackend = .freetype,
 x11: bool = false,
 wayland: bool = false,
 sentry: bool = true,
+simd: bool = true,
 i18n: bool = true,
 wasm_shared: bool = true,
 
@@ -172,6 +174,12 @@ pub fn init(b: *std.Build) !Config {
             else => break :sentry false,
         }
     };
+
+    config.simd = b.option(
+        bool,
+        "simd",
+        "Build with SIMD-accelerated code paths. Results in significant performance improvements.",
+    ) orelse true;
 
     config.wayland = b.option(
         bool,
@@ -453,6 +461,7 @@ pub fn addOptions(self: *const Config, step: *std.Build.Step.Options) !void {
     step.addOption(bool, "x11", self.x11);
     step.addOption(bool, "wayland", self.wayland);
     step.addOption(bool, "sentry", self.sentry);
+    step.addOption(bool, "simd", self.simd);
     step.addOption(bool, "i18n", self.i18n);
     step.addOption(ApprtRuntime, "app_runtime", self.app_runtime);
     step.addOption(FontBackend, "font_backend", self.font_backend);
@@ -480,6 +489,23 @@ pub fn addOptions(self: *const Config, step: *std.Build.Step.Options) !void {
             break :channel .tip;
         },
     );
+}
+
+/// Returns the build options for the terminal module. This assumes a
+/// Ghostty executable being built. Callers should modify this as needed.
+pub fn terminalOptions(self: *const Config) TerminalBuildOptions {
+    return .{
+        .artifact = .ghostty,
+        .simd = self.simd,
+        .oniguruma = true,
+        .slow_runtime_safety = switch (self.optimize) {
+            .Debug => true,
+            .ReleaseSafe,
+            .ReleaseSmall,
+            .ReleaseFast,
+            => false,
+        },
+    };
 }
 
 /// Returns a baseline CPU target retaining all the other CPU configs.

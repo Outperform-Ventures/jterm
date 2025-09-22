@@ -1,4 +1,5 @@
 const std = @import("std");
+const build_options = @import("terminal_options");
 const assert = std.debug.assert;
 const testing = std.testing;
 const simd = @import("../simd/main.zig");
@@ -64,8 +65,9 @@ pub fn Stream(comptime Handler: type) type {
 
         /// Process a string of characters.
         pub fn nextSlice(self: *Self, input: []const u8) !void {
-            // Debug mode disables the SIMD optimizations
-            if (comptime debug) {
+            // Disable SIMD optimizations if build requests it or if our
+            // manual debug mode is on.
+            if (comptime debug or !build_options.simd) {
                 for (input) |c| try self.next(c);
                 return;
             }

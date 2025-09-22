@@ -8,12 +8,25 @@ comptime {
 }
 
 pub fn build(b: *std.Build) !void {
-    // This defines all the available build options (e.g. `-D`).
+    // This defines all the available build options (e.g. `-D`). If you
+    // want to know what options are available, you can run `--help` or
+    // you can read `src/build/Config.zig`.
     const config = try buildpkg.Config.init(b);
-    const test_filter = b.option(
-        []const u8,
+    const test_filters = b.option(
+        [][]const u8,
         "test-filter",
         "Filter for test. Only applies to Zig tests.",
+    ) orelse &[0][]const u8{};
+
+    // Ghostty dependencies used by many artifacts.
+    const deps = try buildpkg.SharedDeps.init(b, &config);
+
+    // The modules exported for Zig consumers of libghostty. If you're
+    // writing a Zig program that uses libghostty, read this file.
+    const mod = try buildpkg.GhosttyZig.init(
+        b,
+        &config,
+        &deps,
     );
 
     // All our steps which we'll hook up later. The steps are shown
@@ -24,6 +37,10 @@ pub fn build(b: *std.Build) !void {
         "Run the app under valgrind",
     );
     const test_step = b.step("test", "Run tests");
+    const test_lib_vt_step = b.step(
+        "test-lib-vt",
+        "Run libghostty-vt tests",
+    );
     const test_valgrind_step = b.step(
         "test-valgrind",
         "Run tests under valgrind",
@@ -36,10 +53,6 @@ pub fn build(b: *std.Build) !void {
     // Ghostty resources like terminfo, shell integration, themes, etc.
     const resources = try buildpkg.GhosttyResources.init(b, &config);
     const i18n = if (config.i18n) try buildpkg.GhosttyI18n.init(b, &config) else null;
-
-    // Ghostty dependencies used by many artifacts.
-    const deps = try buildpkg.SharedDeps.init(b, &config);
-    if (config.emit_helpgen) deps.help_strings.install();
 
     // Ghostty executable, the actual runnable Ghostty program.
     const exe = try buildpkg.GhosttyExe.init(b, &config, &deps);
@@ -82,6 +95,9 @@ pub fn build(b: *std.Build) !void {
         b,
         &deps,
     );
+
+    // Helpgen
+    if (config.emit_helpgen) deps.help_strings.install();
 
     // Runtime "none" is libghostty, anything else is an executable.
     if (config.app_runtime != .none) {
@@ -185,7 +201,7 @@ pub fn build(b: *std.Build) !void {
             run_step.dependOn(&macos_app_native_only.open.step);
 
             // If we have no test filters, install the tests too
-            if (test_filter == null) {
+            if (test_filters.len == 0) {
                 macos_app_native_only.addTestStepDependencies(test_step);
             }
         }
@@ -216,11 +232,24 @@ pub fn build(b: *std.Build) !void {
         run_valgrind_step.dependOn(&run_cmd.step);
     }
 
+    // Zig module tests
+    {
+        const mod_vt_test = b.addTest(.{
+            .root_module = mod.vt,
+            .target = config.target,
+            .optimize = config.optimize,
+            .filters = test_filters,
+        });
+        const mod_vt_test_run = b.addRunArtifact(mod_vt_test);
+        test_lib_vt_step.dependOn(&mod_vt_test_run.step);
+    }
+
     // Tests
     {
+        // Full unit tests
         const test_exe = b.addTest(.{
             .name = "ghostty-test",
-            .filters = if (test_filter) |v| &.{v} else &.{},
+            .filters = test_filters,
             .root_module = b.createModule(.{
                 .root_source_file = b.path("src/main.zig"),
                 .target = config.baselineTarget(),
@@ -230,13 +259,15 @@ pub fn build(b: *std.Build) !void {
                 .unwind_tables = .sync,
             }),
         });
-
         if (config.emit_test_exe) b.installArtifact(test_exe);
         _ = try deps.add(test_exe);
 
         // Normal test running
         const test_run = b.addRunArtifact(test_exe);
         test_step.dependOn(&test_run.step);
+
+        // Normal tests always test our libghostty modules
+        test_step.dependOn(test_lib_vt_step);
 
         // Valgrind test running
         const valgrind_run = b.addSystemCommand(&.{

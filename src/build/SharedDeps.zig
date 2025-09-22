@@ -107,6 +107,9 @@ pub fn add(
     // Every exe gets build options populated
     step.root_module.addOptions("build_options", self.options);
 
+    // Every exe needs the terminal options
+    self.config.terminalOptions().add(b, step.root_module);
+
     // Freetype
     _ = b.systemIntegrationOption("freetype", .{}); // Shows it in help
     if (self.config.font_backend.hasFreetype()) {
@@ -266,21 +269,6 @@ pub fn add(
         }
     }
 
-    // Simdutf
-    if (b.systemIntegrationOption("simdutf", .{})) {
-        step.linkSystemLibrary2("simdutf", dynamic_link_opts);
-    } else {
-        if (b.lazyDependency("simdutf", .{
-            .target = target,
-            .optimize = optimize,
-        })) |simdutf_dep| {
-            step.linkLibrary(simdutf_dep.artifact("simdutf"));
-            try static_libs.append(
-                simdutf_dep.artifact("simdutf").getEmittedBin(),
-            );
-        }
-    }
-
     // Sentry
     if (self.config.sentry) {
         if (b.lazyDependency("sentry", .{
@@ -308,6 +296,13 @@ pub fn add(
             }
         }
     }
+
+    // Simd
+    if (self.config.simd) try addSimd(
+        b,
+        step.root_module,
+        &static_libs,
+    );
 
     // Wasm we do manually since it is such a different build.
     if (step.rootModuleTarget().cpu.arch == .wasm32) {
@@ -343,35 +338,8 @@ pub fn add(
         step.addIncludePath(b.path("src/apprt/gtk"));
     }
 
-    // C++ files
+    // libcpp is required for various dependencies
     step.linkLibCpp();
-    step.addIncludePath(b.path("src"));
-    {
-        // From hwy/detect_targets.h
-        const HWY_AVX3_SPR: c_int = 1 << 4;
-        const HWY_AVX3_ZEN4: c_int = 1 << 6;
-        const HWY_AVX3_DL: c_int = 1 << 7;
-        const HWY_AVX3: c_int = 1 << 8;
-
-        // Zig 0.13 bug: https://github.com/ziglang/zig/issues/20414
-        // To workaround this we just disable AVX512 support completely.
-        // The performance difference between AVX2 and AVX512 is not
-        // significant for our use case and AVX512 is very rare on consumer
-        // hardware anyways.
-        const HWY_DISABLED_TARGETS: c_int = HWY_AVX3_SPR | HWY_AVX3_ZEN4 | HWY_AVX3_DL | HWY_AVX3;
-
-        step.addCSourceFiles(.{
-            .files = &.{
-                "src/simd/base64.cpp",
-                "src/simd/codepoint_width.cpp",
-                "src/simd/index_of.cpp",
-                "src/simd/vt.cpp",
-            },
-            .flags = if (step.rootModuleTarget().cpu.arch == .x86_64) &.{
-                b.fmt("-DHWY_DISABLED_TARGETS={}", .{HWY_DISABLED_TARGETS}),
-            } else &.{},
-        });
-    }
 
     // We always require the system SDK so that our system headers are available.
     // This makes things like `os/log.h` available for cross-compiling.
@@ -479,24 +447,6 @@ pub fn add(
         step.root_module.addImport("cimgui", cimgui_dep.module("cimgui"));
         step.linkLibrary(cimgui_dep.artifact("cimgui"));
         try static_libs.append(cimgui_dep.artifact("cimgui").getEmittedBin());
-    }
-
-    // Highway
-    if (b.lazyDependency("highway", .{
-        .target = target,
-        .optimize = optimize,
-    })) |highway_dep| {
-        step.linkLibrary(highway_dep.artifact("highway"));
-        try static_libs.append(highway_dep.artifact("highway").getEmittedBin());
-    }
-
-    // utfcpp - This is used as a dependency on our hand-written C++ code
-    if (b.lazyDependency("utfcpp", .{
-        .target = target,
-        .optimize = optimize,
-    })) |utfcpp_dep| {
-        step.linkLibrary(utfcpp_dep.artifact("utfcpp"));
-        try static_libs.append(utfcpp_dep.artifact("utfcpp").getEmittedBin());
     }
 
     // Fonts
@@ -697,6 +647,79 @@ fn addGtkNg(
         const dist = gtkNgDistResources(b);
         step.addCSourceFile(.{ .file = dist.resources_c.path(b), .flags = &.{} });
         step.addIncludePath(dist.resources_h.path(b).dirname());
+    }
+}
+
+/// Add only the dependencies required for `Config.simd` enbled. This also
+/// adds all the simd source files for compilation.
+pub fn addSimd(
+    b: *std.Build,
+    m: *std.Build.Module,
+    static_libs: ?*LazyPathList,
+) !void {
+    const target = m.resolved_target.?;
+    const optimize = m.optimize.?;
+
+    // Simdutf
+    if (b.systemIntegrationOption("simdutf", .{})) {
+        m.linkSystemLibrary("simdutf", dynamic_link_opts);
+    } else {
+        if (b.lazyDependency("simdutf", .{
+            .target = target,
+            .optimize = optimize,
+        })) |simdutf_dep| {
+            m.linkLibrary(simdutf_dep.artifact("simdutf"));
+            if (static_libs) |v| try v.append(
+                simdutf_dep.artifact("simdutf").getEmittedBin(),
+            );
+        }
+    }
+
+    // Highway
+    if (b.lazyDependency("highway", .{
+        .target = target,
+        .optimize = optimize,
+    })) |highway_dep| {
+        m.linkLibrary(highway_dep.artifact("highway"));
+        if (static_libs) |v| try v.append(highway_dep.artifact("highway").getEmittedBin());
+    }
+
+    // utfcpp - This is used as a dependency on our hand-written C++ code
+    if (b.lazyDependency("utfcpp", .{
+        .target = target,
+        .optimize = optimize,
+    })) |utfcpp_dep| {
+        m.linkLibrary(utfcpp_dep.artifact("utfcpp"));
+        if (static_libs) |v| try v.append(utfcpp_dep.artifact("utfcpp").getEmittedBin());
+    }
+
+    // SIMD C++ files
+    m.addIncludePath(b.path("src"));
+    {
+        // From hwy/detect_targets.h
+        const HWY_AVX3_SPR: c_int = 1 << 4;
+        const HWY_AVX3_ZEN4: c_int = 1 << 6;
+        const HWY_AVX3_DL: c_int = 1 << 7;
+        const HWY_AVX3: c_int = 1 << 8;
+
+        // Zig 0.13 bug: https://github.com/ziglang/zig/issues/20414
+        // To workaround this we just disable AVX512 support completely.
+        // The performance difference between AVX2 and AVX512 is not
+        // significant for our use case and AVX512 is very rare on consumer
+        // hardware anyways.
+        const HWY_DISABLED_TARGETS: c_int = HWY_AVX3_SPR | HWY_AVX3_ZEN4 | HWY_AVX3_DL | HWY_AVX3;
+
+        m.addCSourceFiles(.{
+            .files = &.{
+                "src/simd/base64.cpp",
+                "src/simd/codepoint_width.cpp",
+                "src/simd/index_of.cpp",
+                "src/simd/vt.cpp",
+            },
+            .flags = if (target.result.cpu.arch == .x86_64) &.{
+                b.fmt("-DHWY_DISABLED_TARGETS={}", .{HWY_DISABLED_TARGETS}),
+            } else &.{},
+        });
     }
 }
 

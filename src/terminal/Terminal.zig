@@ -4,6 +4,7 @@
 const Terminal = @This();
 
 const std = @import("std");
+const build_options = @import("terminal_options");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
 const testing = std.testing;
@@ -679,8 +680,10 @@ fn printCell(
 
     // If this is a Kitty unicode placeholder then we need to mark the
     // row so that the renderer can lookup rows with these much faster.
-    if (c == kitty.graphics.unicode.placeholder) {
-        self.screen.cursor.page_row.kitty_virtual_placeholder = true;
+    if (comptime build_options.kitty_graphics) {
+        if (c == kitty.graphics.unicode.placeholder) {
+            self.screen.cursor.page_row.kitty_virtual_placeholder = true;
+        }
     }
 
     // We check for an active hyperlink first because setHyperlink
@@ -1143,8 +1146,10 @@ pub fn index(self: *Terminal) !void {
         self.screen.cursor.x >= self.scrolling_region.left and
         self.screen.cursor.x <= self.scrolling_region.right)
     {
-        // Scrolling dirties the images because it updates their placements pins.
-        self.screen.kitty_images.dirty = true;
+        if (comptime build_options.kitty_graphics) {
+            // Scrolling dirties the images because it updates their placements pins.
+            self.screen.kitty_images.dirty = true;
+        }
 
         // If our scrolling region is at the top, we create scrollback.
         if (self.scrolling_region.top == 0 and
@@ -1472,8 +1477,10 @@ pub fn insertLines(self: *Terminal, count: usize) void {
         self.screen.cursor.x < self.scrolling_region.left or
         self.screen.cursor.x > self.scrolling_region.right) return;
 
-    // Scrolling dirties the images because it updates their placements pins.
-    self.screen.kitty_images.dirty = true;
+    if (comptime build_options.kitty_graphics) {
+        // Scrolling dirties the images because it updates their placements pins.
+        self.screen.kitty_images.dirty = true;
+    }
 
     // At the end we need to return the cursor to the row it started on.
     const start_y = self.screen.cursor.y;
@@ -1676,8 +1683,10 @@ pub fn deleteLines(self: *Terminal, count: usize) void {
         self.screen.cursor.x < self.scrolling_region.left or
         self.screen.cursor.x > self.scrolling_region.right) return;
 
-    // Scrolling dirties the images because it updates their placements pins.
-    self.screen.kitty_images.dirty = true;
+    if (comptime build_options.kitty_graphics) {
+        // Scrolling dirties the images because it updates their placements pins.
+        self.screen.kitty_images.dirty = true;
+    }
 
     // At the end we need to return the cursor to the row it started on.
     const start_y = self.screen.cursor.y;
@@ -2136,12 +2145,14 @@ pub fn eraseDisplay(
             // Unsets pending wrap state
             self.screen.cursor.pending_wrap = false;
 
-            // Clear all Kitty graphics state for this screen
-            self.screen.kitty_images.delete(
-                self.screen.alloc,
-                self,
-                .{ .all = true },
-            );
+            if (comptime build_options.kitty_graphics) {
+                // Clear all Kitty graphics state for this screen
+                self.screen.kitty_images.delete(
+                    self.screen.alloc,
+                    self,
+                    .{ .all = true },
+                );
+            }
         },
 
         .complete => {
@@ -2195,12 +2206,14 @@ pub fn eraseDisplay(
             // Unsets pending wrap state
             self.screen.cursor.pending_wrap = false;
 
-            // Clear all Kitty graphics state for this screen
-            self.screen.kitty_images.delete(
-                self.screen.alloc,
-                self,
-                .{ .all = true },
-            );
+            if (comptime build_options.kitty_graphics) {
+                // Clear all Kitty graphics state for this screen
+                self.screen.kitty_images.delete(
+                    self.screen.alloc,
+                    self,
+                    .{ .all = true },
+                );
+            }
 
             // Cleared screen dirty bit
             self.flags.dirty.clear = true;
@@ -2574,10 +2587,12 @@ pub fn switchScreen(self: *Terminal, t: ScreenType) ?*Screen {
     // Clear our selection
     self.screen.clearSelection();
 
-    // Mark kitty images as dirty so they redraw. Without this set
-    // the images will remain where they were (the dirty bit on
-    // the screen only tracks the terminal grid, not the images).
-    self.screen.kitty_images.dirty = true;
+    if (comptime build_options.kitty_graphics) {
+        // Mark kitty images as dirty so they redraw. Without this set
+        // the images will remain where they were (the dirty bit on
+        // the screen only tracks the terminal grid, not the images).
+        self.screen.kitty_images.dirty = true;
+    }
 
     // Mark our terminal as dirty to redraw the grid.
     self.flags.dirty.clear = true;
@@ -3862,6 +3877,8 @@ test "Terminal: print invoke charset single" {
 }
 
 test "Terminal: print kitty unicode placeholder" {
+    if (comptime !build_options.kitty_graphics) return error.SkipZigTest;
+
     var t = try init(testing.allocator, .{ .cols = 10, .rows = 10 });
     defer t.deinit(testing.allocator);
 
