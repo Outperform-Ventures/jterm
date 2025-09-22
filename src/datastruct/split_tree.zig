@@ -507,16 +507,12 @@ pub fn SplitTree(comptime V: type) type {
             // We need to increase the reference count of all the nodes.
             try refNodes(gpa, nodes);
 
-            const result: Self = .{
+            return .{
                 .arena = arena,
                 .nodes = nodes,
                 // Splitting always resets zoom state.
                 .zoomed = null,
             };
-
-            result.updateNodesNumberSiblings();
-
-            return result;
         }
 
         /// Remove a node from the tree.
@@ -559,8 +555,6 @@ pub fn SplitTree(comptime V: type) type {
 
             // Increase the reference count of all the nodes.
             try refNodes(gpa, nodes);
-
-            result.updateNodesNumberSiblings();
 
             return result;
         }
@@ -869,14 +863,6 @@ pub fn SplitTree(comptime V: type) type {
                     },
                 },
             };
-        }
-
-        /// Set the number of siblings for each split in the tree
-        fn updateNodesNumberSiblings(self: *const Self) void {
-            var it = self.iterator();
-            while (it.next()) |entry| {
-                entry.view.setNSiblings(self.nodes.len - 1);
-            }
         }
 
         /// Spatial representation of the split tree. See spatial.

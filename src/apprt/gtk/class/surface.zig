@@ -275,21 +275,19 @@ pub const Surface = extern struct {
             );
         };
 
-        pub const @"n-siblings" = struct {
-            pub const name = "n-siblings";
+        pub const @"is-split" = struct {
+            pub const name = "is-split";
             const impl = gobject.ext.defineProperty(
                 name,
                 Self,
-                u64,
+                bool,
                 .{
-                    .default = 0,
-                    .minimum = 0,
-                    .maximum = std.math.maxInt(c_uint),
+                    .default = false,
                     .accessor = gobject.ext.privateFieldAccessor(
                         Self,
                         Private,
                         &Private.offset,
-                        "n_siblings",
+                        "is_split",
                     ),
                 },
             );
@@ -522,10 +520,9 @@ pub const Surface = extern struct {
         /// A weak reference to an inspector window.
         inspector: ?*InspectorWindow = null,
 
-        /// Number of siblings related to this surface. This is used for
-        /// the unfocused-split-* options which are only applied when their is
-        /// more than once surface (split) in a tab
-        n_siblings: u64 = 0,
+        // True if the current surface is a split, this is used to apply
+        // unfocused-split-* options
+        is_split: bool = false,
 
         // Template binds
         child_exited_overlay: *ChildExited,
@@ -630,9 +627,9 @@ pub const Surface = extern struct {
     fn closureShouldUnfocusedSplitBeShown(
         _: *Self,
         focused: c_int,
-        n_siblings: c_int,
+        is_split: c_int,
     ) callconv(.c) c_int {
-        return @intFromBool(focused == 0 and n_siblings > 0);
+        return @intFromBool(focused == 0 and is_split != 0);
     }
 
     pub fn toggleFullscreen(self: *Self) void {
@@ -1526,13 +1523,6 @@ pub const Surface = extern struct {
         return self.private().focused;
     }
 
-    /// Set number of siblings related to this surface.
-    pub fn setNSiblings(self: *Self, siblings: u64) void {
-        const priv = self.private();
-        priv.n_siblings = siblings;
-        self.as(gobject.Object).notifyByPspec(properties.@"n-siblings".impl.param_spec);
-    }
-
     /// Change the configuration for this surface.
     pub fn setConfig(self: *Self, config: *Config) void {
         const priv = self.private();
@@ -1629,6 +1619,12 @@ pub const Surface = extern struct {
         priv.@"error" = v;
         self.as(gobject.Object).notifyByPspec(properties.@"error".impl.param_spec);
     }
+
+    // pub fn setIsSplit(self: *Self, v: bool) void {
+    //     const priv = self.private();
+    //     priv.is_split = v;
+    //     self.as(gobject.Object).notifyByPspec(properties.@"is-split".impl.param_spec);
+    // }
 
     fn propConfig(
         self: *Self,
@@ -2824,7 +2820,7 @@ pub const Surface = extern struct {
                 properties.title.impl,
                 properties.@"title-override".impl,
                 properties.zoom.impl,
-                properties.@"n-siblings".impl,
+                properties.@"is-split".impl,
             });
 
             // Signals

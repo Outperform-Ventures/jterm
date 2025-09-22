@@ -112,6 +112,25 @@ pub const SplitTree = extern struct {
                 },
             );
         };
+
+        pub const @"is-split" = struct {
+            pub const name = "is-split";
+            const impl = gobject.ext.defineProperty(
+                name,
+                Self,
+                bool,
+                .{
+                    .default = false,
+                    .accessor = gobject.ext.typedAccessor(
+                        Self,
+                        bool,
+                        .{
+                            .setter = setIsSplit,
+                        },
+                    ),
+                },
+            );
+        };
     };
 
     pub const signals = struct {
@@ -152,6 +171,9 @@ pub const SplitTree = extern struct {
         /// Used to store state about a pending surface close for the
         /// close dialog.
         pending_close: ?Surface.Tree.Node.Handle,
+
+        /// True if the current split tree contains more than one surface
+        is_split: bool = false,
 
         pub var offset: c_int = 0;
     };
@@ -209,6 +231,14 @@ pub const SplitTree = extern struct {
                 surface.setParent(core);
             }
         }
+
+        // Bind is-split property for new surface
+        _ = self.as(gobject.Object).bindProperty(
+            "is-split",
+            surface.as(gobject.Object),
+            "is-split",
+            .{ .sync_create = true },
+        );
 
         // Create our tree
         var single_tree = try Surface.Tree.init(alloc, surface);
@@ -511,6 +541,12 @@ pub const SplitTree = extern struct {
         ));
     }
 
+    fn setIsSplit(self: *Self, v: bool) void {
+        const priv = self.private();
+        priv.is_split = v;
+        self.as(gobject.Object).notifyByPspec(properties.@"is-split".impl.param_spec);
+    }
+
     //---------------------------------------------------------------
     // Virtual methods
 
@@ -808,6 +844,16 @@ pub const SplitTree = extern struct {
             ));
         }
 
+        // Determine if tree has more than one surface
+        const root_handle: Surface.Tree.Node.Handle = .root;
+        const root = tree.nodes[root_handle.idx()];
+        const is_split: bool = switch (root) {
+            .leaf => false,
+            .split => true,
+        };
+
+        self.setIsSplit(is_split);
+
         // If we have a last focused surface, we need to refocus it, because
         // during the frame between setting the bin to null and rebuilding,
         // GTK will reset our focus state (as it should!)
@@ -873,6 +919,7 @@ pub const SplitTree = extern struct {
                 properties.@"has-surfaces".impl,
                 properties.@"is-zoomed".impl,
                 properties.tree.impl,
+                properties.@"is-split".impl,
             });
 
             // Bindings
