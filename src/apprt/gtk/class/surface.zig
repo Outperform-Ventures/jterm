@@ -1620,12 +1620,6 @@ pub const Surface = extern struct {
         self.as(gobject.Object).notifyByPspec(properties.@"error".impl.param_spec);
     }
 
-    // pub fn setIsSplit(self: *Self, v: bool) void {
-    //     const priv = self.private();
-    //     priv.is_split = v;
-    //     self.as(gobject.Object).notifyByPspec(properties.@"is-split".impl.param_spec);
-    // }
-
     fn propConfig(
         self: *Self,
         _: *gobject.ParamSpec,
