@@ -19,6 +19,7 @@ pub fn init(
         .root_source_file = b.path("src/lib_vt.zig"),
         .target = cfg.target,
         .optimize = cfg.optimize,
+        .link_libc = true,
     });
     deps.unicode_tables.addModuleImport(vt);
     vt_options.addOptions(b, vt, .{
