@@ -265,6 +265,9 @@ pub fn build(b: *std.Build) !void {
         const test_run = b.addRunArtifact(test_exe);
         test_step.dependOn(&test_run.step);
 
+        // Normal tests always test our libghostty modules
+        test_step.dependOn(test_lib_vt_step);
+
         // Valgrind test running
         const valgrind_run = b.addSystemCommand(&.{
             "valgrind",
