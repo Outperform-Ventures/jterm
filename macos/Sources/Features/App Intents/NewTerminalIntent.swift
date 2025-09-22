@@ -98,6 +98,11 @@ struct NewTerminalIntent: AppIntent {
             parent = nil
         }
 
+        defer {
+            if !NSApp.isActive {
+                NSApp.activate(ignoringOtherApps: true)
+            }
+        }
         switch location {
         case .window:
             let newController = TerminalController.newWindow(
