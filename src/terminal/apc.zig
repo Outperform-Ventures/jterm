@@ -133,6 +133,8 @@ test "unknown APC command" {
 }
 
 test "garbage Kitty command" {
+    if (comptime !build_options.kitty_graphics) return error.SkipZigTest;
+
     const testing = std.testing;
     const alloc = testing.allocator;
 
@@ -143,6 +145,8 @@ test "garbage Kitty command" {
 }
 
 test "Kitty command with overflow u32" {
+    if (comptime !build_options.kitty_graphics) return error.SkipZigTest;
+
     const testing = std.testing;
     const alloc = testing.allocator;
 
@@ -153,6 +157,8 @@ test "Kitty command with overflow u32" {
 }
 
 test "Kitty command with overflow i32" {
+    if (comptime !build_options.kitty_graphics) return error.SkipZigTest;
+
     const testing = std.testing;
     const alloc = testing.allocator;
 
@@ -163,6 +169,8 @@ test "Kitty command with overflow i32" {
 }
 
 test "valid Kitty command" {
+    if (comptime !build_options.kitty_graphics) return error.SkipZigTest;
+
     const testing = std.testing;
     const alloc = testing.allocator;
 

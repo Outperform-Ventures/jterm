@@ -19,11 +19,14 @@ pub fn init(
         .root_source_file = b.path("src/lib_vt.zig"),
         .target = cfg.target,
         .optimize = cfg.optimize,
-        .link_libc = true,
+
+        // SIMD require libc/libcpp (both) but otherwise we don't care.
+        .link_libc = if (cfg.simd) true else null,
+        .link_libcpp = if (cfg.simd) true else null,
     });
-    deps.unicode_tables.addModuleImport(vt);
     vt_options.addOptions(b, vt, .{
         .artifact = .lib,
+        .simd = cfg.simd,
 
         // We presently don't allow Oniguruma in our Zig module at all.
         // We should expose this as a build option in the future so we can
@@ -38,6 +41,14 @@ pub fn init(
             => false,
         },
     });
+
+    // We always need unicode tables
+    deps.unicode_tables.addModuleImport(vt);
+
+    // If SIMD is enabled, add all our SIMD dependencies.
+    if (cfg.simd) {
+        try SharedDeps.addSimd(b, vt, null);
+    }
 
     return .{ .vt = vt };
 }

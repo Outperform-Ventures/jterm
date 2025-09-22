@@ -37,6 +37,7 @@ font_backend: FontBackend = .freetype,
 x11: bool = false,
 wayland: bool = false,
 sentry: bool = true,
+simd: bool = true,
 i18n: bool = true,
 wasm_shared: bool = true,
 
@@ -172,6 +173,12 @@ pub fn init(b: *std.Build) !Config {
             else => break :sentry false,
         }
     };
+
+    config.simd = b.option(
+        bool,
+        "simd",
+        "Build with SIMD-accelerated code paths. This requires additional build dependencies and adds libc as a runtime dependency, but results in significant performance improvements.",
+    ) orelse true;
 
     config.wayland = b.option(
         bool,

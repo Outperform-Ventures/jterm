@@ -13,6 +13,11 @@ pub const Options = struct {
     ///
     oniguruma: bool = true,
 
+    /// Whether to build SIMD-accelerated code paths. This pulls in more
+    /// build-time dependencies and adds libc as a runtime dependency,
+    /// but results in significant performance improvements.
+    simd: bool = true,
+
     /// True if we should enable the "slow" runtime safety checks. These
     /// are runtime safety checks that are slower than typical and should
     /// generally be disabled in production builds.
@@ -36,6 +41,7 @@ pub fn addOptions(
     const opts = b.addOptions();
     opts.addOption(Artifact, "artifact", v.artifact);
     opts.addOption(bool, "oniguruma", v.oniguruma);
+    opts.addOption(bool, "simd", v.simd);
     opts.addOption(bool, "slow_runtime_safety", v.slow_runtime_safety);
 
     // These are synthesized based on other options.
