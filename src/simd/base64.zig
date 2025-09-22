@@ -1,10 +1,9 @@
 const std = @import("std");
 const options = @import("build_options");
 const assert = std.debug.assert;
-const log = std.log.scoped(.simd_base64);
+const scalar_decoder = @import("base64_scalar.zig").scalar_decoder;
 
-// Used for the non-SIMD implementation
-const Base64Decoder = std.base64.standard_no_pad.Decoder;
+const log = std.log.scoped(.simd_base64);
 
 pub fn maxLen(input: []const u8) usize {
     if (comptime options.simd) return ghostty_simd_base64_max_length(
@@ -16,7 +15,7 @@ pub fn maxLen(input: []const u8) usize {
 }
 
 fn maxLenScalar(input: []const u8) usize {
-    return Base64Decoder.calcSizeForSlice(scalarInput(input)) catch |err| {
+    return scalar_decoder.calcSizeForSlice(scalarInput(input)) catch |err| {
         log.warn("failed to calculate base64 size for payload: {}", .{err});
         return 0;
     };
@@ -44,7 +43,7 @@ fn decodeScalar(
     const size = maxLenScalar(input);
     if (size == 0) return "";
     assert(output.len >= size);
-    Base64Decoder.decode(
+    scalar_decoder.decode(
         output,
         scalarInput(input),
     ) catch return error.Base64Invalid;
