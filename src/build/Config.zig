@@ -460,6 +460,7 @@ pub fn addOptions(self: *const Config, step: *std.Build.Step.Options) !void {
     step.addOption(bool, "x11", self.x11);
     step.addOption(bool, "wayland", self.wayland);
     step.addOption(bool, "sentry", self.sentry);
+    step.addOption(bool, "simd", self.simd);
     step.addOption(bool, "i18n", self.i18n);
     step.addOption(ApprtRuntime, "app_runtime", self.app_runtime);
     step.addOption(FontBackend, "font_backend", self.font_backend);

@@ -1,4 +1,7 @@
 const std = @import("std");
+const options = @import("build_options");
+const assert = std.debug.assert;
+const indexOf = @import("index_of.zig").indexOf;
 
 // vt.cpp
 extern "c" fn ghostty_simd_decode_utf8_until_control_seq(
@@ -17,15 +20,43 @@ pub fn utf8DecodeUntilControlSeq(
     input: []const u8,
     output: []u32,
 ) DecodeResult {
-    var decoded: usize = 0;
-    const consumed = ghostty_simd_decode_utf8_until_control_seq(
-        input.ptr,
-        input.len,
-        output.ptr,
-        &decoded,
-    );
+    assert(output.len >= input.len);
 
-    return .{ .consumed = consumed, .decoded = decoded };
+    if (comptime options.simd) {
+        var decoded: usize = 0;
+        const consumed = ghostty_simd_decode_utf8_until_control_seq(
+            input.ptr,
+            input.len,
+            output.ptr,
+            &decoded,
+        );
+
+        return .{ .consumed = consumed, .decoded = decoded };
+    }
+
+    return utf8DecodeUntilControlSeqScalar(input, output);
+}
+
+fn utf8DecodeUntilControlSeqScalar(
+    input: []const u8,
+    output: []u32,
+) DecodeResult {
+    // Find our escape
+    const idx = indexOf(input, 0x1B) orelse input.len;
+
+    // Copy up to the escape
+    const view = std.unicode.Utf8View.init(input[0..idx]) catch unreachable;
+    var it = view.iterator();
+    var i: usize = 0;
+    while (it.nextCodepoint()) |cp| {
+        output[i] = @intCast(cp);
+        i += 1;
+    }
+
+    return .{
+        .consumed = idx,
+        .decoded = i,
+    };
 }
 
 test "decode no escape" {

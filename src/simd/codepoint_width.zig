@@ -1,11 +1,12 @@
 const std = @import("std");
+const options = @import("build_options");
 
 // vt.cpp
 extern "c" fn ghostty_simd_codepoint_width(u32) i8;
 
 pub fn codepointWidth(cp: u32) i8 {
-    //return @import("ziglyph").display_width.codePointWidth(@intCast(cp), .half);
-    return ghostty_simd_codepoint_width(cp);
+    if (comptime options.simd) return ghostty_simd_codepoint_width(cp);
+    return @import("ziglyph").display_width.codePointWidth(@intCast(cp), .half);
 }
 
 test "codepointWidth basic" {

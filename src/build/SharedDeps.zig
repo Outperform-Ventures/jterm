@@ -112,6 +112,7 @@ pub fn add(
         const vt_options = @import("../terminal/build_options.zig");
         vt_options.addOptions(b, step.root_module, .{
             .artifact = .ghostty,
+            .simd = self.config.simd,
             .slow_runtime_safety = switch (optimize) {
                 .Debug => true,
                 .ReleaseSafe,
