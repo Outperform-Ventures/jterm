@@ -125,7 +125,7 @@ pub const SplitTree = extern struct {
                         Self,
                         bool,
                         .{
-                            .setter = setIsSplit,
+                            .getter = getIsSplit,
                         },
                     ),
                 },
@@ -541,10 +541,16 @@ pub const SplitTree = extern struct {
         ));
     }
 
-    fn setIsSplit(self: *Self, v: bool) void {
-        const priv = self.private();
-        priv.is_split = v;
-        self.as(gobject.Object).notifyByPspec(properties.@"is-split".impl.param_spec);
+    fn getIsSplit(self: *Self) bool {
+        const tree: *const Surface.Tree = self.private().tree orelse &.empty;
+        if (tree.isEmpty()) return false;
+
+        const root_handle: Surface.Tree.Node.Handle = .root;
+        const root = tree.nodes[root_handle.idx()];
+        return switch (root) {
+            .leaf => false,
+            .split => true,
+        };
     }
 
     //---------------------------------------------------------------
@@ -844,16 +850,6 @@ pub const SplitTree = extern struct {
             ));
         }
 
-        // Determine if tree has more than one surface
-        const root_handle: Surface.Tree.Node.Handle = .root;
-        const root = tree.nodes[root_handle.idx()];
-        const is_split: bool = switch (root) {
-            .leaf => false,
-            .split => true,
-        };
-
-        self.setIsSplit(is_split);
-
         // If we have a last focused surface, we need to refocus it, because
         // during the frame between setting the bin to null and rebuilding,
         // GTK will reset our focus state (as it should!)
@@ -861,6 +857,9 @@ pub const SplitTree = extern struct {
             defer v.unref();
             v.grabFocus();
         }
+
+        // Our split status may have changed
+        self.as(gobject.Object).notifyByPspec(properties.@"is-split".impl.param_spec);
 
         // Our active surface may have changed
         self.as(gobject.Object).notifyByPspec(properties.@"active-surface".impl.param_spec);
