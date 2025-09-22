@@ -650,6 +650,8 @@ fn addGtkNg(
     }
 }
 
+/// Add only the dependencies required for `Config.simd` enbled. This also
+/// adds all the simd source files for compilation.
 pub fn addSimd(
     b: *std.Build,
     m: *std.Build.Module,

@@ -178,7 +178,7 @@ pub fn init(b: *std.Build) !Config {
     config.simd = b.option(
         bool,
         "simd",
-        "Build with SIMD-accelerated code paths. This requires additional build dependencies and adds libc as a runtime dependency, but results in significant performance improvements.",
+        "Build with SIMD-accelerated code paths. Results in significant performance improvements.",
     ) orelse true;
 
     config.wayland = b.option(
