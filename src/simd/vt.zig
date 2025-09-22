@@ -43,19 +43,44 @@ fn utf8DecodeUntilControlSeqScalar(
 ) DecodeResult {
     // Find our escape
     const idx = indexOf(input, 0x1B) orelse input.len;
+    const decode = input[0..idx];
 
-    // Copy up to the escape
-    const view = std.unicode.Utf8View.init(input[0..idx]) catch unreachable;
-    var it = view.iterator();
-    var i: usize = 0;
-    while (it.nextCodepoint()) |cp| {
-        output[i] = @intCast(cp);
-        i += 1;
+    // Go through and decode one item at a time.
+    var decode_offset: usize = 0;
+    var decode_count: usize = 0;
+    while (decode_offset < decode.len) {
+        const decode_rem = decode[decode_offset..];
+        const cp_len = std.unicode.utf8ByteSequenceLength(decode_rem[0]) catch {
+            // Note, this is matching our SIMD behavior, but it is admittedly
+            // a bit weird. See our "decode invalid leading byte" test too.
+            // SIMD should be our source of truth then we copy behavior here.
+            break;
+        };
+
+        // If we don't have that number of bytes available. we finish. We
+        // assume this is a partial input and we defer to the future.
+        if (decode_rem.len < cp_len) break;
+
+        // We have the bytes available, so move forward
+        const cp_bytes = decode_rem[0..cp_len];
+        decode_offset += cp_len;
+        if (std.unicode.utf8Decode(cp_bytes)) |cp| {
+            output[decode_count] = @intCast(cp);
+            decode_count += 1;
+        } else |_| {
+            // If decoding failed, we replace the leading byte with the
+            // replacement char and then continue decoding after that
+            // byte. This matches the SIMD behavior and is tested by the
+            // "invalid UTF-8" tests.
+            output[decode_count] = 0xFFFD;
+            decode_count += 1;
+            decode_offset -= cp_len - 1;
+        }
     }
 
     return .{
-        .consumed = idx,
-        .decoded = i,
+        .consumed = decode_offset,
+        .decoded = decode_count,
     };
 }
 
@@ -139,16 +164,18 @@ test "decode invalid UTF-8" {
 
     var output: [64]u32 = undefined;
 
-    // Invalid leading 1s
+    // Invalid leading 2-byte sequence
     {
-        const str = "hello\xc2\x00";
+        const str = "hello\xc2\x01";
         try testing.expectEqual(DecodeResult{
             .consumed = 7,
             .decoded = 7,
         }, utf8DecodeUntilControlSeq(str, &output));
     }
 
+    // Replacement will only replace the invalid leading byte.
     try testing.expectEqual(@as(u32, 0xFFFD), output[5]);
+    try testing.expectEqual(@as(u32, 0x01), output[6]);
 }
 
 // This is testing our current behavior so that we know we have to handle
