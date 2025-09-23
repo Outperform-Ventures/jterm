@@ -11,7 +11,7 @@ const mem = std.mem;
 const assert = std.debug.assert;
 const Allocator = mem.Allocator;
 const RGB = @import("color.zig").RGB;
-const kitty = @import("kitty.zig");
+const kitty_color = @import("kitty/color.zig");
 const osc_color = @import("osc/color.zig");
 pub const color = osc_color;
 
@@ -132,7 +132,7 @@ pub const Command = union(enum) {
 
     /// Kitty color protocol, OSC 21
     /// https://sw.kovidgoyal.net/kitty/color-stack/#id1
-    kitty_color_protocol: kitty.color.OSC,
+    kitty_color_protocol: kitty_color.OSC,
 
     /// Show a desktop notification (OSC 9 or OSC 777)
     show_desktop_notification: struct {
@@ -796,7 +796,7 @@ pub const Parser = struct {
 
                     self.command = .{
                         .kitty_color_protocol = .{
-                            .list = std.ArrayList(kitty.color.OSC.Request).init(alloc),
+                            .list = std.ArrayList(kitty_color.OSC.Request).init(alloc),
                         },
                     };
 
@@ -1490,7 +1490,7 @@ pub const Parser = struct {
             return;
         }
 
-        const key = kitty.color.Kind.parse(self.temp_state.key) orelse {
+        const key = kitty_color.Kind.parse(self.temp_state.key) orelse {
             log.warn("unknown key in kitty color protocol: {s}", .{self.temp_state.key});
             return;
         };
@@ -1504,7 +1504,7 @@ pub const Parser = struct {
         switch (self.command) {
             .kitty_color_protocol => |*v| {
                 // Cap our allocation amount for our list.
-                if (v.list.items.len >= @as(usize, kitty.color.Kind.max) * 2) {
+                if (v.list.items.len >= @as(usize, kitty_color.Kind.max) * 2) {
                     self.state = .invalid;
                     log.warn("exceeded limit for number of keys in kitty color protocol, ignoring", .{});
                     return;
@@ -2600,7 +2600,7 @@ test "OSC: hyperlink end" {
 
 test "OSC: kitty color protocol" {
     const testing = std.testing;
-    const Kind = kitty.color.Kind;
+    const Kind = kitty_color.Kind;
 
     var p: Parser = .initAlloc(testing.allocator);
     defer p.deinit();

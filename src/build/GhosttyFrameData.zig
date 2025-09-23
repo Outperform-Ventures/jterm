@@ -25,11 +25,14 @@ pub fn init(b: *std.Build) !GhosttyFrameData {
     });
 
     const run = b.addRunArtifact(exe);
+    // Both the compressed framedata and the Zig source file
+    // have to be put in the same directory, since the compressed file
+    // has to be within the source file's include path.
+    const dir = run.addOutputDirectoryArg("framedata");
 
-    _ = run.addOutputFileArg("framedata.compressed");
     return .{
         .exe = exe,
-        .output = run.captureStdOut(),
+        .output = dir.path(b, "framedata.zig"),
     };
 }
 

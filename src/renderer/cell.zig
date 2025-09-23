@@ -6,7 +6,7 @@ const terminal = @import("../terminal/main.zig");
 const renderer = @import("../renderer.zig");
 const shaderpkg = renderer.Renderer.API.shaders;
 const ArrayListCollection = @import("../datastruct/array_list_collection.zig").ArrayListCollection;
-const symbols = @import("../unicode/symbols.zig").table;
+const symbols = @import("../unicode/symbols_table.zig").table;
 
 /// The possible cell content keys that exist.
 pub const Key = enum {

@@ -1,3 +1,4 @@
+//! Fish completions.
 const std = @import("std");
 
 const Config = @import("../config/Config.zig");
@@ -5,23 +6,23 @@ const Action = @import("../cli.zig").ghostty.Action;
 
 /// A fish completions configuration that contains all the available commands
 /// and options.
-pub const completions = comptimeGenerateFishCompletions();
+pub const completions = comptimeGenerateCompletions();
 
-fn comptimeGenerateFishCompletions() []const u8 {
+fn comptimeGenerateCompletions() []const u8 {
     comptime {
         @setEvalBranchQuota(50000);
         var counter = std.io.countingWriter(std.io.null_writer);
-        try writeFishCompletions(&counter.writer());
+        try writeCompletions(&counter.writer());
 
         var buf: [counter.bytes_written]u8 = undefined;
         var stream = std.io.fixedBufferStream(&buf);
-        try writeFishCompletions(stream.writer());
+        try writeCompletions(stream.writer());
         const final = buf;
         return final[0..stream.getWritten().len];
     }
 }
 
-fn writeFishCompletions(writer: anytype) !void {
+fn writeCompletions(writer: anytype) !void {
     {
         try writer.writeAll("set -l commands \"");
         var count: usize = 0;

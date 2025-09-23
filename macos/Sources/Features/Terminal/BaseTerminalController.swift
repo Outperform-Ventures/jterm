@@ -688,6 +688,8 @@ class BaseTerminalController: NSWindowController,
            surfaceTree.contains(titleSurface) {
             // If we have a surface, we want to listen for title changes.
             titleSurface.$title
+                .combineLatest(titleSurface.$bell)
+                .map { [weak self] in self?.computeTitle(title: $0, bell: $1) ?? "" }
                 .sink { [weak self] in self?.titleDidChange(to: $0) }
                 .store(in: &focusedSurfaceCancellables)
         } else {
@@ -695,8 +697,17 @@ class BaseTerminalController: NSWindowController,
             titleDidChange(to: "👻")
         }
     }
+    
+    private func computeTitle(title: String, bell: Bool) -> String {
+        var result = title
+        if (bell && ghostty.config.bellFeatures.contains(.title)) {
+            result = "🔔 \(result)"
+        }
 
-    func titleDidChange(to: String) {
+        return result
+    }
+
+    private func titleDidChange(to: String) {
         guard let window else { return }
         
         // Set the main window title
@@ -862,14 +873,6 @@ class BaseTerminalController: NSWindowController,
 
         // Everything beyond here is setting up the window
         guard let window else { return }
-
-        // If there is a hardcoded title in the configuration, we set that
-        // immediately. Future `set_title` apprt actions will override this
-        // if necessary but this ensures our window loads with the proper
-        // title immediately rather than on another event loop tick (see #5934)
-        if let title = derivedConfig.title {
-            window.title = title
-        }
 
         // We always initialize our fullscreen style to native if we can because
         // initialization sets up some state (i.e. observers). If its set already
@@ -1072,20 +1075,17 @@ class BaseTerminalController: NSWindowController,
     }
 
     private struct DerivedConfig {
-        let title: String?
         let macosTitlebarProxyIcon: Ghostty.MacOSTitlebarProxyIcon
         let windowStepResize: Bool
         let focusFollowsMouse: Bool
 
         init() {
-            self.title = nil
             self.macosTitlebarProxyIcon = .visible
             self.windowStepResize = false
             self.focusFollowsMouse = false
         }
 
         init(_ config: Ghostty.Config) {
-            self.title = config.title
             self.macosTitlebarProxyIcon = config.macosTitlebarProxyIcon
             self.windowStepResize = config.windowStepResize
             self.focusFollowsMouse = config.focusFollowsMouse

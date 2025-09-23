@@ -5,9 +5,6 @@ const builtin = @import("builtin");
 const assert = std.debug.assert;
 const buildpkg = @import("main.zig");
 const Config = @import("Config.zig");
-const config_vim = @import("../config/vim.zig");
-const config_sublime_syntax = @import("../config/sublime_syntax.zig");
-const terminfo = @import("../terminfo/main.zig");
 const RunStep = std.Build.Step.Run;
 
 steps: []*std.Build.Step,
@@ -15,6 +12,19 @@ steps: []*std.Build.Step,
 pub fn init(b: *std.Build, cfg: *const Config) !GhosttyResources {
     var steps = std.ArrayList(*std.Build.Step).init(b.allocator);
     errdefer steps.deinit();
+
+    // This is the exe used to generate some build data.
+    const build_data_exe = b.addExecutable(.{
+        .name = "ghostty-build-data",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/main_build_data.zig"),
+            .target = b.graph.host,
+            .strip = false,
+            .omit_frame_pointer = false,
+            .unwind_tables = .sync,
+        }),
+    });
+    build_data_exe.linkLibC();
 
     // Terminfo
     terminfo: {
@@ -25,13 +35,10 @@ pub fn init(b: *std.Build, cfg: *const Config) !GhosttyResources {
             "terminfo";
 
         // Encode our terminfo
-        var str = std.ArrayList(u8).init(b.allocator);
-        defer str.deinit();
-        try terminfo.ghostty.encode(str.writer());
-
-        // Write it
-        var wf = b.addWriteFiles();
-        const source = wf.add("ghostty.terminfo", str.items);
+        const run = b.addRunArtifact(build_data_exe);
+        run.addArg("+terminfo");
+        const wf = b.addWriteFiles();
+        const source = wf.addCopyFile(run.captureStdOut(), "ghostty.terminfo");
 
         if (cfg.emit_terminfo) {
             const source_install = b.addInstallFile(
@@ -130,8 +137,10 @@ pub fn init(b: *std.Build, cfg: *const Config) !GhosttyResources {
 
     // Fish shell completions
     {
+        const run = b.addRunArtifact(build_data_exe);
+        run.addArg("+fish");
         const wf = b.addWriteFiles();
-        _ = wf.add("ghostty.fish", buildpkg.fish_completions);
+        _ = wf.addCopyFile(run.captureStdOut(), "ghostty.fish");
 
         const install_step = b.addInstallDirectory(.{
             .source_dir = wf.getDirectory(),
@@ -143,8 +152,10 @@ pub fn init(b: *std.Build, cfg: *const Config) !GhosttyResources {
 
     // zsh shell completions
     {
+        const run = b.addRunArtifact(build_data_exe);
+        run.addArg("+zsh");
         const wf = b.addWriteFiles();
-        _ = wf.add("_ghostty", buildpkg.zsh_completions);
+        _ = wf.addCopyFile(run.captureStdOut(), "_ghostty");
 
         const install_step = b.addInstallDirectory(.{
             .source_dir = wf.getDirectory(),
@@ -156,8 +167,10 @@ pub fn init(b: *std.Build, cfg: *const Config) !GhosttyResources {
 
     // bash shell completions
     {
+        const run = b.addRunArtifact(build_data_exe);
+        run.addArg("+bash");
         const wf = b.addWriteFiles();
-        _ = wf.add("ghostty.bash", buildpkg.bash_completions);
+        _ = wf.addCopyFile(run.captureStdOut(), "ghostty.bash");
 
         const install_step = b.addInstallDirectory(.{
             .source_dir = wf.getDirectory(),
@@ -167,39 +180,44 @@ pub fn init(b: *std.Build, cfg: *const Config) !GhosttyResources {
         try steps.append(&install_step.step);
     }
 
-    // Vim plugin
+    // Vim and Neovim plugin
     {
         const wf = b.addWriteFiles();
-        _ = wf.add("syntax/ghostty.vim", config_vim.syntax);
-        _ = wf.add("ftdetect/ghostty.vim", config_vim.ftdetect);
-        _ = wf.add("ftplugin/ghostty.vim", config_vim.ftplugin);
-        _ = wf.add("compiler/ghostty.vim", config_vim.compiler);
 
-        const install_step = b.addInstallDirectory(.{
+        {
+            const run = b.addRunArtifact(build_data_exe);
+            run.addArg("+vim-syntax");
+            _ = wf.addCopyFile(run.captureStdOut(), "syntax/ghostty.vim");
+        }
+        {
+            const run = b.addRunArtifact(build_data_exe);
+            run.addArg("+vim-ftdetect");
+            _ = wf.addCopyFile(run.captureStdOut(), "ftdetect/ghostty.vim");
+        }
+        {
+            const run = b.addRunArtifact(build_data_exe);
+            run.addArg("+vim-ftplugin");
+            _ = wf.addCopyFile(run.captureStdOut(), "ftplugin/ghostty.vim");
+        }
+        {
+            const run = b.addRunArtifact(build_data_exe);
+            run.addArg("+vim-compiler");
+            _ = wf.addCopyFile(run.captureStdOut(), "compiler/ghostty.vim");
+        }
+
+        const vim_step = b.addInstallDirectory(.{
             .source_dir = wf.getDirectory(),
             .install_dir = .prefix,
             .install_subdir = "share/vim/vimfiles",
         });
-        try steps.append(&install_step.step);
-    }
+        try steps.append(&vim_step.step);
 
-    // Neovim plugin
-    // This is just a copy-paste of the Vim plugin, but using a Neovim subdir.
-    // By default, Neovim doesn't look inside share/vim/vimfiles. Some distros
-    // configure it to do that however. Fedora, does not as a counterexample.
-    {
-        const wf = b.addWriteFiles();
-        _ = wf.add("syntax/ghostty.vim", config_vim.syntax);
-        _ = wf.add("ftdetect/ghostty.vim", config_vim.ftdetect);
-        _ = wf.add("ftplugin/ghostty.vim", config_vim.ftplugin);
-        _ = wf.add("compiler/ghostty.vim", config_vim.compiler);
-
-        const install_step = b.addInstallDirectory(.{
+        const neovim_step = b.addInstallDirectory(.{
             .source_dir = wf.getDirectory(),
             .install_dir = .prefix,
             .install_subdir = "share/nvim/site",
         });
-        try steps.append(&install_step.step);
+        try steps.append(&neovim_step.step);
     }
 
     // Sublime syntax highlighting for bat cli tool
@@ -209,8 +227,10 @@ pub fn init(b: *std.Build, cfg: *const Config) !GhosttyResources {
     // the config file within the '~.config/bat' directory
     // (ex: --map-syntax "/Users/user/.config/ghostty/config:Ghostty Config").
     {
+        const run = b.addRunArtifact(build_data_exe);
+        run.addArg("+sublime");
         const wf = b.addWriteFiles();
-        _ = wf.add("ghostty.sublime-syntax", config_sublime_syntax.syntax);
+        _ = wf.addCopyFile(run.captureStdOut(), "ghostty.sublime-syntax");
 
         const install_step = b.addInstallDirectory(.{
             .source_dir = wf.getDirectory(),

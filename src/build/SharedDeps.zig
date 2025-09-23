@@ -117,6 +117,9 @@ pub fn add(
     // Every exe gets build options populated
     step.root_module.addOptions("build_options", self.options);
 
+    // Every exe needs the terminal options
+    self.config.terminalOptions().add(b, step.root_module);
+
     // Freetype
     _ = b.systemIntegrationOption("freetype", .{}); // Shows it in help
     if (self.config.font_backend.hasFreetype()) {
@@ -276,21 +279,6 @@ pub fn add(
         }
     }
 
-    // Simdutf
-    if (b.systemIntegrationOption("simdutf", .{})) {
-        step.linkSystemLibrary2("simdutf", dynamic_link_opts);
-    } else {
-        if (b.lazyDependency("simdutf", .{
-            .target = target,
-            .optimize = optimize,
-        })) |simdutf_dep| {
-            step.linkLibrary(simdutf_dep.artifact("simdutf"));
-            try static_libs.append(
-                simdutf_dep.artifact("simdutf").getEmittedBin(),
-            );
-        }
-    }
-
     // Sentry
     if (self.config.sentry) {
         if (b.lazyDependency("sentry", .{
@@ -318,6 +306,13 @@ pub fn add(
             }
         }
     }
+
+    // Simd
+    if (self.config.simd) try addSimd(
+        b,
+        step.root_module,
+        &static_libs,
+    );
 
     // Wasm we do manually since it is such a different build.
     if (step.rootModuleTarget().cpu.arch == .wasm32) {
@@ -353,35 +348,8 @@ pub fn add(
         step.addIncludePath(b.path("src/apprt/gtk"));
     }
 
-    // C++ files
+    // libcpp is required for various dependencies
     step.linkLibCpp();
-    step.addIncludePath(b.path("src"));
-    {
-        // From hwy/detect_targets.h
-        const HWY_AVX3_SPR: c_int = 1 << 4;
-        const HWY_AVX3_ZEN4: c_int = 1 << 6;
-        const HWY_AVX3_DL: c_int = 1 << 7;
-        const HWY_AVX3: c_int = 1 << 8;
-
-        // Zig 0.13 bug: https://github.com/ziglang/zig/issues/20414
-        // To workaround this we just disable AVX512 support completely.
-        // The performance difference between AVX2 and AVX512 is not
-        // significant for our use case and AVX512 is very rare on consumer
-        // hardware anyways.
-        const HWY_DISABLED_TARGETS: c_int = HWY_AVX3_SPR | HWY_AVX3_ZEN4 | HWY_AVX3_DL | HWY_AVX3;
-
-        step.addCSourceFiles(.{
-            .files = &.{
-                "src/simd/base64.cpp",
-                "src/simd/codepoint_width.cpp",
-                "src/simd/index_of.cpp",
-                "src/simd/vt.cpp",
-            },
-            .flags = if (step.rootModuleTarget().cpu.arch == .x86_64) &.{
-                b.fmt("-DHWY_DISABLED_TARGETS={}", .{HWY_DISABLED_TARGETS}),
-            } else &.{},
-        });
-    }
 
     // We always require the system SDK so that our system headers are available.
     // This makes things like `os/log.h` available for cross-compiling.
@@ -493,59 +461,43 @@ pub fn add(
         try static_libs.append(cimgui_dep.artifact("cimgui").getEmittedBin());
     }
 
-    // Highway
-    if (b.lazyDependency("highway", .{
-        .target = target,
-        .optimize = optimize,
-    })) |highway_dep| {
-        step.linkLibrary(highway_dep.artifact("highway"));
-        try static_libs.append(highway_dep.artifact("highway").getEmittedBin());
-    }
-
-    // utfcpp - This is used as a dependency on our hand-written C++ code
-    if (b.lazyDependency("utfcpp", .{
-        .target = target,
-        .optimize = optimize,
-    })) |utfcpp_dep| {
-        step.linkLibrary(utfcpp_dep.artifact("utfcpp"));
-        try static_libs.append(utfcpp_dep.artifact("utfcpp").getEmittedBin());
-    }
-
     // Fonts
     {
         // JetBrains Mono
-        const jb_mono = b.dependency("jetbrains_mono", .{});
-        step.root_module.addAnonymousImport(
-            "jetbrains_mono_regular",
-            .{ .root_source_file = jb_mono.path("fonts/ttf/JetBrainsMono-Regular.ttf") },
-        );
-        step.root_module.addAnonymousImport(
-            "jetbrains_mono_bold",
-            .{ .root_source_file = jb_mono.path("fonts/ttf/JetBrainsMono-Bold.ttf") },
-        );
-        step.root_module.addAnonymousImport(
-            "jetbrains_mono_italic",
-            .{ .root_source_file = jb_mono.path("fonts/ttf/JetBrainsMono-Italic.ttf") },
-        );
-        step.root_module.addAnonymousImport(
-            "jetbrains_mono_bold_italic",
-            .{ .root_source_file = jb_mono.path("fonts/ttf/JetBrainsMono-BoldItalic.ttf") },
-        );
-        step.root_module.addAnonymousImport(
-            "jetbrains_mono_variable",
-            .{ .root_source_file = jb_mono.path("fonts/variable/JetBrainsMono[wght].ttf") },
-        );
-        step.root_module.addAnonymousImport(
-            "jetbrains_mono_variable_italic",
-            .{ .root_source_file = jb_mono.path("fonts/variable/JetBrainsMono-Italic[wght].ttf") },
-        );
+        if (b.lazyDependency("jetbrains_mono", .{})) |jb_mono| {
+            step.root_module.addAnonymousImport(
+                "jetbrains_mono_regular",
+                .{ .root_source_file = jb_mono.path("fonts/ttf/JetBrainsMono-Regular.ttf") },
+            );
+            step.root_module.addAnonymousImport(
+                "jetbrains_mono_bold",
+                .{ .root_source_file = jb_mono.path("fonts/ttf/JetBrainsMono-Bold.ttf") },
+            );
+            step.root_module.addAnonymousImport(
+                "jetbrains_mono_italic",
+                .{ .root_source_file = jb_mono.path("fonts/ttf/JetBrainsMono-Italic.ttf") },
+            );
+            step.root_module.addAnonymousImport(
+                "jetbrains_mono_bold_italic",
+                .{ .root_source_file = jb_mono.path("fonts/ttf/JetBrainsMono-BoldItalic.ttf") },
+            );
+            step.root_module.addAnonymousImport(
+                "jetbrains_mono_variable",
+                .{ .root_source_file = jb_mono.path("fonts/variable/JetBrainsMono[wght].ttf") },
+            );
+            step.root_module.addAnonymousImport(
+                "jetbrains_mono_variable_italic",
+                .{ .root_source_file = jb_mono.path("fonts/variable/JetBrainsMono-Italic[wght].ttf") },
+            );
+        }
 
         // Symbols-only nerd font
-        const nf_symbols = b.dependency("nerd_fonts_symbols_only", .{});
-        step.root_module.addAnonymousImport(
-            "nerd_fonts_symbols_only",
-            .{ .root_source_file = nf_symbols.path("SymbolsNerdFont-Regular.ttf") },
-        );
+        if (b.lazyDependency("nerd_fonts_symbols_only", .{})) |nf_symbols| {
+            step.root_module.addAnonymousImport(
+                "nerd_fonts_symbols_only",
+                .{ .root_source_file = nf_symbols.path("SymbolsNerdFont-Regular.ttf") },
+            );
+        }
     }
 
     // If we're building an exe then we have additional dependencies.
@@ -627,17 +579,20 @@ fn addGtkNg(
             "plasma_wayland_protocols",
             .{},
         );
+        const zig_wayland_import_ = b.lazyImport(
+            @import("../../build.zig"),
+            "zig_wayland",
+        );
+        const zig_wayland_dep_ = b.lazyDependency("zig_wayland", .{});
 
         // Unwrap or return, there are no more dependencies below.
         const wayland_dep = wayland_dep_ orelse break :wayland;
         const wayland_protocols_dep = wayland_protocols_dep_ orelse break :wayland;
         const plasma_wayland_protocols_dep = plasma_wayland_protocols_dep_ orelse break :wayland;
+        const zig_wayland_import = zig_wayland_import_ orelse break :wayland;
+        const zig_wayland_dep = zig_wayland_dep_ orelse break :wayland;
 
-        // Note that zig_wayland cannot be lazy because lazy dependencies
-        // can't be imported since they don't exist and imports are
-        // resolved at compile time of the build.
-        const zig_wayland_dep = b.dependency("zig_wayland", .{});
-        const Scanner = @import("zig_wayland").Scanner;
+        const Scanner = zig_wayland_import.Scanner;
         const scanner = Scanner.create(zig_wayland_dep.builder, .{
             .wayland_xml = wayland_dep.path("protocol/wayland.xml"),
             .wayland_protocols = wayland_protocols_dep.path(""),
@@ -704,6 +659,79 @@ fn addGtkNg(
         const dist = gtkNgDistResources(b);
         step.addCSourceFile(.{ .file = dist.resources_c.path(b), .flags = &.{} });
         step.addIncludePath(dist.resources_h.path(b).dirname());
+    }
+}
+
+/// Add only the dependencies required for `Config.simd` enbled. This also
+/// adds all the simd source files for compilation.
+pub fn addSimd(
+    b: *std.Build,
+    m: *std.Build.Module,
+    static_libs: ?*LazyPathList,
+) !void {
+    const target = m.resolved_target.?;
+    const optimize = m.optimize.?;
+
+    // Simdutf
+    if (b.systemIntegrationOption("simdutf", .{})) {
+        m.linkSystemLibrary("simdutf", dynamic_link_opts);
+    } else {
+        if (b.lazyDependency("simdutf", .{
+            .target = target,
+            .optimize = optimize,
+        })) |simdutf_dep| {
+            m.linkLibrary(simdutf_dep.artifact("simdutf"));
+            if (static_libs) |v| try v.append(
+                simdutf_dep.artifact("simdutf").getEmittedBin(),
+            );
+        }
+    }
+
+    // Highway
+    if (b.lazyDependency("highway", .{
+        .target = target,
+        .optimize = optimize,
+    })) |highway_dep| {
+        m.linkLibrary(highway_dep.artifact("highway"));
+        if (static_libs) |v| try v.append(highway_dep.artifact("highway").getEmittedBin());
+    }
+
+    // utfcpp - This is used as a dependency on our hand-written C++ code
+    if (b.lazyDependency("utfcpp", .{
+        .target = target,
+        .optimize = optimize,
+    })) |utfcpp_dep| {
+        m.linkLibrary(utfcpp_dep.artifact("utfcpp"));
+        if (static_libs) |v| try v.append(utfcpp_dep.artifact("utfcpp").getEmittedBin());
+    }
+
+    // SIMD C++ files
+    m.addIncludePath(b.path("src"));
+    {
+        // From hwy/detect_targets.h
+        const HWY_AVX3_SPR: c_int = 1 << 4;
+        const HWY_AVX3_ZEN4: c_int = 1 << 6;
+        const HWY_AVX3_DL: c_int = 1 << 7;
+        const HWY_AVX3: c_int = 1 << 8;
+
+        // Zig 0.13 bug: https://github.com/ziglang/zig/issues/20414
+        // To workaround this we just disable AVX512 support completely.
+        // The performance difference between AVX2 and AVX512 is not
+        // significant for our use case and AVX512 is very rare on consumer
+        // hardware anyways.
+        const HWY_DISABLED_TARGETS: c_int = HWY_AVX3_SPR | HWY_AVX3_ZEN4 | HWY_AVX3_DL | HWY_AVX3;
+
+        m.addCSourceFiles(.{
+            .files = &.{
+                "src/simd/base64.cpp",
+                "src/simd/codepoint_width.cpp",
+                "src/simd/index_of.cpp",
+                "src/simd/vt.cpp",
+            },
+            .flags = if (target.result.cpu.arch == .x86_64) &.{
+                b.fmt("-DHWY_DISABLED_TARGETS={}", .{HWY_DISABLED_TARGETS}),
+            } else &.{},
+        });
     }
 }
 

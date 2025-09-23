@@ -24,7 +24,7 @@
     };
 
     zon2nix = {
-      url = "github:jcollie/zon2nix?rev=dc78177e2ad28d5a407c9e783ee781bd559d7dd5";
+      url = "github:jcollie/zon2nix?rev=bf983aa90ff169372b9fa8c02e57ea75e0b42245";
       inputs = {
         # Don't override nixpkgs until Zig 0.15 is available in the Nix branch
         # we are using for "normal" builds.

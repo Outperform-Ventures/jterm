@@ -24,10 +24,10 @@
     "url": "https://deps.files.ghostty.org/glslang-12201278a1a05c0ce0b6eb6026c65cd3e9247aa041b1c260324bf29cee559dd23ba1.tar.gz",
     "hash": "sha256-FKLtu1Ccs+UamlPj9eQ12/WXFgS0uDPmPmB26MCpl7U="
   },
-  "gobject-0.3.0-Skun7ET3nQAc0LzvO0NAvTiGGnmkF36cnmbeCAF6MB7Z": {
+  "gobject-0.3.0-Skun7ET3nQCqJhDL0KnF_X7M4L7o7JePsJBbrYpEr7UV": {
     "name": "gobject",
-    "url": "https://github.com/jcollie/ghostty-gobject/releases/download/0.15.1-2025-09-04-48-1/ghostty-gobject-0.15.1-2025-09-04-48-1.tar.zst",
-    "hash": "sha256-h6aKUerGlX2ATVEeoN03eWaqDqvUmKdedgpxrSoHvrY="
+    "url": "https://github.com/ghostty-org/zig-gobject/releases/download/2025-09-20-20-1/ghostty-gobject-2025-09-20-20-1.tar.zst",
+    "hash": "sha256-SXiqGm81aUn6yq1wFXgNTAULdKOHS/Rzkp5OgNkkcXo="
   },
   "N-V-__8AALiNBAA-_0gprYr92CjrMj1I5bqNu0TSJOnjFNSr": {
     "name": "gtk4_layer_shell",
@@ -49,10 +49,10 @@
     "url": "https://deps.files.ghostty.org/imgui-1220bc6b9daceaf7c8c60f3c3998058045ba0c5c5f48ae255ff97776d9cd8bfc6402.tar.gz",
     "hash": "sha256-oF/QHgTPEat4Hig4fGIdLkIPHmBEyOJ6JeYD6pnveGA="
   },
-  "N-V-__8AANodAwDnyHwhlOv5cVRn2rx_dTvija-wy5YtTw1B": {
+  "N-V-__8AAGsjAwAxRB3Y9Akv_HeLfvJA-tIqW6ACnBhWosM3": {
     "name": "iterm2_themes",
-    "url": "https://deps.files.ghostty.org/ghostty-themes-20250915-162204-b1fe546.tgz",
-    "hash": "sha256-6rKNFpaUvSbvNZ0/+u0h4I/RRaV5V7xIPQ9y7eNVbCA="
+    "url": "https://github.com/mbadolato/iTerm2-Color-Schemes/releases/download/release-20250916-134637-76894f0/ghostty-themes.tgz",
+    "hash": "sha256-JPY9M50d/n6rGzWt0aQZIU7IBMWru2IAqe9Vu1x5CMw="
   },
   "N-V-__8AAIC5lwAVPJJzxnCAahSvZTIlG-HhtOvnM1uh-66x": {
     "name": "jetbrains_mono",
@@ -109,10 +109,10 @@
     "url": "https://deps.files.ghostty.org/utfcpp-1220d4d18426ca72fc2b7e56ce47273149815501d0d2395c2a98c726b31ba931e641.tar.gz",
     "hash": "sha256-/8ZooxDndgfTk/PBizJxXyI9oerExNbgV5oR345rWc8="
   },
-  "uucode-0.0.0-ZZjBPgErQADBJsnLdcZKdRk94lB28CbKC4OrUDPOnSeV": {
+  "uucode-0.0.0-ZZjBPk0GQACuYIoFqT_Vzkvn8Ur_M3dE7o4DNUE65Z7v": {
     "name": "uucode",
-    "url": "https://github.com/jacobsandlund/uucode/archive/3512203ca991c02b2500392d1d51226c48131c99.tar.gz",
-    "hash": "sha256-nbbeHgvkoMmr5DJN0qRF776hu3waTL85d8dGpvYsZBw="
+    "url": "https://github.com/jacobsandlund/uucode/archive/f748edb9639d9b3c8ae13d6190953f419a615343.tar.gz",
+    "hash": "sha256-j1ZNumH19olw0DHTEb6sChnCZpYhK9+1Q/rr6nxPRcQ="
   },
   "vaxis-0.1.0-BWNV_FUICQAFZnTCL11TUvnUr1Y0_ZdqtXHhd51d76Rn": {
     "name": "vaxis",

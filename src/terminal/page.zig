@@ -1,6 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const build_config = @import("../build_config.zig");
+const build_options = @import("terminal_options");
 const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
 const assert = std.debug.assert;
@@ -182,8 +182,8 @@ pub const Page = struct {
 
     /// If this is true then verifyIntegrity will do nothing. This is
     /// only present with runtime safety enabled.
-    pause_integrity_checks: if (build_config.slow_runtime_safety) usize else void =
-        if (build_config.slow_runtime_safety) 0 else {},
+    pause_integrity_checks: if (build_options.slow_runtime_safety) usize else void =
+        if (build_options.slow_runtime_safety) 0 else {},
 
     /// Initialize a new page, allocating the required backing memory.
     /// The size of the initialized page defaults to the full capacity.
@@ -307,7 +307,7 @@ pub const Page = struct {
     /// doing a lot of operations that would trigger integrity check
     /// violations but you know the page will end up in a consistent state.
     pub fn pauseIntegrityChecks(self: *Page, v: bool) void {
-        if (build_config.slow_runtime_safety) {
+        if (build_options.slow_runtime_safety) {
             if (v) {
                 self.pause_integrity_checks += 1;
             } else {
@@ -320,8 +320,11 @@ pub const Page = struct {
     /// when runtime safety is enabled. This is a no-op when runtime
     /// safety is disabled. This uses the libc allocator.
     pub fn assertIntegrity(self: *const Page) void {
-        if (comptime build_config.slow_runtime_safety) {
-            self.verifyIntegrity(std.heap.c_allocator) catch |err| {
+        if (comptime build_options.slow_runtime_safety) {
+            var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
+            defer _ = debug_allocator.deinit();
+            const alloc = debug_allocator.allocator();
+            self.verifyIntegrity(alloc) catch |err| {
                 log.err("page integrity violation, crashing. err={}", .{err});
                 @panic("page integrity violation");
             };
@@ -351,7 +354,7 @@ pub const Page = struct {
         // tests (non-Valgrind) anyways so we're verifying anyways.
         if (std.valgrind.runningOnValgrind() > 0) return;
 
-        if (build_config.slow_runtime_safety) {
+        if (build_options.slow_runtime_safety) {
             if (self.pause_integrity_checks > 0) return;
         }
 
@@ -760,7 +763,7 @@ pub const Page = struct {
             // This is an integrity check: if the row claims it doesn't
             // have managed memory then all cells must also not have
             // managed memory.
-            if (build_config.slow_runtime_safety) {
+            if (build_options.slow_runtime_safety) {
                 for (other_cells) |cell| {
                     assert(!cell.hasGrapheme());
                     assert(!cell.hyperlink);
@@ -787,7 +790,7 @@ pub const Page = struct {
                 if (src_cell.hasGrapheme()) {
                     // To prevent integrity checks flipping. This will
                     // get fixed up when we check the style id below.
-                    if (build_config.slow_runtime_safety) {
+                    if (build_options.slow_runtime_safety) {
                         dst_cell.style_id = style.default_id;
                     }
 
@@ -890,8 +893,10 @@ pub const Page = struct {
                         error.NeedsRehash => return error.StyleSetNeedsRehash,
                     } orelse src_cell.style_id;
                 }
-                if (src_cell.codepoint() == kitty.graphics.unicode.placeholder) {
-                    dst_row.kitty_virtual_placeholder = true;
+                if (comptime build_options.kitty_graphics) {
+                    if (src_cell.codepoint() == kitty.graphics.unicode.placeholder) {
+                        dst_row.kitty_virtual_placeholder = true;
+                    }
                 }
             }
         }
@@ -914,7 +919,7 @@ pub const Page = struct {
 
     /// Get the cells for a row.
     pub fn getCells(self: *const Page, row: *Row) []Cell {
-        if (build_config.slow_runtime_safety) {
+        if (build_options.slow_runtime_safety) {
             const rows = self.rows.ptr(self.memory);
             const cells = self.cells.ptr(self.memory);
             assert(@intFromPtr(row) >= @intFromPtr(rows));
@@ -980,8 +985,10 @@ pub const Page = struct {
                     dst.hyperlink = true;
                     dst_row.hyperlink = true;
                 }
-                if (src.codepoint() == kitty.graphics.unicode.placeholder) {
-                    dst_row.kitty_virtual_placeholder = true;
+                if (comptime build_options.kitty_graphics) {
+                    if (src.codepoint() == kitty.graphics.unicode.placeholder) {
+                        dst_row.kitty_virtual_placeholder = true;
+                    }
                 }
             }
         }
@@ -1002,7 +1009,9 @@ pub const Page = struct {
             src_row.grapheme = false;
             src_row.hyperlink = false;
             src_row.styled = false;
-            src_row.kitty_virtual_placeholder = false;
+            if (comptime build_options.kitty_graphics) {
+                src_row.kitty_virtual_placeholder = false;
+            }
         }
     }
 
@@ -1100,14 +1109,16 @@ pub const Page = struct {
             if (cells.len == self.size.cols) row.styled = false;
         }
 
-        if (row.kitty_virtual_placeholder and
-            cells.len == self.size.cols)
-        {
-            for (cells) |c| {
-                if (c.codepoint() == kitty.graphics.unicode.placeholder) {
-                    break;
-                }
-            } else row.kitty_virtual_placeholder = false;
+        if (comptime build_options.kitty_graphics) {
+            if (row.kitty_virtual_placeholder and
+                cells.len == self.size.cols)
+            {
+                for (cells) |c| {
+                    if (c.codepoint() == kitty.graphics.unicode.placeholder) {
+                        break;
+                    }
+                } else row.kitty_virtual_placeholder = false;
+            }
         }
 
         // Zero the cells as u64s since empirically this seems
@@ -1363,7 +1374,7 @@ pub const Page = struct {
     pub fn appendGrapheme(self: *Page, row: *Row, cell: *Cell, cp: u21) Allocator.Error!void {
         defer self.assertIntegrity();
 
-        if (build_config.slow_runtime_safety) assert(cell.codepoint() != 0);
+        if (build_options.slow_runtime_safety) assert(cell.codepoint() != 0);
 
         const cell_offset = getOffset(Cell, self.memory, cell);
         var map = self.grapheme_map.map(self.memory);
@@ -1436,7 +1447,7 @@ pub const Page = struct {
     /// there are scenarios where we want to move graphemes without changing
     /// the content tag. Callers beware but assertIntegrity should catch this.
     fn moveGrapheme(self: *Page, src: *Cell, dst: *Cell) void {
-        if (build_config.slow_runtime_safety) {
+        if (build_options.slow_runtime_safety) {
             assert(src.hasGrapheme());
             assert(!dst.hasGrapheme());
         }
@@ -1453,7 +1464,7 @@ pub const Page = struct {
     /// Clear the graphemes for a given cell.
     pub fn clearGrapheme(self: *Page, row: *Row, cell: *Cell) void {
         defer self.assertIntegrity();
-        if (build_config.slow_runtime_safety) assert(cell.hasGrapheme());
+        if (build_options.slow_runtime_safety) assert(cell.hasGrapheme());
 
         // Get our entry in the map, which must exist
         const cell_offset = getOffset(Cell, self.memory, cell);
@@ -1929,6 +1940,9 @@ pub const Row = packed struct(u64) {
 
     /// True if this row contains a virtual placeholder for the Kitty
     /// graphics protocol. (U+10EEEE)
+    // Note: We keep this as memory-using even if the kitty graphics
+    // feature is disabled because we want to keep our padding and
+    // everything throughout the same.
     kitty_virtual_placeholder: bool = false,
 
     _padding: u23 = 0,

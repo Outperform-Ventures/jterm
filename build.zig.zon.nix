@@ -123,11 +123,11 @@ in
       };
     }
     {
-      name = "gobject-0.3.0-Skun7ET3nQAc0LzvO0NAvTiGGnmkF36cnmbeCAF6MB7Z";
+      name = "gobject-0.3.0-Skun7ET3nQCqJhDL0KnF_X7M4L7o7JePsJBbrYpEr7UV";
       path = fetchZigArtifact {
         name = "gobject";
-        url = "https://github.com/jcollie/ghostty-gobject/releases/download/0.15.1-2025-09-04-48-1/ghostty-gobject-0.15.1-2025-09-04-48-1.tar.zst";
-        hash = "sha256-h6aKUerGlX2ATVEeoN03eWaqDqvUmKdedgpxrSoHvrY=";
+        url = "https://github.com/ghostty-org/zig-gobject/releases/download/2025-09-20-20-1/ghostty-gobject-2025-09-20-20-1.tar.zst";
+        hash = "sha256-SXiqGm81aUn6yq1wFXgNTAULdKOHS/Rzkp5OgNkkcXo=";
       };
     }
     {
@@ -163,11 +163,11 @@ in
       };
     }
     {
-      name = "N-V-__8AANodAwDnyHwhlOv5cVRn2rx_dTvija-wy5YtTw1B";
+      name = "N-V-__8AAGsjAwAxRB3Y9Akv_HeLfvJA-tIqW6ACnBhWosM3";
       path = fetchZigArtifact {
         name = "iterm2_themes";
-        url = "https://deps.files.ghostty.org/ghostty-themes-20250915-162204-b1fe546.tgz";
-        hash = "sha256-6rKNFpaUvSbvNZ0/+u0h4I/RRaV5V7xIPQ9y7eNVbCA=";
+        url = "https://github.com/mbadolato/iTerm2-Color-Schemes/releases/download/release-20250916-134637-76894f0/ghostty-themes.tgz";
+        hash = "sha256-JPY9M50d/n6rGzWt0aQZIU7IBMWru2IAqe9Vu1x5CMw=";
       };
     }
     {
@@ -259,11 +259,11 @@ in
       };
     }
     {
-      name = "uucode-0.0.0-ZZjBPgErQADBJsnLdcZKdRk94lB28CbKC4OrUDPOnSeV";
+      name = "uucode-0.0.0-ZZjBPk0GQACuYIoFqT_Vzkvn8Ur_M3dE7o4DNUE65Z7v";
       path = fetchZigArtifact {
         name = "uucode";
-        url = "https://github.com/jacobsandlund/uucode/archive/3512203ca991c02b2500392d1d51226c48131c99.tar.gz";
-        hash = "sha256-nbbeHgvkoMmr5DJN0qRF776hu3waTL85d8dGpvYsZBw=";
+        url = "https://github.com/jacobsandlund/uucode/archive/f748edb9639d9b3c8ae13d6190953f419a615343.tar.gz";
+        hash = "sha256-j1ZNumH19olw0DHTEb6sChnCZpYhK9+1Q/rr6nxPRcQ=";
       };
     }
     {
