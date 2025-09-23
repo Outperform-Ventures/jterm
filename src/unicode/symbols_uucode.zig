@@ -39,3 +39,49 @@ pub fn main() !void {
     //     t.stage3.len,
     // });
 }
+
+test "unicode symbols: tables match uucode" {
+    if (std.valgrind.runningOnValgrind() > 0) return error.SkipZigTest;
+
+    const testing = std.testing;
+    const table = @import("symbols_table.zig").table;
+
+    for (0..std.math.maxInt(u21)) |cp| {
+        const t = table.get(@intCast(cp));
+        const uu = if (cp > uucode.config.max_code_point)
+            false
+        else
+            uucode.get(.is_symbol, @intCast(cp));
+
+        if (t != uu) {
+            std.log.warn("mismatch cp=U+{x} t={} uu={}", .{ cp, t, uu });
+            try testing.expect(false);
+        }
+    }
+}
+
+test "unicode symbols: tables match ziglyph" {
+    if (std.valgrind.runningOnValgrind() > 0) return error.SkipZigTest;
+
+    const testing = std.testing;
+    const table = @import("symbols_table.zig").table;
+    const ziglyph = @import("ziglyph");
+
+    for (0..std.math.maxInt(u21)) |cp_usize| {
+        const cp: u21 = @intCast(cp_usize);
+        const t = table.get(cp);
+        const zg = ziglyph.general_category.isPrivateUse(cp) or
+            ziglyph.blocks.isDingbats(cp) or
+            ziglyph.blocks.isEmoticons(cp) or
+            ziglyph.blocks.isMiscellaneousSymbols(cp) or
+            ziglyph.blocks.isEnclosedAlphanumerics(cp) or
+            ziglyph.blocks.isEnclosedAlphanumericSupplement(cp) or
+            ziglyph.blocks.isMiscellaneousSymbolsAndPictographs(cp) or
+            ziglyph.blocks.isTransportAndMapSymbols(cp);
+
+        if (t != zg) {
+            std.log.warn("mismatch cp=U+{x} t={} zg={}", .{ cp, t, zg });
+            try testing.expect(false);
+        }
+    }
+}
