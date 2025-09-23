@@ -55,7 +55,7 @@ pub fn get(cp: u21) Properties {
 
     return .{
         .width = width,
-        .grapheme_boundary_class = .init(cp),
+        .grapheme_boundary_class = graphemeBoundaryClass(cp),
     };
 }
 
