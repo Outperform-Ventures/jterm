@@ -22,7 +22,7 @@ test "codepointWidth basic" {
     try testing.expectEqual(@as(i8, 2), codepointWidth(0xF900)); // 豈
     try testing.expectEqual(@as(i8, 2), codepointWidth(0x20000)); // 𠀀
     try testing.expectEqual(@as(i8, 2), codepointWidth(0x30000)); // 𠀀
-    // try testing.expectEqual(@as(i8, 1), @import("uucode").get(.wcwidth, 0x100));
+    // try testing.expectEqual(@as(i8, 1), @import("uucode").get(.width, 0x100));
 }
 
 // This is not very fast in debug modes, so its commented by default.
