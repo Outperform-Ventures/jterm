@@ -23,6 +23,7 @@ pub inline fn create(typ: c.GLenum) errors.Error!Shader {
 
 /// Set the source and compile a shader.
 pub inline fn setSourceAndCompile(s: Shader, source: [:0]const u8) !void {
+    log.info("shader source:{s}", .{source});
     glad.context.ShaderSource.?(s.id, 1, &@as([*c]const u8, @ptrCast(source)), null);
     glad.context.CompileShader.?(s.id);
 

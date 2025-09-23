@@ -172,9 +172,6 @@ pub const SplitTree = extern struct {
         /// close dialog.
         pending_close: ?Surface.Tree.Node.Handle,
 
-        /// True if the current split tree contains more than one surface
-        is_split: bool = false,
-
         pub var offset: c_int = 0;
     };
 
