@@ -735,7 +735,7 @@ jobs:
 
       - name: Test
         run: |
-          nix develop -c zig build -Di18n=${{ matrix.18n}}
+          nix develop -c zig build -Di18n=${{ matrix.i18n }}
 
   zig-fmt:
     if: github.repository == 'ghostty-org/ghostty'
