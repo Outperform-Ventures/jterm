@@ -66,9 +66,9 @@ pub const TabClear = terminal.TabClear;
 pub const Attribute = terminal.Attribute;
 
 comptime {
-    if (terminal.is_c_lib) {
-        _ = terminal.c_api;
-    }
+    // If we're building the C library (vs. the Zig module) then
+    // we want to reference the C API so that it gets exported.
+    if (terminal.is_c_lib) _ = terminal.c_api;
 }
 
 test {
