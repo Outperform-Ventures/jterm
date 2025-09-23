@@ -101,9 +101,8 @@ pub fn build(b: *std.Build) !void {
     const libghostty_vt_shared = try buildpkg.GhosttyLibVt.initShared(
         b,
         &mod,
-        &deps,
     );
-    libghostty_vt_shared.install(libvt_step, "libghostty-vt.so");
+    libghostty_vt_shared.install(libvt_step, "libghostty-vt");
     libghostty_vt_shared.installHeader(libvt_step);
 
     // Helpgen

@@ -15,11 +15,14 @@ step: *std.Build.Step,
 output: std.Build.LazyPath,
 dsym: ?std.Build.LazyPath,
 
+/// Library extension, e.g. "dylib", "so", "dll"
+ext: []const u8,
+
 pub fn initShared(
     b: *std.Build,
     zig: *const GhosttyZig,
-    deps: *const SharedDeps,
 ) !GhosttyLibVt {
+    const target = zig.vt.resolved_target.?;
     const lib = b.addSharedLibrary(.{
         .name = "ghostty-vt",
         .root_module = zig.vt,
@@ -27,7 +30,7 @@ pub fn initShared(
 
     // Get our debug symbols
     const dsymutil: ?std.Build.LazyPath = dsymutil: {
-        if (!deps.config.target.result.os.tag.isDarwin()) {
+        if (!target.result.os.tag.isDarwin()) {
             break :dsymutil null;
         }
 
@@ -43,6 +46,7 @@ pub fn initShared(
         .step = &lib.step,
         .output = lib.getEmittedBin(),
         .dsym = dsymutil,
+        .ext = Config.sharedLibExt(target),
     };
 }
 
@@ -54,7 +58,7 @@ pub fn install(
     const b = self.step.owner;
     const lib_install = b.addInstallLibFile(
         self.output,
-        name,
+        b.fmt("{s}.{s}", .{ name, self.ext }),
     );
     step.dependOn(&lib_install.step);
 }
