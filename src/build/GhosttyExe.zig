@@ -1,6 +1,7 @@
 const Ghostty = @This();
 
 const std = @import("std");
+const builtin = @import("builtin");
 const Config = @import("Config.zig");
 const SharedDeps = @import("SharedDeps.zig");
 
