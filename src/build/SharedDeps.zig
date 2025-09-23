@@ -260,7 +260,7 @@ pub fn add(
             spirv_cross_dep.module("spirv_cross"),
         );
         if (b.systemIntegrationOption("spirv-cross", .{})) {
-            step.linkSystemLibrary2("spirv-cross", dynamic_link_opts);
+            step.linkSystemLibrary2("spirv-cross-c-shared", dynamic_link_opts);
         } else {
             step.linkLibrary(spirv_cross_dep.artifact("spirv_cross"));
             try static_libs.append(
