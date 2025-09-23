@@ -809,6 +809,7 @@ pub const Application = extern struct {
 
         const writer = buf.writer(alloc);
 
+        // Load standard css first as it can override some of the user configured styling.
         try loadRuntimeCss414(config, &writer);
         try loadRuntimeCss416(config, &writer);
 
