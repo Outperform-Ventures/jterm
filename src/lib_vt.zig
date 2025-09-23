@@ -65,6 +65,12 @@ pub const EraseLine = terminal.EraseLine;
 pub const TabClear = terminal.TabClear;
 pub const Attribute = terminal.Attribute;
 
+comptime {
+    if (terminal.is_c_lib) {
+        _ = terminal.c_api;
+    }
+}
+
 test {
     _ = terminal;
 }

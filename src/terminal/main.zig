@@ -62,6 +62,13 @@ pub const Attribute = sgr.Attribute;
 
 pub const isSafePaste = sanitize.isSafePaste;
 
+/// This is set to true when we're building the C library.
+pub const is_c_lib = @import("root") == @import("../lib_vt.zig");
+
+/// This is the C API for this package. Do NOT reference this unless
+/// you want a bunch of symbols exported into your final artifact.
+pub const c_api = @import("c_api.zig");
+
 test {
     @import("std").testing.refAllDecls(@This());
 
