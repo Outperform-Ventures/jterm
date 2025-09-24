@@ -1,0 +1,28 @@
+# Doxyfile 1.13.2
+
+DOXYFILE_ENCODING      = UTF-8
+PROJECT_NAME           = "libghostty"
+INPUT                  = include/ghostty/vt.h
+INPUT_ENCODING         = UTF-8
+RECURSIVE              = NO
+
+#---------------------------------------------------------------------------
+# HTML Output
+#---------------------------------------------------------------------------
+
+GENERATE_HTML          = YES
+HTML_OUTPUT            = zig-out/share/ghostty/doc/libghostty
+
+#---------------------------------------------------------------------------
+# Man Output
+#---------------------------------------------------------------------------
+
+GENERATE_MAN           = YES
+MAN_OUTPUT             = zig-out/share/man
+MAN_EXTENSION          = .3
+
+#---------------------------------------------------------------------------
+# Other Output
+#---------------------------------------------------------------------------
+
+GENERATE_LATEX         = NO

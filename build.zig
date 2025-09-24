@@ -31,6 +31,7 @@ pub fn build(b: *std.Build) !void {
 
     // All our steps which we'll hook up later. The steps are shown
     // up here just so that they are more self-documenting.
+    const libvt_step = b.step("lib-vt", "Build libghostty-vt");
     const run_step = b.step("run", "Run the app");
     const run_valgrind_step = b.step(
         "run-valgrind",
@@ -86,7 +87,7 @@ pub fn build(b: *std.Build) !void {
         check_step.dependOn(dist.install_step);
     }
 
-    // libghostty
+    // libghostty (internal, big)
     const libghostty_shared = try buildpkg.GhosttyLib.initShared(
         b,
         &deps,
@@ -95,6 +96,14 @@ pub fn build(b: *std.Build) !void {
         b,
         &deps,
     );
+
+    // libghostty-vt
+    const libghostty_vt_shared = try buildpkg.GhosttyLibVt.initShared(
+        b,
+        &mod,
+    );
+    libghostty_vt_shared.install(libvt_step);
+    libghostty_vt_shared.install(b.getInstallStep());
 
     // Helpgen
     if (config.emit_helpgen) deps.help_strings.install();

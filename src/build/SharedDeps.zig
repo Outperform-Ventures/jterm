@@ -1,6 +1,8 @@
 const SharedDeps = @This();
 
 const std = @import("std");
+const builtin = @import("builtin");
+
 const Config = @import("Config.zig");
 const HelpStrings = @import("HelpStrings.zig");
 const MetallibStep = @import("MetallibStep.zig");
@@ -103,6 +105,19 @@ pub fn add(
     // we can build a single fat static library for the final app.
     var static_libs = LazyPathList.init(b.allocator);
     errdefer static_libs.deinit();
+
+    // WARNING: This is a hack!
+    // If we're cross-compiling to Darwin then we don't add any deps.
+    // We don't support cross-compiling to Darwin but due to the way
+    // lazy dependencies work with Zig, we call this function. So we just
+    // bail. The build will fail but the build would've failed anyways.
+    // And this lets other non-platform-specific targets like `lib-vt`
+    // cross-compile properly.
+    if (!builtin.target.os.tag.isDarwin() and
+        self.config.target.result.os.tag.isDarwin())
+    {
+        return static_libs;
+    }
 
     // Every exe gets build options populated
     step.root_module.addOptions("build_options", self.options);
