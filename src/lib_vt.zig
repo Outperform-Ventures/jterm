@@ -70,8 +70,8 @@ comptime {
     // we want to reference the C API so that it gets exported.
     if (terminal.is_c_lib) {
         const c = terminal.c_api;
-        @export(&c.ghostty_vt_osc_new, .{ .name = "ghostty_vt_osc_new" });
-        @export(&c.ghostty_vt_osc_free, .{ .name = "ghostty_vt_osc_free" });
+        @export(&c.osc_new, .{ .name = "ghostty_osc_new" });
+        @export(&c.osc_free, .{ .name = "ghostty_osc_free" });
     }
 }
 

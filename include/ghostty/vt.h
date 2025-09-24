@@ -37,10 +37,10 @@ typedef struct GhosttyOscParser *GhosttyOscParser;
  */
 typedef enum {
     /** Operation completed successfully */
-    GHOSTTY_VT_SUCCESS = 0,
+    GHOSTTY_SUCCESS = 0,
     /** Operation failed due to failed allocation */
-    GHOSTTY_VT_OUT_OF_MEMORY = -1,
-} GhosttyVtResult;
+    GHOSTTY_OUT_OF_MEMORY = -1,
+} GhosttyResult;
 
 //-------------------------------------------------------------------
 // Allocator Interface
@@ -131,7 +131,7 @@ typedef struct {
      * @param ret_addr First return address of the allocation call stack (0 if not provided)
      */
     void (*free)(void *ctx, void *memory, size_t memory_len, uint8_t alignment, uintptr_t ret_addr);
-} GhosttyVtAllocatorVtable;
+} GhosttyAllocatorVtable;
 
 /**
  * Custom memory allocator.
@@ -143,7 +143,7 @@ typedef struct {
  *
  * Usage example:
  * @code
- * GhosttyVtAllocator allocator = {
+ * GhosttyAllocator allocator = {
  *     .vtable = &my_allocator_vtable,
  *     .ctx = my_allocator_state
  * };
@@ -161,8 +161,8 @@ typedef struct {
      * Pointer to the allocator's vtable containing function pointers
      * for memory operations (alloc, resize, remap, free).
      */
-    const GhosttyVtAllocatorVtable *vtable;
-} GhosttyVtAllocator;
+    const GhosttyAllocatorVtable *vtable;
+} GhosttyAllocator;
 
 //-------------------------------------------------------------------
 // Functions
@@ -178,7 +178,7 @@ typedef struct {
  * @param parser Pointer to store the created parser handle
  * @return GHOSTTY_VT_SUCCESS on success, or an error code on failure
  */
-GhosttyVtResult ghostty_vt_osc_new(const GhosttyVtAllocator *allocator, GhosttyOscParser *parser);
+GhosttyResult ghostty_osc_new(const GhosttyAllocator *allocator, GhosttyOscParser *parser);
 
 /**
  * Free an OSC parser instance.
@@ -188,7 +188,7 @@ GhosttyVtResult ghostty_vt_osc_new(const GhosttyVtAllocator *allocator, GhosttyO
  * 
  * @param parser The parser handle to free (may be NULL)
  */
-void ghostty_vt_osc_free(GhosttyOscParser parser);
+void ghostty_osc_free(GhosttyOscParser parser);
 
 #ifdef __cplusplus
 }
