@@ -29,8 +29,8 @@ pub fn initShared(
         .root_module = zig.vt,
     });
     lib.installHeader(
-        b.path("include/ghostty-vt.h"),
-        "ghostty-vt.h",
+        b.path("include/ghostty/vt.h"),
+        "ghostty/vt.h",
     );
 
     // Get our debug symbols

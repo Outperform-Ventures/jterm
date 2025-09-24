@@ -1,5 +1,5 @@
 #include <stddef.h>
-#include <ghostty-vt.h>
+#include <ghostty/vt.h>
 
 int main() {
   GhosttyOscParser parser;

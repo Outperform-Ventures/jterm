@@ -2,7 +2,7 @@
 
 DOXYFILE_ENCODING      = UTF-8
 PROJECT_NAME           = "libghostty"
-INPUT                  = include/ghostty-vt.h
+INPUT                  = include/ghostty/vt.h
 INPUT_ENCODING         = UTF-8
 RECURSIVE              = NO
 

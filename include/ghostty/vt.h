@@ -1,5 +1,5 @@
 /**
- * @file ghostty-vt.h
+ * @file vt.h
  *
  * libghostty-vt - Virtual terminal sequence parsing library
  * 
