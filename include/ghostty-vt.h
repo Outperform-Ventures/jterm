@@ -15,9 +15,9 @@
 extern "C" {
 #endif
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
-#include <stdbool.h>
 
 //-------------------------------------------------------------------
 // Types
@@ -178,7 +178,7 @@ typedef struct {
  * @param parser Pointer to store the created parser handle
  * @return GHOSTTY_VT_SUCCESS on success, or an error code on failure
  */
-GhosttyVtResult ghostty_vt_osc_new(const GhosttyVtAllocator* allocator, GhosttyOscParser* parser);
+GhosttyVtResult ghostty_vt_osc_new(const GhosttyVtAllocator *allocator, GhosttyOscParser *parser);
 
 /**
  * Free an OSC parser instance.

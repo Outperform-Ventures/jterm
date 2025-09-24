@@ -77,14 +77,8 @@ pub fn install(
     self: *const GhosttyLibVt,
     step: *std.Build.Step,
 ) void {
-    step.dependOn(&self.artifact.step);
-}
-
-pub fn installPkgConfig(
-    self: *const GhosttyLibVt,
-    step: *std.Build.Step,
-) void {
     const b = step.owner;
+    step.dependOn(&self.artifact.step);
     step.dependOn(&b.addInstallFileWithDir(
         self.pkg_config,
         .prefix,

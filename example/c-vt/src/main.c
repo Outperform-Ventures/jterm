@@ -3,7 +3,9 @@
 
 int main() {
   GhosttyOscParser parser;
-  ghostty_vt_osc_new(NULL, &parser);
+  if (ghostty_vt_osc_new(NULL, &parser) != GHOSTTY_VT_SUCCESS) {
+    return 1;
+  }
   ghostty_vt_osc_free(parser);
   return 0;
 }
