@@ -11,12 +11,12 @@ const LipoStep = @import("LipoStep.zig");
 /// The step that generates the file.
 step: *std.Build.Step,
 
+/// The artifact result
+artifact: *std.Build.Step.InstallArtifact,
+
 /// The final library file
 output: std.Build.LazyPath,
 dsym: ?std.Build.LazyPath,
-
-/// Library extension, e.g. "dylib", "so", "dll"
-ext: []const u8,
 
 pub fn initShared(
     b: *std.Build,
@@ -27,6 +27,10 @@ pub fn initShared(
         .name = "ghostty-vt",
         .root_module = zig.vt,
     });
+    lib.installHeader(
+        b.path("include/ghostty-vt.h"),
+        "ghostty-vt.h",
+    );
 
     // Get our debug symbols
     const dsymutil: ?std.Build.LazyPath = dsymutil: {
@@ -44,33 +48,15 @@ pub fn initShared(
 
     return .{
         .step = &lib.step,
+        .artifact = b.addInstallArtifact(lib, .{}),
         .output = lib.getEmittedBin(),
         .dsym = dsymutil,
-        .ext = Config.sharedLibExt(target),
     };
 }
 
 pub fn install(
     self: *const GhosttyLibVt,
     step: *std.Build.Step,
-    name: []const u8,
 ) void {
-    const b = self.step.owner;
-    const lib_install = b.addInstallLibFile(
-        self.output,
-        b.fmt("{s}.{s}", .{ name, self.ext }),
-    );
-    step.dependOn(&lib_install.step);
-}
-
-pub fn installHeader(
-    self: *const GhosttyLibVt,
-    step: *std.Build.Step,
-) void {
-    const b = self.step.owner;
-    const header_install = b.addInstallHeaderFile(
-        b.path("include/ghostty-vt.h"),
-        "ghostty-vt.h",
-    );
-    step.dependOn(&header_install.step);
+    step.dependOn(&self.artifact.step);
 }
