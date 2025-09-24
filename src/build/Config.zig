@@ -589,16 +589,6 @@ pub fn genericMacOSTarget(
     });
 }
 
-/// The extension to use for a shared library on the given target.
-pub fn sharedLibExt(target: std.Build.ResolvedTarget) []const u8 {
-    return if (target.result.os.tag.isDarwin())
-        "dylib"
-    else if (target.result.os.tag == .windows)
-        return "dll"
-    else
-        return "so";
-}
-
 /// The possible entrypoints for the exe artifact. This has no effect on
 /// other artifact types (i.e. lib, wasm_module).
 ///

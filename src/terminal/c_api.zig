@@ -1,30 +1,40 @@
 const std = @import("std");
+const assert = std.debug.assert;
 const builtin = @import("builtin");
 const lib_alloc = @import("../lib/allocator.zig");
 const CAllocator = lib_alloc.Allocator;
 const osc = @import("osc.zig");
 
+/// C: GhosttyOscParser
 pub const GhosttyOscParser = extern struct {
     parser: *osc.Parser,
+
+    comptime {
+        // C API is an opaque pointer so the sizes must match.
+        assert(@sizeOf(@This()) == @sizeOf(usize));
+    }
 };
 
+/// C: GhosttyResult
 pub const Result = enum(c_int) {
     success = 0,
     out_of_memory = -1,
 };
 
 pub fn ghostty_vt_osc_new(
-    c_alloc_: ?*const CAllocator,
+    alloc_: ?*const CAllocator,
     result: *GhosttyOscParser,
 ) callconv(.c) Result {
-    const alloc = lib_alloc.default(c_alloc_);
-    const ptr = alloc.create(osc.Parser) catch return .out_of_memory;
+    const alloc = lib_alloc.default(alloc_);
+    const ptr = alloc.create(osc.Parser) catch
+        return .out_of_memory;
     ptr.* = .initAlloc(alloc);
     result.* = .{ .parser = ptr };
     return .success;
 }
 
 pub fn ghostty_vt_osc_free(parser: GhosttyOscParser) callconv(.c) void {
+    // C-built parsers always have an associated allocator.
     const alloc = parser.parser.alloc.?;
     parser.parser.deinit();
     alloc.destroy(parser.parser);
