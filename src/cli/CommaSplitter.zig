@@ -13,7 +13,7 @@
 //!
 //! Quotes and escapes are not stripped or decoded, that must be handled as a
 //! separate step!
-const Splitter = @This();
+const CommaSplitter = @This();
 
 pub const Error = error{
     UnclosedQuote,
@@ -27,7 +27,7 @@ str: []const u8,
 index: usize,
 
 /// initialize a splitter with the given string
-pub fn init(str: []const u8) Splitter {
+pub fn init(str: []const u8) CommaSplitter {
     return .{
         .str = str,
         .index = 0,
@@ -35,7 +35,7 @@ pub fn init(str: []const u8) Splitter {
 }
 
 /// return the next field, null if no more fields
-pub fn next(self: *Splitter) Error!?[]const u8 {
+pub fn next(self: *CommaSplitter) Error!?[]const u8 {
     if (self.index >= self.str.len) return null;
 
     // where the current field starts
@@ -188,7 +188,7 @@ pub fn next(self: *Splitter) Error!?[]const u8 {
 }
 
 /// Return any remaining string data, whether it has a comma or not.
-pub fn rest(self: *Splitter) ?[]const u8 {
+pub fn rest(self: *CommaSplitter) ?[]const u8 {
     if (self.index >= self.str.len) return null;
     defer self.index = self.str.len;
     return self.str[self.index..];
@@ -198,7 +198,7 @@ test "splitter 1" {
     const std = @import("std");
     const testing = std.testing;
 
-    var s: Splitter = .init("a,b,c");
+    var s: CommaSplitter = .init("a,b,c");
     try testing.expectEqualStrings("a", (try s.next()).?);
     try testing.expectEqualStrings("b", (try s.next()).?);
     try testing.expectEqualStrings("c", (try s.next()).?);
@@ -209,7 +209,7 @@ test "splitter 2" {
     const std = @import("std");
     const testing = std.testing;
 
-    var s: Splitter = .init("");
+    var s: CommaSplitter = .init("");
     try testing.expect(null == try s.next());
 }
 
@@ -217,7 +217,7 @@ test "splitter 3" {
     const std = @import("std");
     const testing = std.testing;
 
-    var s: Splitter = .init("a");
+    var s: CommaSplitter = .init("a");
     try testing.expectEqualStrings("a", (try s.next()).?);
     try testing.expect(null == try s.next());
 }
@@ -226,7 +226,7 @@ test "splitter 4" {
     const std = @import("std");
     const testing = std.testing;
 
-    var s: Splitter = .init("\\x5a");
+    var s: CommaSplitter = .init("\\x5a");
     try testing.expectEqualStrings("\\x5a", (try s.next()).?);
     try testing.expect(null == try s.next());
 }
@@ -235,7 +235,7 @@ test "splitter 5" {
     const std = @import("std");
     const testing = std.testing;
 
-    var s: Splitter = .init("'a',b");
+    var s: CommaSplitter = .init("'a',b");
     try testing.expectEqualStrings("'a'", (try s.next()).?);
     try testing.expectEqualStrings("b", (try s.next()).?);
     try testing.expect(null == try s.next());
@@ -245,7 +245,7 @@ test "splitter 6" {
     const std = @import("std");
     const testing = std.testing;
 
-    var s: Splitter = .init("'a,b',c");
+    var s: CommaSplitter = .init("'a,b',c");
     try testing.expectEqualStrings("'a", (try s.next()).?);
     try testing.expectEqualStrings("b'", (try s.next()).?);
     try testing.expectEqualStrings("c", (try s.next()).?);
@@ -256,7 +256,7 @@ test "splitter 7" {
     const std = @import("std");
     const testing = std.testing;
 
-    var s: Splitter = .init("\"a,b\",c");
+    var s: CommaSplitter = .init("\"a,b\",c");
     try testing.expectEqualStrings("\"a,b\"", (try s.next()).?);
     try testing.expectEqualStrings("c", (try s.next()).?);
     try testing.expect(null == try s.next());
@@ -266,7 +266,7 @@ test "splitter 8" {
     const std = @import("std");
     const testing = std.testing;
 
-    var s: Splitter = .init(" a , b ");
+    var s: CommaSplitter = .init(" a , b ");
     try testing.expectEqualStrings(" a ", (try s.next()).?);
     try testing.expectEqualStrings(" b ", (try s.next()).?);
     try testing.expect(null == try s.next());
@@ -276,7 +276,7 @@ test "splitter 9" {
     const std = @import("std");
     const testing = std.testing;
 
-    var s: Splitter = .init("\\x");
+    var s: CommaSplitter = .init("\\x");
     try testing.expectError(error.UnfinishedEscape, s.next());
 }
 
@@ -284,7 +284,7 @@ test "splitter 10" {
     const std = @import("std");
     const testing = std.testing;
 
-    var s: Splitter = .init("\\x5");
+    var s: CommaSplitter = .init("\\x5");
     try testing.expectError(error.UnfinishedEscape, s.next());
 }
 
@@ -292,7 +292,7 @@ test "splitter 11" {
     const std = @import("std");
     const testing = std.testing;
 
-    var s: Splitter = .init("\\u");
+    var s: CommaSplitter = .init("\\u");
     try testing.expectError(error.UnfinishedEscape, s.next());
 }
 
@@ -300,7 +300,7 @@ test "splitter 12" {
     const std = @import("std");
     const testing = std.testing;
 
-    var s: Splitter = .init("\\u{");
+    var s: CommaSplitter = .init("\\u{");
     try testing.expectError(error.UnfinishedEscape, s.next());
 }
 
@@ -308,7 +308,7 @@ test "splitter 13" {
     const std = @import("std");
     const testing = std.testing;
 
-    var s: Splitter = .init("\\u{}");
+    var s: CommaSplitter = .init("\\u{}");
     try testing.expectError(error.IllegalEscape, s.next());
 }
 
@@ -316,7 +316,7 @@ test "splitter 14" {
     const std = @import("std");
     const testing = std.testing;
 
-    var s: Splitter = .init("\\u{h1}");
+    var s: CommaSplitter = .init("\\u{h1}");
     try testing.expectError(error.IllegalEscape, s.next());
 }
 
@@ -324,7 +324,7 @@ test "splitter 15" {
     const std = @import("std");
     const testing = std.testing;
 
-    var s: Splitter = .init("\\u{10ffff}");
+    var s: CommaSplitter = .init("\\u{10ffff}");
     try testing.expectEqualStrings("\\u{10ffff}", (try s.next()).?);
     try testing.expect(null == try s.next());
 }
@@ -333,7 +333,7 @@ test "splitter 16" {
     const std = @import("std");
     const testing = std.testing;
 
-    var s: Splitter = .init("\\u{110000}");
+    var s: CommaSplitter = .init("\\u{110000}");
     try testing.expectError(error.IllegalEscape, s.next());
 }
 
@@ -341,7 +341,7 @@ test "splitter 17" {
     const std = @import("std");
     const testing = std.testing;
 
-    var s: Splitter = .init("\\d");
+    var s: CommaSplitter = .init("\\d");
     try testing.expectError(error.IllegalEscape, s.next());
 }
 
@@ -349,7 +349,7 @@ test "splitter 18" {
     const std = @import("std");
     const testing = std.testing;
 
-    var s: Splitter = .init("\\n\\r\\t\\\"\\'\\\\");
+    var s: CommaSplitter = .init("\\n\\r\\t\\\"\\'\\\\");
     try testing.expectEqualStrings("\\n\\r\\t\\\"\\'\\\\", (try s.next()).?);
     try testing.expect(null == try s.next());
 }
@@ -358,7 +358,7 @@ test "splitter 19" {
     const std = @import("std");
     const testing = std.testing;
 
-    var s: Splitter = .init("\"abc'def'ghi\"");
+    var s: CommaSplitter = .init("\"abc'def'ghi\"");
     try testing.expectEqualStrings("\"abc'def'ghi\"", (try s.next()).?);
     try testing.expect(null == try s.next());
 }
@@ -367,7 +367,7 @@ test "splitter 20" {
     const std = @import("std");
     const testing = std.testing;
 
-    var s: Splitter = .init("\",\",abc");
+    var s: CommaSplitter = .init("\",\",abc");
     try testing.expectEqualStrings("\",\"", (try s.next()).?);
     try testing.expectEqualStrings("abc", (try s.next()).?);
     try testing.expect(null == try s.next());
@@ -377,7 +377,7 @@ test "splitter 21" {
     const std = @import("std");
     const testing = std.testing;
 
-    var s: Splitter = .init("'a','b', 'c'");
+    var s: CommaSplitter = .init("'a','b', 'c'");
     try testing.expectEqualStrings("'a'", (try s.next()).?);
     try testing.expectEqualStrings("'b'", (try s.next()).?);
     try testing.expectEqualStrings(" 'c'", (try s.next()).?);
@@ -388,7 +388,7 @@ test "splitter 22" {
     const std = @import("std");
     const testing = std.testing;
 
-    var s: Splitter = .init("abc\"def");
+    var s: CommaSplitter = .init("abc\"def");
     try testing.expectError(error.UnclosedQuote, s.next());
 }
 
@@ -396,7 +396,7 @@ test "splitter 23" {
     const std = @import("std");
     const testing = std.testing;
 
-    var s: Splitter = .init("title:\"Focus Split: Up\",description:\"Focus the split above, if it exists.\",action:goto_split:up");
+    var s: CommaSplitter = .init("title:\"Focus Split: Up\",description:\"Focus the split above, if it exists.\",action:goto_split:up");
     try testing.expectEqualStrings("title:\"Focus Split: Up\"", (try s.next()).?);
     try testing.expectEqualStrings("description:\"Focus the split above, if it exists.\"", (try s.next()).?);
     try testing.expectEqualStrings("action:goto_split:up", (try s.next()).?);
@@ -407,7 +407,7 @@ test "splitter 24" {
     const std = @import("std");
     const testing = std.testing;
 
-    var s: Splitter = .init("a,b,c,def");
+    var s: CommaSplitter = .init("a,b,c,def");
     try testing.expectEqualStrings("a", (try s.next()).?);
     try testing.expectEqualStrings("b", (try s.next()).?);
     try testing.expectEqualStrings("c,def", s.rest().?);
@@ -418,7 +418,7 @@ test "splitter 25" {
     const std = @import("std");
     const testing = std.testing;
 
-    var s: Splitter = .init("a,\\u{10,df}");
+    var s: CommaSplitter = .init("a,\\u{10,df}");
     try testing.expectEqualStrings("a", (try s.next()).?);
     try testing.expectError(error.IllegalEscape, s.next());
 }

@@ -7,7 +7,7 @@ const diags = @import("diagnostics.zig");
 const internal_os = @import("../os/main.zig");
 const Diagnostic = diags.Diagnostic;
 const DiagnosticList = diags.DiagnosticList;
-const Splitter = @import("Splitter.zig");
+const CommaSplitter = @import("CommaSplitter.zig");
 
 const log = std.log.scoped(.cli);
 
@@ -529,7 +529,7 @@ pub fn parseAutoStruct(comptime T: type, alloc: Allocator, v: []const u8) !T {
     var fields_set: FieldSet = .initEmpty();
 
     // We split each value by "," allowing for quoting and escaping.
-    var iter: Splitter = .init(v);
+    var iter: CommaSplitter = .init(v);
     loop: while (try iter.next()) |entry| {
         // Find the key/value, trimming whitespace. The value may be quoted
         // which we strip the quotes from.
