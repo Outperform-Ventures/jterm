@@ -15,7 +15,13 @@ pub fn build(b: *std.Build) void {
 
     // You'll want to use a lazy dependency here so that ghostty is only
     // downloaded if you actually need it.
-    if (b.lazyDependency("ghostty", .{})) |dep| {
+    if (b.lazyDependency("ghostty", .{
+        // Setting simd to false will force a pure static build that
+        // doesn't even require libc, but it has a significant performance
+        // penalty. If your embedding app requires libc anyway, you should
+        // always keep simd enabled.
+        // .simd = false,
+    })) |dep| {
         exe_mod.addImport(
             "ghostty-vt",
             dep.module("ghostty-vt"),
