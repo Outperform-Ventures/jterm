@@ -17,6 +17,7 @@ artifact: *std.Build.Step.InstallArtifact,
 /// The final library file
 output: std.Build.LazyPath,
 dsym: ?std.Build.LazyPath,
+pkg_config: std.Build.LazyPath,
 
 pub fn initShared(
     b: *std.Build,
@@ -46,11 +47,29 @@ pub fn initShared(
         break :dsymutil output;
     };
 
+    // pkg-config
+    const pc: std.Build.LazyPath = pc: {
+        const wf = b.addWriteFiles();
+        break :pc wf.add("libghostty-vt.pc", b.fmt(
+            \\prefix={s}
+            \\includedir=${{prefix}}/include
+            \\libdir=${{prefix}}/lib
+            \\
+            \\Name: libghostty-vt
+            \\URL: https://github.com/ghostty-org/ghostty
+            \\Description: Ghostty VT library
+            \\Version: 0.1.0
+            \\Cflags: -I${{includedir}}
+            \\Libs: -L${{libdir}} -lghostty-vt
+        , .{b.install_prefix}));
+    };
+
     return .{
         .step = &lib.step,
         .artifact = b.addInstallArtifact(lib, .{}),
         .output = lib.getEmittedBin(),
         .dsym = dsymutil,
+        .pkg_config = pc,
     };
 }
 
@@ -59,4 +78,16 @@ pub fn install(
     step: *std.Build.Step,
 ) void {
     step.dependOn(&self.artifact.step);
+}
+
+pub fn installPkgConfig(
+    self: *const GhosttyLibVt,
+    step: *std.Build.Step,
+) void {
+    const b = step.owner;
+    step.dependOn(&b.addInstallFileWithDir(
+        self.pkg_config,
+        .prefix,
+        "share/pkgconfig/libghostty-vt.pc",
+    ).step);
 }

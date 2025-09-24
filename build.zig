@@ -104,6 +104,8 @@ pub fn build(b: *std.Build) !void {
     );
     libghostty_vt_shared.install(libvt_step);
     libghostty_vt_shared.install(b.getInstallStep());
+    libghostty_vt_shared.installPkgConfig(libvt_step);
+    libghostty_vt_shared.installPkgConfig(b.getInstallStep());
 
     // Helpgen
     if (config.emit_helpgen) deps.help_strings.install();
