@@ -14,7 +14,7 @@ extern "C" {
 //-------------------------------------------------------------------
 // Types
 
-typedef struct GhosttyOscParser GhosttyOscParser;
+typedef struct GhosttyOscParser *GhosttyOscParser;
 
 typedef enum {
     GHOSTTY_VT_SUCCESS = 0,
@@ -130,6 +130,9 @@ typedef struct {
 
 //-------------------------------------------------------------------
 // Functions
+
+GhosttyVtResult ghostty_vt_osc_new(const GhosttyVtAllocator*, GhosttyOscParser*);
+void ghostty_vt_osc_free(GhosttyOscParser);
 
 #ifdef __cplusplus
 }

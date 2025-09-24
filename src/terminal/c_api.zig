@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const lib_alloc = @import("../lib/allocator.zig");
 const CAllocator = lib_alloc.Allocator;
 const osc = @import("osc.zig");
@@ -13,10 +14,10 @@ pub const Result = enum(c_int) {
 };
 
 pub fn ghostty_vt_osc_new(
-    c_alloc: *const CAllocator,
+    c_alloc_: ?*const CAllocator,
     result: *GhosttyOscParser,
 ) callconv(.c) Result {
-    const alloc = c_alloc.zig();
+    const alloc = lib_alloc.default(c_alloc_);
     const ptr = alloc.create(osc.Parser) catch return .out_of_memory;
     ptr.* = .initAlloc(alloc);
     result.* = .{ .parser = ptr };
