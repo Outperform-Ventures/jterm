@@ -95,7 +95,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        dir: [zig-vt]
+        dir: [c-vt, zig-vt]
     name: Example ${{ matrix.dir }}
     runs-on: namespace-profile-ghostty-sm
     needs: test
