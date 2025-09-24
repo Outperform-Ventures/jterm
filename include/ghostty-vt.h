@@ -21,6 +21,9 @@ typedef enum {
     GHOSTTY_VT_OUT_OF_MEMORY = -1,
 } GhosttyVtResult;
 
+//-------------------------------------------------------------------
+// Allocator Interface
+
 typedef struct {
     /**
      * Return a pointer to `len` bytes with specified `alignment`, or return
