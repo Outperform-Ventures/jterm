@@ -51,9 +51,22 @@ typedef enum {
  * This vtable defines the interface for a custom memory allocator. All
  * function pointers must be valid and non-NULL.
  *
- * NOTE(mitchellh): In the future, I think we can have default
- * implementations if resize/remap are null. alloc/free must always
- * be supplied.
+ * If you're not going to use a custom allocator, you can ignore all of
+ * this. All functions that take an allocator pointer allow NULL to use a
+ * default allocator.
+ *
+ * The interface is based on the Zig allocator interface. I'll say up front
+ * that it is easy to look at this interface and think "wow, this is really
+ * overcomplicated". The reason for this complexity is well thought out by
+ * the Zig folks, and it enables a diverse set of allocation strategies
+ * as shown by the Zig ecosystem. As a consolation, please note that many
+ * of the arguments are only needed for advanced use cases and can be
+ * safely ignored in simple implementations. For example, if you look at 
+ * the Zig implementation of the libc allocator in `lib/std/heap.zig`
+ * (search for CAllocator), you'll see it is very simple.
+ *
+ * NOTE(mitchellh): In the future, we can have default implementations of
+ * resize/remap and allow those to be null.
  */
 typedef struct {
     /**

@@ -6,6 +6,7 @@ const testing = std.testing;
 pub const ZigVTable = std.mem.Allocator.VTable;
 
 /// The VTable required by the C interface.
+/// C: GhosttyAllocatorVtable
 pub const VTable = extern struct {
     alloc: *const fn (*anyopaque, len: usize, alignment: u8, ret_addr: usize) callconv(.c) ?[*]u8,
     resize: *const fn (*anyopaque, memory: [*]u8, memory_len: usize, alignment: u8, new_len: usize, ret_addr: usize) callconv(.c) bool,
@@ -37,6 +38,8 @@ pub fn default(c_alloc_: ?*const Allocator) std.mem.Allocator {
 /// the real world to be flexible and useful, and (2) it allows us to
 /// easily convert C allocators to Zig allocators and vice versa, since
 /// we're written in Zig.
+///
+/// C: GhosttyAllocator
 pub const Allocator = extern struct {
     ctx: *anyopaque,
     vtable: *const VTable,
