@@ -63,20 +63,41 @@ const Info = extern struct {
 pub const String = extern struct {
     ptr: ?[*]const u8,
     len: usize,
-    cap: usize,
+    sentinel: bool,
 
     pub const empty: String = .{
         .ptr = null,
         .len = 0,
-        .cap = 0,
+        .sentinel = false,
     };
 
-    pub fn fromSlice(slice: []const u8, cap: usize) String {
+    pub fn fromSlice(slice: anytype) String {
         return .{
             .ptr = slice.ptr,
             .len = slice.len,
-            .cap = cap,
+            .sentinel = sentinel: {
+                const info = @typeInfo(@TypeOf(slice));
+                switch (info) {
+                    .pointer => |p| {
+                        if (p.size != .slice) @compileError("only slices supported");
+                        if (p.child != u8) @compileError("only u8 slices supported");
+                        const sentinel_ = p.sentinel();
+                        if (sentinel_) |sentinel| if (sentinel != 0) @compileError("only 0 is supported for sentinels");
+                        break :sentinel sentinel_ != null;
+                    },
+                    else => @compileError("only []const u8 and [:0]const u8"),
+                }
+            },
         };
+    }
+
+    pub fn deinit(self: *const String) void {
+        const ptr = self.ptr orelse return;
+        if (self.sentinel) {
+            state.alloc.free(ptr[0..self.len :0]);
+        } else {
+            state.alloc.free(ptr[0..self.len]);
+        }
     }
 };
 
@@ -132,5 +153,5 @@ pub export fn ghostty_translate(msgid: [*:0]const u8) [*:0]const u8 {
 
 /// Free a string allocated by Ghostty.
 pub export fn ghostty_string_free(str: String) void {
-    state.alloc.free(str.ptr.?[0..str.cap]);
+    str.deinit();
 }

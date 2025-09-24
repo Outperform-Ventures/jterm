@@ -131,7 +131,7 @@ export fn ghostty_config_open_path() c.String {
     };
 
     // Capacity is len + 1 due to sentinel
-    return .fromSlice(path, path.len + 1);
+    return .fromSlice(path);
 }
 
 /// Sync with ghostty_diagnostic_s
