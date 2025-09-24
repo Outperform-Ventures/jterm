@@ -353,7 +353,7 @@ typedef struct {
 typedef struct {
   const char* ptr;
   uintptr_t len;
-  uintptr_t cap;
+  bool sentinel;
 } ghostty_string_s;
 
 typedef struct {

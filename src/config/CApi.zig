@@ -130,7 +130,6 @@ export fn ghostty_config_open_path() c.String {
         return .empty;
     };
 
-    // Capacity is len + 1 due to sentinel
     return .fromSlice(path);
 }
 
