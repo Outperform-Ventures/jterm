@@ -1,4 +1,12 @@
-// libghostty-vt
+/**
+ * @file ghostty-vt.h
+ *
+ * libghostty-vt - Virtual terminal sequence parsing library
+ * 
+ * This library provides functionality for parsing and handling terminal
+ * escape sequences as well as maintaining terminal state such as styles,
+ * cursor position, screen, scrollback, and more.
+ */
 
 #ifndef GHOSTTY_VT_H
 #define GHOSTTY_VT_H
@@ -14,16 +22,39 @@ extern "C" {
 //-------------------------------------------------------------------
 // Types
 
+/**
+ * Opaque handle to an OSC parser instance.
+ * 
+ * This handle represents an OSC (Operating System Command) parser that can
+ * be used to parse the contents of OSC sequences. This isn't a full VT
+ * parser; it is only the OSC parser component. This is useful if you have
+ * a parser already and want to only extract and handle OSC sequences.
+ */
 typedef struct GhosttyOscParser *GhosttyOscParser;
 
+/**
+ * Result codes for libghostty-vt operations.
+ */
 typedef enum {
+    /** Operation completed successfully */
     GHOSTTY_VT_SUCCESS = 0,
+    /** Operation failed due to failed allocation */
     GHOSTTY_VT_OUT_OF_MEMORY = -1,
 } GhosttyVtResult;
 
 //-------------------------------------------------------------------
 // Allocator Interface
 
+/**
+ * Function table for custom memory allocator operations.
+ * 
+ * This vtable defines the interface for a custom memory allocator. All
+ * function pointers must be valid and non-NULL.
+ *
+ * NOTE(mitchellh): In the future, I think we can have default
+ * implementations if resize/remap are null. alloc/free must always
+ * be supplied.
+ */
 typedef struct {
     /**
      * Return a pointer to `len` bytes with specified `alignment`, or return
@@ -105,6 +136,11 @@ typedef struct {
 /**
  * Custom memory allocator.
  *
+ * For functions that take an allocator pointer, a NULL pointer indicates
+ * that the default allocator should be used. The default allocator will 
+ * be libc malloc/free if we're linking to libc. If libc isn't linked,
+ * a custom allocator is used (currently Zig's SMP allocator).
+ *
  * Usage example:
  * @code
  * GhosttyVtAllocator allocator = {
@@ -131,8 +167,28 @@ typedef struct {
 //-------------------------------------------------------------------
 // Functions
 
-GhosttyVtResult ghostty_vt_osc_new(const GhosttyVtAllocator*, GhosttyOscParser*);
-void ghostty_vt_osc_free(GhosttyOscParser);
+/**
+ * Create a new OSC parser instance.
+ * 
+ * Creates a new OSC (Operating System Command) parser using the provided
+ * allocator. The parser must be freed using ghostty_vt_osc_free() when
+ * no longer needed.
+ * 
+ * @param allocator Pointer to the allocator to use for memory management, or NULL to use the default allocator
+ * @param parser Pointer to store the created parser handle
+ * @return GHOSTTY_VT_SUCCESS on success, or an error code on failure
+ */
+GhosttyVtResult ghostty_vt_osc_new(const GhosttyVtAllocator* allocator, GhosttyOscParser* parser);
+
+/**
+ * Free an OSC parser instance.
+ * 
+ * Releases all resources associated with the OSC parser. After this call,
+ * the parser handle becomes invalid and must not be used.
+ * 
+ * @param parser The parser handle to free (may be NULL)
+ */
+void ghostty_vt_osc_free(GhosttyOscParser parser);
 
 #ifdef __cplusplus
 }
