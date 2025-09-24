@@ -63,16 +63,19 @@ const Info = extern struct {
 pub const String = extern struct {
     ptr: ?[*]const u8,
     len: usize,
+    cap: usize,
 
     pub const empty: String = .{
         .ptr = null,
         .len = 0,
+        .cap = 0,
     };
 
-    pub fn fromSlice(slice: []const u8) String {
+    pub fn fromSlice(slice: []const u8, cap: usize) String {
         return .{
             .ptr = slice.ptr,
             .len = slice.len,
+            .cap = cap,
         };
     }
 };
@@ -129,5 +132,5 @@ pub export fn ghostty_translate(msgid: [*:0]const u8) [*:0]const u8 {
 
 /// Free a string allocated by Ghostty.
 pub export fn ghostty_string_free(str: String) void {
-    state.alloc.free(str.ptr.?[0..str.len]);
+    state.alloc.free(str.ptr.?[0..str.cap]);
 }
