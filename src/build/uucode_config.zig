@@ -60,29 +60,22 @@ const is_symbol = config.Extension{
 
 pub const tables = [_]config.Table{
     .{
-        .extensions = &.{wcwidth},
+        .name = "runtime",
+        .extensions = &.{},
         .fields = &.{
             d.field("is_emoji_presentation"),
             d.field("case_folding_full"),
-            d.field("is_emoji_modifier"),
-            d.field("is_emoji_modifier_base"),
         },
     },
     .{
-        .extensions = &.{ wcwidth, width },
+        .name = "buildtime",
+        .extensions = &.{ wcwidth, width, is_symbol },
         .fields = &.{
             width.field("width"),
-        },
-    },
-    .{
-        .fields = &.{
             d.field("grapheme_break"),
-        },
-    },
-    .{
-        .extensions = &.{is_symbol},
-        .fields = &.{
             is_symbol.field("is_symbol"),
+            d.field("is_emoji_modifier"),
+            d.field("is_emoji_modifier_base"),
         },
     },
 };
