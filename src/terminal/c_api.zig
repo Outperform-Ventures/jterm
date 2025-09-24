@@ -6,7 +6,7 @@ const CAllocator = lib_alloc.Allocator;
 const osc = @import("osc.zig");
 
 /// C: GhosttyOscParser
-pub const OscParser = *osc.Parser;
+pub const OscParser = ?*osc.Parser;
 
 /// C: GhosttyResult
 pub const Result = enum(c_int) {
@@ -26,8 +26,9 @@ pub fn osc_new(
     return .success;
 }
 
-pub fn osc_free(parser: OscParser) callconv(.c) void {
+pub fn osc_free(parser_: OscParser) callconv(.c) void {
     // C-built parsers always have an associated allocator.
+    const parser = parser_ orelse return;
     const alloc = parser.alloc.?;
     parser.deinit();
     alloc.destroy(parser);

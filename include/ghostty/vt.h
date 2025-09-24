@@ -6,6 +6,9 @@
  * This library provides functionality for parsing and handling terminal
  * escape sequences as well as maintaining terminal state such as styles,
  * cursor position, screen, scrollback, and more.
+ *
+ * WARNING: This is an incomplete, work-in-progress API. It is not yet
+ * stable and is definitely going to change. 
  */
 
 #ifndef GHOSTTY_VT_H
@@ -64,6 +67,14 @@ typedef enum {
  * safely ignored in simple implementations. For example, if you look at 
  * the Zig implementation of the libc allocator in `lib/std/heap.zig`
  * (search for CAllocator), you'll see it is very simple.
+ *
+ * We chose to align with the Zig allocator interface because:
+ *
+ *   1. It is a proven interface that serves a wide variety of use cases
+ *      in the real world via the Zig ecosystem. It's shown to work.
+ *
+ *   2. Our core implementation itself is Zig, and this lets us very
+ *      cheaply and easily convert between C and Zig allocators.
  *
  * NOTE(mitchellh): In the future, we can have default implementations of
  * resize/remap and allow those to be null.
@@ -189,7 +200,7 @@ typedef struct {
  * 
  * @param allocator Pointer to the allocator to use for memory management, or NULL to use the default allocator
  * @param parser Pointer to store the created parser handle
- * @return GHOSTTY_VT_SUCCESS on success, or an error code on failure
+ * @return GHOSTTY_SUCCESS on success, or an error code on failure
  */
 GhosttyResult ghostty_osc_new(const GhosttyAllocator *allocator, GhosttyOscParser *parser);
 
