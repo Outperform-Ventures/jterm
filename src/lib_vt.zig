@@ -68,9 +68,16 @@ pub const Attribute = terminal.Attribute;
 comptime {
     // If we're building the C library (vs. the Zig module) then
     // we want to reference the C API so that it gets exported.
-    if (terminal.is_c_lib) _ = terminal.c_api;
+    if (terminal.is_c_lib) {
+        const c = terminal.c_api;
+        @export(&c.ghostty_vt_osc_new, .{ .name = "ghostty_vt_osc_new" });
+        @export(&c.ghostty_vt_osc_free, .{ .name = "ghostty_vt_osc_free" });
+    }
 }
 
 test {
     _ = terminal;
+
+    // Tests always test the C API
+    _ = terminal.c_api;
 }

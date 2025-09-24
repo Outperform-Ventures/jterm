@@ -1,0 +1,317 @@
+const std = @import("std");
+const builtin = @import("builtin");
+const testing = std.testing;
+
+/// Useful alias since they're required to create Zig allocators
+pub const ZigVTable = std.mem.Allocator.VTable;
+
+/// The VTable required by the C interface.
+pub const VTable = extern struct {
+    alloc: *const fn (*anyopaque, len: usize, alignment: u8, ret_addr: usize) callconv(.c) ?[*]u8,
+    resize: *const fn (*anyopaque, memory: [*]u8, memory_len: usize, alignment: u8, new_len: usize, ret_addr: usize) callconv(.c) bool,
+    remap: *const fn (*anyopaque, memory: [*]u8, memory_len: usize, alignment: u8, new_len: usize, ret_addr: usize) callconv(.c) ?[*]u8,
+    free: *const fn (*anyopaque, memory: [*]u8, memory_len: usize, alignment: u8, ret_addr: usize) callconv(.c) void,
+};
+
+/// The Allocator interface for custom memory allocation strategies
+/// within C libghostty APIs.
+///
+/// This -- purposely -- matches the Zig allocator interface. We do this
+/// for two reasons: (1) Zig's allocator interface is well proven in
+/// the real world to be flexible and useful, and (2) it allows us to
+/// easily convert C allocators to Zig allocators and vice versa, since
+/// we're written in Zig.
+pub const Allocator = extern struct {
+    ctx: *anyopaque,
+    vtable: *const VTable,
+
+    /// vtable for the Zig allocator interface to map our extern
+    /// allocator to Zig's allocator interface.
+    pub const zig_vtable: ZigVTable = .{
+        .alloc = alloc,
+        .resize = resize,
+        .remap = remap,
+        .free = free,
+    };
+
+    /// Create a C allocator from a Zig allocator. This requires that
+    /// the Zig allocator be pointer-stable for the lifetime of the
+    /// C allocator.
+    pub fn fromZig(zig_alloc: *const std.mem.Allocator) Allocator {
+        return .{
+            .ctx = @ptrCast(@constCast(zig_alloc)),
+            .vtable = &ZigAllocator.vtable,
+        };
+    }
+
+    /// Create a Zig allocator from this C allocator. This requires
+    /// a pointer to a Zig allocator vtable that we can populate with
+    /// our callbacks.
+    pub fn zig(self: *const Allocator) std.mem.Allocator {
+        return .{
+            .ptr = @ptrCast(@constCast(self)),
+            .vtable = &zig_vtable,
+        };
+    }
+
+    fn alloc(
+        ctx: *anyopaque,
+        len: usize,
+        alignment: std.mem.Alignment,
+        ra: usize,
+    ) ?[*]u8 {
+        const self: *Allocator = @ptrCast(@alignCast(ctx));
+        return self.vtable.alloc(
+            self.ctx,
+            len,
+            @intFromEnum(alignment),
+            ra,
+        );
+    }
+
+    fn resize(
+        ctx: *anyopaque,
+        old_mem: []u8,
+        alignment: std.mem.Alignment,
+        new_len: usize,
+        ra: usize,
+    ) bool {
+        const self: *Allocator = @ptrCast(@alignCast(ctx));
+        return self.vtable.resize(
+            self.ctx,
+            old_mem.ptr,
+            old_mem.len,
+            @intFromEnum(alignment),
+            new_len,
+            ra,
+        );
+    }
+
+    fn remap(
+        ctx: *anyopaque,
+        old_mem: []u8,
+        alignment: std.mem.Alignment,
+        new_len: usize,
+        ra: usize,
+    ) ?[*]u8 {
+        const self: *Allocator = @ptrCast(@alignCast(ctx));
+        return self.vtable.remap(
+            self.ctx,
+            old_mem.ptr,
+            old_mem.len,
+            @intFromEnum(alignment),
+            new_len,
+            ra,
+        );
+    }
+
+    fn free(
+        ctx: *anyopaque,
+        old_mem: []u8,
+        alignment: std.mem.Alignment,
+        ra: usize,
+    ) void {
+        const self: *Allocator = @ptrCast(@alignCast(ctx));
+        self.vtable.free(
+            self.ctx,
+            old_mem.ptr,
+            old_mem.len,
+            @intFromEnum(alignment),
+            ra,
+        );
+    }
+};
+
+/// An allocator implementation that wraps a Zig allocator so that
+/// it can be exposed to C.
+const ZigAllocator = struct {
+    const vtable: VTable = .{
+        .alloc = alloc,
+        .resize = resize,
+        .remap = remap,
+        .free = free,
+    };
+
+    fn alloc(
+        ctx: *anyopaque,
+        len: usize,
+        alignment: u8,
+        ra: usize,
+    ) callconv(.c) ?[*]u8 {
+        const zig_alloc: *const std.mem.Allocator = @ptrCast(@alignCast(ctx));
+        return zig_alloc.vtable.alloc(
+            zig_alloc.ptr,
+            len,
+            @enumFromInt(alignment),
+            ra,
+        );
+    }
+
+    fn resize(
+        ctx: *anyopaque,
+        memory: [*]u8,
+        memory_len: usize,
+        alignment: u8,
+        new_len: usize,
+        ra: usize,
+    ) callconv(.c) bool {
+        const zig_alloc: *const std.mem.Allocator = @ptrCast(@alignCast(ctx));
+        return zig_alloc.vtable.resize(
+            zig_alloc.ptr,
+            memory[0..memory_len],
+            @enumFromInt(alignment),
+            new_len,
+            ra,
+        );
+    }
+
+    fn remap(
+        ctx: *anyopaque,
+        memory: [*]u8,
+        memory_len: usize,
+        alignment: u8,
+        new_len: usize,
+        ra: usize,
+    ) callconv(.c) ?[*]u8 {
+        const zig_alloc: *const std.mem.Allocator = @ptrCast(@alignCast(ctx));
+        return zig_alloc.vtable.remap(
+            zig_alloc.ptr,
+            memory[0..memory_len],
+            @enumFromInt(alignment),
+            new_len,
+            ra,
+        );
+    }
+
+    fn free(
+        ctx: *anyopaque,
+        memory: [*]u8,
+        memory_len: usize,
+        alignment: u8,
+        ra: usize,
+    ) callconv(.c) void {
+        const zig_alloc: *const std.mem.Allocator = @ptrCast(@alignCast(ctx));
+        return zig_alloc.vtable.free(
+            zig_alloc.ptr,
+            memory[0..memory_len],
+            @enumFromInt(alignment),
+            ra,
+        );
+    }
+};
+
+/// C allocator (libc)
+pub const CAllocator = struct {
+    comptime {
+        if (!builtin.link_libc) {
+            @compileError("C allocator is only available when linking against libc");
+        }
+    }
+
+    const vtable: VTable = .{
+        .alloc = alloc,
+        .resize = resize,
+        .remap = remap,
+        .free = free,
+    };
+
+    fn alloc(
+        ctx: *anyopaque,
+        len: usize,
+        alignment: u8,
+        ra: usize,
+    ) callconv(.c) ?[*]u8 {
+        return std.heap.c_allocator.vtable.alloc(
+            ctx,
+            len,
+            @enumFromInt(alignment),
+            ra,
+        );
+    }
+
+    fn resize(
+        ctx: *anyopaque,
+        memory: [*]u8,
+        memory_len: usize,
+        alignment: u8,
+        new_len: usize,
+        ra: usize,
+    ) callconv(.c) bool {
+        return std.heap.c_allocator.vtable.resize(
+            ctx,
+            memory[0..memory_len],
+            @enumFromInt(alignment),
+            new_len,
+            ra,
+        );
+    }
+
+    fn remap(
+        ctx: *anyopaque,
+        memory: [*]u8,
+        memory_len: usize,
+        alignment: u8,
+        new_len: usize,
+        ra: usize,
+    ) callconv(.c) ?[*]u8 {
+        return std.heap.c_allocator.vtable.remap(
+            ctx,
+            memory[0..memory_len],
+            @enumFromInt(alignment),
+            new_len,
+            ra,
+        );
+    }
+
+    fn free(
+        ctx: *anyopaque,
+        memory: [*]u8,
+        memory_len: usize,
+        alignment: u8,
+        ra: usize,
+    ) callconv(.c) void {
+        std.heap.c_allocator.vtable.free(
+            ctx,
+            memory[0..memory_len],
+            @enumFromInt(alignment),
+            ra,
+        );
+    }
+};
+
+pub const c_allocator: Allocator = .{
+    .ctx = undefined,
+    .vtable = &CAllocator.vtable,
+};
+
+/// Allocator that can be sent to the C API that does full
+/// leak checking within Zig tests. This should only be used from
+/// Zig tests.
+pub const test_allocator: Allocator = b: {
+    if (!builtin.is_test) @compileError("test_allocator can only be used in tests");
+    break :b .fromZig(&testing.allocator);
+};
+
+test "c allocator" {
+    if (!comptime builtin.link_libc) return error.SkipZigTest;
+
+    const alloc = c_allocator.zig();
+    const str = try alloc.alloc(u8, 10);
+    defer alloc.free(str);
+    try testing.expectEqual(10, str.len);
+}
+
+test "fba allocator" {
+    var buf: [1024]u8 = undefined;
+    var fba: std.heap.FixedBufferAllocator = .init(&buf);
+    const zig_alloc = fba.allocator();
+
+    // Convert the Zig allocator to a C interface
+    const c_alloc: Allocator = .fromZig(&zig_alloc);
+
+    // Convert back to Zig so we can test it.
+    const alloc = c_alloc.zig();
+    const str = try alloc.alloc(u8, 10);
+    defer alloc.free(str);
+    try testing.expectEqual(10, str.len);
+}
