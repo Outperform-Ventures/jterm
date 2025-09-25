@@ -403,6 +403,14 @@ pub fn add(
     })) |dep| {
         step.root_module.addImport("z2d", dep.module("z2d"));
     }
+    if (step.kind == .@"test") {
+        if (b.lazyDependency("ziglyph", .{
+            .target = step.root_module.resolved_target.?,
+            .optimize = step.root_module.optimize.?,
+        })) |dep| {
+            step.root_module.addImport("ziglyph", dep.module("ziglyph"));
+        }
+    }
     if (b.lazyDependency("uucode", .{
         .target = target,
         .optimize = optimize,
