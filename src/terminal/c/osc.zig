@@ -29,6 +29,14 @@ pub fn free(parser_: Parser) callconv(.c) void {
     alloc.destroy(parser);
 }
 
+pub fn reset(parser_: Parser) callconv(.c) void {
+    parser_.?.reset();
+}
+
+pub fn next(parser_: Parser, byte: u8) callconv(.c) void {
+    parser_.?.next(byte);
+}
+
 test "osc" {
     const testing = std.testing;
     var p: Parser = undefined;

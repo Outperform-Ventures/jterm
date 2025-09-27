@@ -214,6 +214,32 @@ GhosttyResult ghostty_osc_new(const GhosttyAllocator *allocator, GhosttyOscParse
  */
 void ghostty_osc_free(GhosttyOscParser parser);
 
+/**
+ * Reset an OSC parser instance to its initial state.
+ * 
+ * Resets the parser state, clearing any partially parsed OSC sequences
+ * and returning the parser to its initial state. This is useful for
+ * reusing a parser instance or recovering from parse errors.
+ * 
+ * @param parser The parser handle to reset, must not be null.
+ */
+void ghostty_osc_reset(GhosttyOscParser parser);
+
+/**
+ * Parse the next byte in an OSC sequence.
+ * 
+ * Processes a single byte as part of an OSC sequence. The parser maintains
+ * internal state to track the progress through the sequence. Call this
+ * function for each byte in the sequence data.
+ *
+ * When finished pumping the parser with bytes, call ghostty_osc_end
+ * to get the final result.
+ * 
+ * @param parser The parser handle, must not be null.
+ * @param byte The next byte to parse
+ */
+void ghostty_osc_next(GhosttyOscParser parser, uint8_t byte);
+
 #ifdef __cplusplus
 }
 #endif

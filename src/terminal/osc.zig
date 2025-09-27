@@ -431,7 +431,7 @@ pub const Parser = struct {
         self.reset();
     }
 
-    /// Reset the parser start.
+    /// Reset the parser state.
     pub fn reset(self: *Parser) void {
         // If the state is already empty then we do nothing because
         // we may touch uninitialized memory.

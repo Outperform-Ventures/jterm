@@ -3,6 +3,8 @@ pub const osc = @import("osc.zig");
 // The full C API, unexported.
 pub const osc_new = osc.new;
 pub const osc_free = osc.free;
+pub const osc_reset = osc.reset;
+pub const osc_next = osc.next;
 
 test {
     _ = osc;
