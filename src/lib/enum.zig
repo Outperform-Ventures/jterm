@@ -22,15 +22,25 @@ pub fn Enum(
 ) type {
     var fields: [keys.len]std.builtin.Type.EnumField = undefined;
     var fields_i: usize = 0;
-    for (keys, 0..) |key_, key_i| {
-        const key: [:0]const u8 = key_ orelse switch (target) {
-            .c => std.fmt.comptimePrint("__unused_{d}", .{key_i}),
-            .zig => continue,
+    var holes: usize = 0;
+    for (keys) |key_| {
+        const key: [:0]const u8 = key_ orelse {
+            switch (target) {
+                // For Zig we don't track holes because the enum value
+                // isn't guaranteed to be stable and we want to use the
+                // smallest possible backing type.
+                .zig => {},
+
+                // For C we must track holes to preserve ABI compatibility
+                // with subsequent values.
+                .c => holes += 1,
+            }
+            continue;
         };
 
         fields[fields_i] = .{
             .name = key,
-            .value = fields_i,
+            .value = fields_i + holes,
         };
         fields_i += 1;
     }
