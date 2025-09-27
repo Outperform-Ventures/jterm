@@ -274,7 +274,7 @@ pub fn next(self: *Parser, c: u8) [3]?Action {
         // Exit depends on current state
         if (self.state == next_state) null else switch (self.state) {
             .osc_string => if (self.osc_parser.end(c)) |cmd|
-                Action{ .osc_dispatch = cmd }
+                Action{ .osc_dispatch = cmd.* }
             else
                 null,
             .dcs_passthrough => Action{ .dcs_unhook = {} },
