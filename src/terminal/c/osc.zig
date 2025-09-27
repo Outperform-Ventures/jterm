@@ -9,6 +9,9 @@ const Result = @import("result.zig").Result;
 /// C: GhosttyOscParser
 pub const Parser = ?*osc.Parser;
 
+/// C: GhosttyOscCommand
+pub const Command = ?*osc.Command;
+
 pub fn new(
     alloc_: ?*const CAllocator,
     result: *Parser,
@@ -35,6 +38,10 @@ pub fn reset(parser_: Parser) callconv(.c) void {
 
 pub fn next(parser_: Parser, byte: u8) callconv(.c) void {
     parser_.?.next(byte);
+}
+
+pub fn end(parser_: Parser, terminator: u8) callconv(.c) Command {
+    return parser_.?.end(terminator);
 }
 
 test "osc" {

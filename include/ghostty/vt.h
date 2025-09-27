@@ -289,9 +289,37 @@ void ghostty_osc_reset(GhosttyOscParser parser);
  */
 void ghostty_osc_next(GhosttyOscParser parser, uint8_t byte);
 
-GhosttyOscCommand ghostty_osc_end(GhosttyOscParser parser);
-GhosttyOscCommandType ghostty_osc_command_type(GhosttyOscCommand command);
-bool ghostty_osc_command_data(GhosttyOscCommand command, GhosttyOscCommandData, void *result);
+/**
+ * Finalize OSC parsing and retrieve the parsed command.
+ * 
+ * Call this function after feeding all bytes of an OSC sequence to the parser
+ * using ghostty_osc_next() with the exception of the terminating character
+ * (ESC or ST). This function finalizes the parsing process and returns the 
+ * parsed OSC command.
+ *
+ * The return value is never NULL. Invalid commands will return a command
+ * with type GHOSTTY_OSC_COMMAND_INVALID.
+ * 
+ * The terminator parameter specifies the byte that terminated the OSC sequence
+ * (typically 0x07 for BEL or 0x5C for ST after ESC). This information is
+ * preserved in the parsed command so that responses can use the same terminator
+ * format for better compatibility with the calling program. For commands that
+ * do not require a response, this parameter is ignored and the resulting
+ * command will not retain the terminator information.
+ * 
+ * The returned command handle is valid until the next call to any 
+ * `ghostty_osc_*` function with the same parser instance with the exception
+ * of command introspection functions such as `ghostty_osc_command_type`.
+ * 
+ * @param parser The parser handle, must not be null.
+ * @param terminator The terminating byte of the OSC sequence (0x07 for BEL, 0x5C for ST)
+ * @return Handle to the parsed OSC command
+ */
+GhosttyOscCommand ghostty_osc_end(GhosttyOscParser parser, uint8_t terminator);
+
+// TODO
+// GhosttyOscCommandType ghostty_osc_command_type(GhosttyOscCommand command);
+// bool ghostty_osc_command_data(GhosttyOscCommand command, GhosttyOscCommandData, void *result);
 
 #ifdef __cplusplus
 }
