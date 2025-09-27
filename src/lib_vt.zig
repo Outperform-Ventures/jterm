@@ -80,6 +80,7 @@ comptime {
 test {
     _ = terminal;
 
-    // Tests always test the C API
+    // Tests always test the C API and shared C functions
     _ = terminal.c_api;
+    _ = @import("lib/main.zig");
 }
