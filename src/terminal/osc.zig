@@ -10,6 +10,8 @@ const builtin = @import("builtin");
 const mem = std.mem;
 const assert = std.debug.assert;
 const Allocator = mem.Allocator;
+const LibEnum = @import("../lib/enum.zig").Enum;
+const is_c_lib = @import("build_options.zig").is_c_lib;
 const RGB = @import("color.zig").RGB;
 const kitty_color = @import("kitty/color.zig");
 const osc_color = @import("osc/color.zig");
@@ -17,7 +19,7 @@ pub const color = osc_color;
 
 const log = std.log.scoped(.osc);
 
-pub const Command = union(enum) {
+pub const Command = union(Key) {
     /// This generally shouldn't ever be set except as an initial zero value.
     /// Ignore it.
     invalid,
@@ -171,6 +173,34 @@ pub const Command = union(enum) {
 
     /// ConEmu GUI macro (OSC 9;6)
     conemu_guimacro: []const u8,
+
+    pub const Key = LibEnum(
+        if (is_c_lib) .c else .zig,
+        // NOTE: Order matters, see LibEnum documentation.
+        &.{
+            "invalid",
+            "change_window_title",
+            "change_window_icon",
+            "prompt_start",
+            "prompt_end",
+            "end_of_input",
+            "end_of_command",
+            "clipboard_contents",
+            "report_pwd",
+            "mouse_shape",
+            "color_operation",
+            "kitty_color_protocol",
+            "show_desktop_notification",
+            "hyperlink_start",
+            "hyperlink_end",
+            "conemu_sleep",
+            "conemu_show_message_box",
+            "conemu_change_tab_title",
+            "conemu_progress_report",
+            "conemu_wait_input",
+            "conemu_guimacro",
+        },
+    );
 
     pub const ProgressReport = struct {
         pub const State = enum(c_int) {
