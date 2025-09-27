@@ -36,6 +36,15 @@ extern "C" {
 typedef struct GhosttyOscParser *GhosttyOscParser;
 
 /**
+ * Opaque handle to a single OSC command.
+ * 
+ * This handle represents a parsed OSC (Operating System Command) command.
+ * The command can be queried for its type and associated data using
+ * `ghostty_osc_command_type` and `ghostty_osc_command_data`.
+ */
+typedef struct GhosttyOscCommand *GhosttyOscCommand;
+
+/**
  * Result codes for libghostty-vt operations.
  */
 typedef enum {
@@ -44,6 +53,46 @@ typedef enum {
     /** Operation failed due to failed allocation */
     GHOSTTY_OUT_OF_MEMORY = -1,
 } GhosttyResult;
+
+/**
+ * OSC command types.
+ */
+typedef enum {
+  GHOSTTY_OSC_COMMAND_INVALID = 0,
+  GHOSTTY_OSC_COMMAND_CHANGE_WINDOW_TITLE = 1,
+  GHOSTTY_OSC_COMMAND_CHANGE_WINDOW_ICON = 2,
+  GHOSTTY_OSC_COMMAND_PROMPT_START = 3,
+  GHOSTTY_OSC_COMMAND_PROMPT_END = 4,
+  GHOSTTY_OSC_COMMAND_END_OF_INPUT = 5,
+  GHOSTTY_OSC_COMMAND_END_OF_COMMAND = 6,
+  GHOSTTY_OSC_COMMAND_CLIPBOARD_CONTENTS = 7,
+  GHOSTTY_OSC_COMMAND_REPORT_PWD = 8,
+  GHOSTTY_OSC_COMMAND_MOUSE_SHAPE = 9,
+  GHOSTTY_OSC_COMMAND_COLOR_OPERATION = 10,
+  GHOSTTY_OSC_COMMAND_KITTY_COLOR_PROTOCOL = 11,
+  GHOSTTY_OSC_COMMAND_SHOW_DESKTOP_NOTIFICATION = 12,
+  GHOSTTY_OSC_COMMAND_HYPERLINK_START = 13,
+  GHOSTTY_OSC_COMMAND_HYPERLINK_END = 14,
+  GHOSTTY_OSC_COMMAND_CONEMU_SLEEP = 15,
+  GHOSTTY_OSC_COMMAND_CONEMU_SHOW_MESSAGE_BOX = 16,
+  GHOSTTY_OSC_COMMAND_CONEMU_CHANGE_TAB_TITLE = 17,
+  GHOSTTY_OSC_COMMAND_CONEMU_PROGRESS_REPORT = 18,
+  GHOSTTY_OSC_COMMAND_CONEMU_WAIT_INPUT = 19,
+  GHOSTTY_OSC_COMMAND_CONEMU_GUIMACRO = 20,
+} GhosttyOscCommandType;
+
+/**
+ * OSC command data types. The values returned are documented
+ * on each type.
+ * */
+typedef enum {
+  /**
+   * The window title string.
+   *
+   * Type: const char*
+   * */
+  GHOSTTY_OSC_DATA_WINDOW_TITLE,
+} GhosttyOscCommandData;
 
 //-------------------------------------------------------------------
 // Allocator Interface
@@ -239,6 +288,10 @@ void ghostty_osc_reset(GhosttyOscParser parser);
  * @param byte The next byte to parse
  */
 void ghostty_osc_next(GhosttyOscParser parser, uint8_t byte);
+
+GhosttyOscCommand ghostty_osc_end(GhosttyOscParser parser);
+GhosttyOscCommandType ghostty_osc_command_type(GhosttyOscCommand command);
+bool ghostty_osc_command_data(GhosttyOscCommand command, GhosttyOscCommandData, void *result);
 
 #ifdef __cplusplus
 }
