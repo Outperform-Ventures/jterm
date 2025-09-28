@@ -255,6 +255,15 @@ pub fn build(b: *std.Build) !void {
         });
         const mod_vt_test_run = b.addRunArtifact(mod_vt_test);
         test_lib_vt_step.dependOn(&mod_vt_test_run.step);
+
+        const mod_vt_c_test = b.addTest(.{
+            .root_module = mod.vt_c,
+            .target = config.target,
+            .optimize = config.optimize,
+            .filters = test_filters,
+        });
+        const mod_vt_c_test_run = b.addRunArtifact(mod_vt_c_test);
+        test_lib_vt_step.dependOn(&mod_vt_c_test_run.step);
     }
 
     // Tests

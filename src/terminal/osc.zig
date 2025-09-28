@@ -7,11 +7,11 @@ const osc = @This();
 
 const std = @import("std");
 const builtin = @import("builtin");
+const build_options = @import("terminal_options");
 const mem = std.mem;
 const assert = std.debug.assert;
 const Allocator = mem.Allocator;
 const LibEnum = @import("../lib/enum.zig").Enum;
-const is_c_lib = @import("build_options.zig").is_c_lib;
 const RGB = @import("color.zig").RGB;
 const kitty_color = @import("kitty/color.zig");
 const osc_color = @import("osc/color.zig");
@@ -175,7 +175,7 @@ pub const Command = union(Key) {
     conemu_guimacro: []const u8,
 
     pub const Key = LibEnum(
-        if (is_c_lib) .c else .zig,
+        if (build_options.c_abi) .c else .zig,
         // NOTE: Order matters, see LibEnum documentation.
         &.{
             "invalid",
