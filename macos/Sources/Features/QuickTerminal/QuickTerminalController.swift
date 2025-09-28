@@ -253,10 +253,14 @@ class QuickTerminalController: BaseTerminalController {
             super.focusSurface(view)
             return
         }
-        animateIn()
-        DispatchQueue.main.asyncAfter(deadline: .now() + derivedConfig.quickTerminalAnimationDuration) {
-            super.focusSurface(view)
+        // Check if target surface belongs to this quick terminal
+        guard surfaceTree.contains(view) else { return }
+        // Set the target surface as focused before animation
+        DispatchQueue.main.async {
+            Ghostty.moveFocus(to: view, from: self.focusedSurface)
         }
+        // Animation completion handler will handle window/app activation
+        animateIn()
     }
 
     override func surfaceTreeDidChange(from: SplitTree<Ghostty.SurfaceView>, to: SplitTree<Ghostty.SurfaceView>) {
