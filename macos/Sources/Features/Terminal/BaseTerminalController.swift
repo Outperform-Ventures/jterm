@@ -233,9 +233,12 @@ class BaseTerminalController: NSWindowController,
         return newView
     }
 
+    /// Move focus to a surface view.
     func focusSurface(_ view: Ghostty.SurfaceView) {
+        // Check if target surface is in our tree
         guard surfaceTree.contains(view) else { return }
 
+        // Move focus to the target surface and activate the window/app
         DispatchQueue.main.async {
             Ghostty.moveFocus(to: view, from: self.focusedSurface)
             view.window?.makeKeyAndOrderFront(nil)
