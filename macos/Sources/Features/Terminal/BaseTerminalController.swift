@@ -233,6 +233,16 @@ class BaseTerminalController: NSWindowController,
         return newView
     }
 
+    func focusSurface(_ view: Ghostty.SurfaceView) {
+        guard surfaceTree.contains(view) else { return }
+
+        DispatchQueue.main.async {
+            Ghostty.moveFocus(to: view, from: self.focusedSurface)
+            view.window?.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+        }
+    }
+
     /// Called when the surfaceTree variable changed.
     ///
     /// Subclasses should call super first.
