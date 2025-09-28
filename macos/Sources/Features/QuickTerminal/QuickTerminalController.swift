@@ -247,6 +247,18 @@ class QuickTerminalController: BaseTerminalController {
 
     // MARK: Base Controller Overrides
 
+    override func focusSurface(_ view: Ghostty.SurfaceView) {
+        if visible {
+            // If we're visible, we just focus the surface as normal.
+            super.focusSurface(view)
+            return
+        }
+        animateIn()
+        DispatchQueue.main.asyncAfter(deadline: .now() + derivedConfig.quickTerminalAnimationDuration) {
+            super.focusSurface(view)
+        }
+    }
+
     override func surfaceTreeDidChange(from: SplitTree<Ghostty.SurfaceView>, to: SplitTree<Ghostty.SurfaceView>) {
         super.surfaceTreeDidChange(from: from, to: to)
 
