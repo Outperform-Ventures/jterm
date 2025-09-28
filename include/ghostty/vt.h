@@ -32,6 +32,8 @@ extern "C" {
  * be used to parse the contents of OSC sequences. This isn't a full VT
  * parser; it is only the OSC parser component. This is useful if you have
  * a parser already and want to only extract and handle OSC sequences.
+ *
+ * @ingroup osc
  */
 typedef struct GhosttyOscParser *GhosttyOscParser;
 
@@ -41,6 +43,8 @@ typedef struct GhosttyOscParser *GhosttyOscParser;
  * This handle represents a parsed OSC (Operating System Command) command.
  * The command can be queried for its type and associated data using
  * `ghostty_osc_command_type` and `ghostty_osc_command_data`.
+ *
+ * @ingroup osc
  */
 typedef struct GhosttyOscCommand *GhosttyOscCommand;
 
@@ -56,6 +60,8 @@ typedef enum {
 
 /**
  * OSC command types.
+ *
+ * @ingroup osc
  */
 typedef enum {
   GHOSTTY_OSC_COMMAND_INVALID = 0,
@@ -80,6 +86,31 @@ typedef enum {
   GHOSTTY_OSC_COMMAND_CONEMU_WAIT_INPUT = 19,
   GHOSTTY_OSC_COMMAND_CONEMU_GUIMACRO = 20,
 } GhosttyOscCommandType;
+
+/**
+ * OSC command data types.
+ * 
+ * These values specify what type of data to extract from an OSC command
+ * using `ghostty_osc_command_data`.
+ *
+ * @ingroup osc
+ */
+typedef enum {
+  /** Invalid data type. Never results in any data extraction. */
+  GHOSTTY_OSC_DATA_INVALID = 0,
+  
+  /** 
+   * Window title string data.
+   *
+   * Valid for: GHOSTTY_OSC_COMMAND_CHANGE_WINDOW_TITLE
+   *
+   * Output type: const char ** (pointer to null-terminated string)
+   *
+   * Lifetime: Valid until the next call to any ghostty_osc_* function with 
+   * the same parser instance. Memory is owned by the parser.
+   */
+  GHOSTTY_OSC_DATA_CHANGE_WINDOW_TITLE_STR = 1,
+} GhosttyOscCommandData;
 
 //-------------------------------------------------------------------
 // Allocator Interface
@@ -227,6 +258,27 @@ typedef struct {
 //-------------------------------------------------------------------
 // Functions
 
+/** @defgroup osc OSC Parser
+ *
+ * OSC (Operating System Command) sequence parser and command handling.
+ *
+ * The parser operates in a streaming fashion, processing input byte-by-byte
+ * to handle OSC sequences that may arrive in fragments across multiple reads.
+ * This interface makes it easy to integrate into most environments and avoids
+ * over-allocating buffers.
+ *
+ * ## Basic Usage
+ *
+ * 1. Create a parser instance with ghostty_osc_new()
+ * 2. Feed bytes to the parser using ghostty_osc_next() 
+ * 3. Finalize parsing with ghostty_osc_end() to get the command
+ * 4. Query command type and extract data using ghostty_osc_command_type()
+ *    and ghostty_osc_command_data()
+ * 5. Free the parser with ghostty_osc_free() when done
+ *
+ * @{
+ */
+
 /**
  * Create a new OSC parser instance.
  * 
@@ -315,6 +367,23 @@ GhosttyOscCommand ghostty_osc_end(GhosttyOscParser parser, uint8_t terminator);
  * @return The command type, or GHOSTTY_OSC_COMMAND_INVALID if command is NULL
  */
 GhosttyOscCommandType ghostty_osc_command_type(GhosttyOscCommand command);
+
+/**
+ * Extract data from an OSC command.
+ * 
+ * Extracts typed data from the given OSC command based on the specified
+ * data type. The output pointer must be of the appropriate type for the
+ * requested data kind. Valid command types, output types, and memory
+ * safety information are documented in the `GhosttyOscCommandData` enum.
+ *
+ * @param command The OSC command handle to query (may be NULL)
+ * @param data The type of data to extract
+ * @param out Pointer to store the extracted data (type depends on data parameter)
+ * @return true if data extraction was successful, false otherwise
+ */
+bool ghostty_osc_command_data(GhosttyOscCommand command, GhosttyOscCommandData data, void *out);
+
+/** @} */ // end of osc group
 
 #ifdef __cplusplus
 }
