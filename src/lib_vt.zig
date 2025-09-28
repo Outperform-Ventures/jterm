@@ -7,6 +7,7 @@
 //! by thousands of users for years. However, the API itself (functions,
 //! types, etc.) may change without warning. We're working on stabilizing
 //! this in the future.
+const lib = @This();
 
 // The public API below reproduces a lot of terminal/main.zig but
 // is separate because (1) we need our root file to be in `src/`
@@ -68,7 +69,7 @@ pub const Attribute = terminal.Attribute;
 comptime {
     // If we're building the C library (vs. the Zig module) then
     // we want to reference the C API so that it gets exported.
-    if (terminal.is_c_lib) {
+    if (@import("root") == lib) {
         const c = terminal.c_api;
         @export(&c.osc_new, .{ .name = "ghostty_osc_new" });
         @export(&c.osc_free, .{ .name = "ghostty_osc_free" });
@@ -81,8 +82,8 @@ comptime {
 
 test {
     _ = terminal;
-
-    // Tests always test the C API and shared C functions
-    _ = terminal.c_api;
     _ = @import("lib/main.zig");
+    if (comptime terminal.options.c_abi) {
+        _ = terminal.c_api;
+    }
 }

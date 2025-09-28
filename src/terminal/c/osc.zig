@@ -73,9 +73,9 @@ test "command type" {
     ));
     defer free(p);
 
-    p.next('0');
-    p.next(';');
-    p.next('a');
-    const cmd = p.end(0);
+    next(p, '0');
+    next(p, ';');
+    next(p, 'a');
+    const cmd = end(p, 0);
     try testing.expectEqual(.change_window_title, commandType(cmd));
 }
