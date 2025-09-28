@@ -72,12 +72,17 @@ comptime {
         const c = terminal.c_api;
         @export(&c.osc_new, .{ .name = "ghostty_osc_new" });
         @export(&c.osc_free, .{ .name = "ghostty_osc_free" });
+        @export(&c.osc_next, .{ .name = "ghostty_osc_next" });
+        @export(&c.osc_reset, .{ .name = "ghostty_osc_reset" });
+        @export(&c.osc_end, .{ .name = "ghostty_osc_end" });
+        @export(&c.osc_command_type, .{ .name = "ghostty_osc_command_type" });
     }
 }
 
 test {
     _ = terminal;
 
-    // Tests always test the C API
+    // Tests always test the C API and shared C functions
     _ = terminal.c_api;
+    _ = @import("lib/main.zig");
 }

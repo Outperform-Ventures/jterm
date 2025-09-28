@@ -1,5 +1,8 @@
 const std = @import("std");
 
+/// True if we're building the C library libghostty-vt.
+pub const is_c_lib = @import("root") == @import("../lib_vt.zig");
+
 pub const Options = struct {
     /// The target artifact to build. This will gate some functionality.
     artifact: Artifact,

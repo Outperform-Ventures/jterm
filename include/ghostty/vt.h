@@ -36,6 +36,15 @@ extern "C" {
 typedef struct GhosttyOscParser *GhosttyOscParser;
 
 /**
+ * Opaque handle to a single OSC command.
+ * 
+ * This handle represents a parsed OSC (Operating System Command) command.
+ * The command can be queried for its type and associated data using
+ * `ghostty_osc_command_type` and `ghostty_osc_command_data`.
+ */
+typedef struct GhosttyOscCommand *GhosttyOscCommand;
+
+/**
  * Result codes for libghostty-vt operations.
  */
 typedef enum {
@@ -44,6 +53,33 @@ typedef enum {
     /** Operation failed due to failed allocation */
     GHOSTTY_OUT_OF_MEMORY = -1,
 } GhosttyResult;
+
+/**
+ * OSC command types.
+ */
+typedef enum {
+  GHOSTTY_OSC_COMMAND_INVALID = 0,
+  GHOSTTY_OSC_COMMAND_CHANGE_WINDOW_TITLE = 1,
+  GHOSTTY_OSC_COMMAND_CHANGE_WINDOW_ICON = 2,
+  GHOSTTY_OSC_COMMAND_PROMPT_START = 3,
+  GHOSTTY_OSC_COMMAND_PROMPT_END = 4,
+  GHOSTTY_OSC_COMMAND_END_OF_INPUT = 5,
+  GHOSTTY_OSC_COMMAND_END_OF_COMMAND = 6,
+  GHOSTTY_OSC_COMMAND_CLIPBOARD_CONTENTS = 7,
+  GHOSTTY_OSC_COMMAND_REPORT_PWD = 8,
+  GHOSTTY_OSC_COMMAND_MOUSE_SHAPE = 9,
+  GHOSTTY_OSC_COMMAND_COLOR_OPERATION = 10,
+  GHOSTTY_OSC_COMMAND_KITTY_COLOR_PROTOCOL = 11,
+  GHOSTTY_OSC_COMMAND_SHOW_DESKTOP_NOTIFICATION = 12,
+  GHOSTTY_OSC_COMMAND_HYPERLINK_START = 13,
+  GHOSTTY_OSC_COMMAND_HYPERLINK_END = 14,
+  GHOSTTY_OSC_COMMAND_CONEMU_SLEEP = 15,
+  GHOSTTY_OSC_COMMAND_CONEMU_SHOW_MESSAGE_BOX = 16,
+  GHOSTTY_OSC_COMMAND_CONEMU_CHANGE_TAB_TITLE = 17,
+  GHOSTTY_OSC_COMMAND_CONEMU_PROGRESS_REPORT = 18,
+  GHOSTTY_OSC_COMMAND_CONEMU_WAIT_INPUT = 19,
+  GHOSTTY_OSC_COMMAND_CONEMU_GUIMACRO = 20,
+} GhosttyOscCommandType;
 
 //-------------------------------------------------------------------
 // Allocator Interface
@@ -213,6 +249,72 @@ GhosttyResult ghostty_osc_new(const GhosttyAllocator *allocator, GhosttyOscParse
  * @param parser The parser handle to free (may be NULL)
  */
 void ghostty_osc_free(GhosttyOscParser parser);
+
+/**
+ * Reset an OSC parser instance to its initial state.
+ * 
+ * Resets the parser state, clearing any partially parsed OSC sequences
+ * and returning the parser to its initial state. This is useful for
+ * reusing a parser instance or recovering from parse errors.
+ * 
+ * @param parser The parser handle to reset, must not be null.
+ */
+void ghostty_osc_reset(GhosttyOscParser parser);
+
+/**
+ * Parse the next byte in an OSC sequence.
+ * 
+ * Processes a single byte as part of an OSC sequence. The parser maintains
+ * internal state to track the progress through the sequence. Call this
+ * function for each byte in the sequence data.
+ *
+ * When finished pumping the parser with bytes, call ghostty_osc_end
+ * to get the final result.
+ * 
+ * @param parser The parser handle, must not be null.
+ * @param byte The next byte to parse
+ */
+void ghostty_osc_next(GhosttyOscParser parser, uint8_t byte);
+
+/**
+ * Finalize OSC parsing and retrieve the parsed command.
+ * 
+ * Call this function after feeding all bytes of an OSC sequence to the parser
+ * using ghostty_osc_next() with the exception of the terminating character
+ * (ESC or ST). This function finalizes the parsing process and returns the 
+ * parsed OSC command.
+ *
+ * The return value is never NULL. Invalid commands will return a command
+ * with type GHOSTTY_OSC_COMMAND_INVALID.
+ * 
+ * The terminator parameter specifies the byte that terminated the OSC sequence
+ * (typically 0x07 for BEL or 0x5C for ST after ESC). This information is
+ * preserved in the parsed command so that responses can use the same terminator
+ * format for better compatibility with the calling program. For commands that
+ * do not require a response, this parameter is ignored and the resulting
+ * command will not retain the terminator information.
+ * 
+ * The returned command handle is valid until the next call to any 
+ * `ghostty_osc_*` function with the same parser instance with the exception
+ * of command introspection functions such as `ghostty_osc_command_type`.
+ * 
+ * @param parser The parser handle, must not be null.
+ * @param terminator The terminating byte of the OSC sequence (0x07 for BEL, 0x5C for ST)
+ * @return Handle to the parsed OSC command
+ */
+GhosttyOscCommand ghostty_osc_end(GhosttyOscParser parser, uint8_t terminator);
+
+/**
+ * Get the type of an OSC command.
+ * 
+ * Returns the type identifier for the given OSC command. This can be used
+ * to determine what kind of command was parsed and what data might be
+ * available from it.
+ * 
+ * @param command The OSC command handle to query (may be NULL)
+ * @return The command type, or GHOSTTY_OSC_COMMAND_INVALID if command is NULL
+ */
+GhosttyOscCommandType ghostty_osc_command_type(GhosttyOscCommand command);
 
 #ifdef __cplusplus
 }

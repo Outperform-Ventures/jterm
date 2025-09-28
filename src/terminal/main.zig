@@ -63,8 +63,8 @@ pub const Attribute = sgr.Attribute;
 pub const isSafePaste = sanitize.isSafePaste;
 
 /// This is set to true when we're building the C library.
-pub const is_c_lib = @import("root") == @import("../lib_vt.zig");
-pub const c_api = @import("c_api.zig");
+pub const is_c_lib = @import("build_options.zig").is_c_lib;
+pub const c_api = if (is_c_lib) @import("c/main.zig") else void;
 
 test {
     @import("std").testing.refAllDecls(@This());
