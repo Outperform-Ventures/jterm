@@ -81,19 +81,6 @@ typedef enum {
   GHOSTTY_OSC_COMMAND_CONEMU_GUIMACRO = 20,
 } GhosttyOscCommandType;
 
-/**
- * OSC command data types. The values returned are documented
- * on each type.
- * */
-typedef enum {
-  /**
-   * The window title string.
-   *
-   * Type: const char*
-   * */
-  GHOSTTY_OSC_DATA_WINDOW_TITLE,
-} GhosttyOscCommandData;
-
 //-------------------------------------------------------------------
 // Allocator Interface
 
@@ -317,9 +304,17 @@ void ghostty_osc_next(GhosttyOscParser parser, uint8_t byte);
  */
 GhosttyOscCommand ghostty_osc_end(GhosttyOscParser parser, uint8_t terminator);
 
-// TODO
-// GhosttyOscCommandType ghostty_osc_command_type(GhosttyOscCommand command);
-// bool ghostty_osc_command_data(GhosttyOscCommand command, GhosttyOscCommandData, void *result);
+/**
+ * Get the type of an OSC command.
+ * 
+ * Returns the type identifier for the given OSC command. This can be used
+ * to determine what kind of command was parsed and what data might be
+ * available from it.
+ * 
+ * @param command The OSC command handle to query (may be NULL)
+ * @return The command type, or GHOSTTY_OSC_COMMAND_INVALID if command is NULL
+ */
+GhosttyOscCommandType ghostty_osc_command_type(GhosttyOscCommand command);
 
 #ifdef __cplusplus
 }

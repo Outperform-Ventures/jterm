@@ -6,6 +6,7 @@ pub const osc_free = osc.free;
 pub const osc_reset = osc.reset;
 pub const osc_next = osc.next;
 pub const osc_end = osc.end;
+pub const osc_command_type = osc.commandType;
 
 test {
     _ = osc;

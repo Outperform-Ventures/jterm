@@ -44,7 +44,12 @@ pub fn end(parser_: Parser, terminator: u8) callconv(.c) Command {
     return parser_.?.end(terminator);
 }
 
-test "osc" {
+pub fn commandType(command_: Command) callconv(.c) osc.Command.Key {
+    const command = command_ orelse return .invalid;
+    return command.*;
+}
+
+test "alloc" {
     const testing = std.testing;
     var p: Parser = undefined;
     try testing.expectEqual(Result.success, new(
@@ -52,4 +57,25 @@ test "osc" {
         &p,
     ));
     free(p);
+}
+
+test "command type null" {
+    const testing = std.testing;
+    try testing.expectEqual(.invalid, commandType(null));
+}
+
+test "command type" {
+    const testing = std.testing;
+    var p: Parser = undefined;
+    try testing.expectEqual(Result.success, new(
+        &lib_alloc.test_allocator,
+        &p,
+    ));
+    defer free(p);
+
+    p.next('0');
+    p.next(';');
+    p.next('a');
+    const cmd = p.end(0);
+    try testing.expectEqual(.change_window_title, commandType(cmd));
 }
