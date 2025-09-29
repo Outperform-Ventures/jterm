@@ -240,7 +240,12 @@ class BaseTerminalController: NSWindowController,
 
         // Move focus to the target surface and activate the window/app
         DispatchQueue.main.async {
-            Ghostty.moveFocus(to: view, from: self.focusedSurface)
+            // We suppress the spurious unfocus signal by passing nil for `from`
+            // when the surface is already the logically focused one.
+            Ghostty.moveFocus(
+                to: view,
+                from: (self.focusedSurface == view) ? nil : self.focusedSurface
+            )
             view.window?.makeKeyAndOrderFront(nil)
             if !NSApp.isActive {
                 NSApp.activate(ignoringOtherApps: true)
