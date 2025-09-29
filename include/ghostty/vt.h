@@ -28,6 +28,7 @@
  *
  * The API is organized into the following groups:
  * - @ref osc "OSC Parser" - Parse OSC (Operating System Command) sequences
+ * - @ref allocator "Memory Management" - Memory management and custom allocators
  *
  */
 
@@ -135,11 +136,49 @@ typedef enum {
 //-------------------------------------------------------------------
 // Allocator Interface
 
+/** @defgroup allocator Memory Management
+ *
+ * libghostty-vt does require memory allocation for various operations,
+ * but is resilient to allocation failures and will gracefully handle
+ * out-of-memory situations by returning error codes.
+ *
+ * The exact memory management semantics are documented in the relevant
+ * functions and data structures.
+ *
+ * libghostty-vt uses explicit memory allocation via an allocator
+ * interface provided by GhosttyAllocator. The interface is based on the
+ * [Zig](https://ziglang.org) allocator interface, since this has been
+ * shown to be a flexible and powerful interface in practice and enables
+ * a wide variety of allocation strategies.
+ *
+ * **For the common case, you can pass NULL as the allocator for any
+ * function that accepts one,** and libghostty will use a default allocator.
+ * The default allocator will be libc malloc/free if libc is linked. 
+ * Otherwise, a custom allocator is used (currently Zig's SMP allocator)
+ * that doesn't require any external dependencies.
+ *
+ * ## Basic Usage
+ *
+ * For simple use cases, you can ignore this interface entirely by passing NULL
+ * as the allocator parameter to functions that accept one. This will use the
+ * default allocator (typically libc malloc/free, if libc is linked, but
+ * we provide our own default allocator if libc isn't linked).
+ *
+ * To use a custom allocator:
+ * 1. Implement the GhosttyAllocatorVtable function pointers
+ * 2. Create a GhosttyAllocator struct with your vtable and context
+ * 3. Pass the allocator to functions that accept one
+ *
+ * @{
+ */
+
 /**
  * Function table for custom memory allocator operations.
  * 
  * This vtable defines the interface for a custom memory allocator. All
  * function pointers must be valid and non-NULL.
+ *
+ * @ingroup allocator
  *
  * If you're not going to use a custom allocator, you can ignore all of
  * this. All functions that take an allocator pointer allow NULL to use a
@@ -252,6 +291,8 @@ typedef struct {
  * be libc malloc/free if we're linking to libc. If libc isn't linked,
  * a custom allocator is used (currently Zig's SMP allocator).
  *
+ * @ingroup allocator
+ *
  * Usage example:
  * @code
  * GhosttyAllocator allocator = {
@@ -274,6 +315,8 @@ typedef struct {
      */
     const GhosttyAllocatorVtable *vtable;
 } GhosttyAllocator;
+
+/** @} */ // end of allocator group
 
 //-------------------------------------------------------------------
 // Functions
