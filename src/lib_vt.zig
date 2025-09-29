@@ -77,6 +77,7 @@ comptime {
         @export(&c.osc_reset, .{ .name = "ghostty_osc_reset" });
         @export(&c.osc_end, .{ .name = "ghostty_osc_end" });
         @export(&c.osc_command_type, .{ .name = "ghostty_osc_command_type" });
+        @export(&c.osc_command_data, .{ .name = "ghostty_osc_command_data" });
     }
 }
 
