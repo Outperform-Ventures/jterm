@@ -255,7 +255,7 @@ class QuickTerminalController: BaseTerminalController {
         }
         // Check if target surface belongs to this quick terminal
         guard surfaceTree.contains(view) else { return }
-        // Set the target surface as focused before animation
+        // Set the target surface as focused
         DispatchQueue.main.async {
             Ghostty.moveFocus(to: view)
         }
