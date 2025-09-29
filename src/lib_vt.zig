@@ -31,8 +31,8 @@ pub const size = terminal.size;
 pub const x11_color = terminal.x11_color;
 
 pub const Charset = terminal.Charset;
-pub const CharsetSlot = terminal.Slots;
-pub const CharsetActiveSlot = terminal.ActiveSlot;
+pub const CharsetSlot = terminal.CharsetSlot;
+pub const CharsetActiveSlot = terminal.CharsetActiveSlot;
 pub const Cell = page.Cell;
 pub const Coordinate = point.Coordinate;
 pub const CSI = Parser.Action.CSI;
