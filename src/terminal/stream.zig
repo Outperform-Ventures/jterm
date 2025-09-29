@@ -278,7 +278,14 @@ pub fn Stream(comptime Handler: type) type {
                 return;
             }
 
-            const actions = self.parser.next(c);
+            // We explicitly inline this call here for performance reasons.
+            //
+            // We do this rather than mark Parser.next as inline because doing
+            // that causes weird behavior in some tests- I'm not sure if they
+            // miscompile or it's just very counter-intuitive comptime stuff,
+            // but regardless, this is the easy solution.
+            const actions = @call(.always_inline, Parser.next, .{ &self.parser, c });
+
             for (actions) |action_opt| {
                 const action = action_opt orelse continue;
                 if (comptime debug) log.info("action: {}", .{action});
