@@ -191,7 +191,7 @@ pub const Page = struct {
     /// The backing memory is always allocated using mmap directly.
     /// You cannot use custom allocators with this structure because
     /// it is critical to performance that we use mmap.
-    pub fn init(cap: Capacity) !Page {
+    pub inline fn init(cap: Capacity) !Page {
         const l = layout(cap);
 
         // We use mmap directly to avoid Zig allocator overhead
@@ -215,7 +215,7 @@ pub const Page = struct {
 
     /// Initialize a new page using the given backing memory.
     /// It is up to the caller to not call deinit on these pages.
-    pub fn initBuf(buf: OffsetBuf, l: Layout) Page {
+    pub inline fn initBuf(buf: OffsetBuf, l: Layout) Page {
         const cap = l.capacity;
         const rows = buf.member(Row, l.rows_start);
         const cells = buf.member(Cell, l.cells_start);
@@ -270,13 +270,13 @@ pub const Page = struct {
     /// Deinitialize the page, freeing any backing memory. Do NOT call
     /// this if you allocated the backing memory yourself (i.e. you used
     /// initBuf).
-    pub fn deinit(self: *Page) void {
+    pub inline fn deinit(self: *Page) void {
         posix.munmap(self.memory);
         self.* = undefined;
     }
 
     /// Reinitialize the page with the same capacity.
-    pub fn reinit(self: *Page) void {
+    pub inline fn reinit(self: *Page) void {
         // We zero the page memory as u64 instead of u8 because
         // we can and it's empirically quite a bit faster.
         @memset(@as([*]u64, @ptrCast(self.memory))[0 .. self.memory.len / 8], 0);
@@ -306,7 +306,7 @@ pub const Page = struct {
     /// Temporarily pause integrity checks. This is useful when you are
     /// doing a lot of operations that would trigger integrity check
     /// violations but you know the page will end up in a consistent state.
-    pub fn pauseIntegrityChecks(self: *Page, v: bool) void {
+    pub inline fn pauseIntegrityChecks(self: *Page, v: bool) void {
         if (build_options.slow_runtime_safety) {
             if (v) {
                 self.pause_integrity_checks += 1;
@@ -319,7 +319,7 @@ pub const Page = struct {
     /// A helper that can be used to assert the integrity of the page
     /// when runtime safety is enabled. This is a no-op when runtime
     /// safety is disabled. This uses the libc allocator.
-    pub fn assertIntegrity(self: *const Page) void {
+    pub inline fn assertIntegrity(self: *const Page) void {
         if (comptime build_options.slow_runtime_safety) {
             var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
             defer _ = debug_allocator.deinit();
@@ -603,7 +603,7 @@ pub const Page = struct {
     /// Clone the contents of this page. This will allocate new memory
     /// using the page allocator. If you want to manage memory manually,
     /// use cloneBuf.
-    pub fn clone(self: *const Page) !Page {
+    pub inline fn clone(self: *const Page) !Page {
         const backing = try posix.mmap(
             null,
             self.memory.len,
@@ -619,7 +619,7 @@ pub const Page = struct {
     /// Clone the entire contents of this page.
     ///
     /// The buffer must be at least the size of self.memory.
-    pub fn cloneBuf(self: *const Page, buf: []align(std.heap.page_size_min) u8) Page {
+    pub inline fn cloneBuf(self: *const Page, buf: []align(std.heap.page_size_min) u8) Page {
         assert(buf.len >= self.memory.len);
 
         // The entire concept behind a page is that everything is stored
@@ -671,7 +671,7 @@ pub const Page = struct {
     /// If the other page has more columns, the extra columns will be
     /// truncated. If the other page has fewer columns, the extra columns
     /// will be zeroed.
-    pub fn cloneFrom(
+    pub inline fn cloneFrom(
         self: *Page,
         other: *const Page,
         y_start: usize,
@@ -695,7 +695,7 @@ pub const Page = struct {
     }
 
     /// Clone a single row from another page into this page.
-    pub fn cloneRowFrom(
+    pub inline fn cloneRowFrom(
         self: *Page,
         other: *const Page,
         dst_row: *Row,
@@ -912,13 +912,13 @@ pub const Page = struct {
     }
 
     /// Get a single row. y must be valid.
-    pub fn getRow(self: *const Page, y: usize) *Row {
+    pub inline fn getRow(self: *const Page, y: usize) *Row {
         assert(y < self.size.rows);
         return &self.rows.ptr(self.memory)[y];
     }
 
     /// Get the cells for a row.
-    pub fn getCells(self: *const Page, row: *Row) []Cell {
+    pub inline fn getCells(self: *const Page, row: *Row) []Cell {
         if (build_options.slow_runtime_safety) {
             const rows = self.rows.ptr(self.memory);
             const cells = self.cells.ptr(self.memory);
@@ -931,7 +931,7 @@ pub const Page = struct {
     }
 
     /// Get the row and cell for the given X/Y within this page.
-    pub fn getRowAndCell(self: *const Page, x: usize, y: usize) struct {
+    pub inline fn getRowAndCell(self: *const Page, x: usize, y: usize) struct {
         row: *Row,
         cell: *Cell,
     } {
@@ -1016,7 +1016,7 @@ pub const Page = struct {
     }
 
     /// Swap two cells within the same row as quickly as possible.
-    pub fn swapCells(
+    pub inline fn swapCells(
         self: *Page,
         src: *Cell,
         dst: *Cell,
@@ -1077,7 +1077,7 @@ pub const Page = struct {
     /// active, Page cannot know this and it will still be ref counted down.
     /// The best solution for this is to artificially increment the ref count
     /// prior to calling this function.
-    pub fn clearCells(
+    pub inline fn clearCells(
         self: *Page,
         row: *Row,
         left: usize,
@@ -1127,14 +1127,14 @@ pub const Page = struct {
     }
 
     /// Returns the hyperlink ID for the given cell.
-    pub fn lookupHyperlink(self: *const Page, cell: *const Cell) ?hyperlink.Id {
+    pub inline fn lookupHyperlink(self: *const Page, cell: *const Cell) ?hyperlink.Id {
         const cell_offset = getOffset(Cell, self.memory, cell);
         const map = self.hyperlink_map.map(self.memory);
         return map.get(cell_offset);
     }
 
     /// Clear the hyperlink from the given cell.
-    pub fn clearHyperlink(self: *Page, row: *Row, cell: *Cell) void {
+    pub inline fn clearHyperlink(self: *Page, row: *Row, cell: *Cell) void {
         defer self.assertIntegrity();
 
         // Get our ID
@@ -1258,7 +1258,7 @@ pub const Page = struct {
     /// Caller is responsible for updating the refcount in the hyperlink
     /// set as necessary by calling `use` if the id was not acquired with
     /// `add`.
-    pub fn setHyperlink(self: *Page, row: *Row, cell: *Cell, id: hyperlink.Id) error{HyperlinkMapOutOfMemory}!void {
+    pub inline fn setHyperlink(self: *Page, row: *Row, cell: *Cell, id: hyperlink.Id) error{HyperlinkMapOutOfMemory}!void {
         defer self.assertIntegrity();
 
         const cell_offset = getOffset(Cell, self.memory, cell);
@@ -1300,7 +1300,7 @@ pub const Page = struct {
     /// Move the hyperlink from one cell to another. This can't fail
     /// because we avoid any allocations since we're just moving data.
     /// Destination must NOT have a hyperlink.
-    fn moveHyperlink(self: *Page, src: *Cell, dst: *Cell) void {
+    inline fn moveHyperlink(self: *Page, src: *Cell, dst: *Cell) void {
         assert(src.hyperlink);
         assert(!dst.hyperlink);
 
@@ -1320,19 +1320,19 @@ pub const Page = struct {
 
     /// Returns the number of hyperlinks in the page. This isn't the byte
     /// size but the total number of unique cells that have hyperlink data.
-    pub fn hyperlinkCount(self: *const Page) usize {
+    pub inline fn hyperlinkCount(self: *const Page) usize {
         return self.hyperlink_map.map(self.memory).count();
     }
 
     /// Returns the hyperlink capacity for the page. This isn't the byte
     /// size but the number of unique cells that can have hyperlink data.
-    pub fn hyperlinkCapacity(self: *const Page) usize {
+    pub inline fn hyperlinkCapacity(self: *const Page) usize {
         return self.hyperlink_map.map(self.memory).capacity();
     }
 
     /// Set the graphemes for the given cell. This asserts that the cell
     /// has no graphemes set, and only contains a single codepoint.
-    pub fn setGraphemes(
+    pub inline fn setGraphemes(
         self: *Page,
         row: *Row,
         cell: *Cell,
@@ -1433,7 +1433,7 @@ pub const Page = struct {
     /// Returns the codepoints for the given cell. These are the codepoints
     /// in addition to the first codepoint. The first codepoint is NOT
     /// included since it is on the cell itself.
-    pub fn lookupGrapheme(self: *const Page, cell: *const Cell) ?[]u21 {
+    pub inline fn lookupGrapheme(self: *const Page, cell: *const Cell) ?[]u21 {
         const cell_offset = getOffset(Cell, self.memory, cell);
         const map = self.grapheme_map.map(self.memory);
         const slice = map.get(cell_offset) orelse return null;
@@ -1446,7 +1446,7 @@ pub const Page = struct {
     /// WARNING: This will NOT change the content_tag on the cells because
     /// there are scenarios where we want to move graphemes without changing
     /// the content tag. Callers beware but assertIntegrity should catch this.
-    fn moveGrapheme(self: *Page, src: *Cell, dst: *Cell) void {
+    inline fn moveGrapheme(self: *Page, src: *Cell, dst: *Cell) void {
         if (build_options.slow_runtime_safety) {
             assert(src.hasGrapheme());
             assert(!dst.hasGrapheme());
@@ -1462,7 +1462,7 @@ pub const Page = struct {
     }
 
     /// Clear the graphemes for a given cell.
-    pub fn clearGrapheme(self: *Page, row: *Row, cell: *Cell) void {
+    pub inline fn clearGrapheme(self: *Page, row: *Row, cell: *Cell) void {
         defer self.assertIntegrity();
         if (build_options.slow_runtime_safety) assert(cell.hasGrapheme());
 
@@ -1488,13 +1488,13 @@ pub const Page = struct {
 
     /// Returns the number of graphemes in the page. This isn't the byte
     /// size but the total number of unique cells that have grapheme data.
-    pub fn graphemeCount(self: *const Page) usize {
+    pub inline fn graphemeCount(self: *const Page) usize {
         return self.grapheme_map.map(self.memory).count();
     }
 
     /// Returns the grapheme capacity for the page. This isn't the byte
     /// size but the number of unique cells that can have grapheme data.
-    pub fn graphemeCapacity(self: *const Page) usize {
+    pub inline fn graphemeCapacity(self: *const Page) usize {
         return self.grapheme_map.map(self.memory).capacity();
     }
 
@@ -1676,7 +1676,7 @@ pub const Page = struct {
     /// The returned value is a DynamicBitSetUnmanaged but it is NOT
     /// actually dynamic; do NOT call resize on this. It is safe to
     /// read and write but do not resize it.
-    pub fn dirtyBitSet(self: *const Page) std.DynamicBitSetUnmanaged {
+    pub inline fn dirtyBitSet(self: *const Page) std.DynamicBitSetUnmanaged {
         return .{
             .bit_length = self.capacity.rows,
             .masks = self.dirty.ptr(self.memory),
@@ -1686,14 +1686,14 @@ pub const Page = struct {
     /// Returns true if the given row is dirty. This is NOT very
     /// efficient if you're checking many rows and you should use
     /// dirtyBitSet directly instead.
-    pub fn isRowDirty(self: *const Page, y: usize) bool {
+    pub inline fn isRowDirty(self: *const Page, y: usize) bool {
         return self.dirtyBitSet().isSet(y);
     }
 
     /// Returns true if this page is dirty at all. If you plan on
     /// checking any additional rows, you should use dirtyBitSet and
     /// check this on your own so you have the set available.
-    pub fn isDirty(self: *const Page) bool {
+    pub inline fn isDirty(self: *const Page) bool {
         return self.dirtyBitSet().findFirstSet() != null;
     }
 
@@ -1722,7 +1722,7 @@ pub const Page = struct {
 
     /// The memory layout for a page given a desired minimum cols
     /// and rows size.
-    pub fn layout(cap: Capacity) Layout {
+    pub inline fn layout(cap: Capacity) Layout {
         const rows_count: usize = @intCast(cap.rows);
         const rows_start = 0;
         const rows_end: usize = rows_start + (rows_count * @sizeOf(Row));
