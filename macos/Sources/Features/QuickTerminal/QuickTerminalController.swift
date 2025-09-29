@@ -257,7 +257,7 @@ class QuickTerminalController: BaseTerminalController {
         guard surfaceTree.contains(view) else { return }
         // Set the target surface as focused before animation
         DispatchQueue.main.async {
-            Ghostty.moveFocus(to: view, from: self.focusedSurface)
+            Ghostty.moveFocus(to: view)
         }
         // Animation completion handler will handle window/app activation
         animateIn()
