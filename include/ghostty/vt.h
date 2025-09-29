@@ -11,6 +11,26 @@
  * stable and is definitely going to change. 
  */
 
+/**
+ * @mainpage libghostty-vt - Virtual Terminal Sequence Parser
+ *
+ * libghostty-vt is a C library which implements a modern terminal emulator,
+ * extracted from the [Ghostty](https://ghostty.org) terminal emulator.
+ *
+ * libghostty-vt contains the logic for handling the core parts of a terminal
+ * emulator: parsing terminal escape sequences and maintaining terminal state.
+ * It can handle scrollback, line wrapping, reflow on resize, and more.
+ *
+ * @warning This library is currently in development and the API is not yet stable.
+ * Breaking changes are expected in future versions. Use with caution in production code.
+ *
+ * @section groups_sec API Reference
+ *
+ * The API is organized into the following groups:
+ * - @ref osc "OSC Parser" - Parse OSC (Operating System Command) sequences
+ *
+ */
+
 #ifndef GHOSTTY_VT_H
 #define GHOSTTY_VT_H
 
