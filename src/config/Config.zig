@@ -833,15 +833,20 @@ palette: Palette = .{},
 ///   * `never`
 @"mouse-shift-capture": MouseShiftCapture = .false,
 
-/// Multiplier for scrolling distance with the mouse wheel. Any value less
-/// than 0.01 (0.01 for precision scroll) or greater than 10,000 will be clamped
-/// to the nearest valid value.
+/// Multiplier for scrolling distance with the mouse wheel.
 ///
-/// A discrete value of "3" (default) scrolls about 3 lines per wheel tick.
-/// And a precision value of "0.1" (default) scales pixel-level scrolling.
+/// A prefix of `precision:` or `discrete:` can be used to set the multiplier
+/// only for scrolling with the specific type of devices. These can be
+/// comma-separated to set both types of multipliers at the same time, e.g.
+/// `precision:0.1,discrete:3`. If no prefix is used, the multiplier applies
+/// to all scrolling devices. Specifying a prefix was introduced in Ghostty
+/// 1.2.1.
 ///
-/// Available since: 1.2.1
-@"mouse-scroll-multiplier": MouseScrollMultiplier = .{ .precision = 0.1, .discrete = 3.0 },
+/// The value will be clamped to [0.01, 10,000]. Both of these are extreme
+/// and you're likely to have a bad experience if you set either extreme.
+///
+/// The default value is "3" for discrete devices and "1" for precision devices.
+@"mouse-scroll-multiplier": MouseScrollMultiplier = .default,
 
 /// The opacity level (opposite of transparency) of the background. A value of
 /// 1 is fully opaque and a value of 0 is fully transparent. A value less than 0
@@ -4078,7 +4083,7 @@ pub fn finalize(self: *Config) !void {
     }
 
     // Clamp our mouse scroll multiplier
-    self.@"mouse-scroll-multiplier".precision = @min(10_000.0, @max(0.1, self.@"mouse-scroll-multiplier".precision));
+    self.@"mouse-scroll-multiplier".precision = @min(10_000.0, @max(0.01, self.@"mouse-scroll-multiplier".precision));
     self.@"mouse-scroll-multiplier".discrete = @min(10_000.0, @max(0.01, self.@"mouse-scroll-multiplier".discrete));
 
     // Clamp our split opacity
@@ -7012,6 +7017,7 @@ pub const RepeatableCommand = struct {
             inputpkg.Command,
             alloc,
             input,
+            null,
         );
         try self.value.append(alloc, cmd);
     }
@@ -7325,86 +7331,31 @@ pub const MouseShiftCapture = enum {
 pub const MouseScrollMultiplier = struct {
     const Self = @This();
 
-    precision: f64,
-    discrete: f64,
+    precision: f64 = 1,
+    discrete: f64 = 3,
 
-    pub fn parseCLI(self: *Self, input_: ?[]const u8) !void {
-        const input_raw = input_ orelse return error.ValueRequired;
-        const whitespace = " \t";
-        const input = std.mem.trim(u8, input_raw, whitespace);
-        if (input.len == 0) return error.ValueRequired;
+    pub const default: MouseScrollMultiplier = .{};
 
-        const value = std.fmt.parseFloat(f64, input) catch null;
-        if (value) |val| {
-            self.precision = val;
-            self.discrete = val;
-            return;
-        }
-
-        const comma_idx = std.mem.indexOf(u8, input, ",");
-        if (comma_idx) |idx| {
-            if (std.mem.indexOf(u8, input[idx + 1 ..], ",")) |_| return error.InvalidValue;
-
-            const lhs = std.mem.trim(u8, input[0..idx], whitespace);
-            const rhs = std.mem.trim(u8, input[idx + 1 ..], whitespace);
-            if (lhs.len == 0 or rhs.len == 0) return error.InvalidValue;
-
-            const lcolon_idx = std.mem.indexOf(u8, lhs, ":") orelse return error.InvalidValue;
-            const rcolon_idx = std.mem.indexOf(u8, rhs, ":") orelse return error.InvalidValue;
-            const lkey = lhs[0..lcolon_idx];
-            const lvalstr = std.mem.trim(u8, lhs[lcolon_idx + 1 ..], whitespace);
-            const rkey = rhs[0..rcolon_idx];
-            const rvalstr = std.mem.trim(u8, rhs[rcolon_idx + 1 ..], whitespace);
-
-            // Only "precision" and "discrete" are valid keys. They
-            // must be different.
-            if (std.mem.eql(u8, lkey, rkey)) return error.InvalidValue;
-
-            var found_precision = false;
-            var found_discrete = false;
-            var precision_val = self.precision;
-            var discrete_val = self.discrete;
-
-            if (std.mem.eql(u8, lkey, "precision")) {
-                precision_val = std.fmt.parseFloat(f64, lvalstr) catch return error.InvalidValue;
-                found_precision = true;
-            } else if (std.mem.eql(u8, lkey, "discrete")) {
-                discrete_val = std.fmt.parseFloat(f64, lvalstr) catch return error.InvalidValue;
-                found_discrete = true;
-            } else return error.InvalidValue;
-
-            if (std.mem.eql(u8, rkey, "precision")) {
-                precision_val = std.fmt.parseFloat(f64, rvalstr) catch return error.InvalidValue;
-                found_precision = true;
-            } else if (std.mem.eql(u8, rkey, "discrete")) {
-                discrete_val = std.fmt.parseFloat(f64, rvalstr) catch return error.InvalidValue;
-                found_discrete = true;
-            } else return error.InvalidValue;
-
-            if (!found_precision or !found_discrete) return error.InvalidValue;
-            if (precision_val == 0 or discrete_val == 0) return error.InvalidValue;
-
-            self.precision = precision_val;
-            self.discrete = discrete_val;
-
-            return;
-        } else {
-            const colon_idx = std.mem.indexOf(u8, input, ":") orelse return error.InvalidValue;
-            const key = input[0..colon_idx];
-            const valstr = std.mem.trim(u8, input[colon_idx + 1 ..], whitespace);
-            if (valstr.len == 0) return error.InvalidValue;
-
-            const val = std.fmt.parseFloat(f64, valstr) catch return error.InvalidValue;
-            if (val == 0) return error.InvalidValue;
-
-            if (std.mem.eql(u8, key, "precision")) {
-                self.precision = val;
-                return;
-            } else if (std.mem.eql(u8, key, "discrete")) {
-                self.discrete = val;
-                return;
-            } else return error.InvalidValue;
-        }
+    pub fn parseCLI(self: *Self, alloc: Allocator, input_: ?[]const u8) !void {
+        const input = input_ orelse return error.ValueRequired;
+        self.* = cli.args.parseAutoStruct(
+            MouseScrollMultiplier,
+            alloc,
+            input,
+            self.*,
+        ) catch |err| switch (err) {
+            error.InvalidValue => bare: {
+                const v = std.fmt.parseFloat(
+                    f64,
+                    input,
+                ) catch return error.InvalidValue;
+                break :bare .{
+                    .precision = v,
+                    .discrete = v,
+                };
+            },
+            else => return err,
+        };
     }
 
     /// Deep copy of the struct. Required by Config.
@@ -7421,45 +7372,50 @@ pub const MouseScrollMultiplier = struct {
     /// Used by Formatter
     pub fn formatEntry(self: Self, formatter: anytype) !void {
         var buf: [32]u8 = undefined;
-        const formatted = try std.fmt.bufPrint(&buf, "precision:{d},discrete:{d}", .{ self.precision, self.discrete });
+        const formatted = std.fmt.bufPrint(
+            &buf,
+            "precision:{d},discrete:{d}",
+            .{ self.precision, self.discrete },
+        ) catch return error.OutOfMemory;
         try formatter.formatEntry([]const u8, formatted);
     }
 
-    test "parse MouseScrollMultiplier" {
+    test "parse" {
         const testing = std.testing;
+        const alloc = testing.allocator;
+        const epsilon = 0.00001;
 
         var args: Self = .{ .precision = 0.1, .discrete = 3 };
-        try args.parseCLI("3");
-        try testing.expect(args.precision == 3 and args.discrete == 3);
-        args = .{ .precision = 0.1, .discrete = 3 };
-        try args.parseCLI("precision:1");
-        try testing.expect(args.precision == 1 and args.discrete == 3);
-        args = .{ .precision = 0.1, .discrete = 3 };
-        try args.parseCLI("discrete:5");
-        try testing.expect(args.precision == 0.1 and args.discrete == 5);
-        args = .{ .precision = 0.1, .discrete = 3 };
-        try args.parseCLI("precision:3,discrete:7");
-        try testing.expect(args.precision == 3 and args.discrete == 7);
-        args = .{ .precision = 0.1, .discrete = 3 };
-        try args.parseCLI("discrete:8,precision:6");
-        try testing.expect(args.precision == 6 and args.discrete == 8);
+        try args.parseCLI(alloc, "3");
+        try testing.expectApproxEqAbs(3, args.precision, epsilon);
+        try testing.expectApproxEqAbs(3, args.discrete, epsilon);
 
         args = .{ .precision = 0.1, .discrete = 3 };
-        try testing.expectError(error.InvalidValue, args.parseCLI("foo:1"));
+        try args.parseCLI(alloc, "precision:1");
+        try testing.expectApproxEqAbs(1, args.precision, epsilon);
+        try testing.expectApproxEqAbs(3, args.discrete, epsilon);
+
         args = .{ .precision = 0.1, .discrete = 3 };
-        try testing.expectError(error.InvalidValue, args.parseCLI("precision:bar"));
+        try args.parseCLI(alloc, "discrete:5");
+        try testing.expectApproxEqAbs(0.1, args.precision, epsilon);
+        try testing.expectApproxEqAbs(5, args.discrete, epsilon);
+
         args = .{ .precision = 0.1, .discrete = 3 };
-        try testing.expectError(error.InvalidValue, args.parseCLI("precision:1,precision:3"));
+        try args.parseCLI(alloc, "precision:3,discrete:7");
+        try testing.expectApproxEqAbs(3, args.precision, epsilon);
+        try testing.expectApproxEqAbs(7, args.discrete, epsilon);
+
         args = .{ .precision = 0.1, .discrete = 3 };
-        try testing.expectError(error.ValueRequired, args.parseCLI(""));
-        args = .{ .precision = 0.1, .discrete = 3 };
-        try testing.expectError(error.InvalidValue, args.parseCLI("precision:1,discrete:3,foo:5"));
-        args = .{ .precision = 0.1, .discrete = 3 };
-        try testing.expectError(error.InvalidValue, args.parseCLI("precision:1,,discrete:3"));
-        args = .{ .precision = 0.1, .discrete = 3 };
-        try testing.expectError(error.InvalidValue, args.parseCLI("precision:1,discrete:3,"));
-        args = .{ .precision = 0.1, .discrete = 3 };
-        try testing.expectError(error.InvalidValue, args.parseCLI(",precision:1,discrete:3"));
+        try args.parseCLI(alloc, "discrete:8,precision:6");
+        try testing.expectApproxEqAbs(6, args.precision, epsilon);
+        try testing.expectApproxEqAbs(8, args.discrete, epsilon);
+
+        args = .default;
+        try testing.expectError(error.InvalidValue, args.parseCLI(alloc, "foo:1"));
+        try testing.expectError(error.InvalidValue, args.parseCLI(alloc, "precision:bar"));
+        try testing.expectError(error.InvalidValue, args.parseCLI(alloc, "precision:1,discrete:3,foo:5"));
+        try testing.expectError(error.InvalidValue, args.parseCLI(alloc, "precision:1,,discrete:3"));
+        try testing.expectError(error.InvalidValue, args.parseCLI(alloc, ",precision:1,discrete:3"));
     }
 
     test "format entry MouseScrollMultiplier" {
@@ -8087,6 +8043,7 @@ pub const Theme = struct {
                 Theme,
                 alloc,
                 input,
+                null,
             );
             return;
         }
