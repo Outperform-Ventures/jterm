@@ -1,10 +1,11 @@
+// The contents of this file is largely based on testing.zig from the Zig 0.15.1
+// stdlib, distributed under the MIT license, copyright (c) Zig contributors
 const std = @import("std");
 
 /// Generic, recursive equality testing utility using approximate comparison for
 /// floats and equality for everything else
 ///
-/// Based on the source code of `std.testing.expectEqual`,
-/// `std.testing.expectEqualSlices`, and `std.meta.eql`, as of Zig 0.15.1.
+/// Based on `std.testing.expectEqual` and `std.testing.expectEqualSlices`.
 ///
 /// The relative tolerance is currently hardcoded to `sqrt(eps(float_type))`.
 pub inline fn expectApproxEqual(expected: anytype, actual: anytype) !void {
@@ -95,7 +96,7 @@ fn expectApproxEqualInner(comptime T: type, expected: T, actual: T) !void {
     }
 }
 
-/// Copy of std.testing.print (not public) as of Zig 0.15.1
+/// Copy of std.testing.print (not public)
 fn print(comptime fmt: []const u8, args: anytype) void {
     if (@inComptime()) {
         @compileError(std.fmt.comptimePrint(fmt, args));
@@ -104,6 +105,7 @@ fn print(comptime fmt: []const u8, args: anytype) void {
     }
 }
 
+// Tests based on the `expectEqual` tests in the Zig stdlib
 test "expectApproxEqual.union(enum)" {
     const T = union(enum) {
         a: i32,
