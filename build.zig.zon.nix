@@ -355,14 +355,6 @@ in
       };
     }
     {
-      name = "ziglyph-0.11.2-AAAAAHPtHwB4Mbzn1KvOV7Wpjo82NYEc_v0WC8oCLrkf";
-      path = fetchZigArtifact {
-        name = "ziglyph";
-        url = "https://deps.files.ghostty.org/ziglyph-b89d43d1e3fb01b6074bc1f7fc980324b04d26a5.tar.gz";
-        hash = "sha256-cse98+Ft8QUjX+P88yyYfaxJOJGQ9M7Ymw7jFxDz89k=";
-      };
-    }
-    {
       name = "N-V-__8AAB0eQwD-0MdOEBmz7intriBReIsIDNlukNVoNu6o";
       path = fetchZigArtifact {
         name = "zlib";
