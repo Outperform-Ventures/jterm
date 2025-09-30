@@ -21,6 +21,9 @@ pub fn init(b: *std.Build, uucode_tables: std.Build.LazyPath) !UnicodeTables {
             .omit_frame_pointer = false,
             .unwind_tables = .sync,
         }),
+
+        // TODO: x86_64 self-hosted crashes
+        .use_llvm = true,
     });
 
     const symbols_exe = b.addExecutable(.{
@@ -32,6 +35,9 @@ pub fn init(b: *std.Build, uucode_tables: std.Build.LazyPath) !UnicodeTables {
             .omit_frame_pointer = false,
             .unwind_tables = .sync,
         }),
+
+        // TODO: x86_64 self-hosted crashes
+        .use_llvm = true,
     });
 
     if (b.lazyDependency("uucode", .{

@@ -30,7 +30,11 @@ pub fn main() !void {
     defer alloc.free(t.stage1);
     defer alloc.free(t.stage2);
     defer alloc.free(t.stage3);
-    try t.writeZig(std.io.getStdOut().writer());
+
+    var buf: [4096]u8 = undefined;
+    var stdout = std.fs.File.stdout().writer(&buf);
+    try t.writeZig(&stdout.interface);
+    try stdout.end();
 
     // Uncomment when manually debugging to see our table sizes.
     // std.log.warn("stage1={} stage2={} stage3={}", .{
