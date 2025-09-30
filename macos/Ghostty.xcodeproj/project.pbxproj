@@ -75,6 +75,7 @@
 				"Features/App Intents/CommandPaletteIntent.swift",
 				"Features/App Intents/Entities/CommandEntity.swift",
 				"Features/App Intents/Entities/TerminalEntity.swift",
+				"Features/App Intents/FocusTerminalIntent.swift",
 				"Features/App Intents/GetTerminalDetailsIntent.swift",
 				"Features/App Intents/GhosttyIntentError.swift",
 				"Features/App Intents/InputIntent.swift",
