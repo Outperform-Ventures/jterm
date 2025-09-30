@@ -24,8 +24,9 @@ pub fn initShared(
     zig: *const GhosttyZig,
 ) !GhosttyLibVt {
     const target = zig.vt.resolved_target.?;
-    const lib = b.addSharedLibrary(.{
+    const lib = b.addLibrary(.{
         .name = "ghostty-vt",
+        .linkage = .dynamic,
         .root_module = zig.vt_c,
         .version = std.SemanticVersion{ .major = 0, .minor = 1, .patch = 0 },
     });

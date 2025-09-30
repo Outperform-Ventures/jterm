@@ -4,7 +4,7 @@ const builtin = @import("builtin");
 const buildpkg = @import("src/build/main.zig");
 
 comptime {
-    buildpkg.requireZig("0.14.0");
+    buildpkg.requireZig("0.15.1");
 }
 
 pub fn build(b: *std.Build) !void {
@@ -249,8 +249,6 @@ pub fn build(b: *std.Build) !void {
     {
         const mod_vt_test = b.addTest(.{
             .root_module = mod.vt,
-            .target = config.target,
-            .optimize = config.optimize,
             .filters = test_filters,
         });
         const mod_vt_test_run = b.addRunArtifact(mod_vt_test);
@@ -258,8 +256,6 @@ pub fn build(b: *std.Build) !void {
 
         const mod_vt_c_test = b.addTest(.{
             .root_module = mod.vt_c,
-            .target = config.target,
-            .optimize = config.optimize,
             .filters = test_filters,
         });
         const mod_vt_c_test_run = b.addRunArtifact(mod_vt_c_test);
