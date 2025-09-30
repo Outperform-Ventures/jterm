@@ -26,7 +26,7 @@ pub fn initShared(
     const target = zig.vt.resolved_target.?;
     const lib = b.addSharedLibrary(.{
         .name = "ghostty-vt",
-        .root_module = zig.vt,
+        .root_module = zig.vt_c,
     });
     lib.installHeader(
         b.path("include/ghostty/vt.h"),

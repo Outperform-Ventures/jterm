@@ -8,6 +8,10 @@ comptime {
 }
 
 pub fn build(b: *std.Build) !void {
+    // Works around a Zig but still present in 0.15.1. Remove when fixed.
+    // https://github.com/ghostty-org/ghostty/issues/8924
+    try limitCoresForZigBug();
+
     // This defines all the available build options (e.g. `-D`). If you
     // want to know what options are available, you can run `--help` or
     // you can read `src/build/Config.zig`.
@@ -251,6 +255,15 @@ pub fn build(b: *std.Build) !void {
         });
         const mod_vt_test_run = b.addRunArtifact(mod_vt_test);
         test_lib_vt_step.dependOn(&mod_vt_test_run.step);
+
+        const mod_vt_c_test = b.addTest(.{
+            .root_module = mod.vt_c,
+            .target = config.target,
+            .optimize = config.optimize,
+            .filters = test_filters,
+        });
+        const mod_vt_c_test_run = b.addRunArtifact(mod_vt_c_test);
+        test_lib_vt_step.dependOn(&mod_vt_c_test_run.step);
     }
 
     // Tests
@@ -297,4 +310,14 @@ pub fn build(b: *std.Build) !void {
     } else {
         try translations_step.addError("cannot update translations when i18n is disabled", .{});
     }
+}
+
+// WARNING: Remove this when https://github.com/ghostty-org/ghostty/issues/8924 is resolved!
+// Limit ourselves to 32 cpus on Linux because of an upstream Zig bug.
+fn limitCoresForZigBug() !void {
+    if (comptime builtin.os.tag != .linux) return;
+    const pid = std.os.linux.getpid();
+    var set: std.bit_set.ArrayBitSet(usize, std.os.linux.CPU_SETSIZE * 8) = .initEmpty();
+    for (0..32) |cpu| set.set(cpu);
+    try std.os.linux.sched_setaffinity(pid, &set.masks);
 }

@@ -7,6 +7,7 @@
 //! by thousands of users for years. However, the API itself (functions,
 //! types, etc.) may change without warning. We're working on stabilizing
 //! this in the future.
+const lib = @This();
 
 // The public API below reproduces a lot of terminal/main.zig but
 // is separate because (1) we need our root file to be in `src/`
@@ -30,8 +31,8 @@ pub const size = terminal.size;
 pub const x11_color = terminal.x11_color;
 
 pub const Charset = terminal.Charset;
-pub const CharsetSlot = terminal.Slots;
-pub const CharsetActiveSlot = terminal.ActiveSlot;
+pub const CharsetSlot = terminal.CharsetSlot;
+pub const CharsetActiveSlot = terminal.CharsetActiveSlot;
 pub const Cell = page.Cell;
 pub const Coordinate = point.Coordinate;
 pub const CSI = Parser.Action.CSI;
@@ -68,16 +69,22 @@ pub const Attribute = terminal.Attribute;
 comptime {
     // If we're building the C library (vs. the Zig module) then
     // we want to reference the C API so that it gets exported.
-    if (terminal.is_c_lib) {
+    if (@import("root") == lib) {
         const c = terminal.c_api;
         @export(&c.osc_new, .{ .name = "ghostty_osc_new" });
         @export(&c.osc_free, .{ .name = "ghostty_osc_free" });
+        @export(&c.osc_next, .{ .name = "ghostty_osc_next" });
+        @export(&c.osc_reset, .{ .name = "ghostty_osc_reset" });
+        @export(&c.osc_end, .{ .name = "ghostty_osc_end" });
+        @export(&c.osc_command_type, .{ .name = "ghostty_osc_command_type" });
+        @export(&c.osc_command_data, .{ .name = "ghostty_osc_command_data" });
     }
 }
 
 test {
     _ = terminal;
-
-    // Tests always test the C API
-    _ = terminal.c_api;
+    _ = @import("lib/main.zig");
+    if (comptime terminal.options.c_abi) {
+        _ = terminal.c_api;
+    }
 }
