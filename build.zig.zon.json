@@ -109,10 +109,10 @@
     "url": "https://deps.files.ghostty.org/utfcpp-1220d4d18426ca72fc2b7e56ce47273149815501d0d2395c2a98c726b31ba931e641.tar.gz",
     "hash": "sha256-/8ZooxDndgfTk/PBizJxXyI9oerExNbgV5oR345rWc8="
   },
-  "uucode-0.0.0-ZZjBPk0GQACuYIoFqT_Vzkvn8Ur_M3dE7o4DNUE65Z7v": {
+  "uucode-0.1.0-ZZjBPpAFQABNCvd9cVPBg4I7233Ays-NWfWphPNqGbyE": {
     "name": "uucode",
-    "url": "https://github.com/jacobsandlund/uucode/archive/f748edb9639d9b3c8ae13d6190953f419a615343.tar.gz",
-    "hash": "sha256-j1ZNumH19olw0DHTEb6sChnCZpYhK9+1Q/rr6nxPRcQ="
+    "url": "https://github.com/jacobsandlund/uucode/archive/190706c6b56f0842d29778007f74f7d3d1335fc5.tar.gz",
+    "hash": "sha256-iq9Oyns5e5Tnz2BKPPPTuyJ03BN4bK0dsmSPE1s0wig="
   },
   "vaxis-0.1.0-BWNV_FUICQAFZnTCL11TUvnUr1Y0_ZdqtXHhd51d76Rn": {
     "name": "vaxis",
