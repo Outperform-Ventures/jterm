@@ -64,7 +64,7 @@ pub const Handler = struct {
                         .state = .{
                             .tmux = .{
                                 .max_bytes = self.max_bytes,
-                                .buffer = try std.ArrayList(u8).initCapacity(
+                                .buffer = try .initCapacity(
                                     alloc,
                                     128, // Arbitrary choice to limit initial reallocs
                                 ),

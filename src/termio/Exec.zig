@@ -1518,7 +1518,7 @@ fn execCommand(
 
         .shell => |v| shell: {
             var args: std.ArrayList([:0]const u8) = try .initCapacity(alloc, 4);
-            defer args.deinit();
+            defer args.deinit(alloc);
 
             if (comptime builtin.os.tag == .windows) {
                 // We run our shell wrapped in `cmd.exe` so that we don't have
@@ -1539,21 +1539,21 @@ fn execCommand(
                     "cmd.exe",
                 });
 
-                try args.append(cmd);
-                try args.append("/C");
+                try args.append(alloc, cmd);
+                try args.append(alloc, "/C");
             } else {
                 // We run our shell wrapped in `/bin/sh` so that we don't have
                 // to parse the command line ourselves if it has arguments.
                 // Additionally, some environments (NixOS, I found) use /bin/sh
                 // to setup some environment variables that are important to
                 // have set.
-                try args.append("/bin/sh");
-                if (internal_os.isFlatpak()) try args.append("-l");
-                try args.append("-c");
+                try args.append(alloc, "/bin/sh");
+                if (internal_os.isFlatpak()) try args.append(alloc, "-l");
+                try args.append(alloc, "-c");
             }
 
-            try args.append(v);
-            break :shell try args.toOwnedSlice();
+            try args.append(alloc, v);
+            break :shell try args.toOwnedSlice(alloc);
         },
     };
 }

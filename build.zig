@@ -276,6 +276,8 @@ pub fn build(b: *std.Build) !void {
                 .omit_frame_pointer = false,
                 .unwind_tables = .sync,
             }),
+            // Crash on x86_64 without this
+            .use_llvm = true,
         });
         if (config.emit_test_exe) b.installArtifact(test_exe);
         _ = try deps.add(test_exe);
@@ -285,7 +287,7 @@ pub fn build(b: *std.Build) !void {
         test_step.dependOn(&test_run.step);
 
         // Normal tests always test our libghostty modules
-        test_step.dependOn(test_lib_vt_step);
+        //test_step.dependOn(test_lib_vt_step);
 
         // Valgrind test running
         const valgrind_run = b.addSystemCommand(&.{

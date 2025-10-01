@@ -142,7 +142,9 @@ pub fn main() !void {
         );
     }
 
-    const writer = std.io.getStdOut().writer();
+    var buf: [4096]u8 = undefined;
+    var stdout = std.fs.File.stdout().writer(&buf);
+    const writer = &stdout.interface;
     try writer.writeAll(
         \\<?xml version="1.0" encoding="UTF-8"?>
         \\<gresources>
@@ -157,6 +159,8 @@ pub fn main() !void {
         \\</gresources>
         \\
     );
+
+    try stdout.end();
 }
 
 /// Generate the icon resources. This works by looking up all the icons
