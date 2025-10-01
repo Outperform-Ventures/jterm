@@ -1626,7 +1626,7 @@ pub const Surface = extern struct {
             priv.core_surface = null;
         }
         if (priv.mouse_hover_url) |v| {
-            glib.free(@constCast(@ptrCast(v)));
+            glib.free(@ptrCast(@constCast(v)));
             priv.mouse_hover_url = null;
         }
         if (priv.default_size) |v| {
@@ -1642,15 +1642,15 @@ pub const Surface = extern struct {
             priv.min_size = null;
         }
         if (priv.pwd) |v| {
-            glib.free(@constCast(@ptrCast(v)));
+            glib.free(@ptrCast(@constCast(v)));
             priv.pwd = null;
         }
         if (priv.title) |v| {
-            glib.free(@constCast(@ptrCast(v)));
+            glib.free(@ptrCast(@constCast(v)));
             priv.title = null;
         }
         if (priv.title_override) |v| {
-            glib.free(@constCast(@ptrCast(v)));
+            glib.free(@ptrCast(@constCast(v)));
             priv.title_override = null;
         }
         self.clearCgroup();
@@ -1674,7 +1674,7 @@ pub const Surface = extern struct {
     /// title. For manually set titles see `setTitleOverride`.
     pub fn setTitle(self: *Self, title: ?[:0]const u8) void {
         const priv = self.private();
-        if (priv.title) |v| glib.free(@constCast(@ptrCast(v)));
+        if (priv.title) |v| glib.free(@ptrCast(@constCast(v)));
         priv.title = null;
         if (title) |v| priv.title = glib.ext.dupeZ(u8, v);
         self.as(gobject.Object).notifyByPspec(properties.title.impl.param_spec);
@@ -1684,7 +1684,7 @@ pub const Surface = extern struct {
     /// unless this is unset (null).
     pub fn setTitleOverride(self: *Self, title: ?[:0]const u8) void {
         const priv = self.private();
-        if (priv.title_override) |v| glib.free(@constCast(@ptrCast(v)));
+        if (priv.title_override) |v| glib.free(@ptrCast(@constCast(v)));
         priv.title_override = null;
         if (title) |v| priv.title_override = glib.ext.dupeZ(u8, v);
         self.as(gobject.Object).notifyByPspec(properties.@"title-override".impl.param_spec);
@@ -1698,7 +1698,7 @@ pub const Surface = extern struct {
     /// Set the pwd for this surface, copies the value.
     pub fn setPwd(self: *Self, pwd: ?[:0]const u8) void {
         const priv = self.private();
-        if (priv.pwd) |v| glib.free(@constCast(@ptrCast(v)));
+        if (priv.pwd) |v| glib.free(@ptrCast(@constCast(v)));
         priv.pwd = null;
         if (pwd) |v| priv.pwd = glib.ext.dupeZ(u8, v);
         self.as(gobject.Object).notifyByPspec(properties.pwd.impl.param_spec);
@@ -1783,7 +1783,7 @@ pub const Surface = extern struct {
 
     pub fn setMouseHoverUrl(self: *Self, url: ?[:0]const u8) void {
         const priv = self.private();
-        if (priv.mouse_hover_url) |v| glib.free(@constCast(@ptrCast(v)));
+        if (priv.mouse_hover_url) |v| glib.free(@ptrCast(@constCast(v)));
         priv.mouse_hover_url = null;
         if (url) |v| priv.mouse_hover_url = glib.ext.dupeZ(u8, v);
         self.as(gobject.Object).notifyByPspec(properties.@"mouse-hover-url".impl.param_spec);

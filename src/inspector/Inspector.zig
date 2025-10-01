@@ -149,7 +149,7 @@ pub fn setup() void {
         font_config.FontDataOwnedByAtlas = false;
         _ = cimgui.c.ImFontAtlas_AddFontFromMemoryTTF(
             io.Fonts,
-            @constCast(@ptrCast(font.embedded.regular)),
+            @ptrCast(@constCast(font.embedded.regular)),
             font.embedded.regular.len,
             font_size,
             font_config,

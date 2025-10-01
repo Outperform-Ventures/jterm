@@ -92,7 +92,7 @@ pub fn BitmapAllocator(comptime chunk_size: comptime_int) type {
                 return error.OutOfMemory;
 
             const chunks = self.chunks.ptr(base);
-            const ptr: [*]T = @alignCast(@ptrCast(&chunks[idx * chunk_size]));
+            const ptr: [*]T = @ptrCast(@alignCast(&chunks[idx * chunk_size]));
             return ptr[0..n];
         }
 

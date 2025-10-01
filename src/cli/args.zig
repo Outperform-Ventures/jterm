@@ -324,7 +324,7 @@ pub fn parseIntoField(
                     return;
                 }
                 const raw = field.default_value_ptr orelse break :default;
-                const ptr: *const field.type = @alignCast(@ptrCast(raw));
+                const ptr: *const field.type = @ptrCast(@alignCast(raw));
                 @field(dst, field.name) = ptr.*;
                 return;
             }
@@ -586,7 +586,7 @@ pub fn parseAutoStruct(
                     break :default @field(default, field.name);
                 } else {
                     const default_ptr = field.default_value_ptr orelse return error.InvalidValue;
-                    const typed_ptr: *const field.type = @alignCast(@ptrCast(default_ptr));
+                    const typed_ptr: *const field.type = @ptrCast(@alignCast(default_ptr));
                     break :default typed_ptr.*;
                 }
             };

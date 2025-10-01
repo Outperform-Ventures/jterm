@@ -270,11 +270,11 @@ pub const Tab = extern struct {
     fn finalize(self: *Self) callconv(.c) void {
         const priv = self.private();
         if (priv.tooltip) |v| {
-            glib.free(@constCast(@ptrCast(v)));
+            glib.free(@ptrCast(@constCast(v)));
             priv.tooltip = null;
         }
         if (priv.title) |v| {
-            glib.free(@constCast(@ptrCast(v)));
+            glib.free(@ptrCast(@constCast(v)));
             priv.title = null;
         }
 
