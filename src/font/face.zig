@@ -265,15 +265,15 @@ pub const RenderOptions = struct {
                 };
             };
 
-            // The new, constrained glyph size
-            var constrained_glyph = glyph;
-
-            // Apply prescribed scaling
+            // Apply prescribed scaling, preserving the
+            // center bearings of the group bounding box
             const width_factor, const height_factor = self.scale_factors(group, metrics, min_constraint_width);
-            constrained_glyph.width *= width_factor;
-            constrained_glyph.x *= width_factor;
-            constrained_glyph.height *= height_factor;
-            constrained_glyph.y *= height_factor;
+            const center_x = group.x + (group.width / 2);
+            const center_y = group.y + (group.height / 2);
+            group.width *= width_factor;
+            group.height *= height_factor;
+            group.x = center_x - (group.width / 2);
+            group.y = center_y - (group.height / 2);
 
             // NOTE: font_patcher jumps through a lot of hoops at this
             // point to ensure that the glyph remains within the target
@@ -283,25 +283,20 @@ pub const RenderOptions = struct {
 
             // Align vertically
             if (self.align_vertical != .none) {
-                // Vertically scale group bounding box.
-                group.height *= height_factor;
-                group.y *= height_factor;
-
-                // Calculate offset and shift the glyph
-                constrained_glyph.y += self.offset_vertical(group, metrics);
+                group.y += self.offset_vertical(group, metrics);
             }
-
             // Align horizontally
             if (self.align_horizontal != .none) {
-                // Horizontally scale group bounding box.
-                group.width *= width_factor;
-                group.x *= width_factor;
-
-                // Calculate offset and shift the glyph
-                constrained_glyph.x += self.offset_horizontal(group, metrics, min_constraint_width);
+                group.x += self.offset_horizontal(group, metrics, min_constraint_width);
             }
 
-            return constrained_glyph;
+            // Transfer the scaling and alignment back to the glyph and return.
+            return .{
+                .width = width_factor * glyph.width,
+                .height = height_factor * glyph.height,
+                .x = group.x + (group.width * self.relative_x),
+                .y = group.y + (group.height * self.relative_y),
+            };
         }
 
         /// Return width and height scaling factors for this scaling group.
