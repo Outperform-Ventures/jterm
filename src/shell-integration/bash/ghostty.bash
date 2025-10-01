@@ -75,7 +75,6 @@ fi
 
 # Add Ghostty binary to PATH if the path feature is enabled
 if [[ "$GHOSTTY_SHELL_FEATURES" == *"path"* && -n "$GHOSTTY_BIN_DIR" ]]; then
-  # Check if the directory is already in PATH
   if [[ ":$PATH:" != *":$GHOSTTY_BIN_DIR:"* ]]; then
     export PATH="$PATH:$GHOSTTY_BIN_DIR"
   fi

@@ -197,7 +197,6 @@
     set edit:after-readline  = (conj $edit:after-readline {|_| block })
   }
   if (and (has-value $features path) (has-env GHOSTTY_BIN_DIR)) {
-    # Check if the directory is already in PATH
     if (not (has-value $paths $E:GHOSTTY_BIN_DIR)) {
         set paths = [$E:GHOSTTY_BIN_DIR $@paths]
     }
