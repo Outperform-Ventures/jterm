@@ -223,7 +223,7 @@ pub fn init(
             .left = 0,
             .right = cols - 1,
         },
-        .pwd = std.ArrayList(u8).init(alloc),
+        .pwd = .empty,
         .modes = .{
             .values = opts.default_modes,
             .default = opts.default_modes,
@@ -235,7 +235,7 @@ pub fn deinit(self: *Terminal, alloc: Allocator) void {
     self.tabstops.deinit(alloc);
     self.screen.deinit();
     self.secondary_screen.deinit();
-    self.pwd.deinit();
+    self.pwd.deinit(alloc);
     self.* = undefined;
 }
 

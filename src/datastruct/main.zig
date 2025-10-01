@@ -14,7 +14,7 @@ pub const CacheTable = cache_table.CacheTable;
 pub const CircBuf = circ_buf.CircBuf;
 pub const IntrusiveDoublyLinkedList = intrusive_linked_list.DoublyLinkedList;
 pub const SegmentedPool = segmented_pool.SegmentedPool;
-pub const SplitTree = split_tree.SplitTree;
+//pub const SplitTree = split_tree.SplitTree;
 
 test {
     @import("std").testing.refAllDecls(@This());
