@@ -63,10 +63,7 @@ function __ghostty_setup --on-event fish_prompt -d "Setup ghostty integration"
 
     # Add Ghostty binary to PATH if the path feature is enabled
     if contains path $features; and test -n "$GHOSTTY_BIN_DIR"
-        # Check if the directory is already in PATH
-        if not contains -- "$GHOSTTY_BIN_DIR" $PATH
-            set --global --export PATH $PATH "$GHOSTTY_BIN_DIR"
-        end
+        fish_add_path "$GHOSTTY_BIN_DIR"
     end
 
     # When using sudo shell integration feature, ensure $TERMINFO is set

@@ -198,15 +198,8 @@
   }
   if (and (has-value $features path) (has-env GHOSTTY_BIN_DIR)) {
     # Check if the directory is already in PATH
-    var path-contains-ghostty = $false
-    for p $paths {
-      if (eq $p $E:GHOSTTY_BIN_DIR) {
-        set path-contains-ghostty = $true
-        break
-      }
-    }
-    if (not $path-contains-ghostty) {
-      set paths = [$@paths $E:GHOSTTY_BIN_DIR]
+    if (not (has-value $paths $E:GHOSTTY_BIN_DIR)) {
+        set paths = [$E:GHOSTTY_BIN_DIR $@paths]
     }
   }
   if (and (has-value $features sudo) (not-eq "" $E:TERMINFO) (has-external sudo)) {
