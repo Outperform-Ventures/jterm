@@ -244,6 +244,39 @@ pub const RenderOptions = struct {
         ) GlyphSize {
             if (!self.doesAnything()) return glyph;
 
+            switch (self.size) {
+                .stretch => {
+                    // Stretched glyphs are usually meant to align across cell
+                    // boundaries, which works best if they're scaled and
+                    // aligned to the grid rather than the face. This is most
+                    // easily done by inserting this little fib in the metrics.
+                    var m = metrics;
+                    m.face_width = @floatFromInt(m.cell_width);
+                    m.face_height = @floatFromInt(m.cell_height);
+                    m.face_y = 0.0;
+
+                    // Negative padding for stretched glyphs is a band-aid to
+                    // avoid gaps due to pixel rounding, but at the cost of
+                    // unsightly overlap artifacts. Since we scale and align to
+                    // the grid rather than the face, we don't need it.
+                    var c = self;
+                    c.pad_bottom = @max(0, c.pad_bottom);
+                    c.pad_top = @max(0, c.pad_top);
+                    c.pad_left = @max(0, c.pad_left);
+                    c.pad_right = @max(0, c.pad_right);
+
+                    return c.constrainInner(glyph, m, constraint_width);
+                },
+                else => return self.constrainInner(glyph, metrics, constraint_width),
+            }
+        }
+
+        fn constrainInner(
+            self: Constraint,
+            glyph: GlyphSize,
+            metrics: Metrics,
+            constraint_width: u2,
+        ) GlyphSize {
             // For extra wide font faces, never stretch glyphs across two cells.
             // This mirrors font_patcher.
             const min_constraint_width: u2 = if ((self.size == .stretch) and (metrics.face_width > 0.9 * metrics.face_height))

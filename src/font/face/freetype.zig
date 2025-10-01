@@ -463,14 +463,7 @@ pub const Face = struct {
         const cell_height: f64 = @floatFromInt(metrics.cell_height);
 
         // Next we apply any constraints to get the final size of the glyph.
-        var constraint = opts.constraint;
-
-        // We eliminate any negative vertical padding since these overlap
-        // values aren't needed  with how precisely we apply constraints,
-        // and they can lead to extra height that looks bad for things like
-        // powerline glyphs.
-        constraint.pad_top = @max(0.0, constraint.pad_top);
-        constraint.pad_bottom = @max(0.0, constraint.pad_bottom);
+        const constraint = opts.constraint;
 
         // We need to add the baseline position before passing to the constrain
         // function since it operates on cell-relative positions, not baseline.
@@ -495,7 +488,11 @@ pub const Face = struct {
         // We center all glyphs within the pixel-rounded and adjusted
         // cell width if it's larger than the face width, so that they
         // aren't weirdly off to the left.
-        if (metrics.face_width < cell_width) {
+        //
+        // We don't do this if the glyph has a stretch constraint,
+        // since in that case the position was already calculated with the
+        // new cell width in mind.
+        if ((constraint.size != .stretch) and (metrics.face_width < cell_width)) {
             // We add half the difference to re-center.
             //
             // NOTE: We round this to a whole-pixel amount because under
