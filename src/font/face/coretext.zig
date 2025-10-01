@@ -370,11 +370,7 @@ pub const Face = struct {
         // We center all glyphs within the pixel-rounded and adjusted
         // cell width if it's larger than the face width, so that they
         // aren't weirdly off to the left.
-        //
-        // We don't do this if the constraint has a horizontal alignment,
-        // since in that case the position was already calculated with the
-        // new cell width in mind.
-        if ((opts.constraint.align_horizontal == .none) and (metrics.face_width < cell_width)) {
+        if (metrics.face_width < cell_width) {
             // We add half the difference to re-center.
             x += (cell_width - metrics.face_width) / 2;
         }
