@@ -198,7 +198,7 @@
   }
   if (and (has-value $features path) (has-env GHOSTTY_BIN_DIR)) {
     if (not (has-value $paths $E:GHOSTTY_BIN_DIR)) {
-        set paths = [$E:GHOSTTY_BIN_DIR $@paths]
+        set paths = [$@paths $E:GHOSTTY_BIN_DIR]
     }
   }
   if (and (has-value $features sudo) (not-eq "" $E:TERMINFO) (has-external sudo)) {
