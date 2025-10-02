@@ -369,7 +369,12 @@ pub const Shaper = struct {
             x: f64 = 0,
             y: f64 = 0,
         } = .{};
+
+        // Clear our cell buf and make sure we have enough room for the whole
+        // line of glyphs, so that we can just assume capacity when appending
+        // instead of maybe allocating.
         self.cell_buf.clearRetainingCapacity();
+        try self.cell_buf.ensureTotalCapacity(self.alloc, line.getGlyphCount());
 
         // CoreText may generate multiple runs even though our input to
         // CoreText is already split into runs by our own run iterator.
@@ -381,9 +386,9 @@ pub const Shaper = struct {
             const ctrun = runs.getValueAtIndex(macos.text.Run, i);
 
             // Get our glyphs and positions
-            const glyphs = try ctrun.getGlyphs(alloc);
-            const advances = try ctrun.getAdvances(alloc);
-            const indices = try ctrun.getStringIndices(alloc);
+            const glyphs = ctrun.getGlyphsPtr() orelse try ctrun.getGlyphs(alloc);
+            const advances = ctrun.getAdvancesPtr() orelse try ctrun.getAdvances(alloc);
+            const indices = ctrun.getStringIndicesPtr() orelse try ctrun.getStringIndices(alloc);
             assert(glyphs.len == advances.len);
             assert(glyphs.len == indices.len);
 
@@ -406,7 +411,7 @@ pub const Shaper = struct {
                     cell_offset = .{ .cluster = cluster };
                 }
 
-                try self.cell_buf.append(self.alloc, .{
+                self.cell_buf.appendAssumeCapacity(.{
                     .x = @intCast(cluster),
                     .x_offset = @intFromFloat(@round(cell_offset.x)),
                     .y_offset = @intFromFloat(@round(cell_offset.y)),
