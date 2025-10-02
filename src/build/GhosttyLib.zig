@@ -82,6 +82,9 @@ pub fn initShared(
             .omit_frame_pointer = deps.config.strip,
             .unwind_tables = if (deps.config.strip) .none else .sync,
         }),
+
+        // Fails on self-hosted x86_64
+        .use_llvm = true,
     });
     _ = try deps.add(lib);
 
