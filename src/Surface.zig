@@ -153,7 +153,7 @@ selection_scroll_active: bool = false,
 /// precision timestamp. It does not necessarily need to correspond to the
 /// actual time, but we must be able to compare two subsequent timestamps to get
 /// the wall clock time that has elapsed between timestamps.
-command_timer: ?i128 = null,
+command_timer: ?std.time.Instant = null,
 
 /// The effect of an input event. This can be used by callers to take
 /// the appropriate action after an input event. For example, key
@@ -999,22 +999,16 @@ pub fn handleMessage(self: *Surface, msg: Message) !void {
             try self.selectionScrollTick();
         },
 
-        .start_command_timer => {
-            self.command_timer = std.time.nanoTimestamp();
+        .start_command => {
+            self.command_timer = try .now();
         },
 
-        .stop_command_timer => |v| timer: {
-            const end = std.time.nanoTimestamp();
+        .stop_command => |v| timer: {
+            const end: std.time.Instant = try .now();
             const start = self.command_timer orelse break :timer;
             self.command_timer = null;
 
-            const difference = end - start;
-
-            // skip obviously silly results
-            if (difference < 0) break :timer;
-            if (difference > std.math.maxInt(u64)) break :timer;
-
-            const duration: Duration = .{ .duration = @intCast(difference) };
+            const duration: Duration = .{ .duration = end.since(start) };
             log.debug("command took {}", .{duration});
 
             _ = self.rt_app.performAction(
