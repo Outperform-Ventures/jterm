@@ -28,7 +28,9 @@ pub fn initStatic(
             .omit_frame_pointer = deps.config.strip,
             .unwind_tables = if (deps.config.strip) .none else .sync,
         }),
-        .linkage = .static,
+
+        // Fails on self-hosted x86_64 on macOS
+        .use_llvm = true,
     });
     lib.linkLibC();
 
