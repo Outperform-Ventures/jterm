@@ -3,6 +3,7 @@ const GhosttyDist = @This();
 const std = @import("std");
 const Config = @import("Config.zig");
 const SharedDeps = @import("SharedDeps.zig");
+const GhosttyFrameData = @import("GhosttyFrameData.zig");
 
 /// The final source tarball.
 archive: std.Build.LazyPath,
@@ -24,6 +25,10 @@ pub fn init(b: *std.Build, cfg: *const Config) !GhosttyDist {
         const gtk = SharedDeps.gtkNgDistResources(b);
         try resources.append(alloc, gtk.resources_c);
         try resources.append(alloc, gtk.resources_h);
+    }
+    {
+        const framedata = GhosttyFrameData.distResources(b);
+        try resources.append(alloc, framedata.framedata);
     }
 
     // git archive to create the final tarball. "git archive" is the
