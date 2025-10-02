@@ -693,6 +693,10 @@ pub const Window = extern struct {
         self: *Self,
         tree: *const Surface.Tree,
     ) void {
+        // Ensure that all old signal handlers have been removed before adding
+        // them. Otherwise we get duplicate surface handlers.
+        self.disconnectSurfaceHandlers(tree);
+
         const priv = self.private();
         var it = tree.iterator();
         while (it.next()) |entry| {
