@@ -1004,6 +1004,82 @@ command: ?Command = null,
 ///     manually.
 @"initial-command": ?Command = null,
 
+/// Controls when command finished notifications are sent. There are
+/// three options:
+///
+/// * `never` - Never send notifications (the default).
+/// * `unfocused` - Only send notifications if the surface that the command is
+///   running in is not focused.
+/// * `always` - Always send notifications.
+///
+/// Command finished notifications requires that either shell integration is
+/// enabled, or that your shell sends OSC 133 escape sequences to mark the start
+/// and end of commands.
+///
+/// On GTK, there is a context menu item that will enable command finished
+/// notifications for a single command, overriding the `never` and `unfocused`
+/// options.
+///
+/// GTK only.
+///
+/// Available since 1.3.0.
+@"notify-on-command-finish": NotifyOnCommandFinish = .never,
+
+/// If command finished notifications are enabled, this controls how the user is
+/// notified.
+///
+/// Available options:
+///
+/// * `bell` - enabled by default
+/// * `notify` - disabled by default
+///
+/// Options can be combined by listing them as a comma separated list. Options
+/// can be negated by prefixing them with `no-`. For example `no-bell,notify`.
+///
+/// GTK only.
+///
+/// Available since 1.3.0.
+@"notify-on-command-finish-action": NotifyOnCommandFinishAction = .{
+    .bell = true,
+    .notify = false,
+},
+
+/// If command finished notifications are enabled, this controls how long a
+/// command must have been running before a notification will be sent. The
+/// default is five seconds.
+///
+/// The duration is specified as a series of numbers followed by time units.
+/// Whitespace is allowed between numbers and units. Each number and unit will
+/// be added together to form the total duration.
+///
+/// The allowed time units are as follows:
+///
+///   * `y` - 365 SI days, or 8760 hours, or 31536000 seconds. No adjustments
+///     are made for leap years or leap seconds.
+///   * `d` - one SI day, or 86400 seconds.
+///   * `h` - one hour, or 3600 seconds.
+///   * `m` - one minute, or 60 seconds.
+///   * `s` - one second.
+///   * `ms` - one millisecond, or 0.001 second.
+///   * `us` or `µs` - one microsecond, or 0.000001 second.
+///   * `ns` - one nanosecond, or 0.000000001 second.
+///
+/// Examples:
+///   * `1h30m`
+///   * `45s`
+///
+/// Units can be repeated and will be added together. This means that
+/// `1h1h` is equivalent to `2h`. This is confusing and should be avoided.
+/// A future update may disallow this.
+///
+/// The maximum value is `584y 49w 23h 34m 33s 709ms 551µs 615ns`. Any
+/// value larger than this will be clamped to the maximum value.
+///
+/// GTK only.
+///
+/// Available since 1.3.0
+@"notify-on-command-finish-after": Duration = .{ .duration = 5 * std.time.ns_per_s },
+
 /// Extra environment variables to pass to commands launched in a terminal
 /// surface. The format is `env=KEY=VALUE`.
 ///
@@ -8165,6 +8241,10 @@ pub const Duration = struct {
         return .{ .duration = self.duration / to * to };
     }
 
+    pub fn lte(self: Duration, other: Duration) bool {
+        return self.duration <= other.duration;
+    }
+
     pub fn parseCLI(input: ?[]const u8) !Duration {
         var remaining = input orelse return error.ValueRequired;
 
@@ -8376,6 +8456,19 @@ pub const ScrollToBottom = packed struct {
     output: bool = false,
 
     pub const default: ScrollToBottom = .{};
+};
+
+/// See notify-on-command-finish
+pub const NotifyOnCommandFinish = enum {
+    never,
+    unfocused,
+    always,
+};
+
+/// See notify-on-command-finish-action
+pub const NotifyOnCommandFinishAction = packed struct {
+    bell: bool = true,
+    notify: bool = false,
 };
 
 test "parse duration" {

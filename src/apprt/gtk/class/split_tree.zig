@@ -198,7 +198,7 @@ pub const SplitTree = extern struct {
             .init("zoom", actionZoom, null),
         };
 
-        ext.actions.addAsGroup(Self, self, "split-tree", &actions);
+        _ = ext.actions.addAsGroup(Self, self, "split-tree", &actions);
     }
 
     /// Create a new split in the given direction from the currently
