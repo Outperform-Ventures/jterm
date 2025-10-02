@@ -310,11 +310,11 @@ pub const StreamHandler = struct {
             .kitty => |*kitty_cmd| {
                 if (self.terminal.kittyGraphics(self.alloc, kitty_cmd)) |resp| {
                     var buf: [1024]u8 = undefined;
-                    var buf_stream = std.io.fixedBufferStream(&buf);
-                    try resp.encode(buf_stream.writer());
-                    const final = buf_stream.getWritten();
+                    var writer: std.Io.Writer = .fixed(&buf);
+                    try resp.encode(&writer);
+                    const final = writer.buffered();
                     if (final.len > 2) {
-                        log.debug("kitty graphics response: {s}", .{std.fmt.fmtSliceHexLower(final)});
+                        log.debug("kitty graphics response: {x}", .{final});
                         self.messageWriter(try termio.Message.writeReq(self.alloc, final));
                     }
                 }
@@ -1141,7 +1141,7 @@ pub const StreamHandler = struct {
 
         // We need to unescape the path. We first try to unescape onto
         // the stack and fall back to heap allocation if we have to.
-        var pathBuf: [1024]u8 = undefined;
+        var path_buf: [1024]u8 = undefined;
         const path, const heap = path: {
             // Get the raw string of the URI. Its unclear to me if the various
             // tags of this enum guarantee no percent-encoding so we just
@@ -1156,15 +1156,16 @@ pub const StreamHandler = struct {
                 break :path .{ path, false };
 
             // First try to stack-allocate
-            var fba = std.heap.FixedBufferAllocator.init(&pathBuf);
-            if (std.fmt.allocPrint(fba.allocator(), "{raw}", .{uri.path})) |v|
-                break :path .{ v, false }
-            else |_| {}
+            var stack_writer: std.Io.Writer = .fixed(&path_buf);
+            if (uri.path.formatRaw(&stack_writer)) |_| {
+                break :path .{ stack_writer.buffered(), false };
+            } else |_| {}
 
             // Fall back to heap
-            if (std.fmt.allocPrint(self.alloc, "{raw}", .{uri.path})) |v|
-                break :path .{ v, true }
-            else |_| {}
+            var alloc_writer: std.Io.Writer.Allocating = .init(self.alloc);
+            if (uri.path.formatRaw(&alloc_writer.writer)) |_| {
+                break :path .{ alloc_writer.written(), true };
+            } else |_| {}
 
             // Fall back to using it directly...
             log.warn("failed to unescape OSC 7 path, using it directly path={s}", .{path});
@@ -1471,15 +1472,15 @@ pub const StreamHandler = struct {
         self: *StreamHandler,
         request: terminal.kitty.color.OSC,
     ) !void {
-        var buf = std.ArrayList(u8).init(self.alloc);
-        defer buf.deinit();
-        const writer = buf.writer();
+        var stream: std.Io.Writer.Allocating = .init(self.alloc);
+        defer stream.deinit();
+        const writer = &stream.writer;
 
         for (request.list.items) |item| {
             switch (item) {
                 .query => |key| {
                     // If the writer buffer is empty, we need to write our prefix
-                    if (buf.items.len == 0) try writer.writeAll("\x1b]21");
+                    if (stream.written().len == 0) try writer.writeAll("\x1b]21");
 
                     const color: terminal.color.RGB = switch (key) {
                         .palette => |palette| self.terminal.color_palette.colors[palette],
@@ -1488,17 +1489,17 @@ pub const StreamHandler = struct {
                             .background => self.background_color orelse self.default_background_color,
                             .cursor => self.cursor_color orelse self.default_cursor_color,
                             else => {
-                                log.warn("ignoring unsupported kitty color protocol key: {}", .{key});
+                                log.warn("ignoring unsupported kitty color protocol key: {f}", .{key});
                                 continue;
                             },
                         },
                     } orelse {
-                        try writer.print(";{}=", .{key});
+                        try writer.print(";{f}=", .{key});
                         continue;
                     };
 
                     try writer.print(
-                        ";{}=rgb:{x:0>2}/{x:0>2}/{x:0>2}",
+                        ";{f}=rgb:{x:0>2}/{x:0>2}/{x:0>2}",
                         .{ key, color.r, color.g, color.b },
                     );
                 },
@@ -1525,7 +1526,7 @@ pub const StreamHandler = struct {
                             },
                             else => {
                                 log.warn(
-                                    "ignoring unsupported kitty color protocol key: {}",
+                                    "ignoring unsupported kitty color protocol key: {f}",
                                     .{v.key},
                                 );
                                 continue;
@@ -1560,7 +1561,7 @@ pub const StreamHandler = struct {
                             },
                             else => {
                                 log.warn(
-                                    "ignoring unsupported kitty color protocol key: {}",
+                                    "ignoring unsupported kitty color protocol key: {f}",
                                     .{key},
                                 );
                                 continue;
@@ -1576,12 +1577,12 @@ pub const StreamHandler = struct {
         }
 
         // If we had any writes to our buffer, we queue them now
-        if (buf.items.len > 0) {
+        if (stream.written().len > 0) {
             try writer.writeAll(request.terminator.string());
             self.messageWriter(.{
                 .write_alloc = .{
                     .alloc = self.alloc,
-                    .data = try buf.toOwnedSlice(),
+                    .data = try stream.toOwnedSlice(),
                 },
             });
         }

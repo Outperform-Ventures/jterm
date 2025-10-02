@@ -600,6 +600,7 @@ fn renderModesWindow(self: *Inspector) void {
 
     const t = self.surface.renderer_state.terminal;
     inline for (@typeInfo(terminal.Mode).@"enum".fields) |field| {
+        @setEvalBranchQuota(6000);
         const tag: terminal.modes.ModeTag = @bitCast(@as(terminal.modes.ModeTag.Backing, field.value));
 
         cimgui.c.igTableNextRow(cimgui.c.ImGuiTableRowFlags_None, 0);

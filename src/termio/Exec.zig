@@ -591,6 +591,17 @@ const Subprocess = struct {
     flatpak_command: ?FlatpakHostCommand = null,
     linux_cgroup: Command.LinuxCgroup = Command.linux_cgroup_default,
 
+    const ArgsFormatter = struct {
+        args: []const [:0]const u8,
+
+        pub fn format(this: @This(), writer: *std.Io.Writer) std.Io.Writer.Error!void {
+            for (this.args, 0..) |a, i| {
+                if (i > 0) try writer.writeAll(", ");
+                try writer.print("`{s}`", .{a});
+            }
+        }
+    };
+
     /// Initialize the subprocess. This will NOT start it, this only sets
     /// up the internal state necessary to start it later.
     pub fn init(gpa: Allocator, cfg: Config) !Subprocess {
@@ -897,7 +908,7 @@ const Subprocess = struct {
             self.pty = null;
         };
 
-        log.debug("starting command command={s}", .{self.args});
+        log.debug("starting command command={f}", .{ArgsFormatter{ .args = self.args }});
 
         // If we can't access the cwd, then don't set any cwd and inherit.
         // This is important because our cwd can be set by the shell (OSC 7)
@@ -1157,7 +1168,7 @@ const Subprocess = struct {
                         const res = posix.waitpid(pid, std.c.W.NOHANG);
                         log.debug("waitpid result={}", .{res.pid});
                         if (res.pid != 0) break;
-                        std.time.sleep(10 * std.time.ns_per_ms);
+                        std.Thread.sleep(10 * std.time.ns_per_ms);
                     }
                 },
             }
@@ -1180,7 +1191,7 @@ const Subprocess = struct {
             const pgid = c.getpgid(pid);
             if (pgid == my_pgid) {
                 log.warn("pgid is our own, retrying", .{});
-                std.time.sleep(10 * std.time.ns_per_ms);
+                std.Thread.sleep(10 * std.time.ns_per_ms);
                 continue;
             }
 

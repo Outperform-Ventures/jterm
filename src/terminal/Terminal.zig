@@ -239,6 +239,11 @@ pub fn deinit(self: *Terminal, alloc: Allocator) void {
     self.* = undefined;
 }
 
+/// The general allocator we should use for this terminal.
+fn gpa(self: *Terminal) Allocator {
+    return self.screen.alloc;
+}
+
 /// Print UTF-8 encoded string to the terminal.
 pub fn printString(self: *Terminal, str: []const u8) !void {
     const view = try std.unicode.Utf8View.init(str);
@@ -2531,7 +2536,7 @@ pub fn resize(
 /// Set the pwd for the terminal.
 pub fn setPwd(self: *Terminal, pwd: []const u8) !void {
     self.pwd.clearRetainingCapacity();
-    try self.pwd.appendSlice(pwd);
+    try self.pwd.appendSlice(self.gpa(), pwd);
 }
 
 /// Returns the pwd for the terminal, if any. The memory is owned by the

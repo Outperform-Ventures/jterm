@@ -33,7 +33,9 @@ pub fn main() !void {
     const action = action_ orelse return error.NoAction;
 
     // Our output always goes to stdout.
-    const writer = std.io.getStdOut().writer();
+    var buffer: [1024]u8 = undefined;
+    var stdout_writer = std.fs.File.stdout().writer(&buffer);
+    const writer = &stdout_writer.interface;
     switch (action) {
         .bash => try writer.writeAll(@import("extra/bash.zig").completions),
         .fish => try writer.writeAll(@import("extra/fish.zig").completions),
