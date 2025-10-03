@@ -441,7 +441,7 @@ pub const Face = struct {
         }
 
         // We get a rect that represents the position
-        // and size of the glyph before any changes.
+        // and size of the glyph before constraints.
         const rect = getGlyphSize(glyph);
 
         // If our glyph is smaller than a quarter pixel in either axis
