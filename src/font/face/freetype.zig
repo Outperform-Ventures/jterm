@@ -429,6 +429,17 @@ pub const Face = struct {
         try self.face.loadGlyph(glyph_index, self.glyphLoadFlags(opts.constraint.doesAnything()));
         const glyph = self.face.handle.*.glyph;
 
+        // For synthetic bold, we embolden the glyph.
+        if (self.synthetic.bold) {
+            // We need to scale the embolden amount based on the font size.
+            // This is a heuristic I found worked well across a variety of
+            // founts: 1 pixel per 64 units of height.
+            const font_height: f64 = @floatFromInt(self.face.handle.*.size.*.metrics.height);
+            const ratio: f64 = 64.0 / 2048.0;
+            const amount = @ceil(font_height * ratio);
+            _ = freetype.c.FT_Outline_Embolden(&glyph.*.outline, @intFromFloat(amount));
+        }
+
         // We get a rect that represents the position
         // and size of the glyph before any changes.
         const rect = getGlyphSize(glyph);
@@ -446,17 +457,6 @@ pub const Face = struct {
                 .atlas_x = 0,
                 .atlas_y = 0,
             };
-
-        // For synthetic bold, we embolden the glyph.
-        if (self.synthetic.bold) {
-            // We need to scale the embolden amount based on the font size.
-            // This is a heuristic I found worked well across a variety of
-            // founts: 1 pixel per 64 units of height.
-            const font_height: f64 = @floatFromInt(self.face.handle.*.size.*.metrics.height);
-            const ratio: f64 = 64.0 / 2048.0;
-            const amount = @ceil(font_height * ratio);
-            _ = freetype.c.FT_Outline_Embolden(&glyph.*.outline, @intFromFloat(amount));
-        }
 
         const metrics = opts.grid_metrics;
         const cell_width: f64 = @floatFromInt(metrics.cell_width);
