@@ -2168,17 +2168,21 @@ pub const SelectionString = struct {
 /// Returns the raw text associated with a selection. This will unwrap
 /// soft-wrapped edges. The returned slice is owned by the caller and allocated
 /// using alloc, not the allocator associated with the screen (unless they match).
-pub fn selectionString(self: *Screen, alloc: Allocator, opts: SelectionString) ![:0]const u8 {
+pub fn selectionString(
+    self: *Screen,
+    alloc: Allocator,
+    opts: SelectionString,
+) ![:0]const u8 {
     // Use an ArrayList so that we can grow the array as we go. We
     // build an initial capacity of just our rows in our selection times
     // columns. It can be more or less based on graphemes, newlines, etc.
-    var strbuilder = std.ArrayList(u8).init(alloc);
-    defer strbuilder.deinit();
+    var strbuilder: std.ArrayList(u8) = .empty;
+    defer strbuilder.deinit(alloc);
 
     // If we're building a stringmap, create our builder for the pins.
     const MapBuilder = std.ArrayList(Pin);
-    var mapbuilder: ?MapBuilder = if (opts.map != null) MapBuilder.init(alloc) else null;
-    defer if (mapbuilder) |*b| b.deinit();
+    var mapbuilder: ?MapBuilder = if (opts.map != null) .empty else null;
+    defer if (mapbuilder) |*b| b.deinit(alloc);
 
     const sel_ordered = opts.sel.ordered(self, .forward);
     const sel_start: Pin = start: {
@@ -2235,9 +2239,9 @@ pub fn selectionString(self: *Screen, alloc: Allocator, opts: SelectionString) !
                     const raw: u21 = if (cell.hasText()) cell.content.codepoint else 0;
                     const char = if (raw > 0) raw else ' ';
                     const encode_len = try std.unicode.utf8Encode(char, &buf);
-                    try strbuilder.appendSlice(buf[0..encode_len]);
+                    try strbuilder.appendSlice(alloc, buf[0..encode_len]);
                     if (mapbuilder) |*b| {
-                        for (0..encode_len) |_| try b.append(.{
+                        for (0..encode_len) |_| try b.append(alloc, .{
                             .node = chunk.node,
                             .y = @intCast(y),
                             .x = @intCast(x),
@@ -2248,9 +2252,9 @@ pub fn selectionString(self: *Screen, alloc: Allocator, opts: SelectionString) !
                     const cps = chunk.node.data.lookupGrapheme(cell).?;
                     for (cps) |cp| {
                         const encode_len = try std.unicode.utf8Encode(cp, &buf);
-                        try strbuilder.appendSlice(buf[0..encode_len]);
+                        try strbuilder.appendSlice(alloc, buf[0..encode_len]);
                         if (mapbuilder) |*b| {
-                            for (0..encode_len) |_| try b.append(.{
+                            for (0..encode_len) |_| try b.append(alloc, .{
                                 .node = chunk.node,
                                 .y = @intCast(y),
                                 .x = @intCast(x),
@@ -2265,8 +2269,8 @@ pub fn selectionString(self: *Screen, alloc: Allocator, opts: SelectionString) !
             if (!is_final_row and
                 (!row.wrap or sel_ordered.rectangle))
             {
-                try strbuilder.append('\n');
-                if (mapbuilder) |*b| try b.append(.{
+                try strbuilder.append(alloc, '\n');
+                if (mapbuilder) |*b| try b.append(alloc, .{
                     .node = chunk.node,
                     .y = @intCast(y),
                     .x = chunk.node.data.size.cols - 1,
@@ -2281,11 +2285,11 @@ pub fn selectionString(self: *Screen, alloc: Allocator, opts: SelectionString) !
 
     // If we have a mapbuilder, we need to setup our string map.
     if (mapbuilder) |*b| {
-        var strclone = try strbuilder.clone();
-        defer strclone.deinit();
-        const str = try strclone.toOwnedSliceSentinel(0);
+        var strclone = try strbuilder.clone(alloc);
+        defer strclone.deinit(alloc);
+        const str = try strclone.toOwnedSliceSentinel(alloc, 0);
         errdefer alloc.free(str);
-        const map = try b.toOwnedSlice();
+        const map = try b.toOwnedSlice(alloc);
         errdefer alloc.free(map);
         opts.map.?.* = .{ .string = str, .map = map };
     }
@@ -2306,7 +2310,7 @@ pub fn selectionString(self: *Screen, alloc: Allocator, opts: SelectionString) !
             const i = strbuilder.items.len;
             strbuilder.items.len += trimmed.len;
             std.mem.copyForwards(u8, strbuilder.items[i..], trimmed);
-            try strbuilder.append('\n');
+            try strbuilder.append(alloc, '\n');
         }
 
         // Remove all trailing newlines
@@ -2317,7 +2321,7 @@ pub fn selectionString(self: *Screen, alloc: Allocator, opts: SelectionString) !
     }
 
     // Get our final string
-    const string = try strbuilder.toOwnedSliceSentinel(0);
+    const string = try strbuilder.toOwnedSliceSentinel(alloc, 0);
     errdefer alloc.free(string);
 
     return string;
@@ -2902,7 +2906,7 @@ pub fn promptPath(
 /// one byte at a time.
 pub fn dumpString(
     self: *const Screen,
-    writer: anytype,
+    writer: *std.Io.Writer,
     opts: PageList.EncodeUtf8Options,
 ) anyerror!void {
     try self.pages.encodeUtf8(writer, opts);
@@ -2915,10 +2919,10 @@ pub fn dumpStringAlloc(
     alloc: Allocator,
     tl: point.Point,
 ) ![]const u8 {
-    var builder = std.ArrayList(u8).init(alloc);
+    var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    try self.dumpString(builder.writer(), .{
+    try self.dumpString(&builder.writer, .{
         .tl = self.pages.getTopLeft(tl),
         .br = self.pages.getBottomRight(tl) orelse return error.UnknownPoint,
         .unwrap = false,
@@ -2934,10 +2938,10 @@ pub fn dumpStringAllocUnwrapped(
     alloc: Allocator,
     tl: point.Point,
 ) ![]const u8 {
-    var builder = std.ArrayList(u8).init(alloc);
+    var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
 
-    try self.dumpString(builder.writer(), .{
+    try self.dumpString(&builder.writer, .{
         .tl = self.pages.getTopLeft(tl),
         .br = self.pages.getBottomRight(tl) orelse return error.UnknownPoint,
         .unwrap = true,
@@ -9030,33 +9034,33 @@ test "Screen UTF8 cell map with newlines" {
 
     var cell_map = Page.CellMap.init(alloc);
     defer cell_map.deinit();
-    var builder = std.ArrayList(u8).init(alloc);
+    var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
-    try s.dumpString(builder.writer(), .{
+    try s.dumpString(&builder.writer, .{
         .tl = s.pages.getTopLeft(.screen),
         .br = s.pages.getBottomRight(.screen),
         .cell_map = &cell_map,
     });
 
-    try testing.expectEqual(7, builder.items.len);
-    try testing.expectEqualStrings("A\n\nB\n\nC", builder.items);
-    try testing.expectEqual(builder.items.len, cell_map.items.len);
+    try testing.expectEqual(7, builder.written().len);
+    try testing.expectEqualStrings("A\n\nB\n\nC", builder.written());
+    try testing.expectEqual(builder.written().len, cell_map.map.items.len);
     try testing.expectEqual(Page.CellMapEntry{
         .x = 0,
         .y = 0,
-    }, cell_map.items[0]);
+    }, cell_map.map.items[0]);
     try testing.expectEqual(Page.CellMapEntry{
         .x = 1,
         .y = 0,
-    }, cell_map.items[1]);
+    }, cell_map.map.items[1]);
     try testing.expectEqual(Page.CellMapEntry{
         .x = 0,
         .y = 1,
-    }, cell_map.items[2]);
+    }, cell_map.map.items[2]);
     try testing.expectEqual(Page.CellMapEntry{
         .x = 0,
         .y = 2,
-    }, cell_map.items[3]);
+    }, cell_map.map.items[3]);
 }
 
 test "Screen UTF8 cell map with blank prefix" {
@@ -9068,32 +9072,32 @@ test "Screen UTF8 cell map with blank prefix" {
     s.cursorAbsolute(2, 1);
     try s.testWriteString("B");
 
-    var cell_map = Page.CellMap.init(alloc);
+    var cell_map: Page.CellMap = .init(alloc);
     defer cell_map.deinit();
-    var builder = std.ArrayList(u8).init(alloc);
+    var builder: std.Io.Writer.Allocating = .init(alloc);
     defer builder.deinit();
-    try s.dumpString(builder.writer(), .{
+    try s.dumpString(&builder.writer, .{
         .tl = s.pages.getTopLeft(.screen),
         .br = s.pages.getBottomRight(.screen),
         .cell_map = &cell_map,
     });
 
-    try testing.expectEqualStrings("\n  B", builder.items);
-    try testing.expectEqual(builder.items.len, cell_map.items.len);
+    try testing.expectEqualStrings("\n  B", builder.written());
+    try testing.expectEqual(builder.written().len, cell_map.map.items.len);
     try testing.expectEqual(Page.CellMapEntry{
         .x = 0,
         .y = 0,
-    }, cell_map.items[0]);
+    }, cell_map.map.items[0]);
     try testing.expectEqual(Page.CellMapEntry{
         .x = 0,
         .y = 1,
-    }, cell_map.items[1]);
+    }, cell_map.map.items[1]);
     try testing.expectEqual(Page.CellMapEntry{
         .x = 1,
         .y = 1,
-    }, cell_map.items[2]);
+    }, cell_map.map.items[2]);
     try testing.expectEqual(Page.CellMapEntry{
         .x = 2,
         .y = 1,
-    }, cell_map.items[3]);
+    }, cell_map.map.items[3]);
 }

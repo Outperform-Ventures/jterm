@@ -223,7 +223,7 @@ pub fn init(
             .left = 0,
             .right = cols - 1,
         },
-        .pwd = std.ArrayList(u8).init(alloc),
+        .pwd = .empty,
         .modes = .{
             .values = opts.default_modes,
             .default = opts.default_modes,
@@ -235,8 +235,13 @@ pub fn deinit(self: *Terminal, alloc: Allocator) void {
     self.tabstops.deinit(alloc);
     self.screen.deinit();
     self.secondary_screen.deinit();
-    self.pwd.deinit();
+    self.pwd.deinit(alloc);
     self.* = undefined;
+}
+
+/// The general allocator we should use for this terminal.
+fn gpa(self: *Terminal) Allocator {
+    return self.screen.alloc;
 }
 
 /// Print UTF-8 encoded string to the terminal.
@@ -2531,7 +2536,7 @@ pub fn resize(
 /// Set the pwd for the terminal.
 pub fn setPwd(self: *Terminal, pwd: []const u8) !void {
     self.pwd.clearRetainingCapacity();
-    try self.pwd.appendSlice(pwd);
+    try self.pwd.appendSlice(self.gpa(), pwd);
 }
 
 /// Returns the pwd for the terminal, if any. The memory is owned by the

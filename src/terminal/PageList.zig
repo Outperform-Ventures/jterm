@@ -56,7 +56,7 @@ const std_size = Page.layout(std_capacity).total_size;
 /// allocator because we need memory that is zero-initialized and page-aligned.
 const PagePool = std.heap.MemoryPoolAligned(
     [std_size]u8,
-    std.heap.page_size_min,
+    .fromByteUnits(std.heap.page_size_min),
 );
 
 /// List of pins, known as "tracked" pins. These are pins that are kept
@@ -388,11 +388,18 @@ pub fn reset(self: *PageList) void {
         const page_arena = &self.pool.pages.arena;
         var it = page_arena.state.buffer_list.first;
         while (it) |node| : (it = node.next) {
-            // The fully allocated buffer
-            const alloc_buf = @as([*]u8, @ptrCast(node))[0..node.data];
+            // WARN: Since HeapAllocator's BufNode is not public API,
+            // we have to hardcode its layout here. We do a comptime assert
+            // on Zig version to verify we check it on every bump.
+            const BufNode = struct {
+                data: usize,
+                node: std.SinglyLinkedList.Node,
+            };
+            const buf_node: *BufNode = @fieldParentPtr("node", node);
 
+            // The fully allocated buffer
+            const alloc_buf = @as([*]u8, @ptrCast(buf_node))[0..buf_node.data];
             // The buffer minus our header
-            const BufNode = @TypeOf(page_arena.state.buffer_list).Node;
             const data_buf = alloc_buf[@sizeOf(BufNode)..];
             @memset(data_buf, 0);
         }
@@ -2075,7 +2082,7 @@ inline fn createPageExt(
     else
         try page_alloc.alignedAlloc(
             u8,
-            std.heap.page_size_min,
+            .fromByteUnits(std.heap.page_size_min),
             layout.total_size,
         );
     errdefer if (pooled)
@@ -2676,7 +2683,7 @@ pub const EncodeUtf8Options = struct {
 /// predates this and is a thin wrapper around it so the tests all live there.
 pub fn encodeUtf8(
     self: *const PageList,
-    writer: anytype,
+    writer: *std.Io.Writer,
     opts: EncodeUtf8Options,
 ) anyerror!void {
     // We don't currently use self at all. There is an argument that this
@@ -2716,7 +2723,7 @@ pub fn encodeUtf8(
 ///    1 | etc.| | 4
 ///      +-----+ :
 ///     +--------+
-pub fn diagram(self: *const PageList, writer: anytype) !void {
+pub fn diagram(self: *const PageList, writer: *std.Io.Writer) !void {
     const active_pin = self.getTopLeft(.active);
 
     var active = false;

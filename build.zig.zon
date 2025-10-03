@@ -3,54 +3,55 @@
     .version = "1.2.1",
     .paths = .{""},
     .fingerprint = 0x64407a2a0b4147e5,
-    .minimum_zig_version = "0.14.1",
+    .minimum_zig_version = "0.15.1",
     .dependencies = .{
         // Zig libs
 
         .libxev = .{
             // mitchellh/libxev
-            .url = "https://github.com/mitchellh/libxev/archive/7f803181b158a10fec8619f793e3b4df515566cb.tar.gz",
-            .hash = "libxev-0.0.0-86vtc2UaEwDfiTKX3iBI-s_hdzfzWQUarT3MUrmUQl-Q",
+            .url = "https://github.com/mitchellh/libxev/archive/34fa50878aec6e5fa8f532867001ab3c36fae23e.tar.gz",
+            .hash = "libxev-0.0.0-86vtc4IcEwCqEYxEYoN_3KXmc6A9VLcm22aVImfvecYs",
             .lazy = true,
         },
         .vaxis = .{
             // rockorager/libvaxis
-            .url = "git+https://github.com/rockorager/libvaxis#1f41c121e8fc153d9ce8c6eb64b2bbab68ad7d23",
-            .hash = "vaxis-0.1.0-BWNV_FUICQAFZnTCL11TUvnUr1Y0_ZdqtXHhd51d76Rn",
+            .url = "https://github.com/rockorager/libvaxis/archive/9fc9015d5f147568e18c5e7ca28f15bf8b293760.tar.gz",
+            .hash = "vaxis-0.5.1-BWNV_O8fCQAeUeVrESVc-2BdXloEXkFqReDJL7Q6XTSZ",
             .lazy = true,
         },
         .z2d = .{
             // vancluever/z2d
-            .url = "https://github.com/vancluever/z2d/archive/refs/tags/v0.8.1.tar.gz",
-            .hash = "z2d-0.8.1-j5P_Hq8vDwB8ZaDA54-SzESDLF2zznG_zvTHiQNJImZP",
+            .url = "https://github.com/vancluever/z2d/archive/a1237f6881d99b75abd8a20a934e62e34b44a005.tar.gz",
+            .hash = "z2d-0.8.2-pre-j5P_HlVRFgCsBTQ3EgUoKbYHx5JMnyH1mHsOSPiafnef",
             .lazy = true,
         },
         .zig_objc = .{
             // mitchellh/zig-objc
-            .url = "https://github.com/mitchellh/zig-objc/archive/c9e917a4e15a983b672ca779c7985d738a2d517c.tar.gz",
-            .hash = "zig_objc-0.0.0-Ir_SpwsPAQBJgi9YRm2ubJMfdoysSq5gKpsIj3izQ8Zk",
+            .url = "https://github.com/mitchellh/zig-objc/archive/f356ed02833f0f1b8e84d50bed9e807bf7cdc0ae.tar.gz",
+            .hash = "zig_objc-0.0.0-Ir_Sp5gTAQCvxxR7oVIrPXxXwsfKgVP7_wqoOQrZjFeK",
             .lazy = true,
         },
         .zig_js = .{
             // mitchellh/zig-js
-            .url = "https://deps.files.ghostty.org/zig_js-12205a66d423259567764fa0fc60c82be35365c21aeb76c5a7dc99698401f4f6fefc.tar.gz",
-            .hash = "N-V-__8AAB9YCQBaZtQjJZVndk-g_GDIK-NTZcIa63bFp9yZ",
+            .url = "https://github.com/mitchellh/zig-js/archive/04db83c617da1956ac5adc1cb9ba1e434c1cb6fd.tar.gz",
+            .hash = "zig_js-0.0.0-rjCAV-6GAADxFug7rDmPH-uM_XcnJ5NmuAMJCAscMjhi",
             .lazy = true,
         },
         .uucode = .{
-            .url = "https://github.com/jacobsandlund/uucode/archive/190706c6b56f0842d29778007f74f7d3d1335fc5.tar.gz",
-            .hash = "uucode-0.1.0-ZZjBPpAFQABNCvd9cVPBg4I7233Ays-NWfWphPNqGbyE",
+            // TODO: currently the use-llvm branch because its broken on self-hosted
+            .url = "https://github.com/jacobsandlund/uucode/archive/f81f8ef8518b8ec5a7fca30ec5fdbc76cc6197df.tar.gz",
+            .hash = "uucode-0.1.0-ZZjBPjQHQADuCy1VMWftjrMl3iWqgMpUugWVQJG6_7xT",
         },
         .zig_wayland = .{
             // codeberg ifreund/zig-wayland
-            .url = "https://codeberg.org/ifreund/zig-wayland/archive/f3c5d503e540ada8cbcb056420de240af0c094f7.tar.gz",
-            .hash = "wayland-0.4.0-dev-lQa1kjfIAQCmhhQu3xF0KH-94-TzeMXOqfnP0-Dg6Wyy",
+            .url = "https://codeberg.org/ifreund/zig-wayland/archive/1b5c038ec10da20ed3a15b0b2a6db1c21383e8ea.tar.gz",
+            .hash = "wayland-0.5.0-dev-lQa1khrMAQDJDwYFKpdH3HizherB7sHo5dKMECfvxQHe",
             .lazy = true,
         },
         .zf = .{
             // natecraddock/zf
-            .url = "https://github.com/natecraddock/zf/archive/7aacbe6d155d64d15937ca95ca6c014905eb531f.tar.gz",
-            .hash = "zf-0.10.3-OIRy8aiIAACLrBllz0zjxaH0aOe5oNm3KtEMyCntST-9",
+            .url = "https://github.com/jcollie/zf/archive/52ad2e5528ab754f77437edf08a07b5ec843661c.tar.gz",
+            .hash = "zf-0.10.3-OIRy8QGJAACJcu3tCGtfbJnnd3Y4QL7OW_X8PJ8u_ASR",
             .lazy = true,
         },
         .gobject = .{

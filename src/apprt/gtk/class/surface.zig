@@ -1375,11 +1375,11 @@ pub const Surface = extern struct {
         defer arena.deinit();
         const alloc = arena.allocator();
 
-        var env_to_remove = std.ArrayList([]const u8).init(alloc);
-        var env_to_update = std.ArrayList(struct {
+        var env_to_remove: std.ArrayList([]const u8) = .empty;
+        var env_to_update: std.ArrayList(struct {
             key: []const u8,
             value: []const u8,
-        }).init(alloc);
+        }) = .empty;
 
         var it = env_map.iterator();
         while (it.next()) |entry| {
@@ -1392,13 +1392,11 @@ pub const Surface = extern struct {
 
             // Any env var starting with SNAP must be removed
             if (std.mem.startsWith(u8, key, "SNAP_")) {
-                try env_to_remove.append(key);
+                try env_to_remove.append(alloc, key);
                 continue;
             }
 
-            var filtered_paths = std.ArrayList([]const u8).init(alloc);
-            defer filtered_paths.deinit();
-
+            var filtered_paths: std.ArrayList([]const u8) = .empty;
             var modified = false;
             var paths = std.mem.splitAny(u8, value, ":");
             while (paths.next()) |path| {
@@ -1411,15 +1409,15 @@ pub const Surface = extern struct {
                         break;
                     }
                 };
-                if (include) try filtered_paths.append(path);
+                if (include) try filtered_paths.append(alloc, path);
             }
 
             if (modified) {
                 if (filtered_paths.items.len > 0) {
                     const new_value = try std.mem.join(alloc, ":", filtered_paths.items);
-                    try env_to_update.append(.{ .key = key, .value = new_value });
+                    try env_to_update.append(alloc, .{ .key = key, .value = new_value });
                 } else {
-                    try env_to_remove.append(key);
+                    try env_to_remove.append(alloc, key);
                 }
             }
         }
@@ -1626,7 +1624,7 @@ pub const Surface = extern struct {
             priv.core_surface = null;
         }
         if (priv.mouse_hover_url) |v| {
-            glib.free(@constCast(@ptrCast(v)));
+            glib.free(@ptrCast(@constCast(v)));
             priv.mouse_hover_url = null;
         }
         if (priv.default_size) |v| {
@@ -1642,15 +1640,15 @@ pub const Surface = extern struct {
             priv.min_size = null;
         }
         if (priv.pwd) |v| {
-            glib.free(@constCast(@ptrCast(v)));
+            glib.free(@ptrCast(@constCast(v)));
             priv.pwd = null;
         }
         if (priv.title) |v| {
-            glib.free(@constCast(@ptrCast(v)));
+            glib.free(@ptrCast(@constCast(v)));
             priv.title = null;
         }
         if (priv.title_override) |v| {
-            glib.free(@constCast(@ptrCast(v)));
+            glib.free(@ptrCast(@constCast(v)));
             priv.title_override = null;
         }
         self.clearCgroup();
@@ -1674,7 +1672,7 @@ pub const Surface = extern struct {
     /// title. For manually set titles see `setTitleOverride`.
     pub fn setTitle(self: *Self, title: ?[:0]const u8) void {
         const priv = self.private();
-        if (priv.title) |v| glib.free(@constCast(@ptrCast(v)));
+        if (priv.title) |v| glib.free(@ptrCast(@constCast(v)));
         priv.title = null;
         if (title) |v| priv.title = glib.ext.dupeZ(u8, v);
         self.as(gobject.Object).notifyByPspec(properties.title.impl.param_spec);
@@ -1684,7 +1682,7 @@ pub const Surface = extern struct {
     /// unless this is unset (null).
     pub fn setTitleOverride(self: *Self, title: ?[:0]const u8) void {
         const priv = self.private();
-        if (priv.title_override) |v| glib.free(@constCast(@ptrCast(v)));
+        if (priv.title_override) |v| glib.free(@ptrCast(@constCast(v)));
         priv.title_override = null;
         if (title) |v| priv.title_override = glib.ext.dupeZ(u8, v);
         self.as(gobject.Object).notifyByPspec(properties.@"title-override".impl.param_spec);
@@ -1698,7 +1696,7 @@ pub const Surface = extern struct {
     /// Set the pwd for this surface, copies the value.
     pub fn setPwd(self: *Self, pwd: ?[:0]const u8) void {
         const priv = self.private();
-        if (priv.pwd) |v| glib.free(@constCast(@ptrCast(v)));
+        if (priv.pwd) |v| glib.free(@ptrCast(@constCast(v)));
         priv.pwd = null;
         if (pwd) |v| priv.pwd = glib.ext.dupeZ(u8, v);
         self.as(gobject.Object).notifyByPspec(properties.pwd.impl.param_spec);
@@ -1783,7 +1781,7 @@ pub const Surface = extern struct {
 
     pub fn setMouseHoverUrl(self: *Self, url: ?[:0]const u8) void {
         const priv = self.private();
-        if (priv.mouse_hover_url) |v| glib.free(@constCast(@ptrCast(v)));
+        if (priv.mouse_hover_url) |v| glib.free(@ptrCast(@constCast(v)));
         priv.mouse_hover_url = null;
         if (url) |v| priv.mouse_hover_url = glib.ext.dupeZ(u8, v);
         self.as(gobject.Object).notifyByPspec(properties.@"mouse-hover-url".impl.param_spec);
@@ -2117,13 +2115,11 @@ pub const Surface = extern struct {
         const alloc = Application.default().allocator();
 
         if (ext.gValueHolds(value, gdk.FileList.getGObjectType())) {
-            var data = std.ArrayList(u8).init(alloc);
-            defer data.deinit();
+            var stream: std.Io.Writer.Allocating = .init(alloc);
+            defer stream.deinit();
 
-            var shell_escape_writer: internal_os.ShellEscapeWriter(std.ArrayList(u8).Writer) = .{
-                .child_writer = data.writer(),
-            };
-            const writer = shell_escape_writer.writer();
+            var shell_escape_writer: internal_os.ShellEscapeWriter = .init(&stream.writer);
+            const writer = &shell_escape_writer.writer;
 
             const list: ?*glib.SList = list: {
                 const unboxed = value.getBoxed() orelse return 0;
@@ -2151,7 +2147,7 @@ pub const Surface = extern struct {
                 }
             }
 
-            const string = data.toOwnedSliceSentinel(0) catch |err| {
+            const string = stream.toOwnedSliceSentinel(0) catch |err| {
                 log.err("unable to convert to a slice: {}", .{err});
                 return 0;
             };
@@ -2164,13 +2160,11 @@ pub const Surface = extern struct {
             const object = value.getObject() orelse return 0;
             const file = gobject.ext.cast(gio.File, object) orelse return 0;
             const path = file.getPath() orelse return 0;
-            var data = std.ArrayList(u8).init(alloc);
-            defer data.deinit();
+            var stream: std.Io.Writer.Allocating = .init(alloc);
+            defer stream.deinit();
 
-            var shell_escape_writer: internal_os.ShellEscapeWriter(std.ArrayList(u8).Writer) = .{
-                .child_writer = data.writer(),
-            };
-            const writer = shell_escape_writer.writer();
+            var shell_escape_writer: internal_os.ShellEscapeWriter = .init(&stream.writer);
+            const writer = &shell_escape_writer.writer;
             writer.writeAll(std.mem.span(path)) catch |err| {
                 log.err("unable to write path to buffer: {}", .{err});
                 return 0;
@@ -2180,7 +2174,7 @@ pub const Surface = extern struct {
                 return 0;
             };
 
-            const string = data.toOwnedSliceSentinel(0) catch |err| {
+            const string = stream.toOwnedSliceSentinel(0) catch |err| {
                 log.err("unable to convert to a slice: {}", .{err});
                 return 0;
             };

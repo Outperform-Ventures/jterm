@@ -1044,7 +1044,9 @@ pub const Application = extern struct {
             defer file.close();
 
             log.info("loading gtk-custom-css path={s}", .{path});
-            const contents = try file.reader().readAllAlloc(
+            var buf: [4096]u8 = undefined;
+            var reader = file.reader(&buf);
+            const contents = try reader.interface.readAlloc(
                 alloc,
                 5 * 1024 * 1024, // 5MB,
             );
@@ -1115,8 +1117,8 @@ pub const Application = extern struct {
             // This should really never, never happen. Its not critical enough
             // to actually crash, but this is a bug somewhere. An accelerator
             // for a trigger can't possibly be more than 1024 bytes.
-            error.NoSpaceLeft => {
-                log.warn("accelerator somehow longer than 1024 bytes: {}", .{trigger});
+            error.WriteFailed => {
+                log.warn("accelerator somehow longer than 1024 bytes: {f}", .{trigger});
                 return;
             },
         };

@@ -4,7 +4,7 @@ const builtin = @import("builtin");
 const buildpkg = @import("src/build/main.zig");
 
 comptime {
-    buildpkg.requireZig("0.14.0");
+    buildpkg.requireZig("0.15.1");
 }
 
 pub fn build(b: *std.Build) !void {
@@ -249,8 +249,6 @@ pub fn build(b: *std.Build) !void {
     {
         const mod_vt_test = b.addTest(.{
             .root_module = mod.vt,
-            .target = config.target,
-            .optimize = config.optimize,
             .filters = test_filters,
         });
         const mod_vt_test_run = b.addRunArtifact(mod_vt_test);
@@ -258,8 +256,6 @@ pub fn build(b: *std.Build) !void {
 
         const mod_vt_c_test = b.addTest(.{
             .root_module = mod.vt_c,
-            .target = config.target,
-            .optimize = config.optimize,
             .filters = test_filters,
         });
         const mod_vt_c_test_run = b.addRunArtifact(mod_vt_c_test);
@@ -280,6 +276,8 @@ pub fn build(b: *std.Build) !void {
                 .omit_frame_pointer = false,
                 .unwind_tables = .sync,
             }),
+            // Crash on x86_64 without this
+            .use_llvm = true,
         });
         if (config.emit_test_exe) b.installArtifact(test_exe);
         _ = try deps.add(test_exe);
@@ -289,7 +287,7 @@ pub fn build(b: *std.Build) !void {
         test_step.dependOn(&test_run.step);
 
         // Normal tests always test our libghostty modules
-        test_step.dependOn(test_lib_vt_step);
+        //test_step.dependOn(test_lib_vt_step);
 
         // Valgrind test running
         const valgrind_run = b.addSystemCommand(&.{

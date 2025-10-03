@@ -40,7 +40,10 @@ pub fn distResources(b: *std.Build) struct {
 } {
     const exe = b.addExecutable(.{
         .name = "framegen",
-        .target = b.graph.host,
+        .root_module = b.createModule(.{
+            .target = b.graph.host,
+        }),
+        .use_llvm = true,
     });
     exe.addCSourceFile(.{
         .file = b.path("src/build/framegen/main.c"),

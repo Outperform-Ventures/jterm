@@ -59,19 +59,20 @@ pub const compiler =
 /// Generates the syntax file at comptime.
 fn comptimeGenSyntax() []const u8 {
     comptime {
-        var counting_writer = std.io.countingWriter(std.io.null_writer);
-        try writeSyntax(&counting_writer.writer());
+        @setEvalBranchQuota(50000);
+        var counter: std.Io.Writer.Discarding = .init(&.{});
+        try writeSyntax(&counter.writer);
 
-        var buf: [counting_writer.bytes_written]u8 = undefined;
-        var stream = std.io.fixedBufferStream(&buf);
-        try writeSyntax(stream.writer());
+        var buf: [counter.count]u8 = undefined;
+        var writer: std.Io.Writer = .fixed(&buf);
+        try writeSyntax(&writer);
         const final = buf;
-        return final[0..stream.getWritten().len];
+        return final[0..writer.end];
     }
 }
 
 /// Writes the syntax file to the given writer.
-fn writeSyntax(writer: anytype) !void {
+fn writeSyntax(writer: *std.Io.Writer) !void {
     try writer.writeAll(
         \\" Vim syntax file
         \\" Language: Ghostty config file
