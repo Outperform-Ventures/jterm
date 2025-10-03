@@ -126,7 +126,7 @@ in
       name = "gobject-0.3.0-Skun7ET3nQCqJhDL0KnF_X7M4L7o7JePsJBbrYpEr7UV";
       path = fetchZigArtifact {
         name = "gobject";
-        url = "https://github.com/ghostty-org/zig-gobject/releases/download/2025-09-20-20-1/ghostty-gobject-2025-09-20-20-1.tar.zst";
+        url = "https://deps.files.ghostty.org/gobject-2025-09-20-20-1.tar.zst";
         hash = "sha256-SXiqGm81aUn6yq1wFXgNTAULdKOHS/Rzkp5OgNkkcXo=";
       };
     }
@@ -166,7 +166,7 @@ in
       name = "N-V-__8AACEnAwCkyrJ_XqdomYlR8bpuh0l8WDidEz-BAzIv";
       path = fetchZigArtifact {
         name = "iterm2_themes";
-        url = "https://github.com/mbadolato/iTerm2-Color-Schemes/releases/download/release-20250922-150534-d28055b/ghostty-themes.tgz";
+        url = "https://deps.files.ghostty.org/iterm2_themes-release-20250922-150534-d28055b.tgz";
         hash = "sha256-mdhUxAAqKxRRXwED2laabUo9ZZqZa/MZAsO0+Y9L7uQ=";
       };
     }
@@ -190,7 +190,7 @@ in
       name = "libxev-0.0.0-86vtc4IcEwCqEYxEYoN_3KXmc6A9VLcm22aVImfvecYs";
       path = fetchZigArtifact {
         name = "libxev";
-        url = "https://github.com/mitchellh/libxev/archive/34fa50878aec6e5fa8f532867001ab3c36fae23e.tar.gz";
+        url = "https://deps.files.ghostty.org/libxev-34fa50878aec6e5fa8f532867001ab3c36fae23e.tar.gz";
         hash = "sha256-YAPqa5bkpRihKPkyMn15oRvTCZaxO3O66ymRY3lIfdc=";
       };
     }
@@ -262,8 +262,16 @@ in
       name = "uucode-0.1.0-ZZjBPjQHQADuCy1VMWftjrMl3iWqgMpUugWVQJG6_7xT";
       path = fetchZigArtifact {
         name = "uucode";
-        url = "https://github.com/jacobsandlund/uucode/archive/f81f8ef8518b8ec5a7fca30ec5fdbc76cc6197df.tar.gz";
+        url = "https://deps.files.ghostty.org/uucode-f81f8ef8518b8ec5a7fca30ec5fdbc76cc6197df.tar.gz";
         hash = "sha256-VomSYOF8fRJwb/8GtVG/QqR6c95zSkQt4649C/4KXAc=";
+      };
+    }
+    {
+      name = "vaxis-0.5.1-BWNV_O8fCQAeUeVrESVc-2BdXloEXkFqReDJL7Q6XTSZ";
+      path = fetchZigArtifact {
+        name = "vaxis";
+        url = "https://deps.files.ghostty.org/vaxis-9fc9015d5f147568e18c5e7ca28f15bf8b293760.tar.gz";
+        hash = "sha256-7H5a0J7uUsrzlO7JNAf/Ussi9WxvmsbyJSmhqvl+rqI=";
       };
     }
     {
@@ -272,14 +280,6 @@ in
         name = "vaxis";
         url = "https://github.com/rockorager/libvaxis/archive/1bf887aa7e3736bad69fd4e277a378946edb0f2a.tar.gz";
         hash = "sha256-eq5YC26OY0i2cdQJ0ZXMZ+o2vHQLEFNNGzQt5Zuz4BM=";
-      };
-    }
-    {
-      name = "vaxis-0.5.1-BWNV_O8fCQAeUeVrESVc-2BdXloEXkFqReDJL7Q6XTSZ";
-      path = fetchZigArtifact {
-        name = "vaxis";
-        url = "https://github.com/rockorager/libvaxis/archive/9fc9015d5f147568e18c5e7ca28f15bf8b293760.tar.gz";
-        hash = "sha256-7H5a0J7uUsrzlO7JNAf/Ussi9WxvmsbyJSmhqvl+rqI=";
       };
     }
     {
@@ -310,7 +310,7 @@ in
       name = "z2d-0.8.2-pre-j5P_HlVRFgCsBTQ3EgUoKbYHx5JMnyH1mHsOSPiafnef";
       path = fetchZigArtifact {
         name = "z2d";
-        url = "https://github.com/vancluever/z2d/archive/a1237f6881d99b75abd8a20a934e62e34b44a005.tar.gz";
+        url = "https://deps.files.ghostty.org/z2d-a1237f6881d99b75abd8a20a934e62e34b44a005.tar.gz";
         hash = "sha256-5/qRZAIh1U42v7jql9W0jr2zzQZtu39DxJPLVrSybJg=";
       };
     }
@@ -318,7 +318,7 @@ in
       name = "zf-0.10.3-OIRy8QGJAACJcu3tCGtfbJnnd3Y4QL7OW_X8PJ8u_ASR";
       path = fetchZigArtifact {
         name = "zf";
-        url = "https://github.com/jcollie/zf/archive/52ad2e5528ab754f77437edf08a07b5ec843661c.tar.gz";
+        url = "https://deps.files.ghostty.org/zf-52ad2e5528ab754f77437edf08a07b5ec843661c.tar.gz";
         hash = "sha256-8BinbanSfZeBA8SBAopVxwJObN36/BTpxVHABKicsMQ=";
       };
     }
@@ -342,7 +342,7 @@ in
       name = "zig_js-0.0.0-rjCAV-6GAADxFug7rDmPH-uM_XcnJ5NmuAMJCAscMjhi";
       path = fetchZigArtifact {
         name = "zig_js";
-        url = "https://github.com/mitchellh/zig-js/archive/04db83c617da1956ac5adc1cb9ba1e434c1cb6fd.tar.gz";
+        url = "https://deps.files.ghostty.org/zig_js-04db83c617da1956ac5adc1cb9ba1e434c1cb6fd.tar.gz";
         hash = "sha256-TCAY5WAV05UEuAkDhq2c6Tk/ODgAhdnDI3O/flb8c6M=";
       };
     }
@@ -350,7 +350,7 @@ in
       name = "zig_objc-0.0.0-Ir_Sp5gTAQCvxxR7oVIrPXxXwsfKgVP7_wqoOQrZjFeK";
       path = fetchZigArtifact {
         name = "zig_objc";
-        url = "https://github.com/mitchellh/zig-objc/archive/f356ed02833f0f1b8e84d50bed9e807bf7cdc0ae.tar.gz";
+        url = "https://deps.files.ghostty.org/zig_objc-f356ed02833f0f1b8e84d50bed9e807bf7cdc0ae.tar.gz";
         hash = "sha256-3YSvc3YlNW/NciyzCQnzsujXAmZ89XlxSqfqvArAjsw=";
       };
     }
@@ -358,7 +358,7 @@ in
       name = "wayland-0.5.0-dev-lQa1khrMAQDJDwYFKpdH3HizherB7sHo5dKMECfvxQHe";
       path = fetchZigArtifact {
         name = "zig_wayland";
-        url = "https://codeberg.org/ifreund/zig-wayland/archive/1b5c038ec10da20ed3a15b0b2a6db1c21383e8ea.tar.gz";
+        url = "https://deps.files.ghostty.org/zig_wayland-1b5c038ec10da20ed3a15b0b2a6db1c21383e8ea.tar.gz";
         hash = "sha256-TxRrc17Q1Sf1IOO/cdPpP3LD0PpYOujt06SFH3B5Ek4=";
       };
     }
