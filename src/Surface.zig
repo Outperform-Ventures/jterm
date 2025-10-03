@@ -1009,7 +1009,7 @@ pub fn handleMessage(self: *Surface, msg: Message) !void {
             self.command_timer = null;
 
             const duration: Duration = .{ .duration = end.since(start) };
-            log.debug("command took {}", .{duration});
+            log.debug("command took {f}", .{duration});
 
             _ = self.rt_app.performAction(
                 .{ .surface = self },
