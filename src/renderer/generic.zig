@@ -184,7 +184,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
         /// Background image, if we have one.
         bg_image: ?imagepkg.Image = null,
-        /// Set whenever the background image changes, singalling
+        /// Set whenever the background image changes, signalling
         /// that the new background image needs to be uploaded to
         /// the GPU.
         ///

@@ -1027,7 +1027,7 @@ extension Ghostty {
 
             // If we are in a keyDown then we don't need to redispatch a command-modded
             // key event (see docs for this field) so reset this to nil because
-            // `interpretKeyEvents` may dispach it.
+            // `interpretKeyEvents` may dispatch it.
             self.lastPerformKeyEvent = nil
 
             self.interpretKeyEvents([translationEvent])
