@@ -3998,6 +3998,8 @@ pub fn cursorPosCallback(
     crash.sentry.thread_state = self.crashThreadState();
     defer crash.sentry.thread_state = null;
 
+    // log.debug("cursor pos x={} y={} mods={?}", .{ pos.x, pos.y, mods });
+
     // If the position is negative, it is outside our viewport and
     // we need to clear any hover states.
     if (pos.x < 0 or pos.y < 0) {
