@@ -9,55 +9,55 @@
 
         .libxev = .{
             // mitchellh/libxev
-            .url = "https://github.com/mitchellh/libxev/archive/34fa50878aec6e5fa8f532867001ab3c36fae23e.tar.gz",
+            .url = "https://deps.files.ghostty.org/libxev-34fa50878aec6e5fa8f532867001ab3c36fae23e.tar.gz",
             .hash = "libxev-0.0.0-86vtc4IcEwCqEYxEYoN_3KXmc6A9VLcm22aVImfvecYs",
             .lazy = true,
         },
         .vaxis = .{
             // rockorager/libvaxis
-            .url = "https://github.com/rockorager/libvaxis/archive/9fc9015d5f147568e18c5e7ca28f15bf8b293760.tar.gz",
+            .url = "https://deps.files.ghostty.org/vaxis-9fc9015d5f147568e18c5e7ca28f15bf8b293760.tar.gz",
             .hash = "vaxis-0.5.1-BWNV_O8fCQAeUeVrESVc-2BdXloEXkFqReDJL7Q6XTSZ",
             .lazy = true,
         },
         .z2d = .{
             // vancluever/z2d
-            .url = "https://github.com/vancluever/z2d/archive/a1237f6881d99b75abd8a20a934e62e34b44a005.tar.gz",
+            .url = "https://deps.files.ghostty.org/z2d-a1237f6881d99b75abd8a20a934e62e34b44a005.tar.gz",
             .hash = "z2d-0.8.2-pre-j5P_HlVRFgCsBTQ3EgUoKbYHx5JMnyH1mHsOSPiafnef",
             .lazy = true,
         },
         .zig_objc = .{
             // mitchellh/zig-objc
-            .url = "https://github.com/mitchellh/zig-objc/archive/f356ed02833f0f1b8e84d50bed9e807bf7cdc0ae.tar.gz",
+            .url = "https://deps.files.ghostty.org/zig_objc-f356ed02833f0f1b8e84d50bed9e807bf7cdc0ae.tar.gz",
             .hash = "zig_objc-0.0.0-Ir_Sp5gTAQCvxxR7oVIrPXxXwsfKgVP7_wqoOQrZjFeK",
             .lazy = true,
         },
         .zig_js = .{
             // mitchellh/zig-js
-            .url = "https://github.com/mitchellh/zig-js/archive/04db83c617da1956ac5adc1cb9ba1e434c1cb6fd.tar.gz",
+            .url = "https://deps.files.ghostty.org/zig_js-04db83c617da1956ac5adc1cb9ba1e434c1cb6fd.tar.gz",
             .hash = "zig_js-0.0.0-rjCAV-6GAADxFug7rDmPH-uM_XcnJ5NmuAMJCAscMjhi",
             .lazy = true,
         },
         .uucode = .{
             // TODO: currently the use-llvm branch because its broken on self-hosted
-            .url = "https://github.com/jacobsandlund/uucode/archive/f81f8ef8518b8ec5a7fca30ec5fdbc76cc6197df.tar.gz",
+            .url = "https://deps.files.ghostty.org/uucode-f81f8ef8518b8ec5a7fca30ec5fdbc76cc6197df.tar.gz",
             .hash = "uucode-0.1.0-ZZjBPjQHQADuCy1VMWftjrMl3iWqgMpUugWVQJG6_7xT",
         },
         .zig_wayland = .{
             // codeberg ifreund/zig-wayland
-            .url = "https://codeberg.org/ifreund/zig-wayland/archive/1b5c038ec10da20ed3a15b0b2a6db1c21383e8ea.tar.gz",
+            .url = "https://deps.files.ghostty.org/zig_wayland-1b5c038ec10da20ed3a15b0b2a6db1c21383e8ea.tar.gz",
             .hash = "wayland-0.5.0-dev-lQa1khrMAQDJDwYFKpdH3HizherB7sHo5dKMECfvxQHe",
             .lazy = true,
         },
         .zf = .{
             // natecraddock/zf
-            .url = "https://github.com/jcollie/zf/archive/52ad2e5528ab754f77437edf08a07b5ec843661c.tar.gz",
+            .url = "https://deps.files.ghostty.org/zf-52ad2e5528ab754f77437edf08a07b5ec843661c.tar.gz",
             .hash = "zf-0.10.3-OIRy8QGJAACJcu3tCGtfbJnnd3Y4QL7OW_X8PJ8u_ASR",
             .lazy = true,
         },
         .gobject = .{
             // https://github.com/jcollie/ghostty-gobject based on zig_gobject
             // Temporary until we generate them at build time automatically.
-            .url = "https://github.com/ghostty-org/zig-gobject/releases/download/2025-09-20-20-1/ghostty-gobject-2025-09-20-20-1.tar.zst",
+            .url = "https://deps.files.ghostty.org/gobject-2025-09-20-20-1.tar.zst",
             .hash = "gobject-0.3.0-Skun7ET3nQCqJhDL0KnF_X7M4L7o7JePsJBbrYpEr7UV",
             .lazy = true,
         },
@@ -116,7 +116,7 @@
         // Other
         .apple_sdk = .{ .path = "./pkg/apple-sdk" },
         .iterm2_themes = .{
-            .url = "https://github.com/mbadolato/iTerm2-Color-Schemes/releases/download/release-20250922-150534-d28055b/ghostty-themes.tgz",
+            .url = "https://deps.files.ghostty.org/iterm2_themes-release-20250922-150534-d28055b.tgz",
             .hash = "N-V-__8AACEnAwCkyrJ_XqdomYlR8bpuh0l8WDidEz-BAzIv",
             .lazy = true,
         },
