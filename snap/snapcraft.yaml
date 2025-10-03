@@ -58,9 +58,9 @@ parts:
         exit 1
       fi
 
-      tar xf zig-lin*xz
+      tar xf zig-$arch-lin*xz
       rm -f *xz
-      mv zig-linux*/* .
+      mv zig-$arch-linux*/* .
     prime:
       - -*
 
