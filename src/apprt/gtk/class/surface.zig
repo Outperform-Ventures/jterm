@@ -850,15 +850,17 @@ pub const Surface = extern struct {
             };
             const title = std.mem.span(title_);
             const body = body: {
-                const exit_code = value.exit_code orelse break :body std.fmt.allocPrintZ(
+                const exit_code = value.exit_code orelse break :body std.fmt.allocPrintSentinel(
                     alloc,
                     "Command took {}.",
                     .{value.duration.round(std.time.ns_per_ms)},
+                    0,
                 ) catch break :notify;
-                break :body std.fmt.allocPrintZ(
+                break :body std.fmt.allocPrintSentinel(
                     alloc,
                     "Command took {} and exited with code {d}.",
                     .{ value.duration.round(std.time.ns_per_ms), exit_code },
+                    0,
                 ) catch break :notify;
             };
             defer alloc.free(body);
