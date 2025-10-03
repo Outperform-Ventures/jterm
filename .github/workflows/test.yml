@@ -14,7 +14,6 @@ jobs:
       - build-dist
       - build-examples
       - build-flatpak
-      - build-freebsd
       - build-libghostty-vt
       - build-linux
       - build-linux-libghostty
@@ -1138,6 +1137,7 @@ jobs:
     name: Build on FreeBSD
     needs: test
     runs-on: namespace-profile-mitchellh-sm-systemd
+    if: false # FIXME: FreeBSD does not yet ship with Zig 0.15
     strategy:
       matrix:
         release:
