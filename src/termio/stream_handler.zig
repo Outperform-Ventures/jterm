@@ -1054,6 +1054,11 @@ pub const StreamHandler = struct {
 
     pub inline fn endOfInput(self: *StreamHandler) !void {
         self.terminal.markSemanticPrompt(.command);
+        self.surfaceMessageWriter(.start_command);
+    }
+
+    pub inline fn endOfCommand(self: *StreamHandler, exit_code: ?u8) !void {
+        self.surfaceMessageWriter(.{ .stop_command = exit_code });
     }
 
     pub fn reportPwd(self: *StreamHandler, url: []const u8) !void {

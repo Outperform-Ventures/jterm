@@ -32,6 +32,7 @@ const TitleDialog = @import("surface_title_dialog.zig").SurfaceTitleDialog;
 const Window = @import("window.zig").Window;
 const WeakRef = @import("../weak_ref.zig").WeakRef;
 const InspectorWindow = @import("inspector_window.zig").InspectorWindow;
+const i18n = @import("../../../os/i18n.zig");
 
 const log = std.log.scoped(.gtk_ghostty_surface);
 
@@ -545,6 +546,8 @@ pub const Surface = extern struct {
         // unfocused-split-* options
         is_split: bool = false,
 
+        action_group: ?*gio.SimpleActionGroup = null,
+
         // Template binds
         child_exited_overlay: *ChildExited,
         context_menu: *gtk.PopoverMenu,
@@ -807,6 +810,63 @@ pub const Surface = extern struct {
             .{},
             null,
         );
+    }
+
+    pub fn commandFinished(self: *Self, value: apprt.Action.Value(.command_finished)) bool {
+        const app = Application.default();
+        const alloc = app.allocator();
+        const priv: *Private = self.private();
+
+        const notify_next_command_finish = notify: {
+            const simple_action_group = priv.action_group orelse break :notify false;
+            const action_group = simple_action_group.as(gio.ActionGroup);
+            const state = action_group.getActionState("notify-on-next-command-finish") orelse break :notify false;
+            const bool_variant_type = glib.ext.VariantType.newFor(bool);
+            defer bool_variant_type.free();
+            if (state.isOfType(bool_variant_type) == 0) break :notify false;
+            const notify = state.getBoolean() != 0;
+            action_group.changeActionState("notify-on-next-command-finish", glib.Variant.newBoolean(@intFromBool(false)));
+            break :notify notify;
+        };
+
+        const config = priv.config orelse return false;
+
+        const cfg = config.get();
+
+        if (!notify_next_command_finish) {
+            if (cfg.@"notify-on-command-finish" == .never) return true;
+            if (cfg.@"notify-on-command-finish" == .unfocused and self.getFocused()) return true;
+        }
+
+        const action = cfg.@"notify-on-command-finish-action";
+
+        if (action.bell) self.setBellRinging(true);
+
+        if (action.notify) notify: {
+            const title_ = title: {
+                const exit_code = value.exit_code orelse break :title i18n._("Command Finished");
+                if (exit_code == 0) break :title i18n._("Command Succeeded");
+                break :title i18n._("Command Failed");
+            };
+            const title = std.mem.span(title_);
+            const body = body: {
+                const exit_code = value.exit_code orelse break :body std.fmt.allocPrintZ(
+                    alloc,
+                    "Command took {}.",
+                    .{value.duration.round(std.time.ns_per_ms)},
+                ) catch break :notify;
+                break :body std.fmt.allocPrintZ(
+                    alloc,
+                    "Command took {} and exited with code {d}.",
+                    .{ value.duration.round(std.time.ns_per_ms), exit_code },
+                ) catch break :notify;
+            };
+            defer alloc.free(body);
+
+            self.sendDesktopNotification(title, body);
+        }
+
+        return true;
     }
 
     /// Key press event (press or release).
@@ -1404,6 +1464,34 @@ pub const Surface = extern struct {
         _ = priv.gl_area.as(gtk.Widget).grabFocus();
     }
 
+    pub fn sendDesktopNotification(self: *Self, title: [:0]const u8, body: [:0]const u8) void {
+        const app = Application.default();
+
+        const t = switch (title.len) {
+            0 => "Ghostty",
+            else => title,
+        };
+
+        const notification = gio.Notification.new(t);
+        defer notification.unref();
+        notification.setBody(body);
+
+        const icon = gio.ThemedIcon.new("com.mitchellh.ghostty");
+        defer icon.unref();
+        notification.setIcon(icon.as(gio.Icon));
+
+        const pointer = glib.Variant.newUint64(@intFromPtr(self));
+        notification.setDefaultActionAndTargetValue(
+            "app.present-surface",
+            pointer,
+        );
+
+        // We set the notification ID to the body content. If the content is the
+        // same, this notification may replace a previous notification
+        const gio_app = app.as(gio.Application);
+        gio_app.sendNotification(body, notification);
+    }
+
     //---------------------------------------------------------------
     // Virtual Methods
 
@@ -1460,11 +1548,23 @@ pub const Surface = extern struct {
     }
 
     fn initActionMap(self: *Self) void {
+        const priv: *Private = self.private();
+
         const actions = [_]ext.actions.Action(Self){
-            .init("prompt-title", actionPromptTitle, null),
+            .init(
+                "prompt-title",
+                actionPromptTitle,
+                null,
+            ),
+            .initStateful(
+                "notify-on-next-command-finish",
+                actionNotifyOnNextCommandFinish,
+                null,
+                glib.Variant.newBoolean(@intFromBool(false)),
+            ),
         };
 
-        ext.actions.addAsGroup(Self, self, "surface", &actions);
+        priv.action_group = ext.actions.addAsGroup(Self, self, "surface", &actions);
     }
 
     fn dispose(self: *Self) callconv(.c) void {
@@ -1964,6 +2064,20 @@ pub const Surface = extern struct {
         _ = surface.performBindingAction(.prompt_surface_title) catch |err| {
             log.warn("unable to perform prompt title action err={}", .{err});
         };
+    }
+
+    pub fn actionNotifyOnNextCommandFinish(
+        action: *gio.SimpleAction,
+        _: ?*glib.Variant,
+        _: *Self,
+    ) callconv(.c) void {
+        const state = action.as(gio.Action).getState() orelse glib.Variant.newBoolean(@intFromBool(false));
+        defer state.unref();
+        const bool_variant_type = glib.ext.VariantType.newFor(bool);
+        defer bool_variant_type.free();
+        if (state.isOfType(bool_variant_type) == 0) return;
+        const value = state.getBoolean() != 0;
+        action.setState(glib.Variant.newBoolean(@intFromBool(!value)));
     }
 
     fn childExitedClose(

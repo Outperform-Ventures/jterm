@@ -206,7 +206,7 @@ pub const Tab = extern struct {
             .init("ring-bell", actionRingBell, null),
         };
 
-        ext.actions.addAsGroup(Self, self, "tab", &actions);
+        _ = ext.actions.addAsGroup(Self, self, "tab", &actions);
     }
 
     //---------------------------------------------------------------
