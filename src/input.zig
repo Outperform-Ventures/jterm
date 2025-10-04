@@ -9,6 +9,7 @@ pub const command = @import("input/command.zig");
 pub const function_keys = @import("input/function_keys.zig");
 pub const keycodes = @import("input/keycodes.zig");
 pub const kitty = @import("input/kitty.zig");
+pub const paste = @import("input/paste.zig");
 
 pub const ctrlOrSuper = key.ctrlOrSuper;
 pub const Action = key.Action;

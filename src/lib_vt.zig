@@ -66,6 +66,18 @@ pub const EraseLine = terminal.EraseLine;
 pub const TabClear = terminal.TabClear;
 pub const Attribute = terminal.Attribute;
 
+/// Terminal-specific input encoding is also part of libghostty-vt.
+pub const input = struct {
+    // We have to be careful to only import targeted files within
+    // the input package because the full package brings in too many
+    // other dependencies.
+    const paste = @import("input/paste.zig");
+    pub const PasteError = paste.Error;
+    pub const PasteOptions = paste.Options;
+    pub const isSafePaste = paste.isSafe;
+    pub const encodePaste = paste.encode;
+};
+
 comptime {
     // If we're building the C library (vs. the Zig module) then
     // we want to reference the C API so that it gets exported.
@@ -84,6 +96,7 @@ comptime {
 test {
     _ = terminal;
     _ = @import("lib/main.zig");
+    @import("std").testing.refAllDecls(input);
     if (comptime terminal.options.c_abi) {
         _ = terminal.c_api;
     }
