@@ -5270,13 +5270,10 @@ fn completeClipboardPaste(
 ) !void {
     if (data.len == 0) return;
 
-    const critical: struct {
-        bracketed: bool,
-    } = critical: {
+    const encode_opts: input.paste.Options = encode_opts: {
         self.renderer_state.mutex.lock();
         defer self.renderer_state.mutex.unlock();
-
-        const bracketed = self.io.terminal.modes.get(.bracketed_paste);
+        const opts: input.paste.Options = .fromTerminal(&self.io.terminal);
 
         // If we have paste protection enabled, we detect unsafe pastes and return
         // an error. The error approach allows apprt to attempt to complete the paste
@@ -5292,7 +5289,7 @@ fn completeClipboardPaste(
             // This is set during confirmation usually.
             if (allow_unsafe) break :unsafe false;
 
-            if (bracketed) {
+            if (opts.bracketed) {
                 // If we're bracketed and the paste contains and ending
                 // bracket then something naughty might be going on and we
                 // never trust it.
@@ -5303,7 +5300,7 @@ fn completeClipboardPaste(
                 if (self.config.clipboard_paste_bracketed_safe) break :unsafe false;
             }
 
-            break :unsafe !terminal.isSafePaste(data);
+            break :unsafe !input.paste.isSafe(data);
         };
 
         if (unsafe) {
@@ -5317,55 +5314,32 @@ fn completeClipboardPaste(
             log.warn("error scrolling to bottom err={}", .{err});
         };
 
-        break :critical .{
-            .bracketed = bracketed,
-        };
+        break :encode_opts opts;
     };
 
-    if (critical.bracketed) {
-        // If we're bracketd we write the data as-is to the terminal with
-        // the bracketed paste escape codes around it.
-        self.io.queueMessage(.{
-            .write_stable = "\x1B[200~",
-        }, .unlocked);
+    // Encode the data. In most cases this doesn't require any
+    // copies, so we optimize for that case.
+    var data_duped: ?[]u8 = null;
+    const vecs = input.paste.encode(data, encode_opts) catch |err| switch (err) {
+        error.MutableRequired => vecs: {
+            const buf: []u8 = try self.alloc.dupe(u8, data);
+            errdefer self.alloc.free(buf);
+            data_duped = buf;
+            break :vecs input.paste.encode(buf, encode_opts);
+        },
+    };
+    defer if (data_duped) |v| {
+        // This code path means the data did require a copy and mutation.
+        // We must free it.
+        self.alloc.free(v);
+    };
+
+    for (vecs) |vec| if (vec.len > 0) {
         self.io.queueMessage(try termio.Message.writeReq(
             self.alloc,
-            data,
+            vec,
         ), .unlocked);
-        self.io.queueMessage(.{
-            .write_stable = "\x1B[201~",
-        }, .unlocked);
-    } else {
-        // If its not bracketed the input bytes are indistinguishable from
-        // keystrokes, so we must be careful. For example, we must replace
-        // any newlines with '\r'.
-
-        // We just do a heap allocation here because its easy and I don't think
-        // worth the optimization of using small messages.
-        var buf = try self.alloc.alloc(u8, data.len);
-        defer self.alloc.free(buf);
-
-        // This is super, super suboptimal. We can easily make use of SIMD
-        // here, but maybe LLVM in release mode is smart enough to figure
-        // out something clever. Either way, large non-bracketed pastes are
-        // increasingly rare for modern applications.
-        var len: usize = 0;
-        for (data, 0..) |ch, i| {
-            const dch = switch (ch) {
-                '\n' => '\r',
-                '\r' => if (i + 1 < data.len and data[i + 1] == '\n') continue else ch,
-                else => ch,
-            };
-
-            buf[len] = dch;
-            len += 1;
-        }
-
-        self.io.queueMessage(try termio.Message.writeReq(
-            self.alloc,
-            buf[0..len],
-        ), .unlocked);
-    }
+    };
 }
 
 fn completeClipboardReadOSC52(

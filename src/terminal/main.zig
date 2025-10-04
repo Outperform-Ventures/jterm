@@ -1,7 +1,6 @@
 const builtin = @import("builtin");
 
 const charsets = @import("charsets.zig");
-const sanitize = @import("sanitize.zig");
 const stream = @import("stream.zig");
 const ansi = @import("ansi.zig");
 const csi = @import("csi.zig");
@@ -58,8 +57,6 @@ pub const EraseDisplay = csi.EraseDisplay;
 pub const EraseLine = csi.EraseLine;
 pub const TabClear = csi.TabClear;
 pub const Attribute = sgr.Attribute;
-
-pub const isSafePaste = sanitize.isSafePaste;
 
 pub const Options = @import("build_options.zig").Options;
 pub const options = @import("terminal_options");
