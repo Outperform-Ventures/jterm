@@ -211,7 +211,10 @@ fn writeAutoThemeFile(alloc: std.mem.Allocator, theme_name: []const u8) !void {
     var f = try std.fs.createFileAbsolute(auto_path, .{ .truncate = true });
     defer f.close();
 
-    try f.writer().print("theme = {s}\n", .{theme_name});
+    var buf: [128]u8 = undefined;
+    var w = f.writer(&buf);
+    try w.interface.print("theme = {s}\n", .{theme_name});
+    try w.interface.flush();
 }
 
 const Event = union(enum) {
