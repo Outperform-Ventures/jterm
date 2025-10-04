@@ -72,10 +72,22 @@ pub const input = struct {
     // the input package because the full package brings in too many
     // other dependencies.
     const paste = @import("input/paste.zig");
+    const key = @import("input/key.zig");
+    const key_encode = @import("input/key_encode.zig");
+
+    // Paste-related APIs
     pub const PasteError = paste.Error;
     pub const PasteOptions = paste.Options;
     pub const isSafePaste = paste.isSafe;
     pub const encodePaste = paste.encode;
+
+    // Key encoding
+    pub const Key = key.Key;
+    pub const KeyAction = key.Action;
+    pub const KeyEvent = key.KeyEvent;
+    pub const KeyMods = key.Mods;
+    pub const KeyEncodeOptions = key_encode.Options;
+    pub const encodeKey = key_encode.encode;
 };
 
 comptime {
