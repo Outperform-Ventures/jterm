@@ -1,40 +1,17 @@
 #--------------------------------------------------------------------
-# Build Doxygen from source
-#--------------------------------------------------------------------
-FROM ubuntu:24.04 AS doxygen-builder
-
-ARG DOXYGEN_VERSION=1.14.0
-RUN apt-get update && apt-get install -y \
-    wget \
-    cmake \
-    g++ \
-    flex \
-    bison \
-    python3 \
-    && rm -rf /var/lib/apt/lists/* \
-    && wget -q https://www.doxygen.nl/files/doxygen-${DOXYGEN_VERSION}.src.tar.gz \
-    && tar -xzf doxygen-${DOXYGEN_VERSION}.src.tar.gz \
-    && cd doxygen-${DOXYGEN_VERSION} \
-    && cmake -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Release \
-    && make -j$(nproc) \
-    && make install \
-    && cd .. \
-    && rm -rf doxygen-${DOXYGEN_VERSION}*
-
-#--------------------------------------------------------------------
 # Generate documentation with Doxygen
 #--------------------------------------------------------------------
-FROM ubuntu:24.04 AS builder
+FROM alpine:latest AS builder
 
 # Build argument for noindex header
 ARG ADD_NOINDEX_HEADER=false
-RUN apt-get update && apt-get install -y \
-    graphviz \
-    && rm -rf /var/lib/apt/lists/*
-COPY --from=doxygen-builder /usr/local/bin/doxygen /usr/local/bin/doxygen
+RUN apk add --no-cache \
+    doxygen \
+    graphviz
 WORKDIR /ghostty
 COPY include/ ./include/
 COPY Doxyfile ./
+COPY DoxygenLayout.xml ./
 RUN mkdir -p zig-out/share/ghostty/doc/libghostty
 RUN doxygen
 
