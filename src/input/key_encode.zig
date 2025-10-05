@@ -36,6 +36,16 @@ pub const Options = struct {
     /// docs for a more detailed description of why this is needed.
     macos_option_as_alt: OptionAsAlt = .false,
 
+    pub const default: Options = .{
+        .cursor_key_application = false,
+        .keypad_key_application = false,
+        .ignore_keypad_with_numlock = false,
+        .alt_esc_prefix = false,
+        .modify_other_keys_state_2 = false,
+        .kitty_flags = .disabled,
+        .macos_option_as_alt = .false,
+    };
+
     /// Initialize our options from the terminal state.
     ///
     /// Note that `macos_option_as_alt` cannot be determined from

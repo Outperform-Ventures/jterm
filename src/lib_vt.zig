@@ -102,6 +102,26 @@ comptime {
         @export(&c.osc_end, .{ .name = "ghostty_osc_end" });
         @export(&c.osc_command_type, .{ .name = "ghostty_osc_command_type" });
         @export(&c.osc_command_data, .{ .name = "ghostty_osc_command_data" });
+        @export(&c.key_event_new, .{ .name = "ghostty_key_event_new" });
+        @export(&c.key_event_free, .{ .name = "ghostty_key_event_free" });
+        @export(&c.key_event_set_action, .{ .name = "ghostty_key_event_set_action" });
+        @export(&c.key_event_get_action, .{ .name = "ghostty_key_event_get_action" });
+        @export(&c.key_event_set_key, .{ .name = "ghostty_key_event_set_key" });
+        @export(&c.key_event_get_key, .{ .name = "ghostty_key_event_get_key" });
+        @export(&c.key_event_set_mods, .{ .name = "ghostty_key_event_set_mods" });
+        @export(&c.key_event_get_mods, .{ .name = "ghostty_key_event_get_mods" });
+        @export(&c.key_event_set_consumed_mods, .{ .name = "ghostty_key_event_set_consumed_mods" });
+        @export(&c.key_event_get_consumed_mods, .{ .name = "ghostty_key_event_get_consumed_mods" });
+        @export(&c.key_event_set_composing, .{ .name = "ghostty_key_event_set_composing" });
+        @export(&c.key_event_get_composing, .{ .name = "ghostty_key_event_get_composing" });
+        @export(&c.key_event_set_utf8, .{ .name = "ghostty_key_event_set_utf8" });
+        @export(&c.key_event_get_utf8, .{ .name = "ghostty_key_event_get_utf8" });
+        @export(&c.key_event_set_unshifted_codepoint, .{ .name = "ghostty_key_event_set_unshifted_codepoint" });
+        @export(&c.key_event_get_unshifted_codepoint, .{ .name = "ghostty_key_event_get_unshifted_codepoint" });
+        @export(&c.key_encoder_new, .{ .name = "ghostty_key_encoder_new" });
+        @export(&c.key_encoder_free, .{ .name = "ghostty_key_encoder_free" });
+        @export(&c.key_encoder_setopt, .{ .name = "ghostty_key_encoder_setopt" });
+        @export(&c.key_encoder_encode, .{ .name = "ghostty_key_encoder_encode" });
     }
 }
 
