@@ -271,7 +271,7 @@ const DerivedConfig = struct {
     mouse_scroll_multiplier: configpkg.MouseScrollMultiplier,
     mouse_shift_capture: configpkg.MouseShiftCapture,
     macos_non_native_fullscreen: configpkg.NonNativeFullscreen,
-    macos_option_as_alt: ?configpkg.OptionAsAlt,
+    macos_option_as_alt: ?input.OptionAsAlt,
     selection_clear_on_copy: bool,
     selection_clear_on_typing: bool,
     vt_kam_allowed: bool,
@@ -1130,7 +1130,7 @@ fn childExited(self: *Surface, info: apprt.surface.Message.ChildExited) void {
         // so that we can close the terminal. We close the terminal on
         // any key press that encodes a character.
         t.modes.set(.disable_keyboard, false);
-        t.screen.kitty_keyboard.set(.set, .{});
+        t.screen.kitty_keyboard.set(.set, .disabled);
     }
 
     // Waiting after command we stop here. The terminal is updated, our
@@ -2611,56 +2611,32 @@ fn encodeKey(
     event: input.KeyEvent,
     insp_ev: ?*inspectorpkg.key.Event,
 ) !?termio.Message.WriteReq {
-    // Build up our encoder. Under different modes and
-    // inputs there are many keybindings that result in no encoding
-    // whatsoever.
-    const enc: input.KeyEncoder = enc: {
-        const option_as_alt: configpkg.OptionAsAlt = self.config.macos_option_as_alt orelse detect: {
-            // Non-macOS doesn't use this value so ignore.
-            if (comptime builtin.os.tag != .macos) break :detect .false;
-
-            // If we don't have alt pressed, it doesn't matter what this
-            // config is so we can just say "false" and break out and avoid
-            // more expensive checks below.
-            if (!event.mods.alt) break :detect .false;
-
-            // Alt is pressed, we're on macOS. We break some encapsulation
-            // here and assume libghostty for ease...
-            break :detect self.rt_app.keyboardLayout().detectOptionAsAlt();
-        };
-
-        self.renderer_state.mutex.lock();
-        defer self.renderer_state.mutex.unlock();
-        const t = &self.io.terminal;
-        break :enc .{
-            .event = event,
-            .macos_option_as_alt = option_as_alt,
-            .alt_esc_prefix = t.modes.get(.alt_esc_prefix),
-            .cursor_key_application = t.modes.get(.cursor_keys),
-            .keypad_key_application = t.modes.get(.keypad_keys),
-            .ignore_keypad_with_numlock = t.modes.get(.ignore_keypad_with_numlock),
-            .modify_other_keys_state_2 = t.flags.modify_other_keys_2,
-            .kitty_flags = t.screen.kitty_keyboard.current(),
-        };
-    };
-
     const write_req: termio.Message.WriteReq = req: {
+        // Build our encoding options, which requires the lock.
+        const encoding_opts = self.encodeKeyOpts();
+
         // Try to write the input into a small array. This fits almost
         // every scenario. Larger situations can happen due to long
         // pre-edits.
         var data: termio.Message.WriteReq.Small.Array = undefined;
-        if (enc.encode(&data)) |seq| {
+        var writer: std.Io.Writer = .fixed(&data);
+        if (input.key_encode.encode(
+            &writer,
+            event,
+            encoding_opts,
+        )) {
+            const written = writer.buffered();
+
             // Special-case: we did nothing.
-            if (seq.len == 0) return null;
+            if (written.len == 0) return null;
 
             break :req .{ .small = .{
                 .data = data,
-                .len = @intCast(seq.len),
+                .len = @intCast(written.len),
             } };
         } else |err| switch (err) {
             // Means we need to allocate
-            error.OutOfMemory => {},
-            else => return err,
+            error.WriteFailed => {},
         }
 
         // We need to allocate. We allocate double the UTF-8 length
@@ -2669,16 +2645,23 @@ fn encodeKey(
         // typing this where we don't have enough space is a long preedit,
         // and in that case the size we need is exactly the UTF-8 length,
         // so the double is being safe.
-        const buf = try self.alloc.alloc(u8, @max(
-            event.utf8.len * 2,
-            data.len * 2,
-        ));
-        defer self.alloc.free(buf);
+        var alloc_writer: std.Io.Writer.Allocating = try .initCapacity(
+            self.alloc,
+            @max(event.utf8.len * 2, data.len * 2),
+        );
+        defer alloc_writer.deinit();
 
         // This results in a double allocation but this is such an unlikely
         // path the performance impact is unimportant.
-        const seq = try enc.encode(buf);
-        break :req try termio.Message.WriteReq.init(self.alloc, seq);
+        try input.key_encode.encode(
+            &alloc_writer.writer,
+            event,
+            encoding_opts,
+        );
+        break :req try termio.Message.WriteReq.init(
+            self.alloc,
+            alloc_writer.writer.buffered(),
+        );
     };
 
     // Copy the encoded data into the inspector event if we have one.
@@ -2696,6 +2679,28 @@ fn encodeKey(
     }
 
     return write_req;
+}
+
+fn encodeKeyOpts(self: *const Surface) input.key_encode.Options {
+    self.renderer_state.mutex.lock();
+    defer self.renderer_state.mutex.unlock();
+    const t = &self.io.terminal;
+
+    var opts: input.key_encode.Options = .fromTerminal(t);
+    if (comptime builtin.os.tag != .macos) return opts;
+
+    opts.macos_option_as_alt = self.config.macos_option_as_alt orelse detect: {
+        // If we don't have alt pressed, it doesn't matter what this
+        // config is so we can just say "false" and break out and avoid
+        // more expensive checks below.
+        if (!self.mouse.mods.alt) break :detect .false;
+
+        // Alt is pressed, we're on macOS. We break some encapsulation
+        // here and assume libghostty for ease...
+        break :detect self.rt_app.keyboardLayout().detectOptionAsAlt();
+    };
+
+    return opts;
 }
 
 /// Sends text as-is to the terminal without triggering any keyboard
