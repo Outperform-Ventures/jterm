@@ -10,6 +10,8 @@ RUN apk add --no-cache \
     graphviz
 WORKDIR /ghostty
 COPY include/ ./include/
+COPY images/ ./images/
+COPY dist/doxygen/ ./dist/doxygen/
 COPY Doxyfile ./
 COPY DoxygenLayout.xml ./
 RUN mkdir -p zig-out/share/ghostty/doc/libghostty
