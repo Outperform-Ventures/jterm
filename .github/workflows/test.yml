@@ -1149,6 +1149,7 @@ jobs:
         release:
           - "14.3"
           - "15.0"
+    timeout-minutes: 10
     steps:
       - name: Checkout Ghostty
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
