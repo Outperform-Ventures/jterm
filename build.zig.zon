@@ -50,8 +50,8 @@
         },
         .zf = .{
             // natecraddock/zf
-            .url = "https://deps.files.ghostty.org/zf-52ad2e5528ab754f77437edf08a07b5ec843661c.tar.gz",
-            .hash = "zf-0.10.3-OIRy8QGJAACJcu3tCGtfbJnnd3Y4QL7OW_X8PJ8u_ASR",
+            .url = "https://github.com/natecraddock/zf/archive/d2c89a7d6b579981da6c9c8912134cf5a22c7194.tar.gz",
+            .hash = "zf-0.10.3-OIRy8euIAACn1wj5gnZbqxbAdAKI5JGMeex8zrdPqORg",
             .lazy = true,
         },
         .gobject = .{
