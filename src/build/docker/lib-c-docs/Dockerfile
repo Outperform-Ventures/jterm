@@ -1,13 +1,15 @@
 #--------------------------------------------------------------------
 # Generate documentation with Doxygen
 #--------------------------------------------------------------------
-FROM alpine:latest AS builder
+FROM --platform=linux/amd64 archlinux:latest AS builder
 
 # Build argument for noindex header
 ARG ADD_NOINDEX_HEADER=false
-RUN apk add --no-cache \
+RUN pacman -Syu --noconfirm && \
+    pacman -S --noconfirm \
     doxygen \
-    graphviz
+    graphviz && \
+    pacman -Scc --noconfirm
 WORKDIR /ghostty
 COPY include/ ./include/
 COPY images/ ./images/
