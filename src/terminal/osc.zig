@@ -1691,7 +1691,7 @@ test {
     _ = osc_color;
 }
 
-test "OSC: change_window_title" {
+test "OSC 0: change_window_title" {
     const testing = std.testing;
 
     var p: Parser = .init();
@@ -1704,7 +1704,62 @@ test "OSC: change_window_title" {
     try testing.expectEqualStrings("ab", cmd.change_window_title);
 }
 
-test "OSC: change_window_title with 2" {
+test "OSC 0: longer than buffer" {
+    const testing = std.testing;
+
+    var p: Parser = .init();
+
+    const input = "0;" ++ "a" ** (Parser.MAX_BUF + 2);
+    for (input) |ch| p.next(ch);
+
+    try testing.expect(p.end(null) == null);
+    try testing.expect(p.complete == false);
+}
+
+test "OSC 0: one shorter than buffer length" {
+    const testing = std.testing;
+
+    var p: Parser = .init();
+
+    const prefix = "0;";
+    const title = "a" ** (Parser.MAX_BUF - prefix.len - 1);
+    const input = prefix ++ title;
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end(null).?.*;
+    try testing.expect(cmd == .change_window_title);
+    try testing.expectEqualStrings(title, cmd.change_window_title);
+}
+
+test "OSC 0: exactly at buffer length" {
+    const testing = std.testing;
+
+    var p: Parser = .init();
+
+    const prefix = "0;";
+    const title = "a" ** (Parser.MAX_BUF - prefix.len);
+    const input = prefix ++ title;
+    for (input) |ch| p.next(ch);
+
+    // This should be null because we always reserve space for a null terminator.
+    try testing.expect(p.end(null) == null);
+    try testing.expect(p.complete == false);
+}
+
+test "OSC 1: change_window_icon" {
+    const testing = std.testing;
+
+    var p: Parser = .init();
+    p.next('1');
+    p.next(';');
+    p.next('a');
+    p.next('b');
+    const cmd = p.end(null).?.*;
+    try testing.expect(cmd == .change_window_icon);
+    try testing.expectEqualStrings("ab", cmd.change_window_icon);
+}
+
+test "OSC 2: change_window_title with 2" {
     const testing = std.testing;
 
     var p: Parser = .init();
@@ -1717,7 +1772,7 @@ test "OSC: change_window_title with 2" {
     try testing.expectEqualStrings("ab", cmd.change_window_title);
 }
 
-test "OSC: change_window_title with utf8" {
+test "OSC 2: change_window_title with utf8" {
     const testing = std.testing;
 
     var p: Parser = .init();
@@ -1739,7 +1794,7 @@ test "OSC: change_window_title with utf8" {
     try testing.expectEqualStrings("— ‐", cmd.change_window_title);
 }
 
-test "OSC: change_window_title empty" {
+test "OSC 2: change_window_title empty" {
     const testing = std.testing;
 
     var p: Parser = .init();
@@ -1750,207 +1805,23 @@ test "OSC: change_window_title empty" {
     try testing.expectEqualStrings("", cmd.change_window_title);
 }
 
-test "OSC: change_window_icon" {
-    const testing = std.testing;
-
-    var p: Parser = .init();
-    p.next('1');
-    p.next(';');
-    p.next('a');
-    p.next('b');
-    const cmd = p.end(null).?.*;
-    try testing.expect(cmd == .change_window_icon);
-    try testing.expectEqualStrings("ab", cmd.change_window_icon);
-}
-
-test "OSC: prompt_start" {
+test "OSC 4: empty param" {
     const testing = std.testing;
 
     var p: Parser = .init();
 
-    const input = "133;A";
+    const input = "4;;";
     for (input) |ch| p.next(ch);
 
-    const cmd = p.end(null).?.*;
-    try testing.expect(cmd == .prompt_start);
-    try testing.expect(cmd.prompt_start.aid == null);
-    try testing.expect(cmd.prompt_start.redraw);
+    const cmd = p.end('\x1b');
+    try testing.expect(cmd == null);
 }
 
-test "OSC: prompt_start with single option" {
-    const testing = std.testing;
+// See src/terminal/osc/color.zig for more OSC 4 tests.
 
-    var p: Parser = .init();
+// See src/terminal/osc/color.zig for OSC 5 tests.
 
-    const input = "133;A;aid=14";
-    for (input) |ch| p.next(ch);
-
-    const cmd = p.end(null).?.*;
-    try testing.expect(cmd == .prompt_start);
-    try testing.expectEqualStrings("14", cmd.prompt_start.aid.?);
-}
-
-test "OSC: prompt_start with redraw disabled" {
-    const testing = std.testing;
-
-    var p: Parser = .init();
-
-    const input = "133;A;redraw=0";
-    for (input) |ch| p.next(ch);
-
-    const cmd = p.end(null).?.*;
-    try testing.expect(cmd == .prompt_start);
-    try testing.expect(!cmd.prompt_start.redraw);
-}
-
-test "OSC: prompt_start with redraw invalid value" {
-    const testing = std.testing;
-
-    var p: Parser = .init();
-
-    const input = "133;A;redraw=42";
-    for (input) |ch| p.next(ch);
-
-    const cmd = p.end(null).?.*;
-    try testing.expect(cmd == .prompt_start);
-    try testing.expect(cmd.prompt_start.redraw);
-    try testing.expect(cmd.prompt_start.kind == .primary);
-}
-
-test "OSC: prompt_start with continuation" {
-    const testing = std.testing;
-
-    var p: Parser = .init();
-
-    const input = "133;A;k=c";
-    for (input) |ch| p.next(ch);
-
-    const cmd = p.end(null).?.*;
-    try testing.expect(cmd == .prompt_start);
-    try testing.expect(cmd.prompt_start.kind == .continuation);
-}
-
-test "OSC: prompt_start with secondary" {
-    const testing = std.testing;
-
-    var p: Parser = .init();
-
-    const input = "133;A;k=s";
-    for (input) |ch| p.next(ch);
-
-    const cmd = p.end(null).?.*;
-    try testing.expect(cmd == .prompt_start);
-    try testing.expect(cmd.prompt_start.kind == .secondary);
-}
-
-test "OSC: end_of_command no exit code" {
-    const testing = std.testing;
-
-    var p: Parser = .init();
-
-    const input = "133;D";
-    for (input) |ch| p.next(ch);
-
-    const cmd = p.end(null).?.*;
-    try testing.expect(cmd == .end_of_command);
-}
-
-test "OSC: end_of_command with exit code" {
-    const testing = std.testing;
-
-    var p: Parser = .init();
-
-    const input = "133;D;25";
-    for (input) |ch| p.next(ch);
-
-    const cmd = p.end(null).?.*;
-    try testing.expect(cmd == .end_of_command);
-    try testing.expectEqual(@as(u8, 25), cmd.end_of_command.exit_code.?);
-}
-
-test "OSC: prompt_end" {
-    const testing = std.testing;
-
-    var p: Parser = .init();
-
-    const input = "133;B";
-    for (input) |ch| p.next(ch);
-
-    const cmd = p.end(null).?.*;
-    try testing.expect(cmd == .prompt_end);
-}
-
-test "OSC: end_of_input" {
-    const testing = std.testing;
-
-    var p: Parser = .init();
-
-    const input = "133;C";
-    for (input) |ch| p.next(ch);
-
-    const cmd = p.end(null).?.*;
-    try testing.expect(cmd == .end_of_input);
-}
-
-test "OSC: get/set clipboard" {
-    const testing = std.testing;
-
-    var p: Parser = .init();
-
-    const input = "52;s;?";
-    for (input) |ch| p.next(ch);
-
-    const cmd = p.end(null).?.*;
-    try testing.expect(cmd == .clipboard_contents);
-    try testing.expect(cmd.clipboard_contents.kind == 's');
-    try testing.expectEqualStrings("?", cmd.clipboard_contents.data);
-}
-
-test "OSC: get/set clipboard (optional parameter)" {
-    const testing = std.testing;
-
-    var p: Parser = .init();
-
-    const input = "52;;?";
-    for (input) |ch| p.next(ch);
-
-    const cmd = p.end(null).?.*;
-    try testing.expect(cmd == .clipboard_contents);
-    try testing.expect(cmd.clipboard_contents.kind == 'c');
-    try testing.expectEqualStrings("?", cmd.clipboard_contents.data);
-}
-
-test "OSC: get/set clipboard with allocator" {
-    const testing = std.testing;
-
-    var p: Parser = .initAlloc(testing.allocator);
-    defer p.deinit();
-
-    const input = "52;s;?";
-    for (input) |ch| p.next(ch);
-
-    const cmd = p.end(null).?.*;
-    try testing.expect(cmd == .clipboard_contents);
-    try testing.expect(cmd.clipboard_contents.kind == 's');
-    try testing.expectEqualStrings("?", cmd.clipboard_contents.data);
-}
-
-test "OSC: clear clipboard" {
-    const testing = std.testing;
-
-    var p: Parser = .init();
-    defer p.deinit();
-
-    const input = "52;;";
-    for (input) |ch| p.next(ch);
-
-    const cmd = p.end(null).?.*;
-    try testing.expect(cmd == .clipboard_contents);
-    try testing.expect(cmd.clipboard_contents.kind == 'c');
-    try testing.expectEqualStrings("", cmd.clipboard_contents.data);
-}
-
-test "OSC: report pwd" {
+test "OSC 7: report pwd" {
     const testing = std.testing;
 
     var p: Parser = .init();
@@ -1963,7 +1834,7 @@ test "OSC: report pwd" {
     try testing.expectEqualStrings("file:///tmp/example", cmd.report_pwd.value);
 }
 
-test "OSC: report pwd empty" {
+test "OSC 7: report pwd empty" {
     const testing = std.testing;
 
     var p: Parser = .init();
@@ -1975,610 +1846,7 @@ test "OSC: report pwd empty" {
     try testing.expectEqualStrings("", cmd.report_pwd.value);
 }
 
-test "OSC: pointer cursor" {
-    const testing = std.testing;
-
-    var p: Parser = .init();
-
-    const input = "22;pointer";
-    for (input) |ch| p.next(ch);
-
-    const cmd = p.end(null).?.*;
-    try testing.expect(cmd == .mouse_shape);
-    try testing.expectEqualStrings("pointer", cmd.mouse_shape.value);
-}
-
-test "OSC: longer than buffer" {
-    const testing = std.testing;
-
-    var p: Parser = .init();
-
-    const input = "0;" ++ "a" ** (Parser.MAX_BUF + 2);
-    for (input) |ch| p.next(ch);
-
-    try testing.expect(p.end(null) == null);
-    try testing.expect(p.complete == false);
-}
-
-test "OSC: one shorter than buffer length" {
-    const testing = std.testing;
-
-    var p: Parser = .init();
-
-    const prefix = "0;";
-    const title = "a" ** (Parser.MAX_BUF - prefix.len - 1);
-    const input = prefix ++ title;
-    for (input) |ch| p.next(ch);
-
-    const cmd = p.end(null).?.*;
-    try testing.expect(cmd == .change_window_title);
-    try testing.expectEqualStrings(title, cmd.change_window_title);
-}
-
-test "OSC: exactly at buffer length" {
-    const testing = std.testing;
-
-    var p: Parser = .init();
-
-    const prefix = "0;";
-    const title = "a" ** (Parser.MAX_BUF - prefix.len);
-    const input = prefix ++ title;
-    for (input) |ch| p.next(ch);
-
-    // This should be null because we always reserve space for a null terminator.
-    try testing.expect(p.end(null) == null);
-    try testing.expect(p.complete == false);
-}
-
-test "OSC: OSC 9;1 ConEmu sleep" {
-    const testing = std.testing;
-
-    var p: Parser = .init();
-
-    const input = "9;1;420";
-    for (input) |ch| p.next(ch);
-
-    const cmd = p.end('\x1b').?.*;
-
-    try testing.expect(cmd == .conemu_sleep);
-    try testing.expectEqual(420, cmd.conemu_sleep.duration_ms);
-}
-
-test "OSC: OSC 9;1 ConEmu sleep with no value default to 100ms" {
-    const testing = std.testing;
-
-    var p: Parser = .init();
-
-    const input = "9;1;";
-    for (input) |ch| p.next(ch);
-
-    const cmd = p.end('\x1b').?.*;
-
-    try testing.expect(cmd == .conemu_sleep);
-    try testing.expectEqual(100, cmd.conemu_sleep.duration_ms);
-}
-
-test "OSC: OSC 9;1 conemu sleep cannot exceed 10000ms" {
-    const testing = std.testing;
-
-    var p: Parser = .init();
-
-    const input = "9;1;12345";
-    for (input) |ch| p.next(ch);
-
-    const cmd = p.end('\x1b').?.*;
-
-    try testing.expect(cmd == .conemu_sleep);
-    try testing.expectEqual(10000, cmd.conemu_sleep.duration_ms);
-}
-
-test "OSC: OSC 9;1 conemu sleep invalid input" {
-    const testing = std.testing;
-
-    var p: Parser = .init();
-
-    const input = "9;1;foo";
-    for (input) |ch| p.next(ch);
-
-    const cmd = p.end('\x1b').?.*;
-
-    try testing.expect(cmd == .conemu_sleep);
-    try testing.expectEqual(100, cmd.conemu_sleep.duration_ms);
-}
-
-test "OSC: OSC 9;1 conemu sleep -> desktop notification 1" {
-    const testing = std.testing;
-
-    var p: Parser = .init();
-
-    const input = "9;1";
-    for (input) |ch| p.next(ch);
-
-    const cmd = p.end('\x1b').?.*;
-
-    try testing.expect(cmd == .show_desktop_notification);
-    try testing.expectEqualStrings("1", cmd.show_desktop_notification.body);
-}
-
-test "OSC: OSC 9;1 conemu sleep -> desktop notification 2" {
-    const testing = std.testing;
-
-    var p: Parser = .init();
-
-    const input = "9;1a";
-    for (input) |ch| p.next(ch);
-
-    const cmd = p.end('\x1b').?.*;
-
-    try testing.expect(cmd == .show_desktop_notification);
-    try testing.expectEqualStrings("1a", cmd.show_desktop_notification.body);
-}
-
-test "OSC: OSC 9 show desktop notification" {
-    const testing = std.testing;
-
-    var p: Parser = .init();
-
-    const input = "9;Hello world";
-    for (input) |ch| p.next(ch);
-
-    const cmd = p.end('\x1b').?.*;
-    try testing.expect(cmd == .show_desktop_notification);
-    try testing.expectEqualStrings("", cmd.show_desktop_notification.title);
-    try testing.expectEqualStrings("Hello world", cmd.show_desktop_notification.body);
-}
-
-test "OSC: OSC 9 show single character desktop notification" {
-    const testing = std.testing;
-
-    var p: Parser = .init();
-
-    const input = "9;H";
-    for (input) |ch| p.next(ch);
-
-    const cmd = p.end('\x1b').?.*;
-    try testing.expect(cmd == .show_desktop_notification);
-    try testing.expectEqualStrings("", cmd.show_desktop_notification.title);
-    try testing.expectEqualStrings("H", cmd.show_desktop_notification.body);
-}
-
-test "OSC: OSC 777 show desktop notification with title" {
-    const testing = std.testing;
-
-    var p: Parser = .init();
-
-    const input = "777;notify;Title;Body";
-    for (input) |ch| p.next(ch);
-
-    const cmd = p.end('\x1b').?.*;
-    try testing.expect(cmd == .show_desktop_notification);
-    try testing.expectEqualStrings(cmd.show_desktop_notification.title, "Title");
-    try testing.expectEqualStrings(cmd.show_desktop_notification.body, "Body");
-}
-
-test "OSC: OSC 9;2 ConEmu message box" {
-    const testing = std.testing;
-
-    var p: Parser = .init();
-
-    const input = "9;2;hello world";
-    for (input) |ch| p.next(ch);
-
-    const cmd = p.end('\x1b').?.*;
-    try testing.expect(cmd == .conemu_show_message_box);
-    try testing.expectEqualStrings("hello world", cmd.conemu_show_message_box);
-}
-
-test "OSC: 9;2 ConEmu message box invalid input" {
-    const testing = std.testing;
-
-    var p: Parser = .init();
-
-    const input = "9;2";
-    for (input) |ch| p.next(ch);
-
-    const cmd = p.end('\x1b').?.*;
-    try testing.expect(cmd == .show_desktop_notification);
-    try testing.expectEqualStrings("2", cmd.show_desktop_notification.body);
-}
-
-test "OSC: 9;2 ConEmu message box empty message" {
-    const testing = std.testing;
-
-    var p: Parser = .init();
-
-    const input = "9;2;";
-    for (input) |ch| p.next(ch);
-
-    const cmd = p.end('\x1b').?.*;
-    try testing.expect(cmd == .conemu_show_message_box);
-    try testing.expectEqualStrings("", cmd.conemu_show_message_box);
-}
-
-test "OSC: 9;2 ConEmu message box spaces only message" {
-    const testing = std.testing;
-
-    var p: Parser = .init();
-
-    const input = "9;2;   ";
-    for (input) |ch| p.next(ch);
-
-    const cmd = p.end('\x1b').?.*;
-    try testing.expect(cmd == .conemu_show_message_box);
-    try testing.expectEqualStrings("   ", cmd.conemu_show_message_box);
-}
-
-test "OSC: OSC 9;2 message box -> desktop notification 1" {
-    const testing = std.testing;
-
-    var p: Parser = .init();
-
-    const input = "9;2";
-    for (input) |ch| p.next(ch);
-
-    const cmd = p.end('\x1b').?.*;
-
-    try testing.expect(cmd == .show_desktop_notification);
-    try testing.expectEqualStrings("2", cmd.show_desktop_notification.body);
-}
-
-test "OSC: OSC 9;2 message box -> desktop notification 2" {
-    const testing = std.testing;
-
-    var p: Parser = .init();
-
-    const input = "9;2a";
-    for (input) |ch| p.next(ch);
-
-    const cmd = p.end('\x1b').?.*;
-
-    try testing.expect(cmd == .show_desktop_notification);
-    try testing.expectEqualStrings("2a", cmd.show_desktop_notification.body);
-}
-
-test "OSC: 9;3 ConEmu change tab title" {
-    const testing = std.testing;
-
-    var p: Parser = .init();
-
-    const input = "9;3;foo bar";
-    for (input) |ch| p.next(ch);
-
-    const cmd = p.end('\x1b').?.*;
-    try testing.expect(cmd == .conemu_change_tab_title);
-    try testing.expectEqualStrings("foo bar", cmd.conemu_change_tab_title.value);
-}
-
-test "OSC: 9;3 ConEmu change tab title reset" {
-    const testing = std.testing;
-
-    var p: Parser = .init();
-
-    const input = "9;3;";
-    for (input) |ch| p.next(ch);
-
-    const cmd = p.end('\x1b').?.*;
-
-    const expected_command: Command = .{ .conemu_change_tab_title = .reset };
-    try testing.expectEqual(expected_command, cmd);
-}
-
-test "OSC: 9;3 ConEmu change tab title spaces only" {
-    const testing = std.testing;
-
-    var p: Parser = .init();
-
-    const input = "9;3;   ";
-    for (input) |ch| p.next(ch);
-
-    const cmd = p.end('\x1b').?.*;
-
-    try testing.expect(cmd == .conemu_change_tab_title);
-    try testing.expectEqualStrings("   ", cmd.conemu_change_tab_title.value);
-}
-
-test "OSC: OSC 9;3 change tab title -> desktop notification 1" {
-    const testing = std.testing;
-
-    var p: Parser = .init();
-
-    const input = "9;3";
-    for (input) |ch| p.next(ch);
-
-    const cmd = p.end('\x1b').?.*;
-
-    try testing.expect(cmd == .show_desktop_notification);
-    try testing.expectEqualStrings("3", cmd.show_desktop_notification.body);
-}
-
-test "OSC: OSC 9;3 message box -> desktop notification 2" {
-    const testing = std.testing;
-
-    var p: Parser = .init();
-
-    const input = "9;3a";
-    for (input) |ch| p.next(ch);
-
-    const cmd = p.end('\x1b').?.*;
-
-    try testing.expect(cmd == .show_desktop_notification);
-    try testing.expectEqualStrings("3a", cmd.show_desktop_notification.body);
-}
-
-test "OSC: OSC 9;4 ConEmu progress set" {
-    const testing = std.testing;
-
-    var p: Parser = .init();
-
-    const input = "9;4;1;100";
-    for (input) |ch| p.next(ch);
-
-    const cmd = p.end('\x1b').?.*;
-    try testing.expect(cmd == .conemu_progress_report);
-    try testing.expect(cmd.conemu_progress_report.state == .set);
-    try testing.expect(cmd.conemu_progress_report.progress == 100);
-}
-
-test "OSC: OSC 9;4 ConEmu progress set overflow" {
-    const testing = std.testing;
-
-    var p: Parser = .init();
-
-    const input = "9;4;1;900";
-    for (input) |ch| p.next(ch);
-
-    const cmd = p.end('\x1b').?.*;
-    try testing.expect(cmd == .conemu_progress_report);
-    try testing.expect(cmd.conemu_progress_report.state == .set);
-    try testing.expectEqual(100, cmd.conemu_progress_report.progress);
-}
-
-test "OSC: OSC 9;4 ConEmu progress set single digit" {
-    const testing = std.testing;
-
-    var p: Parser = .init();
-
-    const input = "9;4;1;9";
-    for (input) |ch| p.next(ch);
-
-    const cmd = p.end('\x1b').?.*;
-    try testing.expect(cmd == .conemu_progress_report);
-    try testing.expect(cmd.conemu_progress_report.state == .set);
-    try testing.expect(cmd.conemu_progress_report.progress == 9);
-}
-
-test "OSC: OSC 9;4 ConEmu progress set double digit" {
-    const testing = std.testing;
-
-    var p: Parser = .init();
-
-    const input = "9;4;1;94";
-    for (input) |ch| p.next(ch);
-
-    const cmd = p.end('\x1b').?.*;
-    try testing.expect(cmd == .conemu_progress_report);
-    try testing.expect(cmd.conemu_progress_report.state == .set);
-    try testing.expectEqual(94, cmd.conemu_progress_report.progress);
-}
-
-test "OSC: OSC 9;4 ConEmu progress set extra semicolon ignored" {
-    const testing = std.testing;
-
-    var p: Parser = .init();
-
-    const input = "9;4;1;100";
-    for (input) |ch| p.next(ch);
-
-    const cmd = p.end('\x1b').?.*;
-    try testing.expect(cmd == .conemu_progress_report);
-    try testing.expect(cmd.conemu_progress_report.state == .set);
-    try testing.expectEqual(100, cmd.conemu_progress_report.progress);
-}
-
-test "OSC: OSC 9;4 ConEmu progress remove with no progress" {
-    const testing = std.testing;
-
-    var p: Parser = .init();
-
-    const input = "9;4;0;";
-    for (input) |ch| p.next(ch);
-
-    const cmd = p.end('\x1b').?.*;
-    try testing.expect(cmd == .conemu_progress_report);
-    try testing.expect(cmd.conemu_progress_report.state == .remove);
-    try testing.expect(cmd.conemu_progress_report.progress == null);
-}
-
-test "OSC: OSC 9;4 ConEmu progress remove with double semicolon" {
-    const testing = std.testing;
-
-    var p: Parser = .init();
-
-    const input = "9;4;0;;";
-    for (input) |ch| p.next(ch);
-
-    const cmd = p.end('\x1b').?.*;
-    try testing.expect(cmd == .conemu_progress_report);
-    try testing.expect(cmd.conemu_progress_report.state == .remove);
-    try testing.expect(cmd.conemu_progress_report.progress == null);
-}
-
-test "OSC: OSC 9;4 ConEmu progress remove ignores progress" {
-    const testing = std.testing;
-
-    var p: Parser = .init();
-
-    const input = "9;4;0;100";
-    for (input) |ch| p.next(ch);
-
-    const cmd = p.end('\x1b').?.*;
-    try testing.expect(cmd == .conemu_progress_report);
-    try testing.expect(cmd.conemu_progress_report.state == .remove);
-    try testing.expect(cmd.conemu_progress_report.progress == null);
-}
-
-test "OSC: OSC 9;4 ConEmu progress remove extra semicolon" {
-    const testing = std.testing;
-
-    var p: Parser = .init();
-
-    const input = "9;4;0;100;";
-    for (input) |ch| p.next(ch);
-
-    const cmd = p.end('\x1b').?.*;
-    try testing.expect(cmd == .conemu_progress_report);
-    try testing.expect(cmd.conemu_progress_report.state == .remove);
-}
-
-test "OSC: OSC 9;4 ConEmu progress error" {
-    const testing = std.testing;
-
-    var p: Parser = .init();
-
-    const input = "9;4;2";
-    for (input) |ch| p.next(ch);
-
-    const cmd = p.end('\x1b').?.*;
-    try testing.expect(cmd == .conemu_progress_report);
-    try testing.expect(cmd.conemu_progress_report.state == .@"error");
-    try testing.expect(cmd.conemu_progress_report.progress == null);
-}
-
-test "OSC: OSC 9;4 ConEmu progress error with progress" {
-    const testing = std.testing;
-
-    var p: Parser = .init();
-
-    const input = "9;4;2;100";
-    for (input) |ch| p.next(ch);
-
-    const cmd = p.end('\x1b').?.*;
-    try testing.expect(cmd == .conemu_progress_report);
-    try testing.expect(cmd.conemu_progress_report.state == .@"error");
-    try testing.expect(cmd.conemu_progress_report.progress == 100);
-}
-
-test "OSC: OSC 9;4 progress pause" {
-    const testing = std.testing;
-
-    var p: Parser = .init();
-
-    const input = "9;4;4";
-    for (input) |ch| p.next(ch);
-
-    const cmd = p.end('\x1b').?.*;
-    try testing.expect(cmd == .conemu_progress_report);
-    try testing.expect(cmd.conemu_progress_report.state == .pause);
-    try testing.expect(cmd.conemu_progress_report.progress == null);
-}
-
-test "OSC: OSC 9;4 ConEmu progress pause with progress" {
-    const testing = std.testing;
-
-    var p: Parser = .init();
-
-    const input = "9;4;4;100";
-    for (input) |ch| p.next(ch);
-
-    const cmd = p.end('\x1b').?.*;
-    try testing.expect(cmd == .conemu_progress_report);
-    try testing.expect(cmd.conemu_progress_report.state == .pause);
-    try testing.expect(cmd.conemu_progress_report.progress == 100);
-}
-
-test "OSC: OSC 9;4 progress -> desktop notification 1" {
-    const testing = std.testing;
-
-    var p: Parser = .init();
-
-    const input = "9;4";
-    for (input) |ch| p.next(ch);
-
-    const cmd = p.end('\x1b').?.*;
-
-    try testing.expect(cmd == .show_desktop_notification);
-    try testing.expectEqualStrings("4", cmd.show_desktop_notification.body);
-}
-
-test "OSC: OSC 9;4 progress -> desktop notification 2" {
-    const testing = std.testing;
-
-    var p: Parser = .init();
-
-    const input = "9;4;";
-    for (input) |ch| p.next(ch);
-
-    const cmd = p.end('\x1b').?.*;
-
-    try testing.expect(cmd == .show_desktop_notification);
-    try testing.expectEqualStrings("4;", cmd.show_desktop_notification.body);
-}
-
-test "OSC: OSC 9;4 progress -> desktop notification 3" {
-    const testing = std.testing;
-
-    var p: Parser = .init();
-
-    const input = "9;4;5";
-    for (input) |ch| p.next(ch);
-
-    const cmd = p.end('\x1b').?.*;
-
-    try testing.expect(cmd == .show_desktop_notification);
-    try testing.expectEqualStrings("4;5", cmd.show_desktop_notification.body);
-}
-
-test "OSC: OSC 9;4 progress -> desktop notification 4" {
-    const testing = std.testing;
-
-    var p: Parser = .init();
-
-    const input = "9;4;5a";
-    for (input) |ch| p.next(ch);
-
-    const cmd = p.end('\x1b').?.*;
-
-    try testing.expect(cmd == .show_desktop_notification);
-    try testing.expectEqualStrings("4;5a", cmd.show_desktop_notification.body);
-}
-
-test "OSC: OSC 9;5 ConEmu wait input" {
-    const testing = std.testing;
-
-    var p: Parser = .init();
-
-    const input = "9;5";
-    for (input) |ch| p.next(ch);
-
-    const cmd = p.end('\x1b').?.*;
-    try testing.expect(cmd == .conemu_wait_input);
-}
-
-test "OSC: OSC 9;5 ConEmu wait ignores trailing characters" {
-    const testing = std.testing;
-
-    var p: Parser = .init();
-
-    const input = "9;5;foo";
-    for (input) |ch| p.next(ch);
-
-    const cmd = p.end('\x1b').?.*;
-    try testing.expect(cmd == .conemu_wait_input);
-}
-
-test "OSC: empty param" {
-    const testing = std.testing;
-
-    var p: Parser = .init();
-
-    const input = "4;;";
-    for (input) |ch| p.next(ch);
-
-    const cmd = p.end('\x1b');
-    try testing.expect(cmd == null);
-}
-
-test "OSC: hyperlink" {
+test "OSC 8: hyperlink" {
     const testing = std.testing;
 
     var p: Parser = .init();
@@ -2591,7 +1859,7 @@ test "OSC: hyperlink" {
     try testing.expectEqualStrings(cmd.hyperlink_start.uri, "http://example.com");
 }
 
-test "OSC: hyperlink with id set" {
+test "OSC 8: hyperlink with id set" {
     const testing = std.testing;
 
     var p: Parser = .init();
@@ -2605,7 +1873,7 @@ test "OSC: hyperlink with id set" {
     try testing.expectEqualStrings(cmd.hyperlink_start.uri, "http://example.com");
 }
 
-test "OSC: hyperlink with empty id" {
+test "OSC 8: hyperlink with empty id" {
     const testing = std.testing;
 
     var p: Parser = .init();
@@ -2619,7 +1887,7 @@ test "OSC: hyperlink with empty id" {
     try testing.expectEqualStrings(cmd.hyperlink_start.uri, "http://example.com");
 }
 
-test "OSC: hyperlink with incomplete key" {
+test "OSC 8: hyperlink with incomplete key" {
     const testing = std.testing;
 
     var p: Parser = .init();
@@ -2633,7 +1901,7 @@ test "OSC: hyperlink with incomplete key" {
     try testing.expectEqualStrings(cmd.hyperlink_start.uri, "http://example.com");
 }
 
-test "OSC: hyperlink with empty key" {
+test "OSC 8: hyperlink with empty key" {
     const testing = std.testing;
 
     var p: Parser = .init();
@@ -2647,7 +1915,7 @@ test "OSC: hyperlink with empty key" {
     try testing.expectEqualStrings(cmd.hyperlink_start.uri, "http://example.com");
 }
 
-test "OSC: hyperlink with empty key and id" {
+test "OSC 8: hyperlink with empty key and id" {
     const testing = std.testing;
 
     var p: Parser = .init();
@@ -2661,7 +1929,7 @@ test "OSC: hyperlink with empty key and id" {
     try testing.expectEqualStrings(cmd.hyperlink_start.uri, "http://example.com");
 }
 
-test "OSC: hyperlink with empty uri" {
+test "OSC 8: hyperlink with empty uri" {
     const testing = std.testing;
 
     var p: Parser = .init();
@@ -2673,7 +1941,7 @@ test "OSC: hyperlink with empty uri" {
     try testing.expect(cmd == null);
 }
 
-test "OSC: hyperlink end" {
+test "OSC 8: hyperlink end" {
     const testing = std.testing;
 
     var p: Parser = .init();
@@ -2685,7 +1953,591 @@ test "OSC: hyperlink end" {
     try testing.expect(cmd == .hyperlink_end);
 }
 
-test "OSC: kitty color protocol" {
+test "OSC 9: show desktop notification" {
+    const testing = std.testing;
+
+    var p: Parser = .init();
+
+    const input = "9;Hello world";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end('\x1b').?.*;
+    try testing.expect(cmd == .show_desktop_notification);
+    try testing.expectEqualStrings("", cmd.show_desktop_notification.title);
+    try testing.expectEqualStrings("Hello world", cmd.show_desktop_notification.body);
+}
+
+test "OSC 9: show single character desktop notification" {
+    const testing = std.testing;
+
+    var p: Parser = .init();
+
+    const input = "9;H";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end('\x1b').?.*;
+    try testing.expect(cmd == .show_desktop_notification);
+    try testing.expectEqualStrings("", cmd.show_desktop_notification.title);
+    try testing.expectEqualStrings("H", cmd.show_desktop_notification.body);
+}
+
+test "OSC 9;1: ConEmu sleep" {
+    const testing = std.testing;
+
+    var p: Parser = .init();
+
+    const input = "9;1;420";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end('\x1b').?.*;
+
+    try testing.expect(cmd == .conemu_sleep);
+    try testing.expectEqual(420, cmd.conemu_sleep.duration_ms);
+}
+
+test "OSC 9;1: ConEmu sleep with no value default to 100ms" {
+    const testing = std.testing;
+
+    var p: Parser = .init();
+
+    const input = "9;1;";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end('\x1b').?.*;
+
+    try testing.expect(cmd == .conemu_sleep);
+    try testing.expectEqual(100, cmd.conemu_sleep.duration_ms);
+}
+
+test "OSC 9;1: conemu sleep cannot exceed 10000ms" {
+    const testing = std.testing;
+
+    var p: Parser = .init();
+
+    const input = "9;1;12345";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end('\x1b').?.*;
+
+    try testing.expect(cmd == .conemu_sleep);
+    try testing.expectEqual(10000, cmd.conemu_sleep.duration_ms);
+}
+
+test "OSC 9;1: conemu sleep invalid input" {
+    const testing = std.testing;
+
+    var p: Parser = .init();
+
+    const input = "9;1;foo";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end('\x1b').?.*;
+
+    try testing.expect(cmd == .conemu_sleep);
+    try testing.expectEqual(100, cmd.conemu_sleep.duration_ms);
+}
+
+test "OSC 9;1: conemu sleep -> desktop notification 1" {
+    const testing = std.testing;
+
+    var p: Parser = .init();
+
+    const input = "9;1";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end('\x1b').?.*;
+
+    try testing.expect(cmd == .show_desktop_notification);
+    try testing.expectEqualStrings("1", cmd.show_desktop_notification.body);
+}
+
+test "OSC 9;1: conemu sleep -> desktop notification 2" {
+    const testing = std.testing;
+
+    var p: Parser = .init();
+
+    const input = "9;1a";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end('\x1b').?.*;
+
+    try testing.expect(cmd == .show_desktop_notification);
+    try testing.expectEqualStrings("1a", cmd.show_desktop_notification.body);
+}
+
+test "OSC 9;2: ConEmu message box" {
+    const testing = std.testing;
+
+    var p: Parser = .init();
+
+    const input = "9;2;hello world";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end('\x1b').?.*;
+    try testing.expect(cmd == .conemu_show_message_box);
+    try testing.expectEqualStrings("hello world", cmd.conemu_show_message_box);
+}
+
+test "OSC 9;2: ConEmu message box invalid input" {
+    const testing = std.testing;
+
+    var p: Parser = .init();
+
+    const input = "9;2";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end('\x1b').?.*;
+    try testing.expect(cmd == .show_desktop_notification);
+    try testing.expectEqualStrings("2", cmd.show_desktop_notification.body);
+}
+
+test "OSC 9;2: ConEmu message box empty message" {
+    const testing = std.testing;
+
+    var p: Parser = .init();
+
+    const input = "9;2;";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end('\x1b').?.*;
+    try testing.expect(cmd == .conemu_show_message_box);
+    try testing.expectEqualStrings("", cmd.conemu_show_message_box);
+}
+
+test "OSC 9;2: ConEmu message box spaces only message" {
+    const testing = std.testing;
+
+    var p: Parser = .init();
+
+    const input = "9;2;   ";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end('\x1b').?.*;
+    try testing.expect(cmd == .conemu_show_message_box);
+    try testing.expectEqualStrings("   ", cmd.conemu_show_message_box);
+}
+
+test "OSC 9;2: message box -> desktop notification 1" {
+    const testing = std.testing;
+
+    var p: Parser = .init();
+
+    const input = "9;2";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end('\x1b').?.*;
+
+    try testing.expect(cmd == .show_desktop_notification);
+    try testing.expectEqualStrings("2", cmd.show_desktop_notification.body);
+}
+
+test "OSC 9;2: message box -> desktop notification 2" {
+    const testing = std.testing;
+
+    var p: Parser = .init();
+
+    const input = "9;2a";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end('\x1b').?.*;
+
+    try testing.expect(cmd == .show_desktop_notification);
+    try testing.expectEqualStrings("2a", cmd.show_desktop_notification.body);
+}
+
+test "OSC 9;3: ConEmu change tab title" {
+    const testing = std.testing;
+
+    var p: Parser = .init();
+
+    const input = "9;3;foo bar";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end('\x1b').?.*;
+    try testing.expect(cmd == .conemu_change_tab_title);
+    try testing.expectEqualStrings("foo bar", cmd.conemu_change_tab_title.value);
+}
+
+test "OSC 9;3: ConEmu change tab title reset" {
+    const testing = std.testing;
+
+    var p: Parser = .init();
+
+    const input = "9;3;";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end('\x1b').?.*;
+
+    const expected_command: Command = .{ .conemu_change_tab_title = .reset };
+    try testing.expectEqual(expected_command, cmd);
+}
+
+test "OSC 9;3: ConEmu change tab title spaces only" {
+    const testing = std.testing;
+
+    var p: Parser = .init();
+
+    const input = "9;3;   ";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end('\x1b').?.*;
+
+    try testing.expect(cmd == .conemu_change_tab_title);
+    try testing.expectEqualStrings("   ", cmd.conemu_change_tab_title.value);
+}
+
+test "OSC 9;3: change tab title -> desktop notification 1" {
+    const testing = std.testing;
+
+    var p: Parser = .init();
+
+    const input = "9;3";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end('\x1b').?.*;
+
+    try testing.expect(cmd == .show_desktop_notification);
+    try testing.expectEqualStrings("3", cmd.show_desktop_notification.body);
+}
+
+test "OSC 9;3: message box -> desktop notification 2" {
+    const testing = std.testing;
+
+    var p: Parser = .init();
+
+    const input = "9;3a";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end('\x1b').?.*;
+
+    try testing.expect(cmd == .show_desktop_notification);
+    try testing.expectEqualStrings("3a", cmd.show_desktop_notification.body);
+}
+
+test "OSC 9;4: ConEmu progress set" {
+    const testing = std.testing;
+
+    var p: Parser = .init();
+
+    const input = "9;4;1;100";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end('\x1b').?.*;
+    try testing.expect(cmd == .conemu_progress_report);
+    try testing.expect(cmd.conemu_progress_report.state == .set);
+    try testing.expect(cmd.conemu_progress_report.progress == 100);
+}
+
+test "OSC 9;4: ConEmu progress set overflow" {
+    const testing = std.testing;
+
+    var p: Parser = .init();
+
+    const input = "9;4;1;900";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end('\x1b').?.*;
+    try testing.expect(cmd == .conemu_progress_report);
+    try testing.expect(cmd.conemu_progress_report.state == .set);
+    try testing.expectEqual(100, cmd.conemu_progress_report.progress);
+}
+
+test "OSC 9;4: ConEmu progress set single digit" {
+    const testing = std.testing;
+
+    var p: Parser = .init();
+
+    const input = "9;4;1;9";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end('\x1b').?.*;
+    try testing.expect(cmd == .conemu_progress_report);
+    try testing.expect(cmd.conemu_progress_report.state == .set);
+    try testing.expect(cmd.conemu_progress_report.progress == 9);
+}
+
+test "OSC 9;4: ConEmu progress set double digit" {
+    const testing = std.testing;
+
+    var p: Parser = .init();
+
+    const input = "9;4;1;94";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end('\x1b').?.*;
+    try testing.expect(cmd == .conemu_progress_report);
+    try testing.expect(cmd.conemu_progress_report.state == .set);
+    try testing.expectEqual(94, cmd.conemu_progress_report.progress);
+}
+
+test "OSC 9;4: ConEmu progress set extra semicolon ignored" {
+    const testing = std.testing;
+
+    var p: Parser = .init();
+
+    const input = "9;4;1;100";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end('\x1b').?.*;
+    try testing.expect(cmd == .conemu_progress_report);
+    try testing.expect(cmd.conemu_progress_report.state == .set);
+    try testing.expectEqual(100, cmd.conemu_progress_report.progress);
+}
+
+test "OSC 9;4: ConEmu progress remove with no progress" {
+    const testing = std.testing;
+
+    var p: Parser = .init();
+
+    const input = "9;4;0;";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end('\x1b').?.*;
+    try testing.expect(cmd == .conemu_progress_report);
+    try testing.expect(cmd.conemu_progress_report.state == .remove);
+    try testing.expect(cmd.conemu_progress_report.progress == null);
+}
+
+test "OSC 9;4: ConEmu progress remove with double semicolon" {
+    const testing = std.testing;
+
+    var p: Parser = .init();
+
+    const input = "9;4;0;;";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end('\x1b').?.*;
+    try testing.expect(cmd == .conemu_progress_report);
+    try testing.expect(cmd.conemu_progress_report.state == .remove);
+    try testing.expect(cmd.conemu_progress_report.progress == null);
+}
+
+test "OSC 9;4: ConEmu progress remove ignores progress" {
+    const testing = std.testing;
+
+    var p: Parser = .init();
+
+    const input = "9;4;0;100";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end('\x1b').?.*;
+    try testing.expect(cmd == .conemu_progress_report);
+    try testing.expect(cmd.conemu_progress_report.state == .remove);
+    try testing.expect(cmd.conemu_progress_report.progress == null);
+}
+
+test "OSC 9;4: ConEmu progress remove extra semicolon" {
+    const testing = std.testing;
+
+    var p: Parser = .init();
+
+    const input = "9;4;0;100;";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end('\x1b').?.*;
+    try testing.expect(cmd == .conemu_progress_report);
+    try testing.expect(cmd.conemu_progress_report.state == .remove);
+}
+
+test "OSC 9;4: ConEmu progress error" {
+    const testing = std.testing;
+
+    var p: Parser = .init();
+
+    const input = "9;4;2";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end('\x1b').?.*;
+    try testing.expect(cmd == .conemu_progress_report);
+    try testing.expect(cmd.conemu_progress_report.state == .@"error");
+    try testing.expect(cmd.conemu_progress_report.progress == null);
+}
+
+test "OSC 9;4: ConEmu progress error with progress" {
+    const testing = std.testing;
+
+    var p: Parser = .init();
+
+    const input = "9;4;2;100";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end('\x1b').?.*;
+    try testing.expect(cmd == .conemu_progress_report);
+    try testing.expect(cmd.conemu_progress_report.state == .@"error");
+    try testing.expect(cmd.conemu_progress_report.progress == 100);
+}
+
+test "OSC 9;4: progress pause" {
+    const testing = std.testing;
+
+    var p: Parser = .init();
+
+    const input = "9;4;4";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end('\x1b').?.*;
+    try testing.expect(cmd == .conemu_progress_report);
+    try testing.expect(cmd.conemu_progress_report.state == .pause);
+    try testing.expect(cmd.conemu_progress_report.progress == null);
+}
+
+test "OSC 9;4: ConEmu progress pause with progress" {
+    const testing = std.testing;
+
+    var p: Parser = .init();
+
+    const input = "9;4;4;100";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end('\x1b').?.*;
+    try testing.expect(cmd == .conemu_progress_report);
+    try testing.expect(cmd.conemu_progress_report.state == .pause);
+    try testing.expect(cmd.conemu_progress_report.progress == 100);
+}
+
+test "OSC 9;4: progress -> desktop notification 1" {
+    const testing = std.testing;
+
+    var p: Parser = .init();
+
+    const input = "9;4";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end('\x1b').?.*;
+
+    try testing.expect(cmd == .show_desktop_notification);
+    try testing.expectEqualStrings("4", cmd.show_desktop_notification.body);
+}
+
+test "OSC 9;4: progress -> desktop notification 2" {
+    const testing = std.testing;
+
+    var p: Parser = .init();
+
+    const input = "9;4;";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end('\x1b').?.*;
+
+    try testing.expect(cmd == .show_desktop_notification);
+    try testing.expectEqualStrings("4;", cmd.show_desktop_notification.body);
+}
+
+test "OSC 9;4: progress -> desktop notification 3" {
+    const testing = std.testing;
+
+    var p: Parser = .init();
+
+    const input = "9;4;5";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end('\x1b').?.*;
+
+    try testing.expect(cmd == .show_desktop_notification);
+    try testing.expectEqualStrings("4;5", cmd.show_desktop_notification.body);
+}
+
+test "OSC 9;4: progress -> desktop notification 4" {
+    const testing = std.testing;
+
+    var p: Parser = .init();
+
+    const input = "9;4;5a";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end('\x1b').?.*;
+
+    try testing.expect(cmd == .show_desktop_notification);
+    try testing.expectEqualStrings("4;5a", cmd.show_desktop_notification.body);
+}
+
+test "OSC 9;5: ConEmu wait input" {
+    const testing = std.testing;
+
+    var p: Parser = .init();
+
+    const input = "9;5";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end('\x1b').?.*;
+    try testing.expect(cmd == .conemu_wait_input);
+}
+
+test "OSC 9;5: ConEmu wait ignores trailing characters" {
+    const testing = std.testing;
+
+    var p: Parser = .init();
+
+    const input = "9;5;foo";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end('\x1b').?.*;
+    try testing.expect(cmd == .conemu_wait_input);
+}
+
+test "OSC 9;6: ConEmu guimacro 1" {
+    const testing = std.testing;
+
+    var p: Parser = .initAlloc(testing.allocator);
+    defer p.deinit();
+
+    const input = "9;6;a";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end('\x1b').?.*;
+    try testing.expect(cmd == .conemu_guimacro);
+    try testing.expectEqualStrings("a", cmd.conemu_guimacro);
+}
+
+test "OSC: 9;6: ConEmu guimacro 2" {
+    const testing = std.testing;
+
+    var p: Parser = .initAlloc(testing.allocator);
+    defer p.deinit();
+
+    const input = "9;6;ab";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end('\x1b').?.*;
+    try testing.expect(cmd == .conemu_guimacro);
+    try testing.expectEqualStrings("ab", cmd.conemu_guimacro);
+}
+
+test "OSC: 9;6: ConEmu guimacro 3 incomplete -> desktop notification" {
+    const testing = std.testing;
+
+    var p: Parser = .initAlloc(testing.allocator);
+    defer p.deinit();
+
+    const input = "9;6";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end('\x1b').?.*;
+    try testing.expect(cmd == .show_desktop_notification);
+    try testing.expectEqualStrings("6", cmd.show_desktop_notification.body);
+}
+
+// See src/terminal/osc/color.zig for OSC 10 tests.
+
+// See src/terminal/osc/color.zig for OSC 11 tests.
+
+// See src/terminal/osc/color.zig for OSC 12 tests.
+
+// See src/terminal/osc/color.zig for OSC 13 tests.
+
+// See src/terminal/osc/color.zig for OSC 14 tests.
+
+// See src/terminal/osc/color.zig for OSC 15 tests.
+
+// See src/terminal/osc/color.zig for OSC 16 tests.
+
+// See src/terminal/osc/color.zig for OSC 17 tests.
+
+// See src/terminal/osc/color.zig for OSC 18 tests.
+
+// See src/terminal/osc/color.zig for OSC 19 tests.
+
+test "OSC 21: kitty color protocol" {
     const testing = std.testing;
     const Kind = kitty_color.Kind;
 
@@ -2757,7 +2609,7 @@ test "OSC: kitty color protocol" {
     }
 }
 
-test "OSC: kitty color protocol without allocator" {
+test "OSC 21: kitty color protocol without allocator" {
     const testing = std.testing;
 
     var p: Parser = .init();
@@ -2768,7 +2620,7 @@ test "OSC: kitty color protocol without allocator" {
     try testing.expect(p.end('\x1b') == null);
 }
 
-test "OSC: kitty color protocol double reset" {
+test "OSC 21: kitty color protocol double reset" {
     const testing = std.testing;
 
     var p: Parser = .initAlloc(testing.allocator);
@@ -2784,7 +2636,7 @@ test "OSC: kitty color protocol double reset" {
     p.reset();
 }
 
-test "OSC: kitty color protocol reset after invalid" {
+test "OSC 21: kitty color protocol reset after invalid" {
     const testing = std.testing;
 
     var p: Parser = .initAlloc(testing.allocator);
@@ -2805,7 +2657,7 @@ test "OSC: kitty color protocol reset after invalid" {
     p.reset();
 }
 
-test "OSC: kitty color protocol no key" {
+test "OSC 21: kitty color protocol no key" {
     const testing = std.testing;
 
     var p: Parser = .initAlloc(testing.allocator);
@@ -2819,44 +2671,240 @@ test "OSC: kitty color protocol no key" {
     try testing.expectEqual(0, cmd.kitty_color_protocol.list.items.len);
 }
 
-test "OSC: 9;6: ConEmu guimacro 1" {
+test "OSC 22: pointer cursor" {
     const testing = std.testing;
 
-    var p: Parser = .initAlloc(testing.allocator);
-    defer p.deinit();
+    var p: Parser = .init();
 
-    const input = "9;6;a";
+    const input = "22;pointer";
     for (input) |ch| p.next(ch);
 
-    const cmd = p.end('\x1b').?.*;
-    try testing.expect(cmd == .conemu_guimacro);
-    try testing.expectEqualStrings("a", cmd.conemu_guimacro);
+    const cmd = p.end(null).?.*;
+    try testing.expect(cmd == .mouse_shape);
+    try testing.expectEqualStrings("pointer", cmd.mouse_shape.value);
 }
 
-test "OSC: 9;6: ConEmu guimacro 2" {
+test "OSC 52: get/set clipboard" {
     const testing = std.testing;
 
-    var p: Parser = .initAlloc(testing.allocator);
-    defer p.deinit();
+    var p: Parser = .init();
 
-    const input = "9;6;ab";
+    const input = "52;s;?";
     for (input) |ch| p.next(ch);
 
-    const cmd = p.end('\x1b').?.*;
-    try testing.expect(cmd == .conemu_guimacro);
-    try testing.expectEqualStrings("ab", cmd.conemu_guimacro);
+    const cmd = p.end(null).?.*;
+    try testing.expect(cmd == .clipboard_contents);
+    try testing.expect(cmd.clipboard_contents.kind == 's');
+    try testing.expectEqualStrings("?", cmd.clipboard_contents.data);
 }
 
-test "OSC: 9;6: ConEmu guimacro 3 incomplete -> desktop notification" {
+test "OSC 52: get/set clipboard (optional parameter)" {
+    const testing = std.testing;
+
+    var p: Parser = .init();
+
+    const input = "52;;?";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end(null).?.*;
+    try testing.expect(cmd == .clipboard_contents);
+    try testing.expect(cmd.clipboard_contents.kind == 'c');
+    try testing.expectEqualStrings("?", cmd.clipboard_contents.data);
+}
+
+test "OSC 52: get/set clipboard with allocator" {
     const testing = std.testing;
 
     var p: Parser = .initAlloc(testing.allocator);
     defer p.deinit();
 
-    const input = "9;6";
+    const input = "52;s;?";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end(null).?.*;
+    try testing.expect(cmd == .clipboard_contents);
+    try testing.expect(cmd.clipboard_contents.kind == 's');
+    try testing.expectEqualStrings("?", cmd.clipboard_contents.data);
+}
+
+test "OSC 52: clear clipboard" {
+    const testing = std.testing;
+
+    var p: Parser = .init();
+    defer p.deinit();
+
+    const input = "52;;";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end(null).?.*;
+    try testing.expect(cmd == .clipboard_contents);
+    try testing.expect(cmd.clipboard_contents.kind == 'c');
+    try testing.expectEqualStrings("", cmd.clipboard_contents.data);
+}
+
+// See src/terminal/osc/color.zig for OSC 104 tests.
+
+// See src/terminal/osc/color.zig for OSC 105 tests.
+
+// See src/terminal/osc/color.zig for OSC 110 tests.
+
+// See src/terminal/osc/color.zig for OSC 111 tests.
+
+// See src/terminal/osc/color.zig for OSC 112 tests.
+
+// See src/terminal/osc/color.zig for OSC 113 tests.
+
+// See src/terminal/osc/color.zig for OSC 114 tests.
+
+// See src/terminal/osc/color.zig for OSC 115 tests.
+
+// See src/terminal/osc/color.zig for OSC 116 tests.
+
+// See src/terminal/osc/color.zig for OSC 117 tests.
+
+// See src/terminal/osc/color.zig for OSC 118 tests.
+
+// See src/terminal/osc/color.zig for OSC 119 tests.
+
+test "OSC 133: prompt_start" {
+    const testing = std.testing;
+
+    var p: Parser = .init();
+
+    const input = "133;A";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end(null).?.*;
+    try testing.expect(cmd == .prompt_start);
+    try testing.expect(cmd.prompt_start.aid == null);
+    try testing.expect(cmd.prompt_start.redraw);
+}
+
+test "OSC 133: prompt_start with single option" {
+    const testing = std.testing;
+
+    var p: Parser = .init();
+
+    const input = "133;A;aid=14";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end(null).?.*;
+    try testing.expect(cmd == .prompt_start);
+    try testing.expectEqualStrings("14", cmd.prompt_start.aid.?);
+}
+
+test "OSC 133: prompt_start with redraw disabled" {
+    const testing = std.testing;
+
+    var p: Parser = .init();
+
+    const input = "133;A;redraw=0";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end(null).?.*;
+    try testing.expect(cmd == .prompt_start);
+    try testing.expect(!cmd.prompt_start.redraw);
+}
+
+test "OSC 133: prompt_start with redraw invalid value" {
+    const testing = std.testing;
+
+    var p: Parser = .init();
+
+    const input = "133;A;redraw=42";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end(null).?.*;
+    try testing.expect(cmd == .prompt_start);
+    try testing.expect(cmd.prompt_start.redraw);
+    try testing.expect(cmd.prompt_start.kind == .primary);
+}
+
+test "OSC 133: prompt_start with continuation" {
+    const testing = std.testing;
+
+    var p: Parser = .init();
+
+    const input = "133;A;k=c";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end(null).?.*;
+    try testing.expect(cmd == .prompt_start);
+    try testing.expect(cmd.prompt_start.kind == .continuation);
+}
+
+test "OSC 133: prompt_start with secondary" {
+    const testing = std.testing;
+
+    var p: Parser = .init();
+
+    const input = "133;A;k=s";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end(null).?.*;
+    try testing.expect(cmd == .prompt_start);
+    try testing.expect(cmd.prompt_start.kind == .secondary);
+}
+
+test "OSC 133: end_of_command no exit code" {
+    const testing = std.testing;
+
+    var p: Parser = .init();
+
+    const input = "133;D";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end(null).?.*;
+    try testing.expect(cmd == .end_of_command);
+}
+
+test "OSC 133: end_of_command with exit code" {
+    const testing = std.testing;
+
+    var p: Parser = .init();
+
+    const input = "133;D;25";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end(null).?.*;
+    try testing.expect(cmd == .end_of_command);
+    try testing.expectEqual(@as(u8, 25), cmd.end_of_command.exit_code.?);
+}
+
+test "OSC 133: prompt_end" {
+    const testing = std.testing;
+
+    var p: Parser = .init();
+
+    const input = "133;B";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end(null).?.*;
+    try testing.expect(cmd == .prompt_end);
+}
+
+test "OSC 133: end_of_input" {
+    const testing = std.testing;
+
+    var p: Parser = .init();
+
+    const input = "133;C";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end(null).?.*;
+    try testing.expect(cmd == .end_of_input);
+}
+
+test "OSC: OSC 777 show desktop notification with title" {
+    const testing = std.testing;
+
+    var p: Parser = .init();
+
+    const input = "777;notify;Title;Body";
     for (input) |ch| p.next(ch);
 
     const cmd = p.end('\x1b').?.*;
     try testing.expect(cmd == .show_desktop_notification);
-    try testing.expectEqualStrings("6", cmd.show_desktop_notification.body);
+    try testing.expectEqualStrings(cmd.show_desktop_notification.title, "Title");
+    try testing.expectEqualStrings(cmd.show_desktop_notification.body, "Body");
 }
