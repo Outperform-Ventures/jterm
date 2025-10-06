@@ -159,7 +159,7 @@ span.lineno a {
   #page-nav-toggle {
     display: none !important;
   }
-  
+
   #page-nav {
     position: relative !important;
     width: 250px !important;
@@ -175,17 +175,17 @@ span.lineno a {
   body {
     font-size: 14px !important;
   }
-  
+
   /* Make navigation tree collapsible on mobile */
   #side-nav {
     display: none;
   }
-  
+
   #doc-content {
     margin-left: 0 !important;
     margin-right: 0 !important;
   }
-  
+
   /* Make right sidebar (page-nav) overlay on mobile */
   #page-nav {
     position: fixed !important;
@@ -200,11 +200,11 @@ span.lineno a {
     overflow-y: auto !important;
     -webkit-overflow-scrolling: touch !important;
   }
-  
+
   #page-nav.mobile-open {
     right: 0 !important;
   }
-  
+
   /* Hamburger menu button for page nav */
   #page-nav-toggle {
     display: block !important;
@@ -221,7 +221,7 @@ span.lineno a {
     padding: 8px !important;
     box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3) !important;
   }
-  
+
   #page-nav-toggle span {
     display: block !important;
     width: 24px !important;
@@ -231,7 +231,7 @@ span.lineno a {
     border-radius: 2px !important;
     transition: 0.3s !important;
   }
-  
+
   /* Mobile overlay backdrop */
   #page-nav-backdrop {
     display: none !important;
@@ -243,29 +243,29 @@ span.lineno a {
     background: rgba(0, 0, 0, 0.5) !important;
     z-index: 9999 !important;
   }
-  
+
   #page-nav-backdrop.active {
     display: block !important;
   }
-  
+
   /* Improve header and navigation */
   #top {
     height: auto !important;
   }
-  
+
   #titlearea {
     padding: 10px !important;
   }
-  
+
   #projectname {
     font-size: 18px !important;
   }
-  
+
   #projectbrief,
   #projectnumber {
     font-size: 12px !important;
   }
-  
+
   /* Make tabs stack better on mobile */
   #navrow1,
   #navrow2,
@@ -275,33 +275,33 @@ span.lineno a {
     white-space: nowrap !important;
     -webkit-overflow-scrolling: touch !important;
   }
-  
+
   .tablist li {
     display: inline-block !important;
   }
-  
+
   /* Content adjustments */
   .contents {
     padding: 10px !important;
     width: 100% !important;
     box-sizing: border-box !important;
   }
-  
+
   .header {
     padding: 5px !important;
   }
-  
+
   /* Code blocks */
   .fragment {
     font-size: 12px !important;
     overflow-x: auto !important;
     -webkit-overflow-scrolling: touch !important;
   }
-  
+
   div.line {
     font-size: 12px !important;
   }
-  
+
   /* Tables */
   table {
     display: block !important;
@@ -309,52 +309,65 @@ span.lineno a {
     -webkit-overflow-scrolling: touch !important;
     width: 100% !important;
   }
-  
+
   .memberdecls table,
   .fieldtable {
     font-size: 12px !important;
   }
-  
+
   .memtitle {
     font-size: 14px !important;
     padding: 8px !important;
   }
-  
+
   .memname {
     font-size: 13px !important;
     word-break: break-word !important;
   }
-  
+
   .memitem {
     margin: 5px 0 !important;
   }
-  
+
   /* Search box */
   #MSearchBox {
     width: 100% !important;
     right: 0 !important;
   }
-  
+
   /* Reduce padding and margins */
-  h1, h2, h3, h4, h5, h6 {
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
     margin-top: 10px !important;
     margin-bottom: 8px !important;
   }
-  
-  h1 { font-size: 22px !important; }
-  h2 { font-size: 18px !important; }
-  h3 { font-size: 16px !important; }
-  h4 { font-size: 14px !important; }
-  
+
+  h1 {
+    font-size: 22px !important;
+  }
+  h2 {
+    font-size: 18px !important;
+  }
+  h3 {
+    font-size: 16px !important;
+  }
+  h4 {
+    font-size: 14px !important;
+  }
+
   /* Directory/file listings */
   .directory .levels span {
     display: none !important;
   }
-  
+
   .directory .arrow {
     margin-right: 5px !important;
   }
-  
+
   /* Treeview adjustments */
   #nav-tree {
     width: 100% !important;
@@ -366,11 +379,11 @@ span.lineno a {
   .contents {
     padding: 15px !important;
   }
-  
+
   #side-nav {
     width: 200px !important;
   }
-  
+
   #doc-content {
     margin-left: 200px !important;
   }
