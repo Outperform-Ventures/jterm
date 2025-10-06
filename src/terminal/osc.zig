@@ -44,19 +44,33 @@ pub const Command = union(Key) {
     /// Subsequent text (until a OSC "133;B" or OSC "133;I" command) is a
     /// prompt string (as if followed by OSC 133;P;k=i\007). Note: I've noticed
     /// not all shells will send the prompt end code.
-    ///
-    /// "aid" is an optional "application identifier" that helps disambiguate
-    /// nested shell sessions. It can be anything but is usually a process ID.
-    ///
-    /// "kind" tells us which kind of semantic prompt sequence this is:
-    /// - primary: normal, left-aligned first-line prompt (initial, default)
-    /// - continuation: an editable continuation line
-    /// - secondary: a non-editable continuation line
-    /// - right: a right-aligned prompt that may need adjustment during reflow
     prompt_start: struct {
+        /// "aid" is an optional "application identifier" that helps disambiguate
+        /// nested shell sessions. It can be anything but is usually a process ID.
         aid: ?[:0]const u8 = null,
+        /// "kind" tells us which kind of semantic prompt sequence this is:
+        /// - primary: normal, left-aligned first-line prompt (initial, default)
+        /// - continuation: an editable continuation line
+        /// - secondary: a non-editable continuation line
+        /// - right: a right-aligned prompt that may need adjustment during reflow
         kind: enum { primary, continuation, secondary, right } = .primary,
+        /// If true, the shell will not redraw the prompt on resize so don't erase it.
+        /// See: https://sw.kovidgoyal.net/kitty/shell-integration/#notes-for-shell-developers
         redraw: bool = true,
+        /// Use a special key instead of arrow keys to move the cursor on
+        /// mouse click. Useful if arrow keys have side-effets like triggering
+        /// auto-complete. The shell integration script should bind the special
+        /// key as needed.
+        /// See: https://sw.kovidgoyal.net/kitty/shell-integration/#notes-for-shell-developers
+        special_key: bool = false,
+        /// If true, the shell is capable of handling mouse click events.
+        /// Ghostty will then send a click event to the shell when the user
+        /// clicks somewhere in the prompt. The shell can then move the cursor
+        /// to that position or perform some other appropriate action. If false,
+        /// Ghostty may generate a number of fake key events to move the cursor
+        /// which is not very robust.
+        /// See: https://sw.kovidgoyal.net/kitty/shell-integration/#notes-for-shell-developers
+        click_events: bool = false,
     },
 
     /// End of prompt and start of user input, terminated by a OSC "133;C"
@@ -72,7 +86,16 @@ pub const Command = union(Key) {
     /// OSC "133;I" then this is the start of a continuation input line.
     /// If we see anything else, it is the start of the output area (or end
     /// of command).
-    end_of_input: void,
+    end_of_input: struct {
+        /// The command line that the user entered.
+        /// See: https://sw.kovidgoyal.net/kitty/shell-integration/#notes-for-shell-developers
+        cmdline: ?union(enum) {
+            /// The command line has been encoded with bash's 'printf "%q"'.
+            printf_q_encoded: [:0]const u8,
+            /// The command line has been encoded with URL percent encoding.
+            percent_encoded: [:0]const u8,
+        } = null,
+    },
 
     /// End of current command.
     ///
@@ -1286,7 +1309,7 @@ pub const Parser = struct {
 
                 'C' => {
                     self.state = .semantic_option_start;
-                    self.command = .{ .end_of_input = {} };
+                    self.command = .{ .end_of_input = .{} };
                     self.complete = true;
                 },
 
@@ -1456,11 +1479,24 @@ pub const Parser = struct {
                 .prompt_start => |*v| v.aid = value,
                 else => {},
             }
+        } else if (mem.eql(u8, self.temp_state.key, "cmdline")) {
+            // https://sw.kovidgoyal.net/kitty/shell-integration/#notes-for-shell-developers
+            switch (self.command) {
+                .end_of_input => |*v| v.cmdline = .{
+                    .printf_q_encoded = value,
+                },
+                else => {},
+            }
+        } else if (mem.eql(u8, self.temp_state.key, "cmdline_url")) {
+            // https://sw.kovidgoyal.net/kitty/shell-integration/#notes-for-shell-developers
+            switch (self.command) {
+                .end_of_input => |*v| v.cmdline = .{
+                    .percent_encoded = value,
+                },
+                else => {},
+            }
         } else if (mem.eql(u8, self.temp_state.key, "redraw")) {
-            // Kitty supports a "redraw" option for prompt_start. I can't find
-            // this documented anywhere but can see in the code that this is used
-            // by shell environments to tell the terminal that the shell will NOT
-            // redraw the prompt so we should attempt to resize it.
+            // https://sw.kovidgoyal.net/kitty/shell-integration/#notes-for-shell-developers
             switch (self.command) {
                 .prompt_start => |*v| {
                     const valid = if (value.len == 1) valid: {
@@ -1479,7 +1515,48 @@ pub const Parser = struct {
                 },
                 else => {},
             }
+        } else if (mem.eql(u8, self.temp_state.key, "special_key")) {
+            // https://sw.kovidgoyal.net/kitty/shell-integration/#notes-for-shell-developers
+            switch (self.command) {
+                .prompt_start => |*v| {
+                    const valid = if (value.len == 1) valid: {
+                        switch (value[0]) {
+                            '0' => v.special_key = false,
+                            '1' => v.special_key = true,
+                            else => break :valid false,
+                        }
+
+                        break :valid true;
+                    } else false;
+
+                    if (!valid) {
+                        log.info("OSC 133 A invalid special_key value: {s}", .{value});
+                    }
+                },
+                else => {},
+            }
+        } else if (mem.eql(u8, self.temp_state.key, "click_events")) {
+            // https://sw.kovidgoyal.net/kitty/shell-integration/#notes-for-shell-developers
+            switch (self.command) {
+                .prompt_start => |*v| {
+                    const valid = if (value.len == 1) valid: {
+                        switch (value[0]) {
+                            '0' => v.click_events = false,
+                            '1' => v.click_events = true,
+                            else => break :valid false,
+                        }
+
+                        break :valid true;
+                    } else false;
+
+                    if (!valid) {
+                        log.info("OSC 133 A invalid click_events value: {s}", .{value});
+                    }
+                },
+                else => {},
+            }
         } else if (mem.eql(u8, self.temp_state.key, "k")) {
+            // https://sw.kovidgoyal.net/kitty/shell-integration/#notes-for-shell-developers
             // The "k" marks the kind of prompt, or "primary" if we don't know.
             // This can be used to distinguish between the first (initial) prompt,
             // a continuation, etc.
@@ -2846,6 +2923,97 @@ test "OSC 133: prompt_start with secondary" {
     try testing.expect(cmd.prompt_start.kind == .secondary);
 }
 
+test "OSC 133: prompt_start with special_key" {
+    const testing = std.testing;
+
+    var p: Parser = .init();
+
+    const input = "133;A;special_key=1";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end(null).?.*;
+    try testing.expect(cmd == .prompt_start);
+    try testing.expect(cmd.prompt_start.special_key == true);
+}
+
+test "OSC 133: prompt_start with special_key invalid" {
+    const testing = std.testing;
+
+    var p: Parser = .init();
+
+    const input = "133;A;special_key=bobr";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end(null).?.*;
+    try testing.expect(cmd == .prompt_start);
+    try testing.expect(cmd.prompt_start.special_key == false);
+}
+
+test "OSC 133: prompt_start with special_key 0" {
+    const testing = std.testing;
+
+    var p: Parser = .init();
+
+    const input = "133;A;special_key=0";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end(null).?.*;
+    try testing.expect(cmd == .prompt_start);
+    try testing.expect(cmd.prompt_start.special_key == false);
+}
+
+test "OSC 133: prompt_start with special_key empty" {
+    const testing = std.testing;
+
+    var p: Parser = .init();
+
+    const input = "133;A;special_key=";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end(null).?.*;
+    try testing.expect(cmd == .prompt_start);
+    try testing.expect(cmd.prompt_start.special_key == false);
+}
+
+test "OSC 133: prompt_start with click_events true" {
+    const testing = std.testing;
+
+    var p: Parser = .init();
+
+    const input = "133;A;click_events=1";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end(null).?.*;
+    try testing.expect(cmd == .prompt_start);
+    try testing.expect(cmd.prompt_start.click_events == true);
+}
+
+test "OSC 133: prompt_start with click_events false" {
+    const testing = std.testing;
+
+    var p: Parser = .init();
+
+    const input = "133;A;click_events=0";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end(null).?.*;
+    try testing.expect(cmd == .prompt_start);
+    try testing.expect(cmd.prompt_start.click_events == false);
+}
+
+test "OSC 133: prompt_start with click_events empty" {
+    const testing = std.testing;
+
+    var p: Parser = .init();
+
+    const input = "133;A;click_events=";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end(null).?.*;
+    try testing.expect(cmd == .prompt_start);
+    try testing.expect(cmd.prompt_start.click_events == false);
+}
+
 test "OSC 133: end_of_command no exit code" {
     const testing = std.testing;
 
@@ -2893,6 +3061,36 @@ test "OSC 133: end_of_input" {
 
     const cmd = p.end(null).?.*;
     try testing.expect(cmd == .end_of_input);
+}
+
+test "OSC 133: end_of_input with cmdline" {
+    const testing = std.testing;
+
+    var p: Parser = .init();
+
+    const input = "133;C;cmdline=echo bobr kurwa";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end(null).?.*;
+    try testing.expect(cmd == .end_of_input);
+    try testing.expect(cmd.end_of_input.cmdline != null);
+    try testing.expect(cmd.end_of_input.cmdline.? == .printf_q_encoded);
+    try testing.expectEqualStrings("echo bobr kurwa", cmd.end_of_input.cmdline.?.printf_q_encoded);
+}
+
+test "OSC 133: end_of_input with cmdline_url" {
+    const testing = std.testing;
+
+    var p: Parser = .init();
+
+    const input = "133;C;cmdline_url=echo bobr kurwa";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end(null).?.*;
+    try testing.expect(cmd == .end_of_input);
+    try testing.expect(cmd.end_of_input.cmdline != null);
+    try testing.expect(cmd.end_of_input.cmdline.? == .percent_encoded);
+    try testing.expectEqualStrings("echo bobr kurwa", cmd.end_of_input.cmdline.?.percent_encoded);
 }
 
 test "OSC: OSC 777 show desktop notification with title" {
