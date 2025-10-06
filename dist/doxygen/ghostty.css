@@ -1,0 +1,99 @@
+/**
+ * Ghostty Doxygen Custom Stylesheet
+ * Minimal branding customizations for Ghostty colors
+ */
+
+/* Ghostty brand color for links and accents - high contrast for dark bg */
+a, a:link {
+    color: #99B3FF;
+}
+
+a:visited {
+    color: #99B3FF;
+}
+
+a:hover {
+    color: #C2D4FF;
+}
+
+/* High contrast text colors */
+body, div.contents, div.header, .title, .summary, td, th, p, li {
+    color: #E8E8E8 !important;
+}
+
+h1, h2, h3, h4, h5, h6, .groupheader {
+    color: #FFFFFF !important;
+}
+
+.memtitle, .memname {
+    color: #FFFFFF !important;
+}
+
+.memdoc {
+    color: #E8E8E8 !important;
+}
+
+/* Selection color */
+::selection {
+    background: rgba(53, 81, 243, 0.6);
+}
+
+/* Tree view selected item */
+#nav-tree .selected {
+    background-color: #3551F3 !important;
+}
+
+/* Custom syntax highlighting optimized for dark backgrounds with high contrast */
+.fragment, div.line {
+    color: #F0F0F0 !important;
+}
+
+/* Keywords (int, void, const, static, etc.) */
+.keyword, .keywordtype {
+    color: #FF8BE6 !important;
+    font-weight: 500;
+}
+
+/* Control flow (if, else, return, for, while, etc.) */
+.keywordflow {
+    color: #FF8BE6 !important;
+    font-weight: 500;
+}
+
+/* Comments */
+.comment {
+    color: #8BC34A !important;
+    font-style: italic;
+}
+
+/* Preprocessor directives (#include, #define, etc.) */
+.preprocessor {
+    color: #FFCC66 !important;
+}
+
+/* String and character literals */
+.stringliteral, .charliteral {
+    color: #B8E986 !important;
+}
+
+/* Numbers */
+span.charliteral {
+    color: #D4A5FF !important;
+}
+
+/* Function names */
+.functionname {
+    color: #6FE87C !important;
+    font-weight: 500;
+}
+
+/* Line numbers */
+span.lineno {
+    color: #8A8A8A !important;
+    background-color: transparent !important;
+}
+
+span.lineno a {
+    color: #8A8A8A !important;
+    background-color: transparent !important;
+}
