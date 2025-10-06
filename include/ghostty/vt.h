@@ -1,7 +1,7 @@
 /**
  * @file vt.h
  *
- * libghostty-vt - Virtual terminal sequence parsing library
+ * libghostty-vt - Virtual terminal emulator library
  * 
  * This library provides functionality for parsing and handling terminal
  * escape sequences as well as maintaining terminal state such as styles,
@@ -12,14 +12,15 @@
  */
 
 /**
- * @mainpage libghostty-vt - Virtual Terminal Sequence Parser
+ * @mainpage libghostty-vt - Virtual Terminal Emulator Library
  *
  * libghostty-vt is a C library which implements a modern terminal emulator,
  * extracted from the [Ghostty](https://ghostty.org) terminal emulator.
  *
  * libghostty-vt contains the logic for handling the core parts of a terminal
- * emulator: parsing terminal escape sequences and maintaining terminal state.
- * It can handle scrollback, line wrapping, reflow on resize, and more.
+ * emulator: parsing terminal escape sequences, maintaining terminal state,
+ * encoding input events, etc. It can handle scrollback, line wrapping, 
+ * reflow on resize, and more.
  *
  * @warning This library is currently in development and the API is not yet stable.
  * Breaking changes are expected in future versions. Use with caution in production code.
@@ -31,6 +32,22 @@
  * - @ref osc "OSC Parser" - Parse OSC (Operating System Command) sequences
  * - @ref allocator "Memory Management" - Memory management and custom allocators
  *
+ * @section examples_sec Examples
+ *
+ * Complete working examples:
+ * - @ref c-vt/src/main.c - OSC parser example
+ * - @ref c-vt-key-encode/src/main.c - Key encoding example
+ *
+ */
+
+/** @example c-vt/src/main.c
+ * This example demonstrates how to use the OSC parser to parse an OSC sequence,
+ * extract command information, and retrieve command-specific data like window titles.
+ */
+
+/** @example c-vt-key-encode/src/main.c
+ * This example demonstrates how to use the key encoder to convert key events
+ * into terminal escape sequences using the Kitty keyboard protocol.
  */
 
 #ifndef GHOSTTY_VT_H
