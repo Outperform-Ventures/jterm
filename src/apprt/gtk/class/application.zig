@@ -806,19 +806,19 @@ pub const Application = extern struct {
         }
     }
 
-    fn loadRuntimeCss(self: *Self) Allocator.Error!void {
+    fn loadRuntimeCss(self: *Self) (Allocator.Error || std.Io.Writer.Error)!void {
         const alloc = self.allocator();
 
         const config = self.private().config.get();
 
-        var buf: std.ArrayListUnmanaged(u8) = try .initCapacity(alloc, 2048);
-        defer buf.deinit(alloc);
+        var buf: std.Io.Writer.Allocating = try .initCapacity(alloc, 2048);
+        defer buf.deinit();
 
-        const writer = buf.writer(alloc);
+        const writer = &buf.writer;
 
         // Load standard css first as it can override some of the user configured styling.
-        try loadRuntimeCss414(config, &writer);
-        try loadRuntimeCss416(config, &writer);
+        try loadRuntimeCss414(config, writer);
+        try loadRuntimeCss416(config, writer);
 
         const unfocused_fill: CoreConfig.Color = config.@"unfocused-split-fill" orelse config.background;
 
@@ -861,7 +861,8 @@ pub const Application = extern struct {
         // ensure that we have a sentinel
         try writer.writeByte(0);
 
-        const data = buf.items[0 .. buf.items.len - 1 :0];
+        const data_ = buf.written();
+        const data = data_[0 .. data_.len - 1 :0];
 
         log.debug("runtime CSS is {d} bytes", .{data.len + 1});
 
@@ -875,8 +876,8 @@ pub const Application = extern struct {
     /// Load runtime CSS for older than GTK 4.16
     fn loadRuntimeCss414(
         config: *const CoreConfig,
-        writer: *const std.ArrayListUnmanaged(u8).Writer,
-    ) Allocator.Error!void {
+        writer: *std.Io.Writer,
+    ) std.Io.Writer.Error!void {
         if (gtk_version.runtimeAtLeast(4, 16, 0)) return;
 
         const window_theme = config.@"window-theme";
@@ -911,8 +912,8 @@ pub const Application = extern struct {
     /// Load runtime for GTK 4.16 and newer
     fn loadRuntimeCss416(
         config: *const CoreConfig,
-        writer: *const std.ArrayListUnmanaged(u8).Writer,
-    ) Allocator.Error!void {
+        writer: *std.Io.Writer,
+    ) std.Io.Writer.Error!void {
         if (gtk_version.runtimeUntil(4, 16, 0)) return;
 
         const window_theme = config.@"window-theme";
@@ -1044,9 +1045,7 @@ pub const Application = extern struct {
             defer file.close();
 
             log.info("loading gtk-custom-css path={s}", .{path});
-            var buf: [4096]u8 = undefined;
-            var reader = file.reader(&buf);
-            const contents = try reader.interface.readAlloc(
+            const contents = try file.readToEndAlloc(
                 alloc,
                 5 * 1024 * 1024, // 5MB,
             );
@@ -1164,7 +1163,7 @@ pub const Application = extern struct {
         // just stuck with the old CSS but we don't want to fail the entire
         // config change operation.
         self.loadRuntimeCss() catch |err| switch (err) {
-            error.OutOfMemory => log.warn(
+            error.WriteFailed, error.OutOfMemory => log.warn(
                 "out of memory loading runtime CSS, no runtime CSS applied",
                 .{},
             ),
