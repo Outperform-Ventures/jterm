@@ -19,9 +19,7 @@ pub fn current(alloc: Allocator, pid: std.os.linux.pid_t) !?[]const u8 {
     defer file.close();
 
     // Read it all into memory -- we don't expect this file to ever be that large.
-    var reader_buf: [4096]u8 = undefined;
-    var reader = file.reader(&reader_buf);
-    const contents = try reader.interface.readAlloc(
+    const contents = try file.readToEndAlloc(
         alloc,
         1 * 1024 * 1024, // 1MB
     );
@@ -187,9 +185,7 @@ pub fn controllers(alloc: Allocator, cgroup: []const u8) ![]const u8 {
 
     // Read it all into memory -- we don't expect this file to ever
     // be that large.
-    var reader_buf: [4096]u8 = undefined;
-    var reader = file.reader(&reader_buf);
-    const contents = try reader.interface.readAlloc(
+    const contents = try file.readToEndAlloc(
         alloc,
         1 * 1024 * 1024, // 1MB
     );
