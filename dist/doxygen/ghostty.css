@@ -54,6 +54,43 @@ h6,
   background: rgba(53, 81, 243, 0.6);
 }
 
+/* Modern scrollbar styling for WebKit browsers (Safari, Chrome) */
+::-webkit-scrollbar {
+  width: 14px;
+  height: 14px;
+  -webkit-appearance: none;
+}
+
+::-webkit-scrollbar-track {
+  background: #1a1f2e;
+  border-radius: 8px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #4a5260;
+  border-radius: 8px;
+  border: 3px solid #1a1f2e;
+  min-height: 40px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #5a6270;
+}
+
+::-webkit-scrollbar-thumb:active {
+  background: #6a7280;
+}
+
+::-webkit-scrollbar-corner {
+  background: #1a1f2e;
+}
+
+/* Firefox scrollbar styling */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #404754 #1a1f2e;
+}
+
 /* Tree view selected item */
 #nav-tree .selected {
   background-color: #3551f3 !important;
