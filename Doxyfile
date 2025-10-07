@@ -3,9 +3,10 @@
 DOXYFILE_ENCODING      = UTF-8
 PROJECT_NAME           = "libghostty"
 PROJECT_LOGO           = images/gnome/64.png
-INPUT                  = include/ghostty/vt.h
+INPUT                  = include/ghostty
 INPUT_ENCODING         = UTF-8
-RECURSIVE              = NO
+RECURSIVE              = YES
+FILE_PATTERNS          = *.h
 EXAMPLE_PATH           = example
 EXAMPLE_RECURSIVE      = YES
 EXAMPLE_PATTERNS       = *

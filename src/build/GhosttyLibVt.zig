@@ -30,9 +30,10 @@ pub fn initShared(
         .root_module = zig.vt_c,
         .version = std.SemanticVersion{ .major = 0, .minor = 1, .patch = 0 },
     });
-    lib.installHeader(
-        b.path("include/ghostty/vt.h"),
-        "ghostty/vt.h",
+    lib.installHeadersDirectory(
+        b.path("include/ghostty"),
+        "ghostty",
+        .{ .include_extensions = &.{".h"} },
     );
 
     // Get our debug symbols
