@@ -30,6 +30,7 @@
  * The API is organized into the following groups:
  * - @ref key "Key Encoding" - Encode key events into terminal sequences
  * - @ref osc "OSC Parser" - Parse OSC (Operating System Command) sequences
+ * - @ref paste "Paste Utilities" - Validate paste data safety
  * - @ref allocator "Memory Management" - Memory management and custom allocators
  *
  * @section examples_sec Examples
@@ -37,6 +38,7 @@
  * Complete working examples:
  * - @ref c-vt/src/main.c - OSC parser example
  * - @ref c-vt-key-encode/src/main.c - Key encoding example
+ * - @ref c-vt-paste/src/main.c - Paste safety check example
  *
  */
 
@@ -50,6 +52,11 @@
  * into terminal escape sequences using the Kitty keyboard protocol.
  */
 
+/** @example c-vt-paste/src/main.c
+ * This example demonstrates how to use the paste utilities to check if
+ * paste data is safe before sending it to the terminal.
+ */
+
 #ifndef GHOSTTY_VT_H
 #define GHOSTTY_VT_H
 
@@ -61,6 +68,7 @@ extern "C" {
 #include <ghostty/vt/allocator.h>
 #include <ghostty/vt/osc.h>
 #include <ghostty/vt/key.h>
+#include <ghostty/vt/paste.h>
 
 #ifdef __cplusplus
 }
