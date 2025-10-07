@@ -122,6 +122,7 @@ comptime {
         @export(&c.key_encoder_free, .{ .name = "ghostty_key_encoder_free" });
         @export(&c.key_encoder_setopt, .{ .name = "ghostty_key_encoder_setopt" });
         @export(&c.key_encoder_encode, .{ .name = "ghostty_key_encoder_encode" });
+        @export(&c.paste_is_safe, .{ .name = "ghostty_paste_is_safe" });
     }
 }
 
