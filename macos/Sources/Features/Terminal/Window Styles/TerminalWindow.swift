@@ -20,12 +20,19 @@ class TerminalWindow: NSWindow {
 
     /// The configuration derived from the Ghostty config so we don't need to rely on references.
     private(set) var derivedConfig: DerivedConfig = .init()
+    
+    /// Whether this window supports the update accessory. If this is false, then views within this
+    /// window should determine how to show update notifications.
+    var supportsUpdateAccessory: Bool {
+        // Native window supports it.
+        true
+    }
 
     /// Gets the terminal controller from the window controller.
     var terminalController: TerminalController? {
         windowController as? TerminalController
     }
-
+    
     // MARK: NSWindow Overrides
 
     override var toolbar: NSToolbar? {
@@ -90,14 +97,16 @@ class TerminalWindow: NSWindow {
             resetZoomAccessory.view.translatesAutoresizingMaskIntoConstraints = false
             
             // Create update notification accessory
-            updateAccessory.layoutAttribute = .right
-            updateAccessory.view = NSHostingView(rootView: UpdateAccessoryView(
-                viewModel: viewModel,
-                model: appDelegate.updateUIModel,
-                actions: appDelegate.updateActions
-            ))
-            addTitlebarAccessoryViewController(updateAccessory)
-            updateAccessory.view.translatesAutoresizingMaskIntoConstraints = false
+            if supportsUpdateAccessory {
+                updateAccessory.layoutAttribute = .right
+                updateAccessory.view = NSHostingView(rootView: UpdateAccessoryView(
+                    viewModel: viewModel,
+                    model: appDelegate.updateUIModel,
+                    actions: appDelegate.updateActions
+                ))
+                addTitlebarAccessoryViewController(updateAccessory)
+                updateAccessory.view.translatesAutoresizingMaskIntoConstraints = false
+            }
         }
 
         // Setup the accessory view for tabs that shows our keyboard shortcuts,

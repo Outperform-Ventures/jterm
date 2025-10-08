@@ -31,6 +31,9 @@ protocol TerminalViewModel: ObservableObject {
 
     /// The command palette state.
     var commandPaletteIsShowing: Bool { get set }
+    
+    /// The update overlay should be visible.
+    var updateOverlayIsVisible: Bool { get }
 }
 
 /// The main terminal view. This terminal view supports splits.
@@ -111,7 +114,9 @@ struct TerminalView<ViewModel: TerminalViewModel>: View {
                 }
                 
                 // Show update information above all else.
-                UpdateOverlay()
+                if viewModel.updateOverlayIsVisible {
+                    UpdateOverlay()
+                }
             }
         }
     }

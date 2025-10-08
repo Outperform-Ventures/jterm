@@ -8,6 +8,10 @@ import SwiftUI
 class TitlebarTabsTahoeTerminalWindow: TransparentTitlebarTerminalWindow, NSToolbarDelegate {
     /// The view model for SwiftUI views
     private var viewModel = ViewModel()
+    
+    /// Titlebar tabs can't support the update accessory because of the way we layout
+    /// the native tabs back into the menu bar.
+    override var supportsUpdateAccessory: Bool { false }
 
     deinit {
         tabBarObserver = nil
