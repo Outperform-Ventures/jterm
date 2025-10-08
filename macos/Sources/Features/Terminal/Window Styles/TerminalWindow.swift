@@ -17,7 +17,6 @@ class TerminalWindow: NSWindow {
     
     /// Update notification UI in titlebar
     private let updateAccessory = NSTitlebarAccessoryViewController()
-    private(set) var updateUIModel = UpdateViewModel()
 
     /// The configuration derived from the Ghostty config so we don't need to rely on references.
     private(set) var derivedConfig: DerivedConfig = .init()
@@ -94,7 +93,7 @@ class TerminalWindow: NSWindow {
             updateAccessory.layoutAttribute = .right
             updateAccessory.view = NSHostingView(rootView: UpdateAccessoryView(
                 viewModel: viewModel,
-                model: updateUIModel,
+                model: appDelegate.updateUIModel,
                 actions: createUpdateActions()
             ))
             addTitlebarAccessoryViewController(updateAccessory)
@@ -457,48 +456,60 @@ class TerminalWindow: NSWindow {
     // MARK: Update UI
     
     private func createUpdateActions() -> UpdateUIActions {
-        UpdateUIActions(
-            allowAutoChecks: { [weak self] in
+        guard let appDelegate = NSApp.delegate as? AppDelegate else {
+            return UpdateUIActions(
+                allowAutoChecks: {},
+                denyAutoChecks: {},
+                cancel: {},
+                install: {},
+                remindLater: {},
+                skipThisVersion: {},
+                showReleaseNotes: {},
+                retry: {}
+            )
+        }
+        
+        return UpdateUIActions(
+            allowAutoChecks: {
                 print("Demo: Allow auto checks")
-                self?.updateUIModel.state = .idle
+                appDelegate.updateUIModel.state = .idle
             },
-            denyAutoChecks: { [weak self] in
+            denyAutoChecks: {
                 print("Demo: Deny auto checks")
-                self?.updateUIModel.state = .idle
+                appDelegate.updateUIModel.state = .idle
             },
-            cancel: { [weak self] in
+            cancel: {
                 print("Demo: Cancel")
-                self?.updateUIModel.state = .idle
+                appDelegate.updateUIModel.state = .idle
             },
-            install: { [weak self] in
-                guard let self else { return }
+            install: {
                 print("Demo: Install - simulating download and install flow")
                 
                 // Start downloading
-                self.updateUIModel.state = .downloading
-                self.updateUIModel.progress = 0.0
+                appDelegate.updateUIModel.state = .downloading
+                appDelegate.updateUIModel.progress = 0.0
                 
                 // Simulate download progress
                 for i in 1...10 {
                     DispatchQueue.main.asyncAfter(deadline: .now() + Double(i) * 0.3) {
-                        self.updateUIModel.progress = Double(i) / 10.0
+                        appDelegate.updateUIModel.progress = Double(i) / 10.0
                         
                         if i == 10 {
                             // Move to extraction
                             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                                self.updateUIModel.state = .extracting
-                                self.updateUIModel.progress = 0.0
+                                appDelegate.updateUIModel.state = .extracting
+                                appDelegate.updateUIModel.progress = 0.0
                                 
                                 // Simulate extraction progress
                                 for j in 1...5 {
                                     DispatchQueue.main.asyncAfter(deadline: .now() + Double(j) * 0.3) {
-                                        self.updateUIModel.progress = Double(j) / 5.0
+                                        appDelegate.updateUIModel.progress = Double(j) / 5.0
                                         
                                         if j == 5 {
                                             // Move to ready to install
                                             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                                                self.updateUIModel.state = .readyToInstall
-                                                self.updateUIModel.progress = nil
+                                                appDelegate.updateUIModel.state = .readyToInstall
+                                                appDelegate.updateUIModel.progress = nil
                                             }
                                         }
                                     }
@@ -508,29 +519,28 @@ class TerminalWindow: NSWindow {
                     }
                 }
             },
-            remindLater: { [weak self] in
+            remindLater: {
                 print("Demo: Remind later")
-                self?.updateUIModel.state = .idle
+                appDelegate.updateUIModel.state = .idle
             },
-            skipThisVersion: { [weak self] in
+            skipThisVersion: {
                 print("Demo: Skip version")
-                self?.updateUIModel.state = .idle
+                appDelegate.updateUIModel.state = .idle
             },
-            showReleaseNotes: { [weak self] in
+            showReleaseNotes: {
                 print("Demo: Show release notes")
                 guard let url = URL(string: "https://github.com/ghostty-org/ghostty/releases") else { return }
                 NSWorkspace.shared.open(url)
             },
-            retry: { [weak self] in
-                guard let self else { return }
+            retry: {
                 print("Demo: Retry - simulating update check")
-                self.updateUIModel.state = .checking
-                self.updateUIModel.progress = nil
-                self.updateUIModel.error = nil
+                appDelegate.updateUIModel.state = .checking
+                appDelegate.updateUIModel.progress = nil
+                appDelegate.updateUIModel.error = nil
                 
                 DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-                    self.updateUIModel.state = .updateAvailable
-                    self.updateUIModel.details = .init(
+                    appDelegate.updateUIModel.state = .updateAvailable
+                    appDelegate.updateUIModel.details = .init(
                         version: "1.2.0",
                         build: "demo",
                         size: "42 MB",

@@ -101,6 +101,9 @@ class AppDelegate: NSObject,
     /// Manages updates
     let updaterController: SPUStandardUpdaterController
     let updaterDelegate: UpdaterDelegate = UpdaterDelegate()
+    
+    /// Update view model for UI display
+    @Published private(set) var updateUIModel = UpdateViewModel()
 
     /// The elapsed time since the process was started
     var timeSinceLaunch: TimeInterval {
@@ -1008,24 +1011,16 @@ class AppDelegate: NSObject,
         // Demo mode: simulate update check instead of real Sparkle check
         // TODO: Replace with real updaterController.checkForUpdates(sender) when SPUUserDriver is implemented
         
-        guard let terminalWindow = NSApp.keyWindow as? TerminalWindow else {
-            // Fallback to real update check if no terminal window
-            updaterController.checkForUpdates(sender)
-            return
-        }
-        
-        let model = terminalWindow.updateUIModel
-        
         // Simulate the full update check flow
-        model.state = .checking
-        model.progress = nil
-        model.details = nil
-        model.error = nil
+        updateUIModel.state = .checking
+        updateUIModel.progress = nil
+        updateUIModel.details = nil
+        updateUIModel.error = nil
         
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
             // Simulate finding an update
-            model.state = .updateAvailable
-            model.details = .init(
+            self.updateUIModel.state = .updateAvailable
+            self.updateUIModel.details = .init(
                 version: "1.2.0",
                 build: "demo",
                 size: "42 MB",
