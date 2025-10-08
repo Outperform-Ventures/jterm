@@ -1,4 +1,5 @@
 import AppKit
+import SwiftUI
 import UserNotifications
 import OSLog
 import Sparkle
@@ -1004,7 +1005,34 @@ class AppDelegate: NSObject,
     }
 
     @IBAction func checkForUpdates(_ sender: Any?) {
-        updaterController.checkForUpdates(sender)
+        // Demo mode: simulate update check instead of real Sparkle check
+        // TODO: Replace with real updaterController.checkForUpdates(sender) when SPUUserDriver is implemented
+        
+        guard let terminalWindow = NSApp.keyWindow as? TerminalWindow else {
+            // Fallback to real update check if no terminal window
+            updaterController.checkForUpdates(sender)
+            return
+        }
+        
+        let model = terminalWindow.updateUIModel
+        
+        // Simulate the full update check flow
+        model.state = .checking
+        model.progress = nil
+        model.details = nil
+        model.error = nil
+        
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+            // Simulate finding an update
+            model.state = .updateAvailable
+            model.details = .init(
+                version: "1.2.0",
+                build: "demo",
+                size: "42 MB",
+                date: Date(),
+                notesSummary: "This is a demo of the update UI. New features and bug fixes would be listed here."
+            )
+        }
     }
 
     @IBAction func newWindow(_ sender: Any?) {

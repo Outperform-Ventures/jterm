@@ -14,6 +14,10 @@ class TerminalWindow: NSWindow {
 
     /// Reset split zoom button in titlebar
     private let resetZoomAccessory = NSTitlebarAccessoryViewController()
+    
+    /// Update notification UI in titlebar
+    private let updateAccessory = NSTitlebarAccessoryViewController()
+    private(set) var updateUIModel = UpdateViewModel()
 
     /// The configuration derived from the Ghostty config so we don't need to rely on references.
     private(set) var derivedConfig: DerivedConfig = .init()
@@ -85,6 +89,16 @@ class TerminalWindow: NSWindow {
                 }))
             addTitlebarAccessoryViewController(resetZoomAccessory)
             resetZoomAccessory.view.translatesAutoresizingMaskIntoConstraints = false
+            
+            // Create update notification accessory
+            updateAccessory.layoutAttribute = .right
+            updateAccessory.view = NSHostingView(rootView: UpdateAccessoryView(
+                viewModel: viewModel,
+                model: updateUIModel,
+                actions: createUpdateActions()
+            ))
+            addTitlebarAccessoryViewController(updateAccessory)
+            updateAccessory.view.translatesAutoresizingMaskIntoConstraints = false
         }
 
         // Setup the accessory view for tabs that shows our keyboard shortcuts,
@@ -198,6 +212,9 @@ class TerminalWindow: NSWindow {
         if let idx = titlebarAccessoryViewControllers.firstIndex(of: resetZoomAccessory) {
             removeTitlebarAccessoryViewController(at: idx)
         }
+        
+        // We don't need to do this with the update accessory. I don't know why but
+        // everything works fine.
     }
 
     private func tabBarDidDisappear() {
@@ -436,6 +453,94 @@ class TerminalWindow: NSWindow {
         standardWindowButton(.miniaturizeButton)?.isHidden = true
         standardWindowButton(.zoomButton)?.isHidden = true
     }
+    
+    // MARK: Update UI
+    
+    private func createUpdateActions() -> UpdateUIActions {
+        UpdateUIActions(
+            allowAutoChecks: { [weak self] in
+                print("Demo: Allow auto checks")
+                self?.updateUIModel.state = .idle
+            },
+            denyAutoChecks: { [weak self] in
+                print("Demo: Deny auto checks")
+                self?.updateUIModel.state = .idle
+            },
+            cancel: { [weak self] in
+                print("Demo: Cancel")
+                self?.updateUIModel.state = .idle
+            },
+            install: { [weak self] in
+                guard let self else { return }
+                print("Demo: Install - simulating download and install flow")
+                
+                // Start downloading
+                self.updateUIModel.state = .downloading
+                self.updateUIModel.progress = 0.0
+                
+                // Simulate download progress
+                for i in 1...10 {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + Double(i) * 0.3) {
+                        self.updateUIModel.progress = Double(i) / 10.0
+                        
+                        if i == 10 {
+                            // Move to extraction
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                                self.updateUIModel.state = .extracting
+                                self.updateUIModel.progress = 0.0
+                                
+                                // Simulate extraction progress
+                                for j in 1...5 {
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + Double(j) * 0.3) {
+                                        self.updateUIModel.progress = Double(j) / 5.0
+                                        
+                                        if j == 5 {
+                                            // Move to ready to install
+                                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                                                self.updateUIModel.state = .readyToInstall
+                                                self.updateUIModel.progress = nil
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            remindLater: { [weak self] in
+                print("Demo: Remind later")
+                self?.updateUIModel.state = .idle
+            },
+            skipThisVersion: { [weak self] in
+                print("Demo: Skip version")
+                self?.updateUIModel.state = .idle
+            },
+            showReleaseNotes: { [weak self] in
+                print("Demo: Show release notes")
+                guard let url = URL(string: "https://github.com/ghostty-org/ghostty/releases") else { return }
+                NSWorkspace.shared.open(url)
+            },
+            retry: { [weak self] in
+                guard let self else { return }
+                print("Demo: Retry - simulating update check")
+                self.updateUIModel.state = .checking
+                self.updateUIModel.progress = nil
+                self.updateUIModel.error = nil
+                
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                    self.updateUIModel.state = .updateAvailable
+                    self.updateUIModel.details = .init(
+                        version: "1.2.0",
+                        build: "demo",
+                        size: "42 MB",
+                        date: Date(),
+                        notesSummary: "This is a demo of the update UI."
+                    )
+                }
+            }
+        )
+    }
 
     // MARK: Config
 
@@ -467,21 +572,20 @@ extension TerminalWindow {
     class ViewModel: ObservableObject {
         @Published var isSurfaceZoomed: Bool = false
         @Published var hasToolbar: Bool = false
+        
+        /// Calculates the top padding based on toolbar visibility and macOS version
+        fileprivate var accessoryTopPadding: CGFloat {
+            if #available(macOS 26.0, *) {
+                return hasToolbar ? 10 : 5
+            } else {
+                return hasToolbar ? 9 : 4
+            }
+        }
     }
 
     struct ResetZoomAccessoryView: View {
         @ObservedObject var viewModel: ViewModel
         let action: () -> Void
-        
-        // The padding from the top that the view appears. This was all just manually
-        // measured based on the OS.
-        var topPadding: CGFloat {
-            if #available(macOS 26.0, *) {
-                return viewModel.hasToolbar ? 10 : 5
-            } else {
-                return viewModel.hasToolbar ? 9 : 4
-            }
-        }
 
         var body: some View {
             if viewModel.isSurfaceZoomed {
@@ -497,10 +601,24 @@ extension TerminalWindow {
                 }
                 // With a toolbar, the window title is taller, so we need more padding
                 // to properly align.
-                .padding(.top, topPadding)
+                .padding(.top, viewModel.accessoryTopPadding)
                 // We always need space at the end of the titlebar
                 .padding(.trailing, 10)
             }
         }
     }
+    
+    /// A pill-shaped button that displays update status and provides access to update actions.
+    struct UpdateAccessoryView: View {
+        @ObservedObject var viewModel: ViewModel
+        @ObservedObject var model: UpdateViewModel
+        let actions: UpdateUIActions
+        
+        var body: some View {
+            UpdatePill(model: model, actions: actions)
+                .padding(.top, viewModel.accessoryTopPadding)
+                .padding(.trailing, 10)
+        }
+    }
+
 }
