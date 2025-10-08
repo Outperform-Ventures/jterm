@@ -109,6 +109,26 @@ struct TerminalView<ViewModel: TerminalViewModel>: View {
                         self.delegate?.performAction(action, on: surfaceView)
                     }
                 }
+                
+                // Show update information above all else.
+                UpdateOverlay()
+            }
+        }
+    }
+}
+
+fileprivate struct UpdateOverlay: View {
+    var body: some View {
+        if let appDelegate = NSApp.delegate as? AppDelegate {
+            VStack {
+                Spacer()
+                
+                HStack {
+                    Spacer()
+                    UpdatePill(model: appDelegate.updateUIModel, actions: appDelegate.updateActions)
+                        .padding(.bottom, 12)
+                        .padding(.trailing, 12)
+                }
             }
         }
     }

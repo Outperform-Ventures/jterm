@@ -94,7 +94,7 @@ class TerminalWindow: NSWindow {
             updateAccessory.view = NSHostingView(rootView: UpdateAccessoryView(
                 viewModel: viewModel,
                 model: appDelegate.updateUIModel,
-                actions: createUpdateActions()
+                actions: appDelegate.updateActions
             ))
             addTitlebarAccessoryViewController(updateAccessory)
             updateAccessory.view.translatesAutoresizingMaskIntoConstraints = false
@@ -453,105 +453,6 @@ class TerminalWindow: NSWindow {
         standardWindowButton(.zoomButton)?.isHidden = true
     }
     
-    // MARK: Update UI
-    
-    private func createUpdateActions() -> UpdateUIActions {
-        guard let appDelegate = NSApp.delegate as? AppDelegate else {
-            return UpdateUIActions(
-                allowAutoChecks: {},
-                denyAutoChecks: {},
-                cancel: {},
-                install: {},
-                remindLater: {},
-                skipThisVersion: {},
-                showReleaseNotes: {},
-                retry: {}
-            )
-        }
-        
-        return UpdateUIActions(
-            allowAutoChecks: {
-                print("Demo: Allow auto checks")
-                appDelegate.updateUIModel.state = .idle
-            },
-            denyAutoChecks: {
-                print("Demo: Deny auto checks")
-                appDelegate.updateUIModel.state = .idle
-            },
-            cancel: {
-                print("Demo: Cancel")
-                appDelegate.updateUIModel.state = .idle
-            },
-            install: {
-                print("Demo: Install - simulating download and install flow")
-                
-                // Start downloading
-                appDelegate.updateUIModel.state = .downloading
-                appDelegate.updateUIModel.progress = 0.0
-                
-                // Simulate download progress
-                for i in 1...10 {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + Double(i) * 0.3) {
-                        appDelegate.updateUIModel.progress = Double(i) / 10.0
-                        
-                        if i == 10 {
-                            // Move to extraction
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                                appDelegate.updateUIModel.state = .extracting
-                                appDelegate.updateUIModel.progress = 0.0
-                                
-                                // Simulate extraction progress
-                                for j in 1...5 {
-                                    DispatchQueue.main.asyncAfter(deadline: .now() + Double(j) * 0.3) {
-                                        appDelegate.updateUIModel.progress = Double(j) / 5.0
-                                        
-                                        if j == 5 {
-                                            // Move to ready to install
-                                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                                                appDelegate.updateUIModel.state = .readyToInstall
-                                                appDelegate.updateUIModel.progress = nil
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            },
-            remindLater: {
-                print("Demo: Remind later")
-                appDelegate.updateUIModel.state = .idle
-            },
-            skipThisVersion: {
-                print("Demo: Skip version")
-                appDelegate.updateUIModel.state = .idle
-            },
-            showReleaseNotes: {
-                print("Demo: Show release notes")
-                guard let url = URL(string: "https://github.com/ghostty-org/ghostty/releases") else { return }
-                NSWorkspace.shared.open(url)
-            },
-            retry: {
-                print("Demo: Retry - simulating update check")
-                appDelegate.updateUIModel.state = .checking
-                appDelegate.updateUIModel.progress = nil
-                appDelegate.updateUIModel.error = nil
-                
-                DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-                    appDelegate.updateUIModel.state = .updateAvailable
-                    appDelegate.updateUIModel.details = .init(
-                        version: "1.2.0",
-                        build: "demo",
-                        size: "42 MB",
-                        date: Date(),
-                        notesSummary: "This is a demo of the update UI."
-                    )
-                }
-            }
-        )
-    }
-
     // MARK: Config
 
     struct DerivedConfig {

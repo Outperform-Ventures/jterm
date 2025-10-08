@@ -104,6 +104,11 @@ class AppDelegate: NSObject,
     
     /// Update view model for UI display
     @Published private(set) var updateUIModel = UpdateViewModel()
+    
+    /// Update actions for UI interactions
+    private(set) lazy var updateActions: UpdateUIActions = {
+        createUpdateActions()
+    }()
 
     /// The elapsed time since the process was started
     var timeSinceLaunch: TimeInterval {
@@ -1028,6 +1033,85 @@ class AppDelegate: NSObject,
                 notesSummary: "This is a demo of the update UI. New features and bug fixes would be listed here."
             )
         }
+    }
+    
+    private func createUpdateActions() -> UpdateUIActions {
+        return UpdateUIActions(
+            allowAutoChecks: {
+                print("Demo: Allow auto checks")
+                self.updateUIModel.state = .idle
+            },
+            denyAutoChecks: {
+                print("Demo: Deny auto checks")
+                self.updateUIModel.state = .idle
+            },
+            cancel: {
+                print("Demo: Cancel")
+                self.updateUIModel.state = .idle
+            },
+            install: {
+                print("Demo: Install - simulating download and install flow")
+                
+                self.updateUIModel.state = .downloading
+                self.updateUIModel.progress = 0.0
+                
+                for i in 1...10 {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + Double(i) * 0.3) {
+                        self.updateUIModel.progress = Double(i) / 10.0
+                        
+                        if i == 10 {
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                                self.updateUIModel.state = .extracting
+                                self.updateUIModel.progress = 0.0
+                                
+                                for j in 1...5 {
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + Double(j) * 0.3) {
+                                        self.updateUIModel.progress = Double(j) / 5.0
+                                        
+                                        if j == 5 {
+                                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                                                self.updateUIModel.state = .readyToInstall
+                                                self.updateUIModel.progress = nil
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            remindLater: {
+                print("Demo: Remind later")
+                self.updateUIModel.state = .idle
+            },
+            skipThisVersion: {
+                print("Demo: Skip version")
+                self.updateUIModel.state = .idle
+            },
+            showReleaseNotes: {
+                print("Demo: Show release notes")
+                guard let url = URL(string: "https://github.com/ghostty-org/ghostty/releases") else { return }
+                NSWorkspace.shared.open(url)
+            },
+            retry: {
+                print("Demo: Retry - simulating update check")
+                self.updateUIModel.state = .checking
+                self.updateUIModel.progress = nil
+                self.updateUIModel.error = nil
+                
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                    self.updateUIModel.state = .updateAvailable
+                    self.updateUIModel.details = .init(
+                        version: "1.2.0",
+                        build: "demo",
+                        size: "42 MB",
+                        date: Date(),
+                        notesSummary: "This is a demo of the update UI."
+                    )
+                }
+            }
+        )
     }
 
     @IBAction func newWindow(_ sender: Any?) {

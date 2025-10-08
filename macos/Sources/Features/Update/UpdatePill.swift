@@ -13,14 +13,11 @@ struct UpdatePill: View {
     
     var body: some View {
         if model.state != .idle {
-            VStack {
-                pillButton
-                Spacer()
-            }
-            .popover(isPresented: $showPopover, arrowEdge: .bottom) {
-                UpdatePopoverView(model: model, actions: actions)
-            }
-            .transition(.opacity.combined(with: .scale(scale: 0.95)))
+            pillButton
+                .popover(isPresented: $showPopover, arrowEdge: .bottom) {
+                    UpdatePopoverView(model: model, actions: actions)
+                }
+                .transition(.opacity.combined(with: .scale(scale: 0.95)))
         }
     }
     
