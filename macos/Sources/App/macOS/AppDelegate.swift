@@ -103,12 +103,7 @@ class AppDelegate: NSObject,
     let updaterDelegate: UpdaterDelegate = UpdaterDelegate()
     
     /// Update view model for UI display
-    @Published private(set) var updateUIModel = UpdateViewModel()
-    
-    /// Update actions for UI interactions
-    private(set) lazy var updateActions: UpdateUIActions = {
-        createUpdateActions()
-    }()
+    @Published private(set) var updateViewModel = UpdateViewModel()
 
     /// The elapsed time since the process was started
     var timeSinceLaunch: TimeInterval {
@@ -1013,106 +1008,83 @@ class AppDelegate: NSObject,
     }
 
     @IBAction func checkForUpdates(_ sender: Any?) {
-        // Demo mode: simulate update check instead of real Sparkle check
-        // TODO: Replace with real updaterController.checkForUpdates(sender) when SPUUserDriver is implemented
+        // Demo mode: simulate update check with new UpdateState
+        updateViewModel.state = .checking(.init(cancel: { [weak self] in
+            self?.updateViewModel.state = .idle
+        }))
         
-        // Simulate the full update check flow
-        updateUIModel.state = .checking
-        updateUIModel.progress = nil
-        updateUIModel.details = nil
-        updateUIModel.error = nil
-        
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-            // Simulate finding an update
-            self.updateUIModel.state = .updateAvailable
-            self.updateUIModel.details = .init(
-                version: "1.2.0",
-                build: "demo",
-                size: "42 MB",
-                date: Date(),
-                notesSummary: "This is a demo of the update UI. New features and bug fixes would be listed here."
-            )
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
+            guard let self else { return }
+            
+            self.updateViewModel.state = .updateAvailable(.init(
+                appcastItem: SUAppcastItem.empty(),
+                reply: { [weak self] choice in
+                    if choice == .install {
+                        self?.simulateDownload()
+                    } else {
+                        self?.updateViewModel.state = .idle
+                    }
+                }
+            ))
         }
     }
     
-    private func createUpdateActions() -> UpdateUIActions {
-        return UpdateUIActions(
-            allowAutoChecks: {
-                print("Demo: Allow auto checks")
-                self.updateUIModel.state = .idle
+    private func simulateDownload() {
+        let download = UpdateState.Downloading(
+            cancel: { [weak self] in
+                self?.updateViewModel.state = .idle
             },
-            denyAutoChecks: {
-                print("Demo: Deny auto checks")
-                self.updateUIModel.state = .idle
-            },
-            cancel: {
-                print("Demo: Cancel")
-                self.updateUIModel.state = .idle
-            },
-            install: {
-                print("Demo: Install - simulating download and install flow")
+            expectedLength: nil,
+            progress: 0,
+        )
+        updateViewModel.state = .downloading(download)
+        
+        for i in 1...10 {
+            DispatchQueue.main.asyncAfter(deadline: .now() + Double(i) * 0.3) { [weak self] in
+                let updatedDownload = UpdateState.Downloading(
+                    cancel: download.cancel,
+                    expectedLength: 1000,
+                    progress: UInt64(i * 100)
+                )
+                self?.updateViewModel.state = .downloading(updatedDownload)
                 
-                self.updateUIModel.state = .downloading
-                self.updateUIModel.progress = 0.0
-                
-                for i in 1...10 {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + Double(i) * 0.3) {
-                        self.updateUIModel.progress = Double(i) / 10.0
-                        
-                        if i == 10 {
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                                self.updateUIModel.state = .extracting
-                                self.updateUIModel.progress = 0.0
-                                
-                                for j in 1...5 {
-                                    DispatchQueue.main.asyncAfter(deadline: .now() + Double(j) * 0.3) {
-                                        self.updateUIModel.progress = Double(j) / 5.0
-                                        
-                                        if j == 5 {
-                                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                                                self.updateUIModel.state = .readyToInstall
-                                                self.updateUIModel.progress = nil
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
+                if i == 10 {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                        self?.simulateExtract()
                     }
                 }
-            },
-            remindLater: {
-                print("Demo: Remind later")
-                self.updateUIModel.state = .idle
-            },
-            skipThisVersion: {
-                print("Demo: Skip version")
-                self.updateUIModel.state = .idle
-            },
-            showReleaseNotes: {
-                print("Demo: Show release notes")
-                guard let url = URL(string: "https://github.com/ghostty-org/ghostty/releases") else { return }
-                NSWorkspace.shared.open(url)
-            },
-            retry: {
-                print("Demo: Retry - simulating update check")
-                self.updateUIModel.state = .checking
-                self.updateUIModel.progress = nil
-                self.updateUIModel.error = nil
+            }
+        }
+    }
+    
+    private func simulateExtract() {
+        updateViewModel.state = .extracting(.init(progress: 0.0))
+        
+        for j in 1...5 {
+            DispatchQueue.main.asyncAfter(deadline: .now() + Double(j) * 0.3) { [weak self] in
+                self?.updateViewModel.state = .extracting(.init(progress: Double(j) / 5.0))
                 
-                DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-                    self.updateUIModel.state = .updateAvailable
-                    self.updateUIModel.details = .init(
-                        version: "1.2.0",
-                        build: "demo",
-                        size: "42 MB",
-                        date: Date(),
-                        notesSummary: "This is a demo of the update UI."
-                    )
+                if j == 5 {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                        self?.updateViewModel.state = .readyToInstall(.init(
+                            reply: { [weak self] choice in
+                                if choice == .install {
+                                    self?.updateViewModel.state = .installing
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
+                                        self?.updateViewModel.state = .idle
+                                    }
+                                } else {
+                                    self?.updateViewModel.state = .idle
+                                }
+                            }
+                        ))
+                    }
                 }
             }
-        )
+        }
     }
+    
+
 
     @IBAction func newWindow(_ sender: Any?) {
         _ = TerminalController.newWindow(ghostty)

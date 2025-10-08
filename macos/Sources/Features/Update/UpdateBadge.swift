@@ -15,27 +15,35 @@ struct UpdateBadge: View {
     
     var body: some View {
         switch model.state {
-        case .downloading, .extracting:
-            if let progress = model.progress {
+        case .downloading(let download):
+            if let expectedLength = download.expectedLength, expectedLength > 0 {
+                let progress = Double(download.progress) / Double(expectedLength)
                 ProgressRingView(progress: progress)
             } else {
                 Image(systemName: "arrow.down.circle")
             }
             
+        case .extracting(let extracting):
+            ProgressRingView(progress: extracting.progress)
+            
         case .checking, .installing:
-            Image(systemName: model.iconName)
-                .rotationEffect(.degrees(rotationAngle))
-                .onAppear {
-                    withAnimation(.linear(duration: 2.5).repeatForever(autoreverses: false)) {
-                        rotationAngle = 360
+            if let iconName = model.iconName {
+                Image(systemName: iconName)
+                    .rotationEffect(.degrees(rotationAngle))
+                    .onAppear {
+                        withAnimation(.linear(duration: 2.5).repeatForever(autoreverses: false)) {
+                            rotationAngle = 360
+                        }
                     }
-                }
-                .onDisappear {
-                    rotationAngle = 0
-                }
+                    .onDisappear {
+                        rotationAngle = 0
+                    }
+            }
             
         default:
-            Image(systemName: model.iconName)
+            if let iconName = model.iconName {
+                Image(systemName: iconName)
+            }
         }
     }
 }

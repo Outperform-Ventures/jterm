@@ -101,8 +101,7 @@ class TerminalWindow: NSWindow {
                 updateAccessory.layoutAttribute = .right
                 updateAccessory.view = NSHostingView(rootView: UpdateAccessoryView(
                     viewModel: viewModel,
-                    model: appDelegate.updateUIModel,
-                    actions: appDelegate.updateActions
+                    model: appDelegate.updateViewModel
                 ))
                 addTitlebarAccessoryViewController(updateAccessory)
                 updateAccessory.view.translatesAutoresizingMaskIntoConstraints = false
@@ -532,10 +531,9 @@ extension TerminalWindow {
     struct UpdateAccessoryView: View {
         @ObservedObject var viewModel: ViewModel
         @ObservedObject var model: UpdateViewModel
-        let actions: UpdateUIActions
         
         var body: some View {
-            UpdatePill(model: model, actions: actions)
+            UpdatePill(model: model)
                 .padding(.top, viewModel.accessoryTopPadding)
                 .padding(.trailing, 10)
         }

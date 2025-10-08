@@ -5,17 +5,14 @@ struct UpdatePill: View {
     /// The update view model that provides the current state and information
     @ObservedObject var model: UpdateViewModel
     
-    /// The actions that can be performed on updates
-    let actions: UpdateUIActions
-    
     /// Whether the update popover is currently visible
     @State private var showPopover = false
     
     var body: some View {
-        if model.state != .idle {
+        if !model.state.isIdle {
             pillButton
                 .popover(isPresented: $showPopover, arrowEdge: .bottom) {
-                    UpdatePopoverView(model: model, actions: actions)
+                    UpdatePopoverView(model: model)
                 }
                 .transition(.opacity.combined(with: .scale(scale: 0.95)))
         }
@@ -43,6 +40,6 @@ struct UpdatePill: View {
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
-        .help(model.stateTooltip)
+        .help(model.text)
     }
 }

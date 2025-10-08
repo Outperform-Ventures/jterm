@@ -130,7 +130,7 @@ fileprivate struct UpdateOverlay: View {
                 
                 HStack {
                     Spacer()
-                    UpdatePill(model: appDelegate.updateUIModel, actions: appDelegate.updateActions)
+                    UpdatePill(model: appDelegate.updateViewModel)
                         .padding(.bottom, 12)
                         .padding(.trailing, 12)
                 }

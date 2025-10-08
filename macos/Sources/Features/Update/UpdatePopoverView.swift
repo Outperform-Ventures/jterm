@@ -1,4 +1,5 @@
 import SwiftUI
+import Sparkle
 
 /// A popover view that displays detailed update information and action buttons.
 ///
@@ -8,9 +9,6 @@ struct UpdatePopoverView: View {
     /// The update view model that provides the current state and information
     @ObservedObject var model: UpdateViewModel
     
-    /// The actions that can be performed on updates
-    let actions: UpdateUIActions
-    
     /// Environment value for dismissing the popover
     @Environment(\.dismiss) private var dismiss
     
@@ -18,41 +16,47 @@ struct UpdatePopoverView: View {
         VStack(alignment: .leading, spacing: 0) {
             switch model.state {
             case .idle:
+                // Shouldn't happen in a well-formed view stack. Higher levels
+                // should not call the popover for idles.
                 EmptyView()
                 
-            case .permissionRequest:
-                permissionRequestView
+            case .permissionRequest(let request):
+                PermissionRequestView(request: request, dismiss: dismiss)
                 
-            case .checking:
-                checkingView
+            case .checking(let checking):
+                CheckingView(checking: checking, dismiss: dismiss)
                 
-            case .updateAvailable:
-                updateAvailableView
+            case .updateAvailable(let update):
+                UpdateAvailableView(update: update, dismiss: dismiss)
                 
-            case .downloading:
-                downloadingView
+            case .downloading(let download):
+                DownloadingView(download: download, dismiss: dismiss)
                 
-            case .extracting:
-                extractingView
+            case .extracting(let extracting):
+                ExtractingView(extracting: extracting)
                 
-            case .readyToInstall:
-                readyToInstallView
+            case .readyToInstall(let ready):
+                ReadyToInstallView(ready: ready, dismiss: dismiss)
                 
             case .installing:
-                installingView
+                InstallingView()
                 
             case .notFound:
-                notFoundView
+                NotFoundView(dismiss: dismiss)
                 
-            case .error:
-                errorView
+            case .error(let error):
+                UpdateErrorView(error: error, dismiss: dismiss)
             }
         }
         .frame(width: 300)
     }
+}
+
+fileprivate struct PermissionRequestView: View {
+    let request: UpdateState.PermissionRequest
+    let dismiss: DismissAction
     
-    /// View shown when requesting permission to enable automatic updates
-    private var permissionRequestView: some View {
+    var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 8) {
                 Text("Enable automatic updates?")
@@ -66,7 +70,9 @@ struct UpdatePopoverView: View {
             
             HStack(spacing: 8) {
                 Button("Not Now") {
-                    actions.denyAutoChecks()
+                    request.reply(SUUpdatePermissionResponse(
+                        automaticUpdateChecks: false,
+                        sendSystemProfile: false))
                     dismiss()
                 }
                 .keyboardShortcut(.cancelAction)
@@ -74,7 +80,9 @@ struct UpdatePopoverView: View {
                 Spacer()
                 
                 Button("Allow") {
-                    actions.allowAutoChecks()
+                    request.reply(SUUpdatePermissionResponse(
+                        automaticUpdateChecks: true,
+                        sendSystemProfile: false))
                     dismiss()
                 }
                 .keyboardShortcut(.defaultAction)
@@ -83,9 +91,13 @@ struct UpdatePopoverView: View {
         }
         .padding(16)
     }
+}
+
+fileprivate struct CheckingView: View {
+    let checking: UpdateState.Checking
+    let dismiss: DismissAction
     
-    /// View shown while checking for updates
-    private var checkingView: some View {
+    var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack(spacing: 10) {
                 ProgressView()
@@ -97,7 +109,7 @@ struct UpdatePopoverView: View {
             HStack {
                 Spacer()
                 Button("Cancel") {
-                    actions.cancel()
+                    checking.cancel()
                     dismiss()
                 }
                 .keyboardShortcut(.cancelAction)
@@ -106,47 +118,39 @@ struct UpdatePopoverView: View {
         }
         .padding(16)
     }
+}
+
+fileprivate struct UpdateAvailableView: View {
+    let update: UpdateState.UpdateAvailable
+    let dismiss: DismissAction
     
-    /// View shown when an update is available, displaying version and size information
-    private var updateAvailableView: some View {
+    var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 12) {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Update Available")
                         .font(.system(size: 13, weight: .semibold))
                     
-                    if let details = model.details {
-                        VStack(alignment: .leading, spacing: 4) {
-                            HStack(spacing: 6) {
-                                Text("Version:")
-                                    .foregroundColor(.secondary)
-                                    .frame(width: 50, alignment: .trailing)
-                                Text(details.version)
-                            }
-                            .font(.system(size: 11))
-                            
-                            if let size = details.size {
-                                HStack(spacing: 6) {
-                                    Text("Size:")
-                                        .foregroundColor(.secondary)
-                                        .frame(width: 50, alignment: .trailing)
-                                    Text(size)
-                                }
-                                .font(.system(size: 11))
-                            }
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack(spacing: 6) {
+                            Text("Version:")
+                                .foregroundColor(.secondary)
+                                .frame(width: 50, alignment: .trailing)
+                            Text(update.appcastItem.displayVersionString)
                         }
+                        .font(.system(size: 11))
                     }
                 }
                 
                 HStack(spacing: 8) {
                     Button("Skip") {
-                        actions.skipThisVersion()
+                        update.reply(.skip)
                         dismiss()
                     }
                     .controlSize(.small)
                     
                     Button("Later") {
-                        actions.remindLater()
+                        update.reply(.dismiss)
                         dismiss()
                     }
                     .controlSize(.small)
@@ -155,7 +159,7 @@ struct UpdatePopoverView: View {
                     Spacer()
                     
                     Button("Install") {
-                        actions.install()
+                        update.reply(.install)
                         dismiss()
                     }
                     .keyboardShortcut(.defaultAction)
@@ -164,36 +168,22 @@ struct UpdatePopoverView: View {
                 }
             }
             .padding(16)
-            
-            if model.details?.notesSummary != nil {
-                Divider()
-                
-                Button(action: actions.showReleaseNotes) {
-                    HStack {
-                        Text("View Release Notes")
-                            .font(.system(size: 11))
-                        Spacer()
-                        Image(systemName: "arrow.up.right.square")
-                            .font(.system(size: 11))
-                    }
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 10)
-                .background(Color(nsColor: .controlBackgroundColor))
-            }
         }
     }
+}
+
+fileprivate struct DownloadingView: View {
+    let download: UpdateState.Downloading
+    let dismiss: DismissAction
     
-    /// View shown while downloading an update, with progress indicator
-    private var downloadingView: some View {
+    var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 8) {
                 Text("Downloading Update")
                     .font(.system(size: 13, weight: .semibold))
                 
-                if let progress = model.progress {
+                if let expectedLength = download.expectedLength, expectedLength > 0 {
+                    let progress = Double(download.progress) / Double(expectedLength)
                     VStack(alignment: .leading, spacing: 6) {
                         ProgressView(value: progress)
                         Text(String(format: "%.0f%%", progress * 100))
@@ -209,7 +199,7 @@ struct UpdatePopoverView: View {
             HStack {
                 Spacer()
                 Button("Cancel") {
-                    actions.cancel()
+                    download.cancel()
                     dismiss()
                 }
                 .keyboardShortcut(.cancelAction)
@@ -218,45 +208,45 @@ struct UpdatePopoverView: View {
         }
         .padding(16)
     }
+}
+
+fileprivate struct ExtractingView: View {
+    let extracting: UpdateState.Extracting
     
-    /// View shown while extracting/preparing the downloaded update
-    private var extractingView: some View {
+    var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Preparing Update")
                 .font(.system(size: 13, weight: .semibold))
             
-            if let progress = model.progress {
-                VStack(alignment: .leading, spacing: 6) {
-                    ProgressView(value: progress)
-                    Text(String(format: "%.0f%%", progress * 100))
-                        .font(.system(size: 11))
-                        .foregroundColor(.secondary)
-                }
-            } else {
-                ProgressView()
-                    .controlSize(.small)
+            VStack(alignment: .leading, spacing: 6) {
+                ProgressView(value: extracting.progress, total: 1.0)
+                Text(String(format: "%.0f%%", extracting.progress * 100))
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
             }
         }
         .padding(16)
     }
+}
+
+fileprivate struct ReadyToInstallView: View {
+    let ready: UpdateState.ReadyToInstall
+    let dismiss: DismissAction
     
-    /// View shown when an update is ready to be installed
-    private var readyToInstallView: some View {
+    var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 8) {
                 Text("Ready to Install")
                     .font(.system(size: 13, weight: .semibold))
                 
-                if let details = model.details {
-                    Text("Version \(details.version) is ready to install.")
-                        .font(.system(size: 11))
-                        .foregroundColor(.secondary)
-                }
+                Text("The update is ready to install.")
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
             }
             
             HStack(spacing: 8) {
                 Button("Later") {
-                    actions.remindLater()
+                    ready.reply(.dismiss)
                     dismiss()
                 }
                 .keyboardShortcut(.cancelAction)
@@ -265,7 +255,7 @@ struct UpdatePopoverView: View {
                 Spacer()
                 
                 Button("Install and Relaunch") {
-                    actions.install()
+                    ready.reply(.install)
                     dismiss()
                 }
                 .keyboardShortcut(.defaultAction)
@@ -275,9 +265,10 @@ struct UpdatePopoverView: View {
         }
         .padding(16)
     }
-    
-    /// View shown during the installation process
-    private var installingView: some View {
+}
+
+fileprivate struct InstallingView: View {
+    var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 10) {
                 ProgressView()
@@ -292,9 +283,12 @@ struct UpdatePopoverView: View {
         }
         .padding(16)
     }
+}
+
+fileprivate struct NotFoundView: View {
+    let dismiss: DismissAction
     
-    /// View shown when no updates are found (already on latest version)
-    private var notFoundView: some View {
+    var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 8) {
                 Text("No Updates Found")
@@ -309,7 +303,6 @@ struct UpdatePopoverView: View {
             HStack {
                 Spacer()
                 Button("OK") {
-                    actions.remindLater()
                     dismiss()
                 }
                 .keyboardShortcut(.defaultAction)
@@ -318,30 +311,31 @@ struct UpdatePopoverView: View {
         }
         .padding(16)
     }
+}
+
+fileprivate struct UpdateErrorView: View {
+    let error: UpdateState.Error
+    let dismiss: DismissAction
     
-    /// View shown when an error occurs during the update process
-    private var errorView: some View {
+    var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 8) {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .foregroundColor(.orange)
                         .font(.system(size: 13))
-                    Text(model.error?.title ?? "Update Failed")
+                    Text("Update Failed")
                         .font(.system(size: 13, weight: .semibold))
                 }
                 
-                if let message = model.error?.message {
-                    Text(message)
-                        .font(.system(size: 11))
-                        .foregroundColor(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
+                Text(error.error.localizedDescription)
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             
             HStack(spacing: 8) {
                 Button("OK") {
-                    actions.remindLater()
                     dismiss()
                 }
                 .keyboardShortcut(.cancelAction)
@@ -350,7 +344,7 @@ struct UpdatePopoverView: View {
                 Spacer()
                 
                 Button("Retry") {
-                    actions.retry()
+                    error.retry()
                     dismiss()
                 }
                 .keyboardShortcut(.defaultAction)

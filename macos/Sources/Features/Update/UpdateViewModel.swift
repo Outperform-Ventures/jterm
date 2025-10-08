@@ -1,83 +1,13 @@
 import Foundation
 import SwiftUI
-
-struct UpdateUIActions {
-    let allowAutoChecks: () -> Void
-    let denyAutoChecks: () -> Void
-    let cancel: () -> Void
-    let install: () -> Void
-    let remindLater: () -> Void
-    let skipThisVersion: () -> Void
-    let showReleaseNotes: () -> Void
-    let retry: () -> Void
-}
+import Sparkle
 
 class UpdateViewModel: ObservableObject {
-    @Published var state: State = .idle
-    @Published var progress: Double? = nil
-    @Published var details: Details? = nil
-    @Published var error: ErrorInfo? = nil
+    @Published var state: UpdateState = .idle
     
-    enum State: Equatable {
-        case idle
-        case permissionRequest
-        case checking
-        case updateAvailable
-        case downloading
-        case extracting
-        case readyToInstall
-        case installing
-        case notFound
-        case error
-    }
-    
-    struct ErrorInfo: Equatable {
-        let title: String
-        let message: String
-    }
-    
-    struct Details: Equatable {
-        let version: String
-        let build: String?
-        let size: String?
-        let date: Date?
-        let notesSummary: String?
-    }
-    
-    var stateTooltip: String {
-        switch state {
-        case .idle:
-            return ""
-        case .permissionRequest:
-            return "Update permission required"
-        case .checking:
-            return "Checking for updates…"
-        case .updateAvailable:
-            if let details {
-                return "Update available: \(details.version)"
-            }
-            return "Update available"
-        case .downloading:
-            if let progress {
-                return String(format: "Downloading %.0f%%…", progress * 100)
-            }
-            return "Downloading…"
-        case .extracting:
-            if let progress {
-                return String(format: "Preparing %.0f%%…", progress * 100)
-            }
-            return "Preparing…"
-        case .readyToInstall:
-            return "Ready to install"
-        case .installing:
-            return "Installing…"
-        case .notFound:
-            return "No updates found"
-        case .error:
-            return error?.title ?? "Update failed"
-        }
-    }
-    
+    /// The text to display for the current update state.
+    /// Returns an empty string for idle state, progress percentages for downloading/extracting,
+    /// or descriptive text for other states.
     var text: String {
         switch state {
         case .idle:
@@ -86,36 +16,33 @@ class UpdateViewModel: ObservableObject {
             return "Update Permission"
         case .checking:
             return "Checking for Updates…"
-        case .updateAvailable:
-            if let details {
-                return "Update Available: \(details.version)"
-            }
-            return "Update Available"
-        case .downloading:
-            if let progress {
+        case .updateAvailable(let update):
+            return "Update Available: \(update.appcastItem.displayVersionString)"
+        case .downloading(let download):
+            if let expectedLength = download.expectedLength, expectedLength > 0 {
+                let progress = Double(download.progress) / Double(expectedLength)
                 return String(format: "Downloading: %.0f%%", progress * 100)
             }
             return "Downloading…"
-        case .extracting:
-            if let progress {
-                return String(format: "Preparing: %.0f%%", progress * 100)
-            }
-            return "Preparing…"
+        case .extracting(let extracting):
+            return String(format: "Preparing: %.0f%%", extracting.progress * 100)
         case .readyToInstall:
             return "Install Update"
         case .installing:
             return "Installing…"
         case .notFound:
             return "No Updates Available"
-        case .error:
-            return error?.title ?? "Update Failed"
+        case .error(let err):
+            return err.error.localizedDescription
         }
     }
     
-    var iconName: String {
+    /// The SF Symbol icon name for the current update state.
+    /// Returns nil for idle, downloading, and extracting states.
+    var iconName: String? {
         switch state {
         case .idle:
-            return ""
+            return nil
         case .permissionRequest:
             return "questionmark.circle"
         case .checking:
@@ -123,7 +50,7 @@ class UpdateViewModel: ObservableObject {
         case .updateAvailable:
             return "arrow.down.circle.fill"
         case .downloading, .extracting:
-            return "" // Progress ring instead
+            return nil
         case .readyToInstall:
             return "checkmark.circle.fill"
         case .installing:
@@ -135,6 +62,7 @@ class UpdateViewModel: ObservableObject {
         }
     }
     
+    /// The color to apply to the icon for the current update state.
     var iconColor: Color {
         switch state {
         case .idle:
@@ -152,6 +80,7 @@ class UpdateViewModel: ObservableObject {
         }
     }
     
+    /// The background color for the update pill.
     var backgroundColor: Color {
         switch state {
         case .updateAvailable:
@@ -165,6 +94,7 @@ class UpdateViewModel: ObservableObject {
         }
     }
     
+    /// The foreground (text) color for the update pill.
     var foregroundColor: Color {
         switch state {
         case .updateAvailable, .readyToInstall:
@@ -174,5 +104,56 @@ class UpdateViewModel: ObservableObject {
         default:
             return .primary
         }
+    }
+}
+
+enum UpdateState {
+    case idle
+    case permissionRequest(PermissionRequest)
+    case checking(Checking)
+    case updateAvailable(UpdateAvailable)
+    case notFound
+    case error(Error)
+    case downloading(Downloading)
+    case extracting(Extracting)
+    case readyToInstall(ReadyToInstall)
+    case installing
+    
+    var isIdle: Bool {
+        if case .idle = self { return true }
+        return false
+    }
+    
+    struct PermissionRequest {
+        let request: SPUUpdatePermissionRequest
+        let reply: @Sendable (SUUpdatePermissionResponse) -> Void
+    }
+    
+    struct Checking {
+        let cancel: () -> Void
+    }
+    
+    struct UpdateAvailable {
+        let appcastItem: SUAppcastItem
+        let reply: @Sendable (SPUUserUpdateChoice) -> Void
+    }
+    
+    struct Error {
+        let error: any Swift.Error
+        let retry: () -> Void
+    }
+    
+    struct Downloading {
+        let cancel: () -> Void
+        let expectedLength: UInt64?
+        let progress: UInt64
+    }
+    
+    struct Extracting {
+        let progress: Double
+    }
+    
+    struct ReadyToInstall {
+        let reply: @Sendable (SPUUserUpdateChoice) -> Void
     }
 }
