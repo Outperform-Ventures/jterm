@@ -191,6 +191,28 @@ fileprivate struct UpdateAvailableView: View {
                 }
             }
             .padding(16)
+            
+            if let notes = update.releaseNotes {
+                Divider()
+                
+                Link(destination: notes.url) {
+                    HStack {
+                        Image(systemName: "doc.text")
+                            .font(.system(size: 11))
+                        Text(notes.label)
+                            .font(.system(size: 11, weight: .medium))
+                        Spacer()
+                        Image(systemName: "arrow.up.right")
+                            .font(.system(size: 10))
+                    }
+                    .foregroundColor(.primary)
+                    .padding(12)
+                    .frame(maxWidth: .infinity)
+                    .background(Color(nsColor: .controlBackgroundColor))
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
         }
     }
 }

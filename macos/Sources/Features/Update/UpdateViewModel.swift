@@ -173,6 +173,76 @@ enum UpdateState: Equatable {
     struct UpdateAvailable {
         let appcastItem: SUAppcastItem
         let reply: @Sendable (SPUUserUpdateChoice) -> Void
+        
+        var releaseNotes: ReleaseNotes? {
+            let currentCommit = Bundle.main.infoDictionary?["GhosttyCommit"] as? String
+            return ReleaseNotes(displayVersionString: appcastItem.displayVersionString, currentCommit: currentCommit)
+        }
+    }
+    
+    enum ReleaseNotes {
+        case commit(URL)
+        case compareTip(URL)
+        case tagged(URL)
+        
+        init?(displayVersionString: String, currentCommit: String?) {
+            let version = displayVersionString
+            
+            // Check for semantic version (x.y.z)
+            if let semver = Self.extractSemanticVersion(from: version) {
+                let slug = semver.replacingOccurrences(of: ".", with: "-")
+                if let url = URL(string: "https://ghostty.org/docs/install/release-notes/\(slug)") {
+                    self = .tagged(url)
+                    return
+                }
+            }
+            
+            // Fall back to git hash detection
+            guard let newHash = Self.extractGitHash(from: version) else {
+                return nil
+            }
+            
+            if let currentHash = currentCommit, !currentHash.isEmpty,
+               let url = URL(string: "https://github.com/ghostty-org/ghostty/compare/\(currentHash)...\(newHash)") {
+                self = .compareTip(url)
+            } else if let url = URL(string: "https://github.com/ghostty-org/ghostty/commit/\(newHash)") {
+                self = .commit(url)
+            } else {
+                return nil
+            }
+        }
+        
+        private static func extractSemanticVersion(from version: String) -> String? {
+            let pattern = #"^\d+\.\d+\.\d+$"#
+            if version.range(of: pattern, options: .regularExpression) != nil {
+                return version
+            }
+            return nil
+        }
+        
+        private static func extractGitHash(from version: String) -> String? {
+            let pattern = #"[0-9a-f]{7,40}"#
+            if let range = version.range(of: pattern, options: .regularExpression) {
+                return String(version[range])
+            }
+            return nil
+        }
+        
+        var url: URL {
+            switch self {
+            case .commit(let url): return url
+            case .compareTip(let url): return url
+            case .tagged(let url): return url
+            }
+        }
+        
+        var label: String {
+            switch (self) {
+            case .commit: return "View GitHub Commit"
+            case .compareTip: return "Changes Since This Tip Release"
+            case .tagged: return "View Release Notes"
+            }
+        }
     }
     
     struct Error {
