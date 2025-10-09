@@ -10,7 +10,8 @@ class UpdateDriver: NSObject, SPUUserDriver {
         super.init()
     }
     
-    func show(_ request: SPUUpdatePermissionRequest, reply: @escaping @Sendable (SUUpdatePermissionResponse) -> Void) {
+    func show(_ request: SPUUpdatePermissionRequest,
+              reply: @escaping @Sendable (SUUpdatePermissionResponse) -> Void) {
         viewModel.state = .permissionRequest(.init(request: request, reply: reply))
     }
     
@@ -18,7 +19,9 @@ class UpdateDriver: NSObject, SPUUserDriver {
         viewModel.state = .checking(.init(cancel: cancellation))
     }
     
-    func showUpdateFound(with appcastItem: SUAppcastItem, state: SPUUserUpdateState, reply: @escaping @Sendable (SPUUserUpdateChoice) -> Void) {
+    func showUpdateFound(with appcastItem: SUAppcastItem,
+                         state: SPUUserUpdateState,
+                         reply: @escaping @Sendable (SPUUserUpdateChoice) -> Void) {
         viewModel.state = .updateAvailable(.init(appcastItem: appcastItem, reply: reply))
     }
     
@@ -31,20 +34,22 @@ class UpdateDriver: NSObject, SPUUserDriver {
         // We don't do anything with release notes. See `showUpdateReleaseNotes`
     }
     
-    func showUpdateNotFoundWithError(_ error: any Error, acknowledgement: @escaping () -> Void) {
+    func showUpdateNotFoundWithError(_ error: any Error,
+                                     acknowledgement: @escaping () -> Void) {
         viewModel.state = .notFound
-        // TODO: Do we need to acknowledge?
+        acknowledgement()
     }
     
-    func showUpdaterError(_ error: any Error, acknowledgement: @escaping () -> Void) {
+    func showUpdaterError(_ error: any Error,
+                          acknowledgement: @escaping () -> Void) {
         viewModel.state = .error(.init(
             error: error,
-            retry: {
-                guard let delegate = NSApp.delegate as? AppDelegate else {
-                    return
+            retry: { [weak viewModel] in
+                viewModel?.state = .idle
+                DispatchQueue.main.async {
+                    guard let delegate = NSApp.delegate as? AppDelegate else { return }
+                    delegate.checkForUpdates(self)
                 }
-                
-                // TODO fill this in
             },
             dismiss: { [weak viewModel] in
                 viewModel?.state = .idle
