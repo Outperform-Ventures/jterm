@@ -1,13 +1,12 @@
+import Cocoa
 import Sparkle
 
 /// Implement the SPUUserDriver to modify our UpdateViewModel for custom presentation.
 class UpdateDriver: NSObject, SPUUserDriver {
     let viewModel: UpdateViewModel
-    let retryHandler: () -> Void
     
-    init(viewModel: UpdateViewModel, retryHandler: @escaping () -> Void) {
+    init(viewModel: UpdateViewModel) {
         self.viewModel = viewModel
-        self.retryHandler = retryHandler
         super.init()
     }
     
@@ -38,9 +37,18 @@ class UpdateDriver: NSObject, SPUUserDriver {
     }
     
     func showUpdaterError(_ error: any Error, acknowledgement: @escaping () -> Void) {
-        viewModel.state = .error(.init(error: error, retry: retryHandler, dismiss: { [weak viewModel] in
-            viewModel?.state = .idle
-        }))
+        viewModel.state = .error(.init(
+            error: error,
+            retry: {
+                guard let delegate = NSApp.delegate as? AppDelegate else {
+                    return
+                }
+                
+                // TODO fill this in
+            },
+            dismiss: { [weak viewModel] in
+                viewModel?.state = .idle
+            }))
     }
     
     func showDownloadInitiated(cancellation: @escaping () -> Void) {
