@@ -508,9 +508,9 @@ jobs:
       - name: Install zig
         shell: pwsh
         run: |
-          # Get the zig version from build.zig so that it only needs to be updated
-          $fileContent = Get-Content -Path "build.zig" -Raw
-          $pattern = 'buildpkg\.requireZig\("(.*?)"\);'
+          # Get the zig version from build.zig.zon so that it only needs to be updated
+          $fileContent = Get-Content -Path "build.zig.zon" -Raw
+          $pattern = 'minimum_zig_version\s*=\s*"([^"]+)"'
           $zigVersion = [regex]::Match($fileContent, $pattern).Groups[1].Value
           $version = "zig-x86_64-windows-$zigVersion"
           Write-Output $version
@@ -575,7 +575,7 @@ jobs:
       - name: Get required Zig version
         id: zig
         run: |
-          echo "version=$(sed -n -e 's/^.*requireZig("\(.*\)").*$/\1/p' build.zig)" >> $GITHUB_OUTPUT
+          echo "version=$(sed -n -E 's/^\s*\.?minimum_zig_version\s*=\s*"([^"]+)".*/\1/p' build.zig.zon)" >> $GITHUB_OUTPUT
 
       - name: Setup Cache
         uses: namespacelabs/nscloud-cache-action@7baedde84bbf5063413d621f282834bc2654d0c1 # v1.2.18
