@@ -1008,82 +1008,8 @@ class AppDelegate: NSObject,
     }
 
     @IBAction func checkForUpdates(_ sender: Any?) {
-        // Demo mode: simulate update check with new UpdateState
-        updateViewModel.state = .checking(.init(cancel: { [weak self] in
-            self?.updateViewModel.state = .idle
-        }))
-        
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
-            guard let self else { return }
-            
-            self.updateViewModel.state = .updateAvailable(.init(
-                appcastItem: SUAppcastItem.empty(),
-                reply: { [weak self] choice in
-                    if choice == .install {
-                        self?.simulateDownload()
-                    } else {
-                        self?.updateViewModel.state = .idle
-                    }
-                }
-            ))
-        }
+        UpdateSimulator.notFound.simulate(with: updateViewModel)
     }
-    
-    private func simulateDownload() {
-        let download = UpdateState.Downloading(
-            cancel: { [weak self] in
-                self?.updateViewModel.state = .idle
-            },
-            expectedLength: nil,
-            progress: 0,
-        )
-        updateViewModel.state = .downloading(download)
-        
-        for i in 1...10 {
-            DispatchQueue.main.asyncAfter(deadline: .now() + Double(i) * 0.3) { [weak self] in
-                let updatedDownload = UpdateState.Downloading(
-                    cancel: download.cancel,
-                    expectedLength: 1000,
-                    progress: UInt64(i * 100)
-                )
-                self?.updateViewModel.state = .downloading(updatedDownload)
-                
-                if i == 10 {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-                        self?.simulateExtract()
-                    }
-                }
-            }
-        }
-    }
-    
-    private func simulateExtract() {
-        updateViewModel.state = .extracting(.init(progress: 0.0))
-        
-        for j in 1...5 {
-            DispatchQueue.main.asyncAfter(deadline: .now() + Double(j) * 0.3) { [weak self] in
-                self?.updateViewModel.state = .extracting(.init(progress: Double(j) / 5.0))
-                
-                if j == 5 {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-                        self?.updateViewModel.state = .readyToInstall(.init(
-                            reply: { [weak self] choice in
-                                if choice == .install {
-                                    self?.updateViewModel.state = .installing
-                                    DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
-                                        self?.updateViewModel.state = .idle
-                                    }
-                                } else {
-                                    self?.updateViewModel.state = .idle
-                                }
-                            }
-                        ))
-                    }
-                }
-            }
-        }
-    }
-    
 
 
     @IBAction func newWindow(_ sender: Any?) {
