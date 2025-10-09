@@ -18,7 +18,9 @@ class UpdateController {
     /// Initialize a new update controller.
     init() {
         let hostBundle = Bundle.main
-        self.userDriver = UpdateDriver(viewModel: .init())
+        self.userDriver = UpdateDriver(
+            viewModel: .init(),
+            hostBundle: hostBundle)
         self.updater = SPUUpdater(
             hostBundle: hostBundle,
             applicationBundle: hostBundle,

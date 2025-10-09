@@ -4,9 +4,11 @@ import Sparkle
 /// Implement the SPUUserDriver to modify our UpdateViewModel for custom presentation.
 class UpdateDriver: NSObject, SPUUserDriver {
     let viewModel: UpdateViewModel
+    let standard: SPUStandardUserDriver
     
-    init(viewModel: UpdateViewModel) {
+    init(viewModel: UpdateViewModel, hostBundle: Bundle) {
         self.viewModel = viewModel
+        self.standard = SPUStandardUserDriver(hostBundle: hostBundle, delegate: nil)
         super.init()
     }
     
