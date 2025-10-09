@@ -15,13 +15,29 @@ struct UpdatePill: View {
                     UpdatePopoverView(model: model)
                 }
                 .transition(.opacity.combined(with: .scale(scale: 0.95)))
+                .onChange(of: model.state) { newState in
+                    if case .notFound = newState {
+                        Task {
+                            try? await Task.sleep(for: .seconds(5))
+                            if case .notFound = model.state {
+                                model.state = .idle
+                            }
+                        }
+                    }
+                }
         }
     }
     
     /// The pill-shaped button view that displays the update badge and text
     @ViewBuilder
     private var pillButton: some View {
-        Button(action: { showPopover.toggle() }) {
+        Button(action: {
+            if case .notFound = model.state {
+                model.state = .idle
+            } else {
+                showPopover.toggle()
+            }
+        }) {
             HStack(spacing: 6) {
                 UpdateBadge(model: model)
                     .frame(width: 14, height: 14)

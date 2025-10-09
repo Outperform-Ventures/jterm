@@ -87,6 +87,8 @@ class UpdateViewModel: ObservableObject {
             return .accentColor
         case .readyToInstall:
             return Color(nsColor: NSColor.systemGreen.blended(withFraction: 0.3, of: .black) ?? .systemGreen)
+        case .notFound:
+            return Color(nsColor: NSColor.systemBlue.blended(withFraction: 0.5, of: .black) ?? .systemBlue)
         case .error:
             return .orange.opacity(0.2)
         default:
@@ -99,6 +101,8 @@ class UpdateViewModel: ObservableObject {
         switch state {
         case .updateAvailable, .readyToInstall:
             return .white
+        case .notFound:
+            return .white
         case .error:
             return .orange
         default:
@@ -107,7 +111,7 @@ class UpdateViewModel: ObservableObject {
     }
 }
 
-enum UpdateState {
+enum UpdateState: Equatable {
     case idle
     case permissionRequest(PermissionRequest)
     case checking(Checking)
@@ -122,6 +126,33 @@ enum UpdateState {
     var isIdle: Bool {
         if case .idle = self { return true }
         return false
+    }
+    
+    static func == (lhs: UpdateState, rhs: UpdateState) -> Bool {
+        switch (lhs, rhs) {
+        case (.idle, .idle):
+            return true
+        case (.permissionRequest, .permissionRequest):
+            return true
+        case (.checking, .checking):
+            return true
+        case (.updateAvailable(let lUpdate), .updateAvailable(let rUpdate)):
+            return lUpdate.appcastItem.displayVersionString == rUpdate.appcastItem.displayVersionString
+        case (.notFound, .notFound):
+            return true
+        case (.error(let lErr), .error(let rErr)):
+            return lErr.error.localizedDescription == rErr.error.localizedDescription
+        case (.downloading(let lDown), .downloading(let rDown)):
+            return lDown.progress == rDown.progress && lDown.expectedLength == rDown.expectedLength
+        case (.extracting(let lExt), .extracting(let rExt)):
+            return lExt.progress == rExt.progress
+        case (.readyToInstall, .readyToInstall):
+            return true
+        case (.installing, .installing):
+            return true
+        default:
+            return false
+        }
     }
     
     struct PermissionRequest {
