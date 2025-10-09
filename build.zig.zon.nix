@@ -307,11 +307,11 @@ in
       };
     }
     {
-      name = "z2d-0.8.2-pre-j5P_HlVRFgCsBTQ3EgUoKbYHx5JMnyH1mHsOSPiafnef";
+      name = "z2d-0.9.0-j5P_Hu-WFgA_JEfRpiFss6gdvcvS47cgOc0Via2eKD_T";
       path = fetchZigArtifact {
         name = "z2d";
-        url = "https://deps.files.ghostty.org/z2d-a1237f6881d99b75abd8a20a934e62e34b44a005.tar.gz";
-        hash = "sha256-5/qRZAIh1U42v7jql9W0jr2zzQZtu39DxJPLVrSybJg=";
+        url = "https://github.com/vancluever/z2d/archive/refs/tags/v0.9.0.tar.gz";
+        hash = "sha256-+QqCRoXwrFA1/l+oWvYVyAVebGQitAFQNhi9U3EVrxA=";
       };
     }
     {
