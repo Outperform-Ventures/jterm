@@ -92,6 +92,9 @@ enum UpdateSimulator {
                 ]),
                 retry: {
                     simulateHappyPath(viewModel)
+                },
+                dismiss: {
+                    viewModel.state = .idle
                 }
             ))
         }

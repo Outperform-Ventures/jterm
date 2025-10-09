@@ -1008,7 +1008,7 @@ class AppDelegate: NSObject,
     }
 
     @IBAction func checkForUpdates(_ sender: Any?) {
-        UpdateSimulator.notFound.simulate(with: updateViewModel)
+        UpdateSimulator.error.simulate(with: updateViewModel)
     }
 
 

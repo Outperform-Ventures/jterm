@@ -38,7 +38,9 @@ class UpdateDriver: NSObject, SPUUserDriver {
     }
     
     func showUpdaterError(_ error: any Error, acknowledgement: @escaping () -> Void) {
-        viewModel.state = .error(.init(error: error, retry: retryHandler))
+        viewModel.state = .error(.init(error: error, retry: retryHandler, dismiss: { [weak viewModel] in
+            viewModel?.state = .idle
+        }))
     }
     
     func showDownloadInitiated(cancellation: @escaping () -> Void) {

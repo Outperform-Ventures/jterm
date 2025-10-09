@@ -336,6 +336,7 @@ fileprivate struct UpdateErrorView: View {
             
             HStack(spacing: 8) {
                 Button("OK") {
+                    error.dismiss()
                     dismiss()
                 }
                 .keyboardShortcut(.cancelAction)

@@ -172,6 +172,7 @@ enum UpdateState: Equatable {
     struct Error {
         let error: any Swift.Error
         let retry: () -> Void
+        let dismiss: () -> Void
     }
     
     struct Downloading {
