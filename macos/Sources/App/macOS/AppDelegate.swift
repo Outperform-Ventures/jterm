@@ -1008,7 +1008,7 @@ class AppDelegate: NSObject,
     }
 
     @IBAction func checkForUpdates(_ sender: Any?) {
-        UpdateSimulator.error.simulate(with: updateViewModel)
+        UpdateSimulator.permissionRequest.simulate(with: updateViewModel)
     }
 
 

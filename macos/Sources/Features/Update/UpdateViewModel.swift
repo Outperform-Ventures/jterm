@@ -13,7 +13,7 @@ class UpdateViewModel: ObservableObject {
         case .idle:
             return ""
         case .permissionRequest:
-            return "Update Permission"
+            return "Enable Automatic Updates?"
         case .checking:
             return "Checking for Updates…"
         case .updateAvailable(let update):
@@ -67,7 +67,9 @@ class UpdateViewModel: ObservableObject {
         switch state {
         case .idle:
             return .secondary
-        case .permissionRequest, .checking:
+        case .permissionRequest:
+            return .white
+        case .checking:
             return .secondary
         case .updateAvailable, .readyToInstall:
             return .accentColor
@@ -83,6 +85,8 @@ class UpdateViewModel: ObservableObject {
     /// The background color for the update pill.
     var backgroundColor: Color {
         switch state {
+        case .permissionRequest:
+            return Color(nsColor: NSColor.systemBlue.blended(withFraction: 0.3, of: .black) ?? .systemBlue)
         case .updateAvailable:
             return .accentColor
         case .readyToInstall:
@@ -99,6 +103,8 @@ class UpdateViewModel: ObservableObject {
     /// The foreground (text) color for the update pill.
     var foregroundColor: Color {
         switch state {
+        case .permissionRequest:
+            return .white
         case .updateAvailable, .readyToInstall:
             return .white
         case .notFound:
