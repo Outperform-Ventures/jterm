@@ -124,6 +124,8 @@ fileprivate struct UpdateAvailableView: View {
     let update: UpdateState.UpdateAvailable
     let dismiss: DismissAction
     
+    private let labelWidth: CGFloat = 60
+    
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 12) {
@@ -135,11 +137,32 @@ fileprivate struct UpdateAvailableView: View {
                         HStack(spacing: 6) {
                             Text("Version:")
                                 .foregroundColor(.secondary)
-                                .frame(width: 50, alignment: .trailing)
+                                .frame(width: labelWidth, alignment: .trailing)
                             Text(update.appcastItem.displayVersionString)
                         }
                         .font(.system(size: 11))
+                        
+                        if update.appcastItem.contentLength > 0 {
+                            HStack(spacing: 6) {
+                                Text("Size:")
+                                    .foregroundColor(.secondary)
+                                    .frame(width: labelWidth, alignment: .trailing)
+                                Text(ByteCountFormatter.string(fromByteCount: Int64(update.appcastItem.contentLength), countStyle: .file))
+                            }
+                            .font(.system(size: 11))
+                        }
+                        
+                        if let date = update.appcastItem.date {
+                            HStack(spacing: 6) {
+                                Text("Released:")
+                                    .foregroundColor(.secondary)
+                                    .frame(width: labelWidth, alignment: .trailing)
+                                Text(date.formatted(date: .abbreviated, time: .omitted))
+                            }
+                            .font(.system(size: 11))
+                        }
                     }
+                    .textSelection(.enabled)
                 }
                 
                 HStack(spacing: 8) {
