@@ -37,6 +37,19 @@ class UpdateViewModel: ObservableObject {
         }
     }
     
+    /// The maximum width text for states that show progress.
+    /// Used to prevent the pill from resizing as percentages change.
+    var maxWidthText: String {
+        switch state {
+        case .downloading:
+            return "Downloading: 100%"
+        case .extracting:
+            return "Preparing: 100%"
+        default:
+            return text
+        }
+    }
+    
     /// The SF Symbol icon name for the current update state.
     /// Returns nil for idle, downloading, and extracting states.
     var iconName: String? {

@@ -547,9 +547,10 @@ extension TerminalWindow {
         @ObservedObject var model: UpdateViewModel
         
         var body: some View {
+            // We use the same top/trailing padding so that it hugs the same.
             UpdatePill(model: model)
                 .padding(.top, viewModel.accessoryTopPadding)
-                .padding(.trailing, 10)
+                .padding(.trailing, viewModel.accessoryTopPadding)
         }
     }
 

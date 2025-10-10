@@ -8,6 +8,9 @@ struct UpdatePill: View {
     /// Whether the update popover is currently visible
     @State private var showPopover = false
     
+    /// The font used for the pill text
+    private let textFont = NSFont.systemFont(ofSize: 11, weight: .medium)
+    
     var body: some View {
         if !model.state.isIdle {
             pillButton
@@ -43,8 +46,9 @@ struct UpdatePill: View {
                     .frame(width: 14, height: 14)
                 
                 Text(model.text)
-                    .font(.system(size: 11, weight: .medium))
+                    .font(Font(textFont))
                     .lineLimit(1)
+                    .frame(width: textWidth)
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
@@ -57,5 +61,12 @@ struct UpdatePill: View {
         }
         .buttonStyle(.plain)
         .help(model.text)
+    }
+    
+    /// Calculated width for the text to prevent resizing during progress updates
+    private var textWidth: CGFloat? {
+        let attributes: [NSAttributedString.Key: Any] = [.font: textFont]
+        let size = (model.maxWidthText as NSString).size(withAttributes: attributes)
+        return size.width
     }
 }
