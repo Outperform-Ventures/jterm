@@ -32,9 +32,22 @@ class UpdateController {
     /// Start the updater.
     ///
     /// This must be called before the updater can check for updates. If starting fails,
-    /// an error alert will be shown after a short delay.
+    /// the error will be shown to the user.
     func startUpdater() {
-        try? updater.start()
+        do {
+            try updater.start()
+        } catch {
+            userDriver.viewModel.state = .error(.init(
+                error: error,
+                retry: { [weak self] in
+                    self?.userDriver.viewModel.state = .idle
+                    self?.startUpdater()
+                },
+                dismiss: { [weak self] in
+                    self?.userDriver.viewModel.state = .idle
+                }
+            ))
+        }
     }
     
     /// Check for updates.

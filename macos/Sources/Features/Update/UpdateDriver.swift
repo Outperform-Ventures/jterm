@@ -86,9 +86,10 @@ class UpdateDriver: NSObject, SPUUserDriver {
                           acknowledgement: @escaping () -> Void) {
         viewModel.state = .error(.init(
             error: error,
-            retry: { [weak viewModel] in
+            retry: { [weak self, weak viewModel] in
                 viewModel?.state = .idle
-                DispatchQueue.main.async {
+                DispatchQueue.main.async { [weak self] in
+                    guard let self else { return }
                     guard let delegate = NSApp.delegate as? AppDelegate else { return }
                     delegate.checkForUpdates(self)
                 }

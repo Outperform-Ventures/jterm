@@ -998,8 +998,8 @@ class AppDelegate: NSObject,
     }
 
     @IBAction func checkForUpdates(_ sender: Any?) {
-        updateController.checkForUpdates()
-        //UpdateSimulator.permissionRequest.simulate(with: updateViewModel)
+        //updateController.checkForUpdates()
+        UpdateSimulator.happyPath.simulate(with: updateViewModel)
     }
 
 

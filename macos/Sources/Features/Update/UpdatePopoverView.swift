@@ -228,7 +228,7 @@ fileprivate struct DownloadingView: View {
                     .font(.system(size: 13, weight: .semibold))
                 
                 if let expectedLength = download.expectedLength, expectedLength > 0 {
-                    let progress = Double(download.progress) / Double(expectedLength)
+                    let progress = min(1, max(0, Double(download.progress) / Double(expectedLength)))
                     VStack(alignment: .leading, spacing: 6) {
                         ProgressView(value: progress)
                         Text(String(format: "%.0f%%", progress * 100))
@@ -264,8 +264,8 @@ fileprivate struct ExtractingView: View {
                 .font(.system(size: 13, weight: .semibold))
             
             VStack(alignment: .leading, spacing: 6) {
-                ProgressView(value: extracting.progress, total: 1.0)
-                Text(String(format: "%.0f%%", extracting.progress * 100))
+                ProgressView(value: min(1, max(0, extracting.progress)), total: 1.0)
+                Text(String(format: "%.0f%%", min(1, max(0, extracting.progress)) * 100))
                     .font(.system(size: 11))
                     .foregroundColor(.secondary)
             }

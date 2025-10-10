@@ -8,6 +8,9 @@ struct UpdatePill: View {
     /// Whether the update popover is currently visible
     @State private var showPopover = false
     
+    /// Task for auto-dismissing the "No Updates" state
+    @State private var resetTask: Task<Void, Never>?
+    
     /// The font used for the pill text
     private let textFont = NSFont.systemFont(ofSize: 11, weight: .medium)
     
@@ -19,13 +22,15 @@ struct UpdatePill: View {
                 }
                 .transition(.opacity.combined(with: .scale(scale: 0.95)))
                 .onChange(of: model.state) { newState in
+                    resetTask?.cancel()
                     if case .notFound = newState {
-                        Task {
+                        resetTask = Task { [weak model] in
                             try? await Task.sleep(for: .seconds(5))
-                            if case .notFound = model.state {
-                                model.state = .idle
-                            }
+                            guard !Task.isCancelled, case .notFound? = model?.state else { return }
+                            model?.state = .idle
                         }
+                    } else {
+                        resetTask = nil
                     }
                 }
         }
