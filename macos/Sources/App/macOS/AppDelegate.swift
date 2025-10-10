@@ -1,4 +1,5 @@
 import AppKit
+import SwiftUI
 import UserNotifications
 import OSLog
 import Sparkle
@@ -98,8 +99,10 @@ class AppDelegate: NSObject,
     )
 
     /// Manages updates
-    let updaterController: SPUStandardUpdaterController
-    let updaterDelegate: UpdaterDelegate = UpdaterDelegate()
+    let updateController = UpdateController()
+    var updateViewModel: UpdateViewModel {
+        updateController.viewModel
+    }
 
     /// The elapsed time since the process was started
     var timeSinceLaunch: TimeInterval {
@@ -126,15 +129,6 @@ class AppDelegate: NSObject,
     }
 
     override init() {
-        updaterController = SPUStandardUpdaterController(
-            // Important: we must not start the updater here because we need to read our configuration
-            // first to determine whether we're automatically checking, downloading, etc. The updater
-            // is started later in applicationDidFinishLaunching
-            startingUpdater: false,
-            updaterDelegate: updaterDelegate,
-            userDriverDelegate: nil
-        )
-
         super.init()
 
         ghostty.delegate = self
@@ -179,7 +173,7 @@ class AppDelegate: NSObject,
         ghosttyConfigDidChange(config: ghostty.config)
 
         // Start our update checker.
-        updaterController.startUpdater()
+        updateController.startUpdater()
 
         // Register our service provider. This must happen after everything is initialized.
         NSApp.servicesProvider = ServiceProvider()
@@ -806,12 +800,12 @@ class AppDelegate: NSObject,
         // defined by our "auto-update" configuration (if set) or fall back to Sparkle
         // user-based defaults.
         if Bundle.main.infoDictionary?["SUEnableAutomaticChecks"] as? Bool == false {
-            updaterController.updater.automaticallyChecksForUpdates = false
-            updaterController.updater.automaticallyDownloadsUpdates = false
+            updateController.updater.automaticallyChecksForUpdates = false
+            updateController.updater.automaticallyDownloadsUpdates = false
         } else if let autoUpdate = config.autoUpdate {
-            updaterController.updater.automaticallyChecksForUpdates =
+            updateController.updater.automaticallyChecksForUpdates =
                 autoUpdate == .check || autoUpdate == .download
-            updaterController.updater.automaticallyDownloadsUpdates =
+            updateController.updater.automaticallyDownloadsUpdates =
                 autoUpdate == .download
         }
 
@@ -1004,8 +998,10 @@ class AppDelegate: NSObject,
     }
 
     @IBAction func checkForUpdates(_ sender: Any?) {
-        updaterController.checkForUpdates(sender)
+        updateController.checkForUpdates()
+        //UpdateSimulator.happyPath.simulate(with: updateViewModel)
     }
+
 
     @IBAction func newWindow(_ sender: Any?) {
         _ = TerminalController.newWindow(ghostty)
