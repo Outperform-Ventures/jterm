@@ -53,6 +53,7 @@ struct UpdatePill: View {
                 Text(model.text)
                     .font(Font(textFont))
                     .lineLimit(1)
+                    .truncationMode(.tail)
                     .frame(width: textWidth)
             }
             .padding(.horizontal, 8)
@@ -66,6 +67,7 @@ struct UpdatePill: View {
         }
         .buttonStyle(.plain)
         .help(model.text)
+        .accessibilityLabel(model.text)
     }
     
     /// Calculated width for the text to prevent resizing during progress updates

@@ -14,6 +14,12 @@ struct UpdateBadge: View {
     @State private var rotationAngle: Double = 0
     
     var body: some View {
+        badgeContent
+            .accessibilityLabel(model.text)
+    }
+    
+    @ViewBuilder
+    private var badgeContent: some View {
         switch model.state {
         case .downloading(let download):
             if let expectedLength = download.expectedLength, expectedLength > 0 {
@@ -38,11 +44,15 @@ struct UpdateBadge: View {
                     .onDisappear {
                         rotationAngle = 0
                     }
+            } else {
+                EmptyView()
             }
             
         default:
             if let iconName = model.iconName {
                 Image(systemName: iconName)
+            } else {
+                EmptyView()
             }
         }
     }
