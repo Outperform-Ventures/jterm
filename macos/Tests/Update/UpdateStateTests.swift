@@ -19,8 +19,8 @@ struct UpdateStateTests {
     }
     
     @Test func testNotFoundEquality() {
-        let state1: UpdateState = .notFound
-        let state2: UpdateState = .notFound
+        let state1: UpdateState = .notFound(.init(acknowledgement: {}))
+        let state2: UpdateState = .notFound(.init(acknowledgement: {}))
         #expect(state1 == state2)
     }
     

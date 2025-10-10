@@ -64,7 +64,7 @@ struct UpdateViewModelTests {
     
     @Test func testNotFoundText() {
         let viewModel = UpdateViewModel()
-        viewModel.state = .notFound
+        viewModel.state = .notFound(.init(acknowledgement: {}))
         #expect(viewModel.text == "No Updates Available")
     }
     
