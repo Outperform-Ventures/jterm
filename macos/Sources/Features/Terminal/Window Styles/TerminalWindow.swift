@@ -5,6 +5,12 @@ import GhosttyKit
 /// The base class for all standalone, "normal" terminal windows. This sets the basic
 /// style and configuration of the window based on the app configuration.
 class TerminalWindow: NSWindow {
+    /// Posted when a terminal window awakes from nib.
+    static let terminalDidAwake = Notification.Name("TerminalWindowDidAwake")
+    
+    /// Posted when a terminal window will close
+    static let terminalWillCloseNotification = Notification.Name("TerminalWindowWillClose")
+    
     /// This is the key in UserDefaults to use for the default `level` value. This is
     /// used by the manual float on top menu item feature.
     static let defaultLevelKey: String = "TerminalDefaultLevel"
@@ -45,6 +51,9 @@ class TerminalWindow: NSWindow {
     }
 
     override func awakeFromNib() {
+        // Notify that this terminal window has loaded
+        NotificationCenter.default.post(name: Self.terminalDidAwake, object: self)
+        
         // This is required so that window restoration properly creates our tabs
         // again. I'm not sure why this is required. If you don't do this, then
         // tabs restore as separate windows.
@@ -124,6 +133,11 @@ class TerminalWindow: NSWindow {
     // still become key/main and receive events.
     override var canBecomeKey: Bool { return true }
     override var canBecomeMain: Bool { return true }
+    
+    override func close() {
+        NotificationCenter.default.post(name: Self.terminalWillCloseNotification, object: self)
+        super.close()
+    }
 
     override func becomeKey() {
         super.becomeKey()

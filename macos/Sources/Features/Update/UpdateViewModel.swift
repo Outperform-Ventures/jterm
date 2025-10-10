@@ -134,6 +134,23 @@ enum UpdateState: Equatable {
         return false
     }
     
+    func cancel() {
+        switch self {
+        case .checking(let checking):
+            checking.cancel()
+        case .updateAvailable(let available):
+            available.reply(.dismiss)
+        case .downloading(let downloading):
+            downloading.cancel()
+        case .readyToInstall(let ready):
+            ready.reply(.dismiss)
+        case .error(let err):
+            err.dismiss()
+        default:
+            break
+        }
+    }
+    
     static func == (lhs: UpdateState, rhs: UpdateState) -> Bool {
         switch (lhs, rhs) {
         case (.idle, .idle):

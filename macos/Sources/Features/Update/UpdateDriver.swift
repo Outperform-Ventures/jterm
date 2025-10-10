@@ -10,21 +10,56 @@ class UpdateDriver: NSObject, SPUUserDriver {
         self.viewModel = viewModel
         self.standard = SPUStandardUserDriver(hostBundle: hostBundle, delegate: nil)
         super.init()
+        
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleTerminalWindowWillClose),
+            name: TerminalWindow.terminalWillCloseNotification,
+            object: nil)
+    }
+    
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+    
+    @objc private func handleTerminalWindowWillClose() {
+        // If we lost the ability to show unobtrusive states, cancel whatever
+        // update state we're in. This will allow the manual `check for updates`
+        // call to initialize the standard driver.
+        //
+        // We have to do this after a short delay so that the window can fully
+        // close.
+        DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(50)) { [weak self] in
+            guard let self else { return }
+            guard !hasUnobtrusiveTarget else { return }
+            viewModel.state.cancel()
+            viewModel.state = .idle
+        }
     }
     
     func show(_ request: SPUUpdatePermissionRequest,
               reply: @escaping @Sendable (SUUpdatePermissionResponse) -> Void) {
         viewModel.state = .permissionRequest(.init(request: request, reply: reply))
+        if !hasUnobtrusiveTarget {
+            standard.show(request, reply: reply)
+        }
     }
     
     func showUserInitiatedUpdateCheck(cancellation: @escaping () -> Void) {
         viewModel.state = .checking(.init(cancel: cancellation))
+
+        if !hasUnobtrusiveTarget {
+            standard.showUserInitiatedUpdateCheck(cancellation: cancellation)
+        }
     }
     
     func showUpdateFound(with appcastItem: SUAppcastItem,
                          state: SPUUserUpdateState,
                          reply: @escaping @Sendable (SPUUserUpdateChoice) -> Void) {
         viewModel.state = .updateAvailable(.init(appcastItem: appcastItem, reply: reply))
+        if !hasUnobtrusiveTarget {
+            standard.showUpdateFound(with: appcastItem, state: state, reply: reply)
+        }
     }
     
     func showUpdateReleaseNotes(with downloadData: SPUDownloadData) {
@@ -39,7 +74,12 @@ class UpdateDriver: NSObject, SPUUserDriver {
     func showUpdateNotFoundWithError(_ error: any Error,
                                      acknowledgement: @escaping () -> Void) {
         viewModel.state = .notFound
-        acknowledgement()
+        
+        if !hasUnobtrusiveTarget {
+            standard.showUpdateNotFoundWithError(error, acknowledgement: acknowledgement)
+        } else {
+            acknowledgement()
+        }
     }
     
     func showUpdaterError(_ error: any Error,
@@ -56,6 +96,12 @@ class UpdateDriver: NSObject, SPUUserDriver {
             dismiss: { [weak viewModel] in
                 viewModel?.state = .idle
             }))
+        
+        if !hasUnobtrusiveTarget {
+            standard.showUpdaterError(error, acknowledgement: acknowledgement)
+        } else {
+            acknowledgement()
+        }
     }
     
     func showDownloadInitiated(cancellation: @escaping () -> Void) {
@@ -63,6 +109,10 @@ class UpdateDriver: NSObject, SPUUserDriver {
             cancel: cancellation,
             expectedLength: nil,
             progress: 0))
+        
+        if !hasUnobtrusiveTarget {
+            standard.showDownloadInitiated(cancellation: cancellation)
+        }
     }
     
     func showDownloadDidReceiveExpectedContentLength(_ expectedContentLength: UInt64) {
@@ -74,6 +124,10 @@ class UpdateDriver: NSObject, SPUUserDriver {
             cancel: downloading.cancel,
             expectedLength: expectedContentLength,
             progress: 0))
+        
+        if !hasUnobtrusiveTarget {
+            standard.showDownloadDidReceiveExpectedContentLength(expectedContentLength)
+        }
     }
     
     func showDownloadDidReceiveData(ofLength length: UInt64) {
@@ -85,36 +139,67 @@ class UpdateDriver: NSObject, SPUUserDriver {
             cancel: downloading.cancel,
             expectedLength: downloading.expectedLength,
             progress: downloading.progress + length))
+        
+        if !hasUnobtrusiveTarget {
+            standard.showDownloadDidReceiveData(ofLength: length)
+        }
     }
     
     func showDownloadDidStartExtractingUpdate() {
         viewModel.state = .extracting(.init(progress: 0))
+        
+        if !hasUnobtrusiveTarget {
+            standard.showDownloadDidStartExtractingUpdate()
+        }
     }
     
     func showExtractionReceivedProgress(_ progress: Double) {
         viewModel.state = .extracting(.init(progress: progress))
+        
+        if !hasUnobtrusiveTarget {
+            standard.showExtractionReceivedProgress(progress)
+        }
     }
     
     func showReady(toInstallAndRelaunch reply: @escaping @Sendable (SPUUserUpdateChoice) -> Void) {
         viewModel.state = .readyToInstall(.init(reply: reply))
+        
+        if !hasUnobtrusiveTarget {
+            standard.showReady(toInstallAndRelaunch: reply)
+        }
     }
     
     func showInstallingUpdate(withApplicationTerminated applicationTerminated: Bool, retryTerminatingApplication: @escaping () -> Void) {
         viewModel.state = .installing
+        
+        if !hasUnobtrusiveTarget {
+            standard.showInstallingUpdate(withApplicationTerminated: applicationTerminated, retryTerminatingApplication: retryTerminatingApplication)
+        }
     }
     
     func showUpdateInstalledAndRelaunched(_ relaunched: Bool, acknowledgement: @escaping () -> Void) {
-        // We don't do anything here.
+        standard.showUpdateInstalledAndRelaunched(relaunched, acknowledgement: acknowledgement)
         viewModel.state = .idle
     }
     
     func showUpdateInFocus() {
-        // We don't currently implement this because our update state is
-        // shown in a terminal window. We may want to implement this at some
-        // point to handle the case that no windows are open, though.
+        if !hasUnobtrusiveTarget {
+            standard.showUpdateInFocus()
+        }
     }
     
     func dismissUpdateInstallation() {
         viewModel.state = .idle
+        standard.dismissUpdateInstallation()
+    }
+    
+    // MARK: No-Window Fallback
+    
+    /// True if there is a target that can render our unobtrusive update checker.
+    var hasUnobtrusiveTarget: Bool {
+        NSApp.windows.contains { window in
+            window is TerminalWindow &&
+            window.isVisible
+        }
     }
 }
