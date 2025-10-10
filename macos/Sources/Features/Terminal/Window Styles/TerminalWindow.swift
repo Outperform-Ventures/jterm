@@ -108,7 +108,7 @@ class TerminalWindow: NSWindow {
             // Create update notification accessory
             if supportsUpdateAccessory {
                 updateAccessory.layoutAttribute = .right
-                updateAccessory.view = NSHostingView(rootView: UpdateAccessoryView(
+                updateAccessory.view = NonDraggableHostingView(rootView: UpdateAccessoryView(
                     viewModel: viewModel,
                     model: appDelegate.updateViewModel
                 ))

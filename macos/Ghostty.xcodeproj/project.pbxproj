@@ -167,6 +167,7 @@
 				Helpers/KeyboardLayout.swift,
 				Helpers/LastWindowPosition.swift,
 				Helpers/MetalView.swift,
+				Helpers/NonDraggableHostingView.swift,
 				Helpers/PermissionRequest.swift,
 				Helpers/Private/CGS.swift,
 				Helpers/Private/Dock.swift,
