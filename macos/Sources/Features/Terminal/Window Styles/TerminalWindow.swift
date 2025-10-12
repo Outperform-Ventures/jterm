@@ -159,6 +159,12 @@ class TerminalWindow: NSWindow {
         } else {
             tabBarDidDisappear()
         }
+        viewModel.isMainWindow = true
+    }
+
+    override func resignMain() {
+        super.resignMain()
+        viewModel.isMainWindow = false
     }
 
     override func mergeAllWindows(_ sender: Any?) {
@@ -298,7 +304,7 @@ class TerminalWindow: NSWindow {
         button.isBordered = false
         button.allowsExpansionToolTips = true
         button.toolTip = "Reset Zoom"
-        button.contentTintColor = .controlAccentColor
+        button.contentTintColor = isMainWindow ? .controlAccentColor : .secondaryLabelColor
         button.state = .on
         button.image = NSImage(named:"ResetZoom")
         button.frame = NSRect(x: 0, y: 0, width: 20, height: 20)
@@ -324,6 +330,7 @@ class TerminalWindow: NSWindow {
             let font = titlebarFont ?? NSFont.titleBarFont(ofSize: NSFont.systemFontSize)
 
             titlebarTextField?.font = font
+            titlebarTextField?.usesSingleLineMode = true
             tab.attributedTitle = attributedTitle
         }
     }
@@ -505,7 +512,8 @@ extension TerminalWindow {
     class ViewModel: ObservableObject {
         @Published var isSurfaceZoomed: Bool = false
         @Published var hasToolbar: Bool = false
-        
+        @Published var isMainWindow: Bool = true
+
         /// Calculates the top padding based on toolbar visibility and macOS version
         fileprivate var accessoryTopPadding: CGFloat {
             if #available(macOS 26.0, *) {
@@ -525,7 +533,7 @@ extension TerminalWindow {
                 VStack {
                     Button(action: action) {
                         Image("ResetZoom")
-                            .foregroundColor(.accentColor)
+                            .foregroundColor(viewModel.isMainWindow ? .accentColor : .secondary)
                     }
                     .buttonStyle(.plain)
                     .help("Reset Split Zoom")
