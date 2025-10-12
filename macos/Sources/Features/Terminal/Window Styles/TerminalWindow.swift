@@ -573,6 +573,7 @@ class TerminalWindow: NSWindow {
         }
     }
 
+#if compiler(>=6.2)
     // MARK: Glass
 
     @available(macOS 26.0, *)
@@ -616,8 +617,8 @@ class TerminalWindow: NSWindow {
         glassEffectView?.removeFromSuperview()
         glassEffectView = nil
     }
-
->>>>>>> Conflict 4 of 4 ends
+#endif // compiler(>=6.2)
+    
     // MARK: Config
 
     struct DerivedConfig {
