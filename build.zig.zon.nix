@@ -259,6 +259,14 @@ in
       };
     }
     {
+      name = "uucode-0.1.0-ZZjBPj96QADXyt5sqwBJUnhaDYs_qBeeKijZvlRa0eqM";
+      path = fetchZigArtifact {
+        name = "uucode";
+        url = "git+https://github.com/jacobsandlund/uucode#5f05f8f83a75caea201f12cc8ea32a2d82ea9732";
+        hash = "sha256-sHPh+TQSdUGus/QTbj7KSJJkTuNTrK4VNmQDjS30Lf8=";
+      };
+    }
+    {
       name = "uucode-0.1.0-ZZjBPjQHQADuCy1VMWftjrMl3iWqgMpUugWVQJG6_7xT";
       path = fetchZigArtifact {
         name = "uucode";
@@ -275,11 +283,11 @@ in
       };
     }
     {
-      name = "vaxis-0.5.1-BWNV_O8fCQAeUeVrESVc-2BdXloEXkFqReDJL7Q6XTSZ";
+      name = "vaxis-0.5.1-BWNV_LosCQAGmCCNOLljCIw6j6-yt53tji6n6rwJ2BhS";
       path = fetchZigArtifact {
         name = "vaxis";
-        url = "https://deps.files.ghostty.org/vaxis-9fc9015d5f147568e18c5e7ca28f15bf8b293760.tar.gz";
-        hash = "sha256-7H5a0J7uUsrzlO7JNAf/Ussi9WxvmsbyJSmhqvl+rqI=";
+        url = "https://github.com/rockorager/libvaxis/archive/7dbb9fd3122e4ffad262dd7c151d80d863b68558.tar.gz";
+        hash = "sha256-LnIzK8icW1Qexua9SHaeHz+3V8QAbz0a+UC1T5sIjvY=";
       };
     }
     {

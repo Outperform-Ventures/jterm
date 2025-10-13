@@ -109,6 +109,11 @@
     "url": "https://deps.files.ghostty.org/utfcpp-1220d4d18426ca72fc2b7e56ce47273149815501d0d2395c2a98c726b31ba931e641.tar.gz",
     "hash": "sha256-/8ZooxDndgfTk/PBizJxXyI9oerExNbgV5oR345rWc8="
   },
+  "uucode-0.1.0-ZZjBPj96QADXyt5sqwBJUnhaDYs_qBeeKijZvlRa0eqM": {
+    "name": "uucode",
+    "url": "git+https://github.com/jacobsandlund/uucode#5f05f8f83a75caea201f12cc8ea32a2d82ea9732",
+    "hash": "sha256-sHPh+TQSdUGus/QTbj7KSJJkTuNTrK4VNmQDjS30Lf8="
+  },
   "uucode-0.1.0-ZZjBPjQHQADuCy1VMWftjrMl3iWqgMpUugWVQJG6_7xT": {
     "name": "uucode",
     "url": "https://deps.files.ghostty.org/uucode-f81f8ef8518b8ec5a7fca30ec5fdbc76cc6197df.tar.gz",
@@ -119,10 +124,10 @@
     "url": "git+https://github.com/rockorager/libvaxis#6eb16bb4190dc074dafaf4f0ce7dadd50e81192a",
     "hash": "sha256-5c+TjmiH4071lKI+U8SIJ0M+4ezzcAtLI2ZSfZYdXSA="
   },
-  "vaxis-0.5.1-BWNV_O8fCQAeUeVrESVc-2BdXloEXkFqReDJL7Q6XTSZ": {
+  "vaxis-0.5.1-BWNV_LosCQAGmCCNOLljCIw6j6-yt53tji6n6rwJ2BhS": {
     "name": "vaxis",
-    "url": "https://deps.files.ghostty.org/vaxis-9fc9015d5f147568e18c5e7ca28f15bf8b293760.tar.gz",
-    "hash": "sha256-7H5a0J7uUsrzlO7JNAf/Ussi9WxvmsbyJSmhqvl+rqI="
+    "url": "https://github.com/rockorager/libvaxis/archive/7dbb9fd3122e4ffad262dd7c151d80d863b68558.tar.gz",
+    "hash": "sha256-LnIzK8icW1Qexua9SHaeHz+3V8QAbz0a+UC1T5sIjvY="
   },
   "N-V-__8AAKrHGAAs2shYq8UkE6bGcR1QJtLTyOE_lcosMn6t": {
     "name": "wayland",
