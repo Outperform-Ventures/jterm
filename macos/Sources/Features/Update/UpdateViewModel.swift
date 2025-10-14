@@ -31,7 +31,7 @@ class UpdateViewModel: ObservableObject {
         case .extracting(let extracting):
             return String(format: "Preparing: %.0f%%", extracting.progress * 100)
         case .readyToInstall:
-            return "Install Update"
+            return "Ready to Install Update"
         case .installing:
             return "Restart to Complete Update"
         case .notFound:
@@ -70,7 +70,7 @@ class UpdateViewModel: ObservableObject {
         case .extracting:
             return "shippingbox"
         case .readyToInstall:
-            return "checkmark.circle.fill"
+            return "restart.circle.fill"
         case .installing:
             return "power.circle"
         case .notFound:
