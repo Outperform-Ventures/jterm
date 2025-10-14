@@ -53,7 +53,7 @@ struct UpdateViewModelTests {
     @Test func testReadyToInstallText() {
         let viewModel = UpdateViewModel()
         viewModel.state = .readyToInstall(.init(reply: { _ in }))
-        #expect(viewModel.text == "Install Update")
+        #expect(viewModel.text == "Ready to Install Update")
     }
     
     @Test func testInstallingText() {
