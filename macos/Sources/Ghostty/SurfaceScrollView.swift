@@ -34,6 +34,8 @@ class SurfaceScrollView: NSView {
         scrollView.hasHorizontalScroller = false
         scrollView.autohidesScrollers = true
         scrollView.usesPredominantAxisScrolling = true
+        // hide default background to show blur effect properly
+        scrollView.drawsBackground = false
         
         // The document view is what the scrollview is actually going
         // to be directly scrolling. We set it up to a "blank" NSView
