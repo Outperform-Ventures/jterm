@@ -709,6 +709,8 @@ pub const Application = extern struct {
 
             .ring_bell => Action.ringBell(target),
 
+            .scrollbar => Action.scrollbar(target, value),
+
             .set_title => Action.setTitle(target, value),
 
             .show_child_exited => return Action.showChildExited(target, value),
@@ -728,7 +730,6 @@ pub const Application = extern struct {
             .command_finished => return Action.commandFinished(target, value),
 
             // Unimplemented
-            .scrollbar,
             .secure_input,
             .close_all_windows,
             .float_window,
@@ -2325,6 +2326,16 @@ const Action = struct {
         switch (target) {
             .app => {},
             .surface => |v| v.rt_surface.surface.setBellRinging(true),
+        }
+    }
+
+    pub fn scrollbar(
+        target: apprt.Target,
+        value: apprt.Action.Value(.scrollbar),
+    ) void {
+        switch (target) {
+            .app => {},
+            .surface => |v| v.rt_surface.surface.setScrollbar(value),
         }
     }
 
