@@ -2110,6 +2110,21 @@ pub const Scrollbar = struct {
         .len = 0,
     };
 
+    // Sync with: ghostty_action_scrollbar_s
+    pub const C = extern struct {
+        total: u64,
+        offset: u64,
+        len: u64,
+    };
+
+    pub fn cval(self: Scrollbar) C {
+        return .{
+            .total = @intCast(self.total),
+            .offset = @intCast(self.offset),
+            .len = @intCast(self.len),
+        };
+    }
+
     /// Comparison for scrollbars.
     pub fn eql(self: Scrollbar, other: Scrollbar) bool {
         return self.total == other.total and

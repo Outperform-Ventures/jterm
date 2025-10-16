@@ -1314,6 +1314,15 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             self.draw_mutex.lock();
             defer self.draw_mutex.unlock();
 
+            // After the graphics API is complete (so we defer) we want to
+            // update our scrollbar state.
+            defer if (self.scrollbar_dirty) {
+                self.scrollbar_dirty = false;
+                _ = self.surface_mailbox.push(.{
+                    .scrollbar = self.scrollbar,
+                }, .{ .forever = {} });
+            };
+
             // Let our graphics API do any bookkeeping, etc.
             // that it needs to do before / after `drawFrame`.
             self.api.drawFrameStart();

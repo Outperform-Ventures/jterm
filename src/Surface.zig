@@ -983,6 +983,8 @@ pub fn handleMessage(self: *Surface, msg: Message) !void {
 
         .renderer_health => |health| self.updateRendererHealth(health),
 
+        .scrollbar => |scrollbar| self.updateScrollbar(scrollbar),
+
         .report_color_scheme => |force| self.reportColorScheme(force),
 
         .present_surface => try self.presentSurface(),
@@ -1456,6 +1458,17 @@ fn updateRendererHealth(self: *Surface, health: rendererpkg.Health) void {
         health,
     ) catch |err| {
         log.warn("failed to notify app of renderer health change err={}", .{err});
+    };
+}
+
+/// Called when the scrollbar state changes.
+fn updateScrollbar(self: *Surface, scrollbar: terminal.Scrollbar) void {
+    _ = self.rt_app.performAction(
+        .{ .surface = self },
+        .scrollbar,
+        scrollbar,
+    ) catch |err| {
+        log.warn("failed to notify app of scrollbar change err={}", .{err});
     };
 }
 
