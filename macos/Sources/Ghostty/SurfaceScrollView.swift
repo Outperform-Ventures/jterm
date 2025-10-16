@@ -1,4 +1,5 @@
 import SwiftUI
+import Combine
 
 /// Wraps a Ghostty surface view in an NSScrollView to provide native macOS scrollbar support.
 ///
@@ -16,6 +17,7 @@ class SurfaceScrollView: NSView {
     private let documentView: NSView
     private let surfaceView: Ghostty.SurfaceView
     private var observers: [NSObjectProtocol] = []
+    private var cancellables: Set<AnyCancellable> = []
     private var isLiveScrolling = false
     
     /// The last row position sent via scroll_to_row action. Used to avoid
@@ -28,7 +30,7 @@ class SurfaceScrollView: NSView {
         // The scroll view is our outermost view that controls all our scrollbar
         // rendering and behavior.
         scrollView = NSScrollView()
-        scrollView.hasVerticalScroller = true
+        scrollView.hasVerticalScroller = false
         scrollView.hasHorizontalScroller = false
         scrollView.autohidesScrollers = true
         scrollView.usesPredominantAxisScrolling = true
@@ -48,6 +50,9 @@ class SurfaceScrollView: NSView {
         
         // Our scroll view is our only view
         addSubview(scrollView)
+        
+        // Apply initial scrollbar settings
+        synchronizeAppearance()
         
         // We listen for scroll events through bounds notifications on our NSClipView.
         // This is based on: https://christiantietze.de/posts/2018/07/synchronize-nsscrollview/
@@ -93,6 +98,15 @@ class SurfaceScrollView: NSView {
         ) { [weak self] _ in
             self?.handleLiveScroll()
         })
+        
+        // Listen for derived config changes to update scrollbar settings live
+        surfaceView.$derivedConfig
+            .sink { [weak self] _ in
+                DispatchQueue.main.async { [weak self] in
+                    self?.synchronizeAppearance()
+                }
+            }
+            .store(in: &cancellables)
     }
     
     required init?(coder: NSCoder) {

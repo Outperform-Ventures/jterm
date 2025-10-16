@@ -1197,6 +1197,24 @@ input: RepeatableReadableIO = .{},
 /// This can be changed at runtime but will only affect new terminal surfaces.
 @"scrollback-limit": usize = 10_000_000, // 10MB
 
+/// Control when the scrollbar is shown to scroll the scrollback buffer.
+///
+/// The default value is `system`.
+///
+/// Valid values:
+///
+///   * `system` - Respect the system settings for when to show scrollbars.
+///     For example, on macOS, this will respect the "Scrollbar behavior"
+///     system setting which by default usually only shows scrollbars while
+///     actively scrolling or hovering the gutter.
+///
+///   * `never` - Never show a scrollbar. You can still scroll using the mouse,
+///     keybind actions, etc. but you will not have a visual UI widget showing
+///     a scrollbar.
+///
+/// This only applies to macOS currently. GTK doesn't yet support scrollbars.
+scrollbar: Scrollbar = .system,
+
 /// Match a regular expression against the terminal text and associate clicking
 /// it with an action. This can be used to match URLs, file paths, etc. Actions
 /// can be opening using the system opener (e.g. `open` or `xdg-open`) or
@@ -8377,6 +8395,12 @@ pub const WindowPadding = struct {
         try testing.expectError(error.InvalidValue, WindowPadding.parseCLI(""));
         try testing.expectError(error.InvalidValue, WindowPadding.parseCLI("a"));
     }
+};
+
+/// See scrollbar
+pub const Scrollbar = enum {
+    system,
+    never,
 };
 
 /// See scroll-to-bottom
