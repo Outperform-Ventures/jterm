@@ -728,6 +728,7 @@ pub const Application = extern struct {
             .command_finished => return Action.commandFinished(target, value),
 
             // Unimplemented
+            .scrollbar,
             .secure_input,
             .close_all_windows,
             .float_window,
