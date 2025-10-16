@@ -1886,6 +1886,11 @@ pub const Scroll = union(enum) {
     /// the scrollback history.
     top,
 
+    /// Scroll to the given absolute row from the top. A value of zero
+    /// is the top row. This row will be the first visible row in the viewport.
+    /// Scrolling into or below the active area will clamp to the active area.
+    row: usize,
+
     /// Scroll up (negative) or down (positive) by the given number of
     /// rows. This is clamped to the "top" and "active" top left.
     delta_row: isize,
@@ -1904,6 +1909,8 @@ pub const Scroll = union(enum) {
 /// pages, etc. This can only be used to move the viewport within the
 /// previously allocated pages.
 pub fn scroll(self: *PageList, behavior: Scroll) void {
+    defer self.assertIntegrity();
+
     switch (behavior) {
         .active => self.viewport = .active,
         .top => self.viewport = .top,
@@ -1919,6 +1926,93 @@ pub fn scroll(self: *PageList, behavior: Scroll) void {
             self.viewport_pin.* = p;
             self.viewport = .pin;
             self.viewport_pin_row_offset = null; // invalidate cache
+        },
+        .row => |n| row: {
+            // If we're at the top, pin the top.
+            if (n == 0) {
+                self.viewport = .top;
+                break :row;
+            }
+
+            // If we're below the top of the active area, pin the active area.
+            if (n >= self.total_rows - self.rows) {
+                self.viewport = .active;
+                break :row;
+            }
+
+            // See if there are any other faster paths we can take.
+            switch (self.viewport) {
+                .top, .active => {},
+                .pin => if (self.viewport_pin_row_offset) |*v| {
+                    // If we have a pin and we already calculated a row offset,
+                    // then we can efficiently calculate the delta and move
+                    // that much from that pin.
+                    const delta: isize = delta: {
+                        const n_isize: isize = @intCast(n);
+                        const v_isize: isize = @intCast(v.*);
+                        break :delta n_isize - v_isize;
+                    };
+                    self.scroll(.{ .delta_row = delta });
+                    return;
+                },
+            }
+
+            // We have an accurate row offset so store it to prevent
+            // calculating this again.
+            self.viewport_pin_row_offset = n;
+            self.viewport = .pin;
+
+            // Slow path, we've just got to traverse the linked list and
+            // get to our row. As a slight speedup, let's pick the traversal
+            // that's likely faster based on our absolute row and total rows.
+            const midpoint = self.total_rows / 2;
+            if (n < midpoint) {
+                // Iterate forward from the first node.
+                var node_it = self.pages.first;
+                var rem: size.CellCountInt = std.math.cast(
+                    size.CellCountInt,
+                    n,
+                ) orelse {
+                    self.viewport = .active;
+                    break :row;
+                };
+                while (node_it) |node| : (node_it = node.next) {
+                    if (rem < node.data.size.rows) {
+                        self.viewport_pin.* = .{
+                            .node = node,
+                            .y = rem,
+                        };
+                        break :row;
+                    }
+
+                    rem -= node.data.size.rows;
+                }
+            } else {
+                // Iterate backwards from the last node.
+                var node_it = self.pages.last;
+                var rem: size.CellCountInt = std.math.cast(
+                    size.CellCountInt,
+                    self.total_rows - n,
+                ) orelse {
+                    self.viewport = .active;
+                    break :row;
+                };
+                while (node_it) |node| : (node_it = node.prev) {
+                    if (rem <= node.data.size.rows) {
+                        self.viewport_pin.* = .{
+                            .node = node,
+                            .y = node.data.size.rows - rem,
+                        };
+                        break :row;
+                    }
+
+                    rem -= node.data.size.rows;
+                }
+            }
+
+            // If we reached here, then we couldn't find the offset.
+            // This feels impossible? Just clamp to active, screw it lol.
+            self.viewport = .active;
         },
         .delta_prompt => |n| self.scrollPrompt(n),
         .delta_row => |n| delta_row: {
@@ -5049,6 +5143,427 @@ test "PageList scroll to pin at top" {
     }
 }
 
+test "PageList scroll to row 0" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 80, 24, null);
+    defer s.deinit();
+    try s.growRows(10);
+
+    {
+        const pt = s.getCell(.{ .viewport = .{} }).?.screenPoint();
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 10,
+        } }, pt);
+    }
+
+    s.scroll(.{ .row = 0 });
+    try testing.expect(s.viewport == .top);
+
+    {
+        const pt = s.getCell(.{ .viewport = .{} }).?.screenPoint();
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 0,
+        } }, pt);
+    }
+
+    try testing.expectEqual(Scrollbar{
+        .total = s.total_rows,
+        .offset = 0,
+        .len = s.rows,
+    }, s.scrollbar());
+
+    try s.growRows(10);
+    {
+        const pt = s.getCell(.{ .viewport = .{} }).?.screenPoint();
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 0,
+        } }, pt);
+    }
+
+    try testing.expectEqual(Scrollbar{
+        .total = s.total_rows,
+        .offset = 0,
+        .len = s.rows,
+    }, s.scrollbar());
+}
+
+test "PageList scroll to row in scrollback" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 80, 24, null);
+    defer s.deinit();
+    try s.growRows(20);
+
+    {
+        const pt = s.getCell(.{ .viewport = .{} }).?.screenPoint();
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 20,
+        } }, pt);
+    }
+
+    s.scroll(.{ .row = 5 });
+    try testing.expect(s.viewport == .pin);
+    try testing.expectEqual(Scrollbar{
+        .total = s.total_rows,
+        .offset = 5,
+        .len = s.rows,
+    }, s.scrollbar());
+
+    {
+        const pt = s.getCell(.{ .viewport = .{} }).?.screenPoint();
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 5,
+        } }, pt);
+    }
+
+    try s.growRows(10);
+    {
+        const pt = s.getCell(.{ .viewport = .{} }).?.screenPoint();
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 5,
+        } }, pt);
+    }
+
+    try testing.expectEqual(Scrollbar{
+        .total = s.total_rows,
+        .offset = 5,
+        .len = s.rows,
+    }, s.scrollbar());
+}
+
+test "PageList scroll to row in middle" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 80, 24, null);
+    defer s.deinit();
+    try s.growRows(50);
+
+    const total = s.total_rows;
+    const midpoint = total / 2;
+    s.scroll(.{ .row = midpoint });
+
+    try testing.expect(s.viewport == .pin);
+    try testing.expectEqual(Scrollbar{
+        .total = s.total_rows,
+        .offset = midpoint,
+        .len = s.rows,
+    }, s.scrollbar());
+
+    {
+        const pt = s.getCell(.{ .viewport = .{} }).?.screenPoint();
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = @as(size.CellCountInt, @intCast(midpoint)),
+        } }, pt);
+    }
+
+    try s.growRows(10);
+    {
+        const pt = s.getCell(.{ .viewport = .{} }).?.screenPoint();
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = @as(size.CellCountInt, @intCast(midpoint)),
+        } }, pt);
+    }
+
+    try testing.expectEqual(Scrollbar{
+        .total = s.total_rows,
+        .offset = midpoint,
+        .len = s.rows,
+    }, s.scrollbar());
+}
+
+test "PageList scroll to row at active boundary" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 80, 24, null);
+    defer s.deinit();
+    try s.growRows(20);
+
+    const active_start = s.total_rows - s.rows;
+
+    s.scroll(.{ .row = active_start });
+
+    try testing.expect(s.viewport == .active);
+
+    {
+        const pt = s.getCell(.{ .viewport = .{} }).?.screenPoint();
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = @as(size.CellCountInt, @intCast(active_start)),
+        } }, pt);
+    }
+
+    try testing.expectEqual(Scrollbar{
+        .total = s.total_rows,
+        .offset = s.total_rows - s.rows,
+        .len = s.rows,
+    }, s.scrollbar());
+
+    try s.growRows(10);
+
+    try testing.expect(s.viewport == .active);
+
+    try testing.expectEqual(Scrollbar{
+        .total = s.total_rows,
+        .offset = s.total_rows - s.rows,
+        .len = s.rows,
+    }, s.scrollbar());
+}
+
+test "PageList scroll to row beyond active" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 80, 24, null);
+    defer s.deinit();
+    try s.growRows(10);
+
+    s.scroll(.{ .row = 1000 });
+
+    try testing.expect(s.viewport == .active);
+
+    {
+        const pt = s.getCell(.{ .viewport = .{} }).?.screenPoint();
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 10,
+        } }, pt);
+    }
+
+    try testing.expectEqual(Scrollbar{
+        .total = s.total_rows,
+        .offset = s.total_rows - s.rows,
+        .len = s.rows,
+    }, s.scrollbar());
+}
+
+test "PageList scroll to row without scrollback" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 80, 24, null);
+    defer s.deinit();
+
+    s.scroll(.{ .row = 5 });
+
+    try testing.expect(s.viewport == .active);
+
+    {
+        const pt = s.getCell(.{ .viewport = .{} }).?.screenPoint();
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 0,
+        } }, pt);
+    }
+
+    try testing.expectEqual(Scrollbar{
+        .total = s.total_rows,
+        .offset = s.total_rows - s.rows,
+        .len = s.rows,
+    }, s.scrollbar());
+}
+
+test "PageList scroll to row then delta" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 80, 24, null);
+    defer s.deinit();
+    try s.growRows(30);
+
+    s.scroll(.{ .row = 10 });
+
+    try testing.expect(s.viewport == .pin);
+
+    {
+        const pt = s.getCell(.{ .viewport = .{} }).?.screenPoint();
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 10,
+        } }, pt);
+    }
+
+    try testing.expectEqual(Scrollbar{
+        .total = s.total_rows,
+        .offset = 10,
+        .len = s.rows,
+    }, s.scrollbar());
+
+    s.scroll(.{ .delta_row = 5 });
+
+    try testing.expect(s.viewport == .pin);
+
+    {
+        const pt = s.getCell(.{ .viewport = .{} }).?.screenPoint();
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 15,
+        } }, pt);
+    }
+
+    try testing.expectEqual(Scrollbar{
+        .total = s.total_rows,
+        .offset = 15,
+        .len = s.rows,
+    }, s.scrollbar());
+
+    s.scroll(.{ .delta_row = -3 });
+
+    try testing.expect(s.viewport == .pin);
+
+    {
+        const pt = s.getCell(.{ .viewport = .{} }).?.screenPoint();
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 12,
+        } }, pt);
+    }
+
+    try testing.expectEqual(Scrollbar{
+        .total = s.total_rows,
+        .offset = 12,
+        .len = s.rows,
+    }, s.scrollbar());
+}
+
+test "PageList scroll to row with cache fast path down" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 80, 24, null);
+    defer s.deinit();
+    try s.growRows(50);
+
+    s.scroll(.{ .row = 10 });
+
+    try testing.expect(s.viewport == .pin);
+    try testing.expectEqual(Scrollbar{
+        .total = s.total_rows,
+        .offset = 10,
+        .len = s.rows,
+    }, s.scrollbar());
+
+    {
+        const pt = s.getCell(.{ .viewport = .{} }).?.screenPoint();
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 10,
+        } }, pt);
+    }
+
+    // Verify cache is populated
+    try testing.expect(s.viewport_pin_row_offset != null);
+    try testing.expectEqual(@as(usize, 10), s.viewport_pin_row_offset.?);
+
+    // Now scroll to a different row - this should use the fast path
+    s.scroll(.{ .row = 20 });
+
+    try testing.expect(s.viewport == .pin);
+    try testing.expectEqual(Scrollbar{
+        .total = s.total_rows,
+        .offset = 20,
+        .len = s.rows,
+    }, s.scrollbar());
+
+    {
+        const pt = s.getCell(.{ .viewport = .{} }).?.screenPoint();
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 20,
+        } }, pt);
+    }
+
+    try s.growRows(10);
+    {
+        const pt = s.getCell(.{ .viewport = .{} }).?.screenPoint();
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 20,
+        } }, pt);
+    }
+
+    try testing.expectEqual(Scrollbar{
+        .total = s.total_rows,
+        .offset = 20,
+        .len = s.rows,
+    }, s.scrollbar());
+}
+
+test "PageList scroll to row with cache fast path up" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 80, 24, null);
+    defer s.deinit();
+    try s.growRows(50);
+
+    s.scroll(.{ .row = 30 });
+
+    try testing.expect(s.viewport == .pin);
+    try testing.expectEqual(Scrollbar{
+        .total = s.total_rows,
+        .offset = 30,
+        .len = s.rows,
+    }, s.scrollbar());
+
+    {
+        const pt = s.getCell(.{ .viewport = .{} }).?.screenPoint();
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 30,
+        } }, pt);
+    }
+
+    // Verify cache is populated
+    try testing.expect(s.viewport_pin_row_offset != null);
+    try testing.expectEqual(@as(usize, 30), s.viewport_pin_row_offset.?);
+
+    // Now scroll up to a different row - this should use the fast path
+    s.scroll(.{ .row = 15 });
+
+    try testing.expect(s.viewport == .pin);
+    try testing.expectEqual(Scrollbar{
+        .total = s.total_rows,
+        .offset = 15,
+        .len = s.rows,
+    }, s.scrollbar());
+
+    {
+        const pt = s.getCell(.{ .viewport = .{} }).?.screenPoint();
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 15,
+        } }, pt);
+    }
+
+    try s.growRows(10);
+    {
+        const pt = s.getCell(.{ .viewport = .{} }).?.screenPoint();
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 15,
+        } }, pt);
+    }
+
+    try testing.expectEqual(Scrollbar{
+        .total = s.total_rows,
+        .offset = 15,
+        .len = s.rows,
+    }, s.scrollbar());
+}
+
 test "PageList scroll clear" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -5104,7 +5619,7 @@ test "PageList: jump zero prompts" {
     try testing.expect(s.viewport == .active);
 
     try testing.expectEqual(Scrollbar{
-        .total = s.totalRows(),
+        .total = s.total_rows,
         .offset = s.total_rows - s.rows,
         .len = s.rows,
     }, s.scrollbar());
@@ -5138,7 +5653,7 @@ test "Screen: jump back one prompt" {
         } }, s.pointFromPin(.screen, s.pin(.{ .viewport = .{} }).?).?);
 
         try testing.expectEqual(Scrollbar{
-            .total = s.totalRows(),
+            .total = s.total_rows,
             .offset = 1,
             .len = s.rows,
         }, s.scrollbar());
@@ -5152,7 +5667,7 @@ test "Screen: jump back one prompt" {
         } }, s.pointFromPin(.screen, s.pin(.{ .viewport = .{} }).?).?);
 
         try testing.expectEqual(Scrollbar{
-            .total = s.totalRows(),
+            .total = s.total_rows,
             .offset = 1,
             .len = s.rows,
         }, s.scrollbar());
@@ -5163,7 +5678,7 @@ test "Screen: jump back one prompt" {
         s.scroll(.{ .delta_prompt = 1 });
         try testing.expect(s.viewport == .active);
         try testing.expectEqual(Scrollbar{
-            .total = s.totalRows(),
+            .total = s.total_rows,
             .offset = s.total_rows - s.rows,
             .len = s.rows,
         }, s.scrollbar());
@@ -5172,7 +5687,7 @@ test "Screen: jump back one prompt" {
         s.scroll(.{ .delta_prompt = 1 });
         try testing.expect(s.viewport == .active);
         try testing.expectEqual(Scrollbar{
-            .total = s.totalRows(),
+            .total = s.total_rows,
             .offset = s.total_rows - s.rows,
             .len = s.rows,
         }, s.scrollbar());
@@ -6042,11 +6557,11 @@ test "PageList erase" {
     try testing.expectEqual(@as(usize, 6), s.totalPages());
 
     // Our total rows should be large
-    try testing.expect(s.totalRows() > s.rows);
+    try testing.expect(s.total_rows > s.rows);
 
     // Erase the entire history, we should be back to just our active set.
     s.eraseRows(.{ .history = .{} }, null);
-    try testing.expectEqual(s.rows, s.totalRows());
+    try testing.expectEqual(s.rows, s.total_rows);
 
     // We should be back to just one page
     try testing.expectEqual(@as(usize, 1), s.totalPages());
@@ -6101,7 +6616,7 @@ test "PageList erase row with tracked pin resets to top-left" {
     cur_page.data.pauseIntegrityChecks(false);
 
     // Our total rows should be large
-    try testing.expect(s.totalRows() > s.rows);
+    try testing.expect(s.total_rows > s.rows);
 
     // Put a tracked pin in the history
     const p = try s.trackPin(s.pin(.{ .history = .{} }).?);
@@ -6109,7 +6624,7 @@ test "PageList erase row with tracked pin resets to top-left" {
 
     // Erase the entire history, we should be back to just our active set.
     s.eraseRows(.{ .history = .{} }, null);
-    try testing.expectEqual(s.rows, s.totalRows());
+    try testing.expectEqual(s.rows, s.total_rows);
 
     // Our pin should move to the first page
     try testing.expectEqual(s.pages.first.?, p.node);
@@ -6130,7 +6645,7 @@ test "PageList erase row with tracked pin shifts" {
 
     // Erase only a few rows in our active
     s.eraseRows(.{ .active = .{} }, .{ .active = .{ .y = 3 } });
-    try testing.expectEqual(s.rows, s.totalRows());
+    try testing.expectEqual(s.rows, s.total_rows);
 
     // Our pin should move to the first page
     try testing.expectEqual(s.pages.first.?, p.node);
@@ -6151,7 +6666,7 @@ test "PageList erase row with tracked pin is erased" {
 
     // Erase the entire history, we should be back to just our active set.
     s.eraseRows(.{ .active = .{} }, .{ .active = .{ .y = 3 } });
-    try testing.expectEqual(s.rows, s.totalRows());
+    try testing.expectEqual(s.rows, s.total_rows);
 
     // Our pin should move to the first page
     try testing.expectEqual(s.pages.first.?, p.node);
@@ -6180,7 +6695,7 @@ test "PageList erase resets viewport to active if moves within active" {
     cur_page.data.pauseIntegrityChecks(false);
 
     // Move our viewport to the top
-    s.scroll(.{ .delta_row = -@as(isize, @intCast(s.totalRows())) });
+    s.scroll(.{ .delta_row = -@as(isize, @intCast(s.total_rows)) });
     try testing.expect(s.viewport == .top);
 
     // Erase the entire history, we should be back to just our active set.
@@ -6209,7 +6724,7 @@ test "PageList erase resets viewport if inside erased page but not active" {
     cur_page.data.pauseIntegrityChecks(false);
 
     // Move our viewport to the top
-    s.scroll(.{ .delta_row = -@as(isize, @intCast(s.totalRows())) });
+    s.scroll(.{ .delta_row = -@as(isize, @intCast(s.total_rows)) });
     try testing.expect(s.viewport == .top);
 
     // Erase the entire history, we should be back to just our active set.
@@ -6275,7 +6790,7 @@ test "PageList erase a one-row active" {
     }
 
     s.eraseRows(.{ .active = .{} }, .{ .active = .{} });
-    try testing.expectEqual(s.rows, s.totalRows());
+    try testing.expectEqual(s.rows, s.total_rows);
 
     // The row should be empty
     {
