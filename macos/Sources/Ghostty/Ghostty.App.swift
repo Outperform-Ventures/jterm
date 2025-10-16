@@ -571,6 +571,9 @@ extension Ghostty {
             case GHOSTTY_ACTION_REDO:
                 return redo(app, target: target)
 
+            case GHOSTTY_ACTION_SCROLLBAR:
+                scrollbar(app, target: target, v: action.action.scrollbar)
+
             case GHOSTTY_ACTION_CLOSE_ALL_WINDOWS:
                 fallthrough
             case GHOSTTY_ACTION_TOGGLE_TAB_OVERVIEW:
@@ -1554,6 +1557,33 @@ extension Ghostty {
                         surfaceView.progressReport = progressReport
                     }
                 }
+
+            default:
+                assertionFailure()
+            }
+        }
+
+        private static func scrollbar(
+            _ app: ghostty_app_t,
+            target: ghostty_target_s,
+            v: ghostty_action_scrollbar_s) {
+            switch (target.tag) {
+            case GHOSTTY_TARGET_APP:
+                Ghostty.logger.warning("scrollbar does nothing with an app target")
+                return
+
+            case GHOSTTY_TARGET_SURFACE:
+                guard let surface = target.target.surface else { return }
+                guard let surfaceView = self.surfaceView(from: surface) else { return }
+                
+                let scrollbar = Ghostty.Action.Scrollbar(c: v)
+                NotificationCenter.default.post(
+                    name: .ghosttyDidUpdateScrollbar,
+                    object: surfaceView,
+                    userInfo: [
+                        SwiftUI.Notification.Name.ScrollbarKey: scrollbar
+                    ]
+                )
 
             default:
                 assertionFailure()

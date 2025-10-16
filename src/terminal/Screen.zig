@@ -1155,6 +1155,7 @@ pub const Scroll = union(enum) {
     active,
     top,
     pin: Pin,
+    row: usize,
     delta_row: isize,
     delta_prompt: isize,
 };
@@ -1174,6 +1175,7 @@ pub inline fn scroll(self: *Screen, behavior: Scroll) void {
         .active => self.pages.scroll(.{ .active = {} }),
         .top => self.pages.scroll(.{ .top = {} }),
         .pin => |p| self.pages.scroll(.{ .pin = p }),
+        .row => |v| self.pages.scroll(.{ .row = v }),
         .delta_row => |v| self.pages.scroll(.{ .delta_row = v }),
         .delta_prompt => |v| self.pages.scroll(.{ .delta_prompt = v }),
     }
