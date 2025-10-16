@@ -141,6 +141,7 @@
 				Ghostty/Ghostty.Surface.swift,
 				Ghostty/InspectorView.swift,
 				"Ghostty/NSEvent+Extension.swift",
+				Ghostty/SurfaceScrollView.swift,
 				Ghostty/SurfaceView_AppKit.swift,
 				Helpers/AppInfo.swift,
 				Helpers/CodableBridge.swift,

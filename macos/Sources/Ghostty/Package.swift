@@ -344,6 +344,10 @@ extension Notification.Name {
 
     /// Toggle maximize of current window
     static let ghosttyMaximizeDidToggle = Notification.Name("com.mitchellh.ghostty.maximizeDidToggle")
+
+    /// Notification sent when scrollbar updates
+    static let ghosttyDidUpdateScrollbar = Notification.Name("com.mitchellh.ghostty.didUpdateScrollbar")
+    static let ScrollbarKey = ghosttyDidUpdateScrollbar.rawValue + ".scrollbar"
 }
 
 // NOTE: I am moving all of these to Notification.Name extensions over time. This
