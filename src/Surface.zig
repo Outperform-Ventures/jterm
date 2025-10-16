@@ -4827,12 +4827,27 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             }, .unlocked);
         },
 
+        .scroll_to_row => |n| {
+            {
+                self.renderer_state.mutex.lock();
+                defer self.renderer_state.mutex.unlock();
+                const t: *terminal.Terminal = self.renderer_state.terminal;
+                t.screen.scroll(.{ .row = n });
+            }
+
+            try self.queueRender();
+        },
+
         .scroll_to_selection => {
-            self.renderer_state.mutex.lock();
-            defer self.renderer_state.mutex.unlock();
-            const sel = self.io.terminal.screen.selection orelse return false;
-            const tl = sel.topLeft(&self.io.terminal.screen);
-            self.io.terminal.screen.scroll(.{ .pin = tl });
+            {
+                self.renderer_state.mutex.lock();
+                defer self.renderer_state.mutex.unlock();
+                const sel = self.io.terminal.screen.selection orelse return false;
+                const tl = sel.topLeft(&self.io.terminal.screen);
+                self.io.terminal.screen.scroll(.{ .pin = tl });
+            }
+
+            try self.queueRender();
         },
 
         .scroll_page_up => {

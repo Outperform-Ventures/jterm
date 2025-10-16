@@ -347,6 +347,10 @@ pub const Action = union(enum) {
     /// Scroll to the selected text.
     scroll_to_selection,
 
+    /// Scroll to the given absolute row in the screen with 0 being
+    /// the first row.
+    scroll_to_row: usize,
+
     /// Scroll the screen up by one page.
     scroll_page_up,
 
@@ -1077,6 +1081,7 @@ pub const Action = union(enum) {
             .scroll_to_top,
             .scroll_to_bottom,
             .scroll_to_selection,
+            .scroll_to_row,
             .scroll_page_up,
             .scroll_page_down,
             .scroll_page_fractional,
