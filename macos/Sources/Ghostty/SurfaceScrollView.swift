@@ -118,7 +118,12 @@ class SurfaceScrollView: NSView {
     deinit {
         observers.forEach { NotificationCenter.default.removeObserver($0) }
     }
-    
+
+    // The entire bounds is a safe area, so we override any default
+    // insets. This is necessary for the content view to match the
+    // surface view if we have the "hidden" titlebar style.
+    override var safeAreaInsets: NSEdgeInsets { return NSEdgeInsetsZero }
+
     override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
         
@@ -221,11 +226,17 @@ class SurfaceScrollView: NSView {
         // Convert row units to pixels using cell height, ignore zero height.
         let cellHeight = surfaceView.cellSize.height
         guard cellHeight > 0 else { return }
-        
+
+        // The full document height must include the vertical padding around the cell
+        // grid, otherwise the content view ends up misaligned with the surface.
+        let documentGridHeight = CGFloat(scrollbar.total) * cellHeight
+        let gridHeight = CGFloat(scrollbar.len) * cellHeight
+        let padding = scrollView.contentSize.height - gridHeight
+        let documentHeight = documentGridHeight + padding
+
         // Our width should be the content width to account for visible scrollers.
         // We don't do horizontal scrolling in terminals.
-        let totalHeight = CGFloat(scrollbar.total) * cellHeight
-        let newSize = CGSize(width: scrollView.contentSize.width, height: totalHeight)
+        let newSize = CGSize(width: scrollView.contentSize.width, height: documentHeight)
         documentView.setFrameSize(newSize)
         
         // Only update our actual scroll position if we're not actively scrolling.
