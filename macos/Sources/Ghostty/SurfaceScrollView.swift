@@ -118,7 +118,12 @@ class SurfaceScrollView: NSView {
     deinit {
         observers.forEach { NotificationCenter.default.removeObserver($0) }
     }
-    
+
+    // The entire bounds is a safe area, so we override any default
+    // insets. This is necessary for the content view to match the
+    // surface view if we have the "hidden" titlebar style.
+    override var safeAreaInsets: NSEdgeInsets { return NSEdgeInsetsZero }
+
     override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
         
