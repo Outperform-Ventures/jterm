@@ -19,7 +19,6 @@ jobs:
     if: |
       github.event_name == 'workflow_dispatch' ||
       (
-        github.event.workflow_run.conclusion == 'success' &&
         github.repository_owner == 'ghostty-org' &&
         github.ref_name == 'main'
       )
@@ -151,7 +150,6 @@ jobs:
       (
         github.event_name == 'workflow_dispatch' ||
         (
-          github.event.workflow_run.conclusion == 'success' &&
           github.repository_owner == 'ghostty-org' &&
           github.ref_name == 'main'
         )
@@ -206,7 +204,6 @@ jobs:
       (
         github.event_name == 'workflow_dispatch' ||
         (
-          github.event.workflow_run.conclusion == 'success' &&
           github.repository_owner == 'ghostty-org' &&
           github.ref_name == 'main'
         )
@@ -373,7 +370,6 @@ jobs:
       # Create our appcast for Sparkle
       - name: Generate Appcast
         if: |
-          github.event.workflow_run.conclusion == 'success' &&
           github.repository_owner == 'ghostty-org' &&
           github.ref_name == 'main'
         env:
@@ -408,7 +404,6 @@ jobs:
       # gets out of sync with the binaries.
       - name: Prep R2 Storage for Appcast
         if: |
-          github.event.workflow_run.conclusion == 'success' &&
           github.repository_owner == 'ghostty-org' &&
           github.ref_name == 'main'
         run: |
@@ -418,7 +413,6 @@ jobs:
 
       - name: Upload Appcast to R2
         if: |
-          github.event.workflow_run.conclusion == 'success' &&
           github.repository_owner == 'ghostty-org' &&
           github.ref_name == 'main'
         uses: ryand56/r2-upload-action@b801a390acbdeb034c5e684ff5e1361c06639e7c # v1.4
@@ -444,7 +438,6 @@ jobs:
       (
         github.event_name == 'workflow_dispatch' ||
         (
-          github.event.workflow_run.conclusion == 'success' &&
           github.repository_owner == 'ghostty-org' &&
           github.ref_name == 'main'
         )
@@ -629,7 +622,6 @@ jobs:
       (
         github.event_name == 'workflow_dispatch' ||
         (
-          github.event.workflow_run.conclusion == 'success' &&
           github.repository_owner == 'ghostty-org' &&
           github.ref_name == 'main'
         )
