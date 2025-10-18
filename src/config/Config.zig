@@ -476,6 +476,11 @@ pub const compatibility = std.StaticStringMap(
 ///
 ///   * `autohint` - Enable the freetype auto-hinter. Enabled by default.
 ///
+///   * `light` - Use a light hinting style, better preserving glyph shapes.
+///     This is the most common setting in GTK apps and therefore also Ghostty's
+///     default. This has no effect if `monochrome` is enabled. Enabled by
+///     default.
+///
 /// Example: `hinting`, `no-hinting`, `force-autohint`, `no-force-autohint`
 @"freetype-load-flags": FreetypeLoadFlags = .{},
 
@@ -7886,11 +7891,15 @@ pub const BackgroundImageFit = enum {
 pub const FreetypeLoadFlags = packed struct {
     // The defaults here at the time of writing this match the defaults
     // for Freetype itself. Ghostty hasn't made any opinionated changes
-    // to these defaults.
+    // to these defaults. (Strictly speaking, `light` isn't FreeType's
+    // own default, but appears to be the effective default with most
+    // Fontconfig-aware software using FreeType, so until Ghostty
+    // implements Fontconfig support we default to `light`.)
     hinting: bool = true,
     @"force-autohint": bool = false,
     monochrome: bool = false,
     autohint: bool = true,
+    light: bool = true,
 };
 
 /// See linux-cgroup
