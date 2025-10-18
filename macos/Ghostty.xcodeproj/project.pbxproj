@@ -96,6 +96,7 @@
 				Features/QuickTerminal/QuickTerminalController.swift,
 				Features/QuickTerminal/QuickTerminalPosition.swift,
 				Features/QuickTerminal/QuickTerminalScreen.swift,
+				Features/QuickTerminal/QuickTerminalScreenStateCache.swift,
 				Features/QuickTerminal/QuickTerminalSize.swift,
 				Features/QuickTerminal/QuickTerminalSpaceBehavior.swift,
 				Features/QuickTerminal/QuickTerminalWindow.swift,
