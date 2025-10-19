@@ -1,11 +1,6 @@
 const std = @import("std");
 const posix = std.posix;
 
-pub const UrlParsingError = std.Uri.ParseError || error{
-    HostnameIsNotMacAddress,
-    NoSchemeProvided,
-};
-
 pub const LocalHostnameValidationError = error{
     PermissionDenied,
     Unexpected,
