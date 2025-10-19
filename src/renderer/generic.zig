@@ -1322,10 +1322,11 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             // After the graphics API is complete (so we defer) we want to
             // update our scrollbar state.
             defer if (self.scrollbar_dirty) {
-                self.scrollbar_dirty = false;
-                _ = self.surface_mailbox.push(.{
+                // Fail instantly if the surface mailbox if full, we'll just
+                // get it on the next frame.
+                if (self.surface_mailbox.push(.{
                     .scrollbar = self.scrollbar,
-                }, .{ .forever = {} });
+                }, .instant) > 0) self.scrollbar_dirty = false;
             };
 
             // Let our graphics API do any bookkeeping, etc.
