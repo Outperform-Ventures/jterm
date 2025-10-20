@@ -72,7 +72,7 @@ jobs:
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
 
       - name: Setup Cache
-        uses: namespacelabs/nscloud-cache-action@7baedde84bbf5063413d621f282834bc2654d0c1 # v1.2.18
+        uses: namespacelabs/nscloud-cache-action@caff5c9dc51d8126e7d16141fb015c478374256b # v1.2.19
         with:
           path: |
             /nix
@@ -106,7 +106,7 @@ jobs:
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
 
       - name: Setup Cache
-        uses: namespacelabs/nscloud-cache-action@7baedde84bbf5063413d621f282834bc2654d0c1 # v1.2.18
+        uses: namespacelabs/nscloud-cache-action@caff5c9dc51d8126e7d16141fb015c478374256b # v1.2.19
         with:
           path: |
             /nix
@@ -139,7 +139,7 @@ jobs:
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
 
       - name: Setup Cache
-        uses: namespacelabs/nscloud-cache-action@7baedde84bbf5063413d621f282834bc2654d0c1 # v1.2.18
+        uses: namespacelabs/nscloud-cache-action@caff5c9dc51d8126e7d16141fb015c478374256b # v1.2.19
         with:
           path: |
             /nix
@@ -173,7 +173,7 @@ jobs:
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
 
       - name: Setup Cache
-        uses: namespacelabs/nscloud-cache-action@7baedde84bbf5063413d621f282834bc2654d0c1 # v1.2.18
+        uses: namespacelabs/nscloud-cache-action@caff5c9dc51d8126e7d16141fb015c478374256b # v1.2.19
         with:
           path: |
             /nix
@@ -215,7 +215,7 @@ jobs:
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
 
       - name: Setup Cache
-        uses: namespacelabs/nscloud-cache-action@7baedde84bbf5063413d621f282834bc2654d0c1 # v1.2.18
+        uses: namespacelabs/nscloud-cache-action@caff5c9dc51d8126e7d16141fb015c478374256b # v1.2.19
         with:
           path: |
             /nix
@@ -251,7 +251,7 @@ jobs:
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
 
       - name: Setup Cache
-        uses: namespacelabs/nscloud-cache-action@7baedde84bbf5063413d621f282834bc2654d0c1 # v1.2.18
+        uses: namespacelabs/nscloud-cache-action@caff5c9dc51d8126e7d16141fb015c478374256b # v1.2.19
         with:
           path: |
             /nix
@@ -280,7 +280,7 @@ jobs:
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
 
       - name: Setup Cache
-        uses: namespacelabs/nscloud-cache-action@7baedde84bbf5063413d621f282834bc2654d0c1 # v1.2.18
+        uses: namespacelabs/nscloud-cache-action@caff5c9dc51d8126e7d16141fb015c478374256b # v1.2.19
         with:
           path: |
             /nix
@@ -313,7 +313,7 @@ jobs:
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
 
       - name: Setup Cache
-        uses: namespacelabs/nscloud-cache-action@7baedde84bbf5063413d621f282834bc2654d0c1 # v1.2.18
+        uses: namespacelabs/nscloud-cache-action@caff5c9dc51d8126e7d16141fb015c478374256b # v1.2.19
         with:
           path: |
             /nix
@@ -359,7 +359,7 @@ jobs:
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
 
       - name: Setup Cache
-        uses: namespacelabs/nscloud-cache-action@7baedde84bbf5063413d621f282834bc2654d0c1 # v1.2.18
+        uses: namespacelabs/nscloud-cache-action@caff5c9dc51d8126e7d16141fb015c478374256b # v1.2.19
         with:
           path: |
             /nix
@@ -578,7 +578,7 @@ jobs:
           echo "version=$(sed -n -E 's/^\s*\.?minimum_zig_version\s*=\s*"([^"]+)".*/\1/p' build.zig.zon)" >> $GITHUB_OUTPUT
 
       - name: Setup Cache
-        uses: namespacelabs/nscloud-cache-action@7baedde84bbf5063413d621f282834bc2654d0c1 # v1.2.18
+        uses: namespacelabs/nscloud-cache-action@caff5c9dc51d8126e7d16141fb015c478374256b # v1.2.19
         with:
           path: |
             /nix
@@ -620,7 +620,7 @@ jobs:
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
 
       - name: Setup Cache
-        uses: namespacelabs/nscloud-cache-action@7baedde84bbf5063413d621f282834bc2654d0c1 # v1.2.18
+        uses: namespacelabs/nscloud-cache-action@caff5c9dc51d8126e7d16141fb015c478374256b # v1.2.19
         with:
           path: |
             /nix
@@ -668,7 +668,7 @@ jobs:
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
 
       - name: Setup Cache
-        uses: namespacelabs/nscloud-cache-action@7baedde84bbf5063413d621f282834bc2654d0c1 # v1.2.18
+        uses: namespacelabs/nscloud-cache-action@caff5c9dc51d8126e7d16141fb015c478374256b # v1.2.19
         with:
           path: |
             /nix
@@ -703,7 +703,7 @@ jobs:
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
 
       - name: Setup Cache
-        uses: namespacelabs/nscloud-cache-action@7baedde84bbf5063413d621f282834bc2654d0c1 # v1.2.18
+        uses: namespacelabs/nscloud-cache-action@caff5c9dc51d8126e7d16141fb015c478374256b # v1.2.19
         with:
           path: |
             /nix
@@ -767,7 +767,7 @@ jobs:
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
 
       - name: Setup Cache
-        uses: namespacelabs/nscloud-cache-action@7baedde84bbf5063413d621f282834bc2654d0c1 # v1.2.18
+        uses: namespacelabs/nscloud-cache-action@caff5c9dc51d8126e7d16141fb015c478374256b # v1.2.19
         with:
           path: |
             /nix
@@ -796,7 +796,7 @@ jobs:
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
       - name: Setup Cache
-        uses: namespacelabs/nscloud-cache-action@7baedde84bbf5063413d621f282834bc2654d0c1 # v1.2.18
+        uses: namespacelabs/nscloud-cache-action@caff5c9dc51d8126e7d16141fb015c478374256b # v1.2.19
         with:
           path: |
             /nix
@@ -824,7 +824,7 @@ jobs:
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
       - name: Setup Cache
-        uses: namespacelabs/nscloud-cache-action@7baedde84bbf5063413d621f282834bc2654d0c1 # v1.2.18
+        uses: namespacelabs/nscloud-cache-action@caff5c9dc51d8126e7d16141fb015c478374256b # v1.2.19
         with:
           path: |
             /nix
@@ -851,7 +851,7 @@ jobs:
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
       - name: Setup Cache
-        uses: namespacelabs/nscloud-cache-action@7baedde84bbf5063413d621f282834bc2654d0c1 # v1.2.18
+        uses: namespacelabs/nscloud-cache-action@caff5c9dc51d8126e7d16141fb015c478374256b # v1.2.19
         with:
           path: |
             /nix
@@ -878,7 +878,7 @@ jobs:
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
       - name: Setup Cache
-        uses: namespacelabs/nscloud-cache-action@7baedde84bbf5063413d621f282834bc2654d0c1 # v1.2.18
+        uses: namespacelabs/nscloud-cache-action@caff5c9dc51d8126e7d16141fb015c478374256b # v1.2.19
         with:
           path: |
             /nix
@@ -905,7 +905,7 @@ jobs:
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
       - name: Setup Cache
-        uses: namespacelabs/nscloud-cache-action@7baedde84bbf5063413d621f282834bc2654d0c1 # v1.2.18
+        uses: namespacelabs/nscloud-cache-action@caff5c9dc51d8126e7d16141fb015c478374256b # v1.2.19
         with:
           path: |
             /nix
@@ -932,7 +932,7 @@ jobs:
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
       - name: Setup Cache
-        uses: namespacelabs/nscloud-cache-action@7baedde84bbf5063413d621f282834bc2654d0c1 # v1.2.18
+        uses: namespacelabs/nscloud-cache-action@caff5c9dc51d8126e7d16141fb015c478374256b # v1.2.19
         with:
           path: |
             /nix
@@ -966,7 +966,7 @@ jobs:
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
       - name: Setup Cache
-        uses: namespacelabs/nscloud-cache-action@7baedde84bbf5063413d621f282834bc2654d0c1 # v1.2.18
+        uses: namespacelabs/nscloud-cache-action@caff5c9dc51d8126e7d16141fb015c478374256b # v1.2.19
         with:
           path: |
             /nix
@@ -993,7 +993,7 @@ jobs:
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
       - name: Setup Cache
-        uses: namespacelabs/nscloud-cache-action@7baedde84bbf5063413d621f282834bc2654d0c1 # v1.2.18
+        uses: namespacelabs/nscloud-cache-action@caff5c9dc51d8126e7d16141fb015c478374256b # v1.2.19
         with:
           path: |
             /nix
@@ -1028,7 +1028,7 @@ jobs:
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
 
       - name: Setup Cache
-        uses: namespacelabs/nscloud-cache-action@7baedde84bbf5063413d621f282834bc2654d0c1 # v1.2.18
+        uses: namespacelabs/nscloud-cache-action@caff5c9dc51d8126e7d16141fb015c478374256b # v1.2.19
         with:
           path: |
             /nix
@@ -1116,7 +1116,7 @@ jobs:
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
 
       - name: Setup Cache
-        uses: namespacelabs/nscloud-cache-action@7baedde84bbf5063413d621f282834bc2654d0c1 # v1.2.18
+        uses: namespacelabs/nscloud-cache-action@caff5c9dc51d8126e7d16141fb015c478374256b # v1.2.19
         with:
           path: |
             /nix
