@@ -268,6 +268,7 @@ const DerivedConfig = struct {
     font: font.SharedGridSet.DerivedConfig,
     mouse_interval: u64,
     mouse_hide_while_typing: bool,
+    mouse_reporting: bool,
     mouse_scroll_multiplier: configpkg.MouseScrollMultiplier,
     mouse_shift_capture: configpkg.MouseShiftCapture,
     macos_non_native_fullscreen: configpkg.NonNativeFullscreen,
@@ -341,6 +342,7 @@ const DerivedConfig = struct {
             .font = try font.SharedGridSet.DerivedConfig.init(alloc, config),
             .mouse_interval = config.@"click-repeat-interval" * 1_000_000, // 500ms
             .mouse_hide_while_typing = config.@"mouse-hide-while-typing",
+            .mouse_reporting = config.@"mouse-reporting",
             .mouse_scroll_multiplier = config.@"mouse-scroll-multiplier",
             .mouse_shift_capture = config.@"mouse-shift-capture",
             .macos_non_native_fullscreen = config.@"macos-non-native-fullscreen",
@@ -2984,7 +2986,7 @@ pub fn scrollCallback(
         // If we have an active mouse reporting mode, clear the selection.
         // The selection can occur if the user uses the shift mod key to
         // override mouse grabbing from the window.
-        if (self.io.terminal.flags.mouse_event != .none) {
+        if (self.isMouseReporting()) {
             try self.setSelection(null);
         }
 
@@ -3027,7 +3029,7 @@ pub fn scrollCallback(
         // the normal logic.
 
         // If we're scrolling up or down, then send a mouse event.
-        if (self.io.terminal.flags.mouse_event != .none) {
+        if (self.isMouseReporting()) {
             for (0..@abs(y.delta)) |_| {
                 const pos = try self.rt_surface.getCursorPos();
                 try self.mouseReport(switch (y.direction()) {
@@ -3100,6 +3102,13 @@ pub fn contentScaleCallback(self: *Surface, content_scale: apprt.ContentScale) !
 /// The type of action to report for a mouse event.
 const MouseReportAction = enum { press, release, motion };
 
+/// Returns true if mouse reporting is enabled both in the config and
+/// the terminal state.
+fn isMouseReporting(self: *const Surface) bool {
+    return self.config.mouse_reporting and
+        self.io.terminal.flags.mouse_event != .none;
+}
+
 fn mouseReport(
     self: *Surface,
     button: ?input.MouseButton,
@@ -3107,9 +3116,13 @@ fn mouseReport(
     mods: input.Mods,
     pos: apprt.CursorPos,
 ) !void {
+    // Mouse reporting must be enabled by both config and terminal state
+    assert(self.config.mouse_reporting);
+    assert(self.io.terminal.flags.mouse_event != .none);
+
     // Depending on the event, we may do nothing at all.
     switch (self.io.terminal.flags.mouse_event) {
-        .none => return,
+        .none => unreachable, // checked by assert above
 
         // X10 only reports clicks with mouse button 1, 2, 3. We verify
         // the button later.
@@ -3504,7 +3517,7 @@ pub fn mouseButtonCallback(
     {
         self.renderer_state.mutex.lock();
         defer self.renderer_state.mutex.unlock();
-        if (self.io.terminal.flags.mouse_event != .none) report: {
+        if (self.isMouseReporting()) report: {
             // If we have shift-pressed and we aren't allowed to capture it,
             // then we do not do a mouse report.
             if (mods.shift and !shift_capture) break :report;
@@ -4142,7 +4155,7 @@ pub fn cursorPosCallback(
     }
 
     // Do a mouse report
-    if (self.io.terminal.flags.mouse_event != .none) report: {
+    if (self.isMouseReporting()) report: {
         // Shift overrides mouse "grabbing" in the window, taken from Kitty.
         // This only applies if there is a mouse button pressed so that
         // movement reports are not affected.
@@ -5034,6 +5047,11 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             .secure_input,
             .toggle,
         ),
+
+        .toggle_mouse_reporting => {
+            self.config.mouse_reporting = !self.config.mouse_reporting;
+            log.debug("mouse reporting toggled: {}", .{self.config.mouse_reporting});
+        },
 
         .toggle_command_palette => return try self.rt_app.performAction(
             .{ .surface = self },
