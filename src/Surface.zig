@@ -3393,9 +3393,10 @@ pub fn contentScaleCallback(self: *Surface, content_scale: apprt.ContentScale) !
 const MouseReportAction = enum { press, release, motion };
 
 /// Returns true if mouse reporting is enabled both in the config and
-/// the terminal state.
+/// the terminal state, and the surface is not in read-only mode.
 fn isMouseReporting(self: *const Surface) bool {
-    return self.config.mouse_reporting and
+    return !self.readonly and
+        self.config.mouse_reporting and
         self.io.terminal.flags.mouse_event != .none;
 }
 
@@ -3410,8 +3411,8 @@ fn mouseReport(
     assert(self.config.mouse_reporting);
     assert(self.io.terminal.flags.mouse_event != .none);
 
-    // If the surface is in read-only mode, do not send mouse reports to the PTY
-    if (self.readonly) return;
+    // Callers must verify the surface is not in read-only mode
+    assert(!self.readonly);
 
     // Depending on the event, we may do nothing at all.
     switch (self.io.terminal.flags.mouse_event) {
