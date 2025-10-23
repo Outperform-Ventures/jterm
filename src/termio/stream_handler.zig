@@ -231,6 +231,13 @@ pub const StreamHandler = struct {
             .erase_line_left => self.terminal.eraseLine(.left, value),
             .erase_line_complete => self.terminal.eraseLine(.complete, value),
             .erase_line_right_unless_pending_wrap => self.terminal.eraseLine(.right_unless_pending_wrap, value),
+            .delete_chars => self.terminal.deleteChars(value),
+            .erase_chars => self.terminal.eraseChars(value),
+            .insert_lines => self.terminal.insertLines(value),
+            .insert_blanks => self.terminal.insertBlanks(value),
+            .delete_lines => self.terminal.deleteLines(value),
+            .scroll_up => self.terminal.scrollUp(value),
+            .scroll_down => self.terminal.scrollDown(value),
         }
     }
 
@@ -398,26 +405,6 @@ pub const StreamHandler = struct {
         // Small optimization: call index instead of linefeed because they're
         // identical and this avoids one layer of function call overhead.
         try self.terminal.index();
-    }
-
-    pub inline fn deleteChars(self: *StreamHandler, count: usize) !void {
-        self.terminal.deleteChars(count);
-    }
-
-    pub inline fn eraseChars(self: *StreamHandler, count: usize) !void {
-        self.terminal.eraseChars(count);
-    }
-
-    pub inline fn insertLines(self: *StreamHandler, count: usize) !void {
-        self.terminal.insertLines(count);
-    }
-
-    pub inline fn insertBlanks(self: *StreamHandler, count: usize) !void {
-        self.terminal.insertBlanks(count);
-    }
-
-    pub inline fn deleteLines(self: *StreamHandler, count: usize) !void {
-        self.terminal.deleteLines(count);
     }
 
     pub inline fn reverseIndex(self: *StreamHandler) !void {
@@ -841,14 +828,6 @@ pub const StreamHandler = struct {
     pub fn enquiry(self: *StreamHandler) !void {
         log.debug("sending enquiry response={s}", .{self.enquiry_response});
         self.messageWriter(try termio.Message.writeReq(self.alloc, self.enquiry_response));
-    }
-
-    pub inline fn scrollDown(self: *StreamHandler, count: usize) !void {
-        self.terminal.scrollDown(count);
-    }
-
-    pub inline fn scrollUp(self: *StreamHandler, count: usize) !void {
-        self.terminal.scrollUp(count);
     }
 
     pub fn setActiveStatusDisplay(

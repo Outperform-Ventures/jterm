@@ -57,6 +57,13 @@ pub const Action = union(Key) {
     erase_line_left: bool,
     erase_line_complete: bool,
     erase_line_right_unless_pending_wrap: bool,
+    delete_chars: usize,
+    erase_chars: usize,
+    insert_lines: usize,
+    insert_blanks: usize,
+    delete_lines: usize,
+    scroll_up: usize,
+    scroll_down: usize,
 
     pub const Key = lib.Enum(
         lib_target,
@@ -88,6 +95,13 @@ pub const Action = union(Key) {
             "erase_line_left",
             "erase_line_complete",
             "erase_line_right_unless_pending_wrap",
+            "delete_chars",
+            "erase_chars",
+            "insert_lines",
+            "insert_blanks",
+            "delete_lines",
+            "scroll_up",
+            "scroll_down",
         },
     );
 
@@ -722,11 +736,14 @@ pub fn Stream(comptime Handler: type) type {
                 // IL - Insert Lines
                 // TODO: test
                 'L' => switch (input.intermediates.len) {
-                    0 => if (@hasDecl(T, "insertLines")) switch (input.params.len) {
-                        0 => try self.handler.insertLines(1),
-                        1 => try self.handler.insertLines(input.params[0]),
-                        else => log.warn("invalid IL command: {f}", .{input}),
-                    } else log.warn("unimplemented CSI callback: {f}", .{input}),
+                    0 => try self.handler.vt(.insert_lines, switch (input.params.len) {
+                        0 => 1,
+                        1 => input.params[0],
+                        else => {
+                            log.warn("invalid IL command: {f}", .{input});
+                            return;
+                        },
+                    }),
 
                     else => log.warn(
                         "ignoring unimplemented CSI L with intermediates: {s}",
@@ -737,11 +754,14 @@ pub fn Stream(comptime Handler: type) type {
                 // DL - Delete Lines
                 // TODO: test
                 'M' => switch (input.intermediates.len) {
-                    0 => if (@hasDecl(T, "deleteLines")) switch (input.params.len) {
-                        0 => try self.handler.deleteLines(1),
-                        1 => try self.handler.deleteLines(input.params[0]),
-                        else => log.warn("invalid DL command: {f}", .{input}),
-                    } else log.warn("unimplemented CSI callback: {f}", .{input}),
+                    0 => try self.handler.vt(.delete_lines, switch (input.params.len) {
+                        0 => 1,
+                        1 => input.params[0],
+                        else => {
+                            log.warn("invalid DL command: {f}", .{input});
+                            return;
+                        },
+                    }),
 
                     else => log.warn(
                         "ignoring unimplemented CSI M with intermediates: {s}",
@@ -751,16 +771,14 @@ pub fn Stream(comptime Handler: type) type {
 
                 // Delete Character (DCH)
                 'P' => switch (input.intermediates.len) {
-                    0 => if (@hasDecl(T, "deleteChars")) try self.handler.deleteChars(
-                        switch (input.params.len) {
-                            0 => 1,
-                            1 => input.params[0],
-                            else => {
-                                log.warn("invalid delete characters command: {f}", .{input});
-                                return;
-                            },
+                    0 => try self.handler.vt(.delete_chars, switch (input.params.len) {
+                        0 => 1,
+                        1 => input.params[0],
+                        else => {
+                            log.warn("invalid delete characters command: {f}", .{input});
+                            return;
                         },
-                    ) else log.warn("unimplemented CSI callback: {f}", .{input}),
+                    }),
 
                     else => log.warn(
                         "ignoring unimplemented CSI P with intermediates: {s}",
@@ -771,16 +789,14 @@ pub fn Stream(comptime Handler: type) type {
                 // Scroll Up (SD)
 
                 'S' => switch (input.intermediates.len) {
-                    0 => if (@hasDecl(T, "scrollUp")) try self.handler.scrollUp(
-                        switch (input.params.len) {
-                            0 => 1,
-                            1 => input.params[0],
-                            else => {
-                                log.warn("invalid scroll up command: {f}", .{input});
-                                return;
-                            },
+                    0 => try self.handler.vt(.scroll_up, switch (input.params.len) {
+                        0 => 1,
+                        1 => input.params[0],
+                        else => {
+                            log.warn("invalid scroll up command: {f}", .{input});
+                            return;
                         },
-                    ) else log.warn("unimplemented CSI callback: {f}", .{input}),
+                    }),
 
                     else => log.warn(
                         "ignoring unimplemented CSI S with intermediates: {s}",
@@ -790,16 +806,14 @@ pub fn Stream(comptime Handler: type) type {
 
                 // Scroll Down (SD)
                 'T' => switch (input.intermediates.len) {
-                    0 => if (@hasDecl(T, "scrollDown")) try self.handler.scrollDown(
-                        switch (input.params.len) {
-                            0 => 1,
-                            1 => input.params[0],
-                            else => {
-                                log.warn("invalid scroll down command: {f}", .{input});
-                                return;
-                            },
+                    0 => try self.handler.vt(.scroll_down, switch (input.params.len) {
+                        0 => 1,
+                        1 => input.params[0],
+                        else => {
+                            log.warn("invalid scroll down command: {f}", .{input});
+                            return;
                         },
-                    ) else log.warn("unimplemented CSI callback: {f}", .{input}),
+                    }),
 
                     else => log.warn(
                         "ignoring unimplemented CSI T with intermediates: {s}",
@@ -862,16 +876,14 @@ pub fn Stream(comptime Handler: type) type {
 
                 // Erase Characters (ECH)
                 'X' => switch (input.intermediates.len) {
-                    0 => if (@hasDecl(T, "eraseChars")) try self.handler.eraseChars(
-                        switch (input.params.len) {
-                            0 => 1,
-                            1 => input.params[0],
-                            else => {
-                                log.warn("invalid erase characters command: {f}", .{input});
-                                return;
-                            },
+                    0 => try self.handler.vt(.erase_chars, switch (input.params.len) {
+                        0 => 1,
+                        1 => input.params[0],
+                        else => {
+                            log.warn("invalid erase characters command: {f}", .{input});
+                            return;
                         },
-                    ) else log.warn("unimplemented CSI callback: {f}", .{input}),
+                    }),
 
                     else => log.warn(
                         "ignoring unimplemented CSI X with intermediates: {s}",
@@ -1558,11 +1570,14 @@ pub fn Stream(comptime Handler: type) type {
 
                 // ICH - Insert Blanks
                 '@' => switch (input.intermediates.len) {
-                    0 => if (@hasDecl(T, "insertBlanks")) switch (input.params.len) {
-                        0 => try self.handler.insertBlanks(1),
-                        1 => try self.handler.insertBlanks(input.params[0]),
-                        else => log.warn("invalid ICH command: {f}", .{input}),
-                    } else log.warn("unimplemented CSI callback: {f}", .{input}),
+                    0 => try self.handler.vt(.insert_blanks, switch (input.params.len) {
+                        0 => 1,
+                        1 => input.params[0],
+                        else => {
+                            log.warn("invalid ICH command: {f}", .{input});
+                            return;
+                        },
+                    }),
 
                     else => log.warn(
                         "ignoring unimplemented CSI @: {f}",
@@ -2569,19 +2584,16 @@ test "stream: insert characters" {
         const Self = @This();
         called: bool = false,
 
-        pub fn insertBlanks(self: *Self, v: u16) !void {
-            _ = v;
-            self.called = true;
-        }
-
         pub fn vt(
-            self: *@This(),
+            self: *Self,
             comptime action: anytype,
             value: anytype,
         ) !void {
-            _ = self;
-            _ = action;
             _ = value;
+            switch (action) {
+                .insert_blanks => self.called = true,
+                else => {},
+            }
         }
     };
 
