@@ -218,6 +218,19 @@ pub const StreamHandler = struct {
                 self.terminal.screen.cursor.y + 1 +| value.value,
                 self.terminal.screen.cursor.x + 1,
             ),
+            .erase_display_below => self.terminal.eraseDisplay(.below, value),
+            .erase_display_above => self.terminal.eraseDisplay(.above, value),
+            .erase_display_complete => {
+                try self.terminal.scrollViewport(.{ .bottom = {} });
+                try self.queueRender();
+                self.terminal.eraseDisplay(.complete, value);
+            },
+            .erase_display_scrollback => self.terminal.eraseDisplay(.scrollback, value),
+            .erase_display_scroll_complete => self.terminal.eraseDisplay(.scroll_complete, value),
+            .erase_line_right => self.terminal.eraseLine(.right, value),
+            .erase_line_left => self.terminal.eraseLine(.left, value),
+            .erase_line_complete => self.terminal.eraseLine(.complete, value),
+            .erase_line_right_unless_pending_wrap => self.terminal.eraseLine(.right_unless_pending_wrap, value),
         }
     }
 
@@ -385,20 +398,6 @@ pub const StreamHandler = struct {
         // Small optimization: call index instead of linefeed because they're
         // identical and this avoids one layer of function call overhead.
         try self.terminal.index();
-    }
-
-    pub inline fn eraseDisplay(self: *StreamHandler, mode: terminal.EraseDisplay, protected: bool) !void {
-        if (mode == .complete) {
-            // Whenever we erase the full display, scroll to bottom.
-            try self.terminal.scrollViewport(.{ .bottom = {} });
-            try self.queueRender();
-        }
-
-        self.terminal.eraseDisplay(mode, protected);
-    }
-
-    pub inline fn eraseLine(self: *StreamHandler, mode: terminal.EraseLine, protected: bool) !void {
-        self.terminal.eraseLine(mode, protected);
     }
 
     pub inline fn deleteChars(self: *StreamHandler, count: usize) !void {

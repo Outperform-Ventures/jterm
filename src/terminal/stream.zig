@@ -48,6 +48,15 @@ pub const Action = union(Key) {
     cursor_col_relative: CursorMovement,
     cursor_row_relative: CursorMovement,
     cursor_pos: CursorPos,
+    erase_display_below: bool,
+    erase_display_above: bool,
+    erase_display_complete: bool,
+    erase_display_scrollback: bool,
+    erase_display_scroll_complete: bool,
+    erase_line_right: bool,
+    erase_line_left: bool,
+    erase_line_complete: bool,
+    erase_line_right_unless_pending_wrap: bool,
 
     pub const Key = lib.Enum(
         lib_target,
@@ -70,6 +79,15 @@ pub const Action = union(Key) {
             "cursor_col_relative",
             "cursor_row_relative",
             "cursor_pos",
+            "erase_display_below",
+            "erase_display_above",
+            "erase_display_complete",
+            "erase_display_scrollback",
+            "erase_display_scroll_complete",
+            "erase_line_right",
+            "erase_line_left",
+            "erase_line_complete",
+            "erase_line_right_unless_pending_wrap",
         },
     );
 
@@ -636,7 +654,7 @@ pub fn Stream(comptime Handler: type) type {
                 },
 
                 // Erase Display
-                'J' => if (@hasDecl(T, "eraseDisplay")) {
+                'J' => {
                     const protected_: ?bool = switch (input.intermediates.len) {
                         0 => false,
                         1 => if (input.intermediates[0] == '?') true else null,
@@ -659,11 +677,17 @@ pub fn Stream(comptime Handler: type) type {
                         return;
                     };
 
-                    try self.handler.eraseDisplay(mode, protected);
-                } else log.warn("unimplemented CSI callback: {f}", .{input}),
+                    switch (mode) {
+                        .below => try self.handler.vt(.erase_display_below, protected),
+                        .above => try self.handler.vt(.erase_display_above, protected),
+                        .complete => try self.handler.vt(.erase_display_complete, protected),
+                        .scrollback => try self.handler.vt(.erase_display_scrollback, protected),
+                        .scroll_complete => try self.handler.vt(.erase_display_scroll_complete, protected),
+                    }
+                },
 
                 // Erase Line
-                'K' => if (@hasDecl(T, "eraseLine")) {
+                'K' => {
                     const protected_: ?bool = switch (input.intermediates.len) {
                         0 => false,
                         1 => if (input.intermediates[0] == '?') true else null,
@@ -686,8 +710,14 @@ pub fn Stream(comptime Handler: type) type {
                         return;
                     };
 
-                    try self.handler.eraseLine(mode, protected);
-                } else log.warn("unimplemented CSI callback: {f}", .{input}),
+                    switch (mode) {
+                        .right => try self.handler.vt(.erase_line_right, protected),
+                        .left => try self.handler.vt(.erase_line_left, protected),
+                        .complete => try self.handler.vt(.erase_line_complete, protected),
+                        .right_unless_pending_wrap => try self.handler.vt(.erase_line_right_unless_pending_wrap, protected),
+                        _ => log.warn("invalid erase line mode: {}", .{mode}),
+                    }
+                },
 
                 // IL - Insert Lines
                 // TODO: test
@@ -2231,23 +2261,34 @@ test "stream: DECED, DECSED" {
         mode: ?csi.EraseDisplay = null,
         protected: ?bool = null,
 
-        pub fn eraseDisplay(
-            self: *Self,
-            mode: csi.EraseDisplay,
-            protected: bool,
-        ) !void {
-            self.mode = mode;
-            self.protected = protected;
-        }
-
         pub fn vt(
-            self: *@This(),
+            self: *Self,
             comptime action: anytype,
             value: anytype,
         ) !void {
-            _ = self;
-            _ = action;
-            _ = value;
+            switch (action) {
+                .erase_display_below => {
+                    self.mode = .below;
+                    self.protected = value;
+                },
+                .erase_display_above => {
+                    self.mode = .above;
+                    self.protected = value;
+                },
+                .erase_display_complete => {
+                    self.mode = .complete;
+                    self.protected = value;
+                },
+                .erase_display_scrollback => {
+                    self.mode = .scrollback;
+                    self.protected = value;
+                },
+                .erase_display_scroll_complete => {
+                    self.mode = .scroll_complete;
+                    self.protected = value;
+                },
+                else => {},
+            }
         }
     };
 
@@ -2317,23 +2358,30 @@ test "stream: DECEL, DECSEL" {
         mode: ?csi.EraseLine = null,
         protected: ?bool = null,
 
-        pub fn eraseLine(
-            self: *Self,
-            mode: csi.EraseLine,
-            protected: bool,
-        ) !void {
-            self.mode = mode;
-            self.protected = protected;
-        }
-
         pub fn vt(
-            self: *@This(),
+            self: *Self,
             comptime action: anytype,
             value: anytype,
         ) !void {
-            _ = self;
-            _ = action;
-            _ = value;
+            switch (action) {
+                .erase_line_right => {
+                    self.mode = .right;
+                    self.protected = value;
+                },
+                .erase_line_left => {
+                    self.mode = .left;
+                    self.protected = value;
+                },
+                .erase_line_complete => {
+                    self.mode = .complete;
+                    self.protected = value;
+                },
+                .erase_line_right_unless_pending_wrap => {
+                    self.mode = .right_unless_pending_wrap;
+                    self.protected = value;
+                },
+                else => {},
+            }
         }
     };
 
