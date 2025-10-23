@@ -145,6 +145,7 @@ const Handler = struct {
     ) !void {
         switch (action) {
             .print => try self.t.print(value.cp),
+            else => {},
         }
     }
 };

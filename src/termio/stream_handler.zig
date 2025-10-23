@@ -195,6 +195,13 @@ pub const StreamHandler = struct {
     ) !void {
         switch (action) {
             .print => try self.terminal.print(value.cp),
+            .bell => self.bell(),
+            .backspace => self.terminal.backspace(),
+            .horizontal_tab => try self.horizontalTab(value.count),
+            .linefeed => try self.linefeed(),
+            .carriage_return => self.terminal.carriageReturn(),
+            .enquiry => try self.enquiry(),
+            .invoke_charset => self.terminal.invokeCharset(value.bank, value.charset, value.locking),
         }
     }
 
@@ -338,15 +345,11 @@ pub const StreamHandler = struct {
         try self.terminal.printRepeat(count);
     }
 
-    pub inline fn bell(self: *StreamHandler) !void {
+    inline fn bell(self: *StreamHandler) void {
         self.surfaceMessageWriter(.ring_bell);
     }
 
-    pub inline fn backspace(self: *StreamHandler) !void {
-        self.terminal.backspace();
-    }
-
-    pub inline fn horizontalTab(self: *StreamHandler, count: u16) !void {
+    inline fn horizontalTab(self: *StreamHandler, count: u16) !void {
         for (0..count) |_| {
             const x = self.terminal.screen.cursor.x;
             try self.terminal.horizontalTab();
@@ -362,14 +365,10 @@ pub const StreamHandler = struct {
         }
     }
 
-    pub inline fn linefeed(self: *StreamHandler) !void {
+    inline fn linefeed(self: *StreamHandler) !void {
         // Small optimization: call index instead of linefeed because they're
         // identical and this avoids one layer of function call overhead.
         try self.terminal.index();
-    }
-
-    pub inline fn carriageReturn(self: *StreamHandler) !void {
-        self.terminal.carriageReturn();
     }
 
     pub inline fn setCursorLeft(self: *StreamHandler, amount: u16) !void {
@@ -894,15 +893,6 @@ pub const StreamHandler = struct {
         set: terminal.Charset,
     ) !void {
         self.terminal.configureCharset(slot, set);
-    }
-
-    pub fn invokeCharset(
-        self: *StreamHandler,
-        active: terminal.CharsetActiveSlot,
-        slot: terminal.CharsetSlot,
-        single: bool,
-    ) !void {
-        self.terminal.invokeCharset(active, slot, single);
     }
 
     pub fn fullReset(

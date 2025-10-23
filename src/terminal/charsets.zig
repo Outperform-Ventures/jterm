@@ -1,16 +1,19 @@
 const std = @import("std");
+const build_options = @import("terminal_options");
 const assert = std.debug.assert;
+const LibEnum = @import("../lib/enum.zig").Enum;
 
 /// The available charset slots for a terminal.
-pub const Slots = enum(u3) {
-    G0 = 0,
-    G1 = 1,
-    G2 = 2,
-    G3 = 3,
-};
+pub const Slots = LibEnum(
+    if (build_options.c_abi) .c else .zig,
+    &.{ "G0", "G1", "G2", "G3" },
+);
 
 /// The name of the active slots.
-pub const ActiveSlot = enum { GL, GR };
+pub const ActiveSlot = LibEnum(
+    if (build_options.c_abi) .c else .zig,
+    &.{ "GL", "GR" },
+);
 
 /// The list of supported character sets and their associated tables.
 pub const Charset = enum {

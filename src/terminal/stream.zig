@@ -4,8 +4,7 @@ const build_options = @import("terminal_options");
 const assert = std.debug.assert;
 const testing = std.testing;
 const simd = @import("../simd/main.zig");
-const LibEnum = @import("../lib/enum.zig").Enum;
-const LibUnion = @import("../lib/union.zig").TaggedUnion;
+const lib = @import("../lib/main.zig");
 const Parser = @import("Parser.zig");
 const ansi = @import("ansi.zig");
 const charsets = @import("charsets.zig");
@@ -28,20 +27,40 @@ const log = std.log.scoped(.stream);
 /// do something else.
 const debug = false;
 
+const lib_target: lib.Target = if (build_options.c_abi) .c else .zig;
+
 pub const Action = union(Key) {
     print: Print,
+    bell,
+    backspace,
+    horizontal_tab: HorizontalTab,
+    linefeed,
+    carriage_return,
+    enquiry,
+    invoke_charset: InvokeCharset,
 
-    pub const Key = LibEnum(
-        if (build_options.c_abi) .c else .zig,
+    pub const Key = lib.Enum(
+        lib_target,
         &.{
             "print",
+            "bell",
+            "backspace",
+            "horizontal_tab",
+            "linefeed",
+            "carriage_return",
+            "enquiry",
+            "invoke_charset",
         },
     );
 
     /// C ABI functions.
-    const c_union = LibUnion(@This(), extern struct {
-        x: u64,
-    });
+    const c_union = lib.TaggedUnion(
+        lib_target,
+        @This(),
+        // TODO: Before shipping an ABI-compatible libghostty, verify this.
+        // This was just arbitrarily chosen for now.
+        [8]u64,
+    );
     pub const Tag = c_union.Tag;
     pub const Value = c_union.Value;
     pub const C = c_union.C;
@@ -60,6 +79,16 @@ pub const Action = union(Key) {
             return .{ .cp = @intCast(self.cp) };
         }
     };
+
+    pub const HorizontalTab = lib.Struct(lib_target, struct {
+        count: u16,
+    });
+
+    pub const InvokeCharset = lib.Struct(lib_target, struct {
+        bank: charsets.ActiveSlot,
+        charset: charsets.Slots,
+        locking: bool,
+    });
 };
 
 /// Returns a type that can process a stream of tty control characters.
@@ -383,45 +412,14 @@ pub fn Stream(comptime Handler: type) type {
                 // We ignore SOH/STX: https://github.com/microsoft/terminal/issues/10786
                 .NUL, .SOH, .STX => {},
 
-                .ENQ => if (@hasDecl(T, "enquiry"))
-                    try self.handler.enquiry()
-                else
-                    log.warn("unimplemented execute: {x}", .{c}),
-
-                .BEL => if (@hasDecl(T, "bell"))
-                    try self.handler.bell()
-                else
-                    log.warn("unimplemented execute: {x}", .{c}),
-
-                .BS => if (@hasDecl(T, "backspace"))
-                    try self.handler.backspace()
-                else
-                    log.warn("unimplemented execute: {x}", .{c}),
-
-                .HT => if (@hasDecl(T, "horizontalTab"))
-                    try self.handler.horizontalTab(1)
-                else
-                    log.warn("unimplemented execute: {x}", .{c}),
-
-                .LF, .VT, .FF => if (@hasDecl(T, "linefeed"))
-                    try self.handler.linefeed()
-                else
-                    log.warn("unimplemented execute: {x}", .{c}),
-
-                .CR => if (@hasDecl(T, "carriageReturn"))
-                    try self.handler.carriageReturn()
-                else
-                    log.warn("unimplemented execute: {x}", .{c}),
-
-                .SO => if (@hasDecl(T, "invokeCharset"))
-                    try self.handler.invokeCharset(.GL, .G1, false)
-                else
-                    log.warn("unimplemented invokeCharset: {x}", .{c}),
-
-                .SI => if (@hasDecl(T, "invokeCharset"))
-                    try self.handler.invokeCharset(.GL, .G0, false)
-                else
-                    log.warn("unimplemented invokeCharset: {x}", .{c}),
+                .ENQ => try self.handler.vt(.enquiry, {}),
+                .BEL => try self.handler.vt(.bell, {}),
+                .BS => try self.handler.vt(.backspace, {}),
+                .HT => try self.handler.vt(.horizontal_tab, .{ .count = 1 }),
+                .LF, .VT, .FF => try self.handler.vt(.linefeed, {}),
+                .CR => try self.handler.vt(.carriage_return, {}),
+                .SO => try self.handler.vt(.invoke_charset, .{ .bank = .GL, .charset = .G1, .locking = false }),
+                .SI => try self.handler.vt(.invoke_charset, .{ .bank = .GL, .charset = .G0, .locking = false }),
 
                 else => log.warn("invalid C0 character, ignoring: 0x{x}", .{c}),
             }
@@ -1900,6 +1898,12 @@ pub fn Stream(comptime Handler: type) type {
             }
         }
     };
+}
+
+test Action {
+    // Forces the C type to be reified when the target is C, ensuring
+    // all our types are C ABI compatible.
+    _ = Action.C;
 }
 
 test "stream: print" {
