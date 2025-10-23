@@ -492,7 +492,6 @@ fn actionCommands(action: Action.Key) []const Command {
             },
         },
 
-
         .toggle_split_zoom => comptime &.{.{
             .action = .toggle_split_zoom,
             .title = "Toggle Split Zoom",
