@@ -38,6 +38,15 @@ pub const Action = union(Key) {
     carriage_return,
     enquiry,
     invoke_charset: InvokeCharset,
+    cursor_up: CursorMovement,
+    cursor_down: CursorMovement,
+    cursor_left: CursorMovement,
+    cursor_right: CursorMovement,
+    cursor_col: CursorMovement,
+    cursor_row: CursorMovement,
+    cursor_col_relative: CursorMovement,
+    cursor_row_relative: CursorMovement,
+    cursor_pos: CursorPos,
 
     pub const Key = lib.Enum(
         lib_target,
@@ -50,6 +59,15 @@ pub const Action = union(Key) {
             "carriage_return",
             "enquiry",
             "invoke_charset",
+            "cursor_up",
+            "cursor_down",
+            "cursor_left",
+            "cursor_right",
+            "cursor_col",
+            "cursor_row",
+            "cursor_col_relative",
+            "cursor_row_relative",
+            "cursor_pos",
         },
     );
 
@@ -89,6 +107,19 @@ pub const Action = union(Key) {
         charset: charsets.Slots,
         locking: bool,
     });
+
+    pub const CursorMovement = extern struct {
+        /// The value of the cursor movement. Depending on the tag of this
+        /// union this may be an absolute value or it may be a relative
+        /// value. For example, `cursor_up` is relative, but `cursor_row`
+        /// is absolute.
+        value: u16,
+    };
+
+    pub const CursorPos = extern struct {
+        row: u16,
+        col: u16,
+    };
 };
 
 /// Returns a type that can process a stream of tty control characters.
@@ -429,8 +460,8 @@ pub fn Stream(comptime Handler: type) type {
             switch (input.final) {
                 // CUU - Cursor Up
                 'A', 'k' => switch (input.intermediates.len) {
-                    0 => if (@hasDecl(T, "setCursorUp")) try self.handler.setCursorUp(
-                        switch (input.params.len) {
+                    0 => try self.handler.vt(.cursor_up, .{
+                        .value = switch (input.params.len) {
                             0 => 1,
                             1 => input.params[0],
                             else => {
@@ -438,8 +469,7 @@ pub fn Stream(comptime Handler: type) type {
                                 return;
                             },
                         },
-                        false,
-                    ) else log.warn("unimplemented CSI callback: {f}", .{input}),
+                    }),
 
                     else => log.warn(
                         "ignoring unimplemented CSI A with intermediates: {s}",
@@ -449,8 +479,8 @@ pub fn Stream(comptime Handler: type) type {
 
                 // CUD - Cursor Down
                 'B' => switch (input.intermediates.len) {
-                    0 => if (@hasDecl(T, "setCursorDown")) try self.handler.setCursorDown(
-                        switch (input.params.len) {
+                    0 => try self.handler.vt(.cursor_down, .{
+                        .value = switch (input.params.len) {
                             0 => 1,
                             1 => input.params[0],
                             else => {
@@ -458,8 +488,7 @@ pub fn Stream(comptime Handler: type) type {
                                 return;
                             },
                         },
-                        false,
-                    ) else log.warn("unimplemented CSI callback: {f}", .{input}),
+                    }),
 
                     else => log.warn(
                         "ignoring unimplemented CSI B with intermediates: {s}",
@@ -469,8 +498,8 @@ pub fn Stream(comptime Handler: type) type {
 
                 // CUF - Cursor Right
                 'C' => switch (input.intermediates.len) {
-                    0 => if (@hasDecl(T, "setCursorRight")) try self.handler.setCursorRight(
-                        switch (input.params.len) {
+                    0 => try self.handler.vt(.cursor_right, .{
+                        .value = switch (input.params.len) {
                             0 => 1,
                             1 => input.params[0],
                             else => {
@@ -478,7 +507,7 @@ pub fn Stream(comptime Handler: type) type {
                                 return;
                             },
                         },
-                    ) else log.warn("unimplemented CSI callback: {f}", .{input}),
+                    }),
 
                     else => log.warn(
                         "ignoring unimplemented CSI C with intermediates: {s}",
@@ -488,8 +517,8 @@ pub fn Stream(comptime Handler: type) type {
 
                 // CUB - Cursor Left
                 'D', 'j' => switch (input.intermediates.len) {
-                    0 => if (@hasDecl(T, "setCursorLeft")) try self.handler.setCursorLeft(
-                        switch (input.params.len) {
+                    0 => try self.handler.vt(.cursor_left, .{
+                        .value = switch (input.params.len) {
                             0 => 1,
                             1 => input.params[0],
                             else => {
@@ -497,7 +526,7 @@ pub fn Stream(comptime Handler: type) type {
                                 return;
                             },
                         },
-                    ) else log.warn("unimplemented CSI callback: {f}", .{input}),
+                    }),
 
                     else => log.warn(
                         "ignoring unimplemented CSI D with intermediates: {s}",
@@ -507,17 +536,19 @@ pub fn Stream(comptime Handler: type) type {
 
                 // CNL - Cursor Next Line
                 'E' => switch (input.intermediates.len) {
-                    0 => if (@hasDecl(T, "setCursorDown")) try self.handler.setCursorDown(
-                        switch (input.params.len) {
-                            0 => 1,
-                            1 => input.params[0],
-                            else => {
-                                log.warn("invalid cursor up command: {f}", .{input});
-                                return;
+                    0 => {
+                        try self.handler.vt(.cursor_down, .{
+                            .value = switch (input.params.len) {
+                                0 => 1,
+                                1 => input.params[0],
+                                else => {
+                                    log.warn("invalid cursor up command: {f}", .{input});
+                                    return;
+                                },
                             },
-                        },
-                        true,
-                    ) else log.warn("unimplemented CSI callback: {f}", .{input}),
+                        });
+                        try self.handler.vt(.carriage_return, {});
+                    },
 
                     else => log.warn(
                         "ignoring unimplemented CSI E with intermediates: {s}",
@@ -527,17 +558,19 @@ pub fn Stream(comptime Handler: type) type {
 
                 // CPL - Cursor Previous Line
                 'F' => switch (input.intermediates.len) {
-                    0 => if (@hasDecl(T, "setCursorUp")) try self.handler.setCursorUp(
-                        switch (input.params.len) {
-                            0 => 1,
-                            1 => input.params[0],
-                            else => {
-                                log.warn("invalid cursor down command: {f}", .{input});
-                                return;
+                    0 => {
+                        try self.handler.vt(.cursor_up, .{
+                            .value = switch (input.params.len) {
+                                0 => 1,
+                                1 => input.params[0],
+                                else => {
+                                    log.warn("invalid cursor down command: {f}", .{input});
+                                    return;
+                                },
                             },
-                        },
-                        true,
-                    ) else log.warn("unimplemented CSI callback: {f}", .{input}),
+                        });
+                        try self.handler.vt(.carriage_return, {});
+                    },
 
                     else => log.warn(
                         "ignoring unimplemented CSI F with intermediates: {s}",
@@ -548,11 +581,16 @@ pub fn Stream(comptime Handler: type) type {
                 // HPA - Cursor Horizontal Position Absolute
                 // TODO: test
                 'G', '`' => switch (input.intermediates.len) {
-                    0 => if (@hasDecl(T, "setCursorCol")) switch (input.params.len) {
-                        0 => try self.handler.setCursorCol(1),
-                        1 => try self.handler.setCursorCol(input.params[0]),
-                        else => log.warn("invalid HPA command: {f}", .{input}),
-                    } else log.warn("unimplemented CSI callback: {f}", .{input}),
+                    0 => try self.handler.vt(.cursor_col, .{
+                        .value = switch (input.params.len) {
+                            0 => 1,
+                            1 => input.params[0],
+                            else => {
+                                log.warn("invalid HPA command: {f}", .{input});
+                                return;
+                            },
+                        },
+                    }),
 
                     else => log.warn(
                         "ignoring unimplemented CSI G with intermediates: {s}",
@@ -563,12 +601,18 @@ pub fn Stream(comptime Handler: type) type {
                 // CUP - Set Cursor Position.
                 // TODO: test
                 'H', 'f' => switch (input.intermediates.len) {
-                    0 => if (@hasDecl(T, "setCursorPos")) switch (input.params.len) {
-                        0 => try self.handler.setCursorPos(1, 1),
-                        1 => try self.handler.setCursorPos(input.params[0], 1),
-                        2 => try self.handler.setCursorPos(input.params[0], input.params[1]),
-                        else => log.warn("invalid CUP command: {f}", .{input}),
-                    } else log.warn("unimplemented CSI callback: {f}", .{input}),
+                    0 => {
+                        const pos: streampkg.Action.CursorPos = switch (input.params.len) {
+                            0 => .{ .row = 1, .col = 1 },
+                            1 => .{ .row = input.params[0], .col = 1 },
+                            2 => .{ .row = input.params[0], .col = input.params[1] },
+                            else => {
+                                log.warn("invalid CUP command: {f}", .{input});
+                                return;
+                            },
+                        };
+                        try self.handler.vt(.cursor_pos, pos);
+                    },
 
                     else => log.warn(
                         "ignoring unimplemented CSI H with intermediates: {s}",
@@ -830,8 +874,8 @@ pub fn Stream(comptime Handler: type) type {
 
                 // HPR - Cursor Horizontal Position Relative
                 'a' => switch (input.intermediates.len) {
-                    0 => if (@hasDecl(T, "setCursorColRelative")) try self.handler.setCursorColRelative(
-                        switch (input.params.len) {
+                    0 => try self.handler.vt(.cursor_col_relative, .{
+                        .value = switch (input.params.len) {
                             0 => 1,
                             1 => input.params[0],
                             else => {
@@ -839,7 +883,7 @@ pub fn Stream(comptime Handler: type) type {
                                 return;
                             },
                         },
-                    ) else log.warn("unimplemented CSI callback: {f}", .{input}),
+                    }),
 
                     else => log.warn(
                         "ignoring unimplemented CSI a with intermediates: {s}",
@@ -886,8 +930,8 @@ pub fn Stream(comptime Handler: type) type {
 
                 // VPA - Cursor Vertical Position Absolute
                 'd' => switch (input.intermediates.len) {
-                    0 => if (@hasDecl(T, "setCursorRow")) try self.handler.setCursorRow(
-                        switch (input.params.len) {
+                    0 => try self.handler.vt(.cursor_row, .{
+                        .value = switch (input.params.len) {
                             0 => 1,
                             1 => input.params[0],
                             else => {
@@ -895,7 +939,7 @@ pub fn Stream(comptime Handler: type) type {
                                 return;
                             },
                         },
-                    ) else log.warn("unimplemented CSI callback: {f}", .{input}),
+                    }),
 
                     else => log.warn(
                         "ignoring unimplemented CSI d with intermediates: {s}",
@@ -905,8 +949,8 @@ pub fn Stream(comptime Handler: type) type {
 
                 // VPR - Cursor Vertical Position Relative
                 'e' => switch (input.intermediates.len) {
-                    0 => if (@hasDecl(T, "setCursorRowRelative")) try self.handler.setCursorRowRelative(
-                        switch (input.params.len) {
+                    0 => try self.handler.vt(.cursor_row_relative, .{
+                        .value = switch (input.params.len) {
                             0 => 1,
                             1 => input.params[0],
                             else => {
@@ -914,7 +958,7 @@ pub fn Stream(comptime Handler: type) type {
                                 return;
                             },
                         },
-                    ) else log.warn("unimplemented CSI callback: {f}", .{input}),
+                    }),
 
                     else => log.warn(
                         "ignoring unimplemented CSI e with intermediates: {s}",
@@ -1977,18 +2021,15 @@ test "stream: cursor right (CUF)" {
     const H = struct {
         amount: u16 = 0,
 
-        pub fn setCursorRight(self: *@This(), v: u16) !void {
-            self.amount = v;
-        }
-
         pub fn vt(
             self: *@This(),
             comptime action: anytype,
             value: anytype,
         ) !void {
-            _ = self;
-            _ = action;
-            _ = value;
+            switch (action) {
+                .cursor_right => self.amount = value.value,
+                else => {},
+            }
         }
     };
 
@@ -2570,20 +2611,17 @@ test "stream: SCORC" {
 
 test "stream: too many csi params" {
     const H = struct {
-        pub fn setCursorRight(self: *@This(), v: u16) !void {
-            _ = v;
-            _ = self;
-            unreachable;
-        }
-
         pub fn vt(
             self: *@This(),
             comptime action: anytype,
             value: anytype,
         ) !void {
             _ = self;
-            _ = action;
             _ = value;
+            switch (action) {
+                .cursor_right => unreachable,
+                else => {},
+            }
         }
     };
 
@@ -2593,11 +2631,6 @@ test "stream: too many csi params" {
 
 test "stream: csi param too long" {
     const H = struct {
-        pub fn setCursorRight(self: *@This(), v: u16) !void {
-            _ = v;
-            _ = self;
-        }
-
         pub fn vt(
             self: *@This(),
             comptime action: anytype,

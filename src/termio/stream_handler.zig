@@ -202,6 +202,21 @@ pub const StreamHandler = struct {
             .carriage_return => self.terminal.carriageReturn(),
             .enquiry => try self.enquiry(),
             .invoke_charset => self.terminal.invokeCharset(value.bank, value.charset, value.locking),
+            .cursor_up => self.terminal.cursorUp(value.value),
+            .cursor_down => self.terminal.cursorDown(value.value),
+            .cursor_left => self.terminal.cursorLeft(value.value),
+            .cursor_right => self.terminal.cursorRight(value.value),
+            .cursor_pos => self.terminal.setCursorPos(value.row, value.col),
+            .cursor_col => self.terminal.setCursorPos(self.terminal.screen.cursor.y + 1, value.value),
+            .cursor_row => self.terminal.setCursorPos(value.value, self.terminal.screen.cursor.x + 1),
+            .cursor_col_relative => self.terminal.setCursorPos(
+                self.terminal.screen.cursor.y + 1,
+                self.terminal.screen.cursor.x + 1 +| value.value,
+            ),
+            .cursor_row_relative => self.terminal.setCursorPos(
+                self.terminal.screen.cursor.y + 1 +| value.value,
+                self.terminal.screen.cursor.x + 1,
+            ),
         }
     }
 
@@ -371,49 +386,7 @@ pub const StreamHandler = struct {
         try self.terminal.index();
     }
 
-    pub inline fn setCursorLeft(self: *StreamHandler, amount: u16) !void {
-        self.terminal.cursorLeft(amount);
-    }
 
-    pub inline fn setCursorRight(self: *StreamHandler, amount: u16) !void {
-        self.terminal.cursorRight(amount);
-    }
-
-    pub inline fn setCursorDown(self: *StreamHandler, amount: u16, carriage: bool) !void {
-        self.terminal.cursorDown(amount);
-        if (carriage) self.terminal.carriageReturn();
-    }
-
-    pub inline fn setCursorUp(self: *StreamHandler, amount: u16, carriage: bool) !void {
-        self.terminal.cursorUp(amount);
-        if (carriage) self.terminal.carriageReturn();
-    }
-
-    pub inline fn setCursorCol(self: *StreamHandler, col: u16) !void {
-        self.terminal.setCursorPos(self.terminal.screen.cursor.y + 1, col);
-    }
-
-    pub inline fn setCursorColRelative(self: *StreamHandler, offset: u16) !void {
-        self.terminal.setCursorPos(
-            self.terminal.screen.cursor.y + 1,
-            self.terminal.screen.cursor.x + 1 +| offset,
-        );
-    }
-
-    pub inline fn setCursorRow(self: *StreamHandler, row: u16) !void {
-        self.terminal.setCursorPos(row, self.terminal.screen.cursor.x + 1);
-    }
-
-    pub inline fn setCursorRowRelative(self: *StreamHandler, offset: u16) !void {
-        self.terminal.setCursorPos(
-            self.terminal.screen.cursor.y + 1 +| offset,
-            self.terminal.screen.cursor.x + 1,
-        );
-    }
-
-    pub inline fn setCursorPos(self: *StreamHandler, row: u16, col: u16) !void {
-        self.terminal.setCursorPos(row, col);
-    }
 
     pub inline fn eraseDisplay(self: *StreamHandler, mode: terminal.EraseDisplay, protected: bool) !void {
         if (mode == .complete) {
