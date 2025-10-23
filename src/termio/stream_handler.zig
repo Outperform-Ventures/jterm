@@ -95,6 +95,8 @@ pub const StreamHandler = struct {
     /// this to determine if we need to default the window title.
     seen_title: bool = false,
 
+    pub const Stream = terminal.Stream(StreamHandler);
+
     pub fn deinit(self: *StreamHandler) void {
         self.apc.deinit();
         self.dcs.deinit();
@@ -184,6 +186,16 @@ pub const StreamHandler = struct {
             );
         };
         _ = self.renderer_mailbox.push(msg, .{ .forever = {} });
+    }
+
+    pub fn vt(
+        self: *StreamHandler,
+        comptime action: Stream.Action.Tag,
+        value: Stream.Action.Value(action),
+    ) !void {
+        switch (action) {
+            .print => try self.terminal.print(value.cp),
+        }
     }
 
     pub inline fn dcsHook(self: *StreamHandler, dcs: terminal.DCS) !void {
@@ -320,10 +332,6 @@ pub const StreamHandler = struct {
                 }
             },
         }
-    }
-
-    pub inline fn print(self: *StreamHandler, ch: u21) !void {
-        try self.terminal.print(ch);
     }
 
     pub inline fn printRepeat(self: *StreamHandler, count: usize) !void {

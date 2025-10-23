@@ -333,6 +333,15 @@ pub const VTHandler = struct {
         cimgui.c.ImGuiTextFilter_destroy(self.filter_text);
     }
 
+    pub fn vt(
+        self: *VTHandler,
+        comptime action: Stream.Action.Tag,
+        value: Stream.Action.Value(action),
+    ) !void {
+        _ = self;
+        _ = value;
+    }
+
     /// This is called with every single terminal action.
     pub fn handleManually(self: *VTHandler, action: terminal.Parser.Action) !bool {
         const insp = self.surface.inspector orelse return false;

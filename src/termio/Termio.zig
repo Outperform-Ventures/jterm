@@ -64,7 +64,7 @@ mailbox: termio.Mailbox,
 
 /// The stream parser. This parses the stream of escape codes and so on
 /// from the child process and calls callbacks in the stream handler.
-terminal_stream: terminalpkg.Stream(StreamHandler),
+terminal_stream: StreamHandler.Stream,
 
 /// Last time the cursor was reset. This is used to prevent message
 /// flooding with cursor resets.

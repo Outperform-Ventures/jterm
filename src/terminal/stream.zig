@@ -1,8 +1,11 @@
+const streampkg = @This();
 const std = @import("std");
 const build_options = @import("terminal_options");
 const assert = std.debug.assert;
 const testing = std.testing;
 const simd = @import("../simd/main.zig");
+const LibEnum = @import("../lib/enum.zig").Enum;
+const LibUnion = @import("../lib/union.zig").TaggedUnion;
 const Parser = @import("Parser.zig");
 const ansi = @import("ansi.zig");
 const charsets = @import("charsets.zig");
@@ -25,6 +28,40 @@ const log = std.log.scoped(.stream);
 /// do something else.
 const debug = false;
 
+pub const Action = union(Key) {
+    print: Print,
+
+    pub const Key = LibEnum(
+        if (build_options.c_abi) .c else .zig,
+        &.{
+            "print",
+        },
+    );
+
+    /// C ABI functions.
+    const c_union = LibUnion(@This(), extern struct {
+        x: u64,
+    });
+    pub const Tag = c_union.Tag;
+    pub const Value = c_union.Value;
+    pub const C = c_union.C;
+    pub const CValue = c_union.CValue;
+    pub const cval = c_union.cval;
+
+    /// Field types
+    pub const Print = struct {
+        cp: u21,
+
+        pub const C = extern struct {
+            cp: u32,
+        };
+
+        pub fn cval(self: Print) Print.C {
+            return .{ .cp = @intCast(self.cp) };
+        }
+    };
+};
+
 /// Returns a type that can process a stream of tty control characters.
 /// This will call various callback functions on type T. Type T only has to
 /// implement the callbacks it cares about; any unimplemented callbacks will
@@ -39,6 +76,8 @@ const debug = false;
 pub fn Stream(comptime Handler: type) type {
     return struct {
         const Self = @This();
+
+        pub const Action = streampkg.Action;
 
         // We use T with @hasDecl so it needs to be a struct. Unwrap the
         // pointer if we were given one.
@@ -306,7 +345,7 @@ pub fn Stream(comptime Handler: type) type {
                 }
 
                 switch (action) {
-                    .print => |p| if (@hasDecl(T, "print")) try self.handler.print(p),
+                    .print => |p| try self.print(p),
                     .execute => |code| try self.execute(code),
                     .csi_dispatch => |csi_action| try self.csiDispatch(csi_action),
                     .esc_dispatch => |esc| try self.escDispatch(esc),
@@ -334,9 +373,7 @@ pub fn Stream(comptime Handler: type) type {
         }
 
         pub inline fn print(self: *Self, c: u21) !void {
-            if (@hasDecl(T, "print")) {
-                try self.handler.print(c);
-            }
+            try self.handler.vt(.print, .{ .cp = c });
         }
 
         pub inline fn execute(self: *Self, c: u8) !void {
@@ -1869,8 +1906,15 @@ test "stream: print" {
     const H = struct {
         c: ?u21 = 0,
 
-        pub fn print(self: *@This(), c: u21) !void {
-            self.c = c;
+        pub fn vt(
+            self: *@This(),
+            comptime action: anytype,
+            value: anytype,
+        ) !void {
+            switch (action) {
+                .print => self.c = value.cp,
+                else => {},
+            }
         }
     };
 
@@ -1883,8 +1927,15 @@ test "simd: print invalid utf-8" {
     const H = struct {
         c: ?u21 = 0,
 
-        pub fn print(self: *@This(), c: u21) !void {
-            self.c = c;
+        pub fn vt(
+            self: *@This(),
+            comptime action: anytype,
+            value: anytype,
+        ) !void {
+            switch (action) {
+                .print => self.c = value.cp,
+                else => {},
+            }
         }
     };
 
@@ -1897,8 +1948,15 @@ test "simd: complete incomplete utf-8" {
     const H = struct {
         c: ?u21 = null,
 
-        pub fn print(self: *@This(), c: u21) !void {
-            self.c = c;
+        pub fn vt(
+            self: *@This(),
+            comptime action: anytype,
+            value: anytype,
+        ) !void {
+            switch (action) {
+                .print => self.c = value.cp,
+                else => {},
+            }
         }
     };
 
@@ -1917,6 +1975,16 @@ test "stream: cursor right (CUF)" {
 
         pub fn setCursorRight(self: *@This(), v: u16) !void {
             self.amount = v;
+        }
+
+        pub fn vt(
+            self: *@This(),
+            comptime action: anytype,
+            value: anytype,
+        ) !void {
+            _ = self;
+            _ = action;
+            _ = value;
         }
     };
 
@@ -1943,6 +2011,16 @@ test "stream: dec set mode (SM) and reset mode (RM)" {
             self.mode = @as(modes.Mode, @enumFromInt(1));
             if (v) self.mode = mode;
         }
+
+        pub fn vt(
+            self: *@This(),
+            comptime action: anytype,
+            value: anytype,
+        ) !void {
+            _ = self;
+            _ = action;
+            _ = value;
+        }
     };
 
     var s: Stream(H) = .init(.{});
@@ -1964,6 +2042,16 @@ test "stream: ansi set mode (SM) and reset mode (RM)" {
         pub fn setMode(self: *@This(), mode: modes.Mode, v: bool) !void {
             self.mode = null;
             if (v) self.mode = mode;
+        }
+
+        pub fn vt(
+            self: *@This(),
+            comptime action: anytype,
+            value: anytype,
+        ) !void {
+            _ = self;
+            _ = action;
+            _ = value;
         }
     };
 
@@ -1987,6 +2075,16 @@ test "stream: ansi set mode (SM) and reset mode (RM) with unknown value" {
             self.mode = null;
             if (v) self.mode = mode;
         }
+
+        pub fn vt(
+            self: *@This(),
+            comptime action: anytype,
+            value: anytype,
+        ) !void {
+            _ = self;
+            _ = action;
+            _ = value;
+        }
     };
 
     var s: Stream(H) = .init(.{});
@@ -2007,6 +2105,16 @@ test "stream: restore mode" {
             _ = b;
             self.called = true;
         }
+
+        pub fn vt(
+            self: *@This(),
+            comptime action: anytype,
+            value: anytype,
+        ) !void {
+            _ = self;
+            _ = action;
+            _ = value;
+        }
     };
 
     var s: Stream(H) = .init(.{});
@@ -2022,6 +2130,16 @@ test "stream: pop kitty keyboard with no params defaults to 1" {
         pub fn popKittyKeyboard(self: *Self, n: u16) !void {
             self.n = n;
         }
+
+        pub fn vt(
+            self: *@This(),
+            comptime action: anytype,
+            value: anytype,
+        ) !void {
+            _ = self;
+            _ = action;
+            _ = value;
+        }
     };
 
     var s: Stream(H) = .init(.{});
@@ -2036,6 +2154,16 @@ test "stream: DECSCA" {
 
         pub fn setProtectedMode(self: *Self, v: ansi.ProtectedMode) !void {
             self.v = v;
+        }
+
+        pub fn vt(
+            self: *@This(),
+            comptime action: anytype,
+            value: anytype,
+        ) !void {
+            _ = self;
+            _ = action;
+            _ = value;
         }
     };
 
@@ -2071,6 +2199,16 @@ test "stream: DECED, DECSED" {
         ) !void {
             self.mode = mode;
             self.protected = protected;
+        }
+
+        pub fn vt(
+            self: *@This(),
+            comptime action: anytype,
+            value: anytype,
+        ) !void {
+            _ = self;
+            _ = action;
+            _ = value;
         }
     };
 
@@ -2148,6 +2286,16 @@ test "stream: DECEL, DECSEL" {
             self.mode = mode;
             self.protected = protected;
         }
+
+        pub fn vt(
+            self: *@This(),
+            comptime action: anytype,
+            value: anytype,
+        ) !void {
+            _ = self;
+            _ = action;
+            _ = value;
+        }
     };
 
     var s: Stream(H) = .init(.{});
@@ -2207,6 +2355,16 @@ test "stream: DECSCUSR" {
         pub fn setCursorStyle(self: *@This(), style: ansi.CursorStyle) !void {
             self.style = style;
         }
+
+        pub fn vt(
+            self: *@This(),
+            comptime action: anytype,
+            value: anytype,
+        ) !void {
+            _ = self;
+            _ = action;
+            _ = value;
+        }
     };
 
     var s: Stream(H) = .init(.{});
@@ -2228,6 +2386,16 @@ test "stream: DECSCUSR without space" {
         pub fn setCursorStyle(self: *@This(), style: ansi.CursorStyle) !void {
             self.style = style;
         }
+
+        pub fn vt(
+            self: *@This(),
+            comptime action: anytype,
+            value: anytype,
+        ) !void {
+            _ = self;
+            _ = action;
+            _ = value;
+        }
     };
 
     var s: Stream(H) = .init(.{});
@@ -2244,6 +2412,16 @@ test "stream: XTSHIFTESCAPE" {
 
         pub fn setMouseShiftCapture(self: *@This(), v: bool) !void {
             self.escape = v;
+        }
+
+        pub fn vt(
+            self: *@This(),
+            comptime action: anytype,
+            value: anytype,
+        ) !void {
+            _ = self;
+            _ = action;
+            _ = value;
         }
     };
 
@@ -2274,6 +2452,16 @@ test "stream: change window title with invalid utf-8" {
 
             self.seen = true;
         }
+
+        pub fn vt(
+            self: *@This(),
+            comptime action: anytype,
+            value: anytype,
+        ) !void {
+            _ = self;
+            _ = action;
+            _ = value;
+        }
     };
 
     {
@@ -2297,6 +2485,16 @@ test "stream: insert characters" {
         pub fn insertBlanks(self: *Self, v: u16) !void {
             _ = v;
             self.called = true;
+        }
+
+        pub fn vt(
+            self: *@This(),
+            comptime action: anytype,
+            value: anytype,
+        ) !void {
+            _ = self;
+            _ = action;
+            _ = value;
         }
     };
 
@@ -2324,6 +2522,16 @@ test "stream: SCOSC" {
         pub fn setLeftAndRightMarginAmbiguous(self: *Self) !void {
             self.called = true;
         }
+
+        pub fn vt(
+            self: *@This(),
+            comptime action: anytype,
+            value: anytype,
+        ) !void {
+            _ = self;
+            _ = action;
+            _ = value;
+        }
     };
 
     var s: Stream(H) = .init(.{});
@@ -2339,6 +2547,16 @@ test "stream: SCORC" {
         pub fn restoreCursor(self: *Self) !void {
             self.called = true;
         }
+
+        pub fn vt(
+            self: *@This(),
+            comptime action: anytype,
+            value: anytype,
+        ) !void {
+            _ = self;
+            _ = action;
+            _ = value;
+        }
     };
 
     var s: Stream(H) = .init(.{});
@@ -2353,6 +2571,16 @@ test "stream: too many csi params" {
             _ = self;
             unreachable;
         }
+
+        pub fn vt(
+            self: *@This(),
+            comptime action: anytype,
+            value: anytype,
+        ) !void {
+            _ = self;
+            _ = action;
+            _ = value;
+        }
     };
 
     var s: Stream(H) = .init(.{});
@@ -2364,6 +2592,16 @@ test "stream: csi param too long" {
         pub fn setCursorRight(self: *@This(), v: u16) !void {
             _ = v;
             _ = self;
+        }
+
+        pub fn vt(
+            self: *@This(),
+            comptime action: anytype,
+            value: anytype,
+        ) !void {
+            _ = self;
+            _ = action;
+            _ = value;
         }
     };
 
@@ -2377,6 +2615,16 @@ test "stream: send report with CSI t" {
 
         pub fn sendSizeReport(self: *@This(), style: csi.SizeReportStyle) void {
             self.style = style;
+        }
+
+        pub fn vt(
+            self: *@This(),
+            comptime action: anytype,
+            value: anytype,
+        ) !void {
+            _ = self;
+            _ = action;
+            _ = value;
         }
     };
 
@@ -2402,6 +2650,16 @@ test "stream: invalid CSI t" {
         pub fn sendSizeReport(self: *@This(), style: csi.SizeReportStyle) void {
             self.style = style;
         }
+
+        pub fn vt(
+            self: *@This(),
+            comptime action: anytype,
+            value: anytype,
+        ) !void {
+            _ = self;
+            _ = action;
+            _ = value;
+        }
     };
 
     var s: Stream(H) = .init(.{});
@@ -2416,6 +2674,16 @@ test "stream: CSI t push title" {
 
         pub fn pushPopTitle(self: *@This(), op: csi.TitlePushPop) void {
             self.op = op;
+        }
+
+        pub fn vt(
+            self: *@This(),
+            comptime action: anytype,
+            value: anytype,
+        ) !void {
+            _ = self;
+            _ = action;
+            _ = value;
         }
     };
 
@@ -2435,6 +2703,16 @@ test "stream: CSI t push title with explicit window" {
         pub fn pushPopTitle(self: *@This(), op: csi.TitlePushPop) void {
             self.op = op;
         }
+
+        pub fn vt(
+            self: *@This(),
+            comptime action: anytype,
+            value: anytype,
+        ) !void {
+            _ = self;
+            _ = action;
+            _ = value;
+        }
     };
 
     var s: Stream(H) = .init(.{});
@@ -2453,6 +2731,16 @@ test "stream: CSI t push title with explicit icon" {
         pub fn pushPopTitle(self: *@This(), op: csi.TitlePushPop) void {
             self.op = op;
         }
+
+        pub fn vt(
+            self: *@This(),
+            comptime action: anytype,
+            value: anytype,
+        ) !void {
+            _ = self;
+            _ = action;
+            _ = value;
+        }
     };
 
     var s: Stream(H) = .init(.{});
@@ -2467,6 +2755,16 @@ test "stream: CSI t push title with index" {
 
         pub fn pushPopTitle(self: *@This(), op: csi.TitlePushPop) void {
             self.op = op;
+        }
+
+        pub fn vt(
+            self: *@This(),
+            comptime action: anytype,
+            value: anytype,
+        ) !void {
+            _ = self;
+            _ = action;
+            _ = value;
         }
     };
 
@@ -2486,6 +2784,16 @@ test "stream: CSI t pop title" {
         pub fn pushPopTitle(self: *@This(), op: csi.TitlePushPop) void {
             self.op = op;
         }
+
+        pub fn vt(
+            self: *@This(),
+            comptime action: anytype,
+            value: anytype,
+        ) !void {
+            _ = self;
+            _ = action;
+            _ = value;
+        }
     };
 
     var s: Stream(H) = .init(.{});
@@ -2503,6 +2811,16 @@ test "stream: CSI t pop title with explicit window" {
 
         pub fn pushPopTitle(self: *@This(), op: csi.TitlePushPop) void {
             self.op = op;
+        }
+
+        pub fn vt(
+            self: *@This(),
+            comptime action: anytype,
+            value: anytype,
+        ) !void {
+            _ = self;
+            _ = action;
+            _ = value;
         }
     };
 
@@ -2522,6 +2840,16 @@ test "stream: CSI t pop title with explicit icon" {
         pub fn pushPopTitle(self: *@This(), op: csi.TitlePushPop) void {
             self.op = op;
         }
+
+        pub fn vt(
+            self: *@This(),
+            comptime action: anytype,
+            value: anytype,
+        ) !void {
+            _ = self;
+            _ = action;
+            _ = value;
+        }
     };
 
     var s: Stream(H) = .init(.{});
@@ -2536,6 +2864,16 @@ test "stream: CSI t pop title with index" {
 
         pub fn pushPopTitle(self: *@This(), op: csi.TitlePushPop) void {
             self.op = op;
+        }
+
+        pub fn vt(
+            self: *@This(),
+            comptime action: anytype,
+            value: anytype,
+        ) !void {
+            _ = self;
+            _ = action;
+            _ = value;
         }
     };
 
@@ -2555,6 +2893,16 @@ test "stream CSI W clear tab stops" {
         pub fn tabClear(self: *@This(), op: csi.TabClear) !void {
             self.op = op;
         }
+
+        pub fn vt(
+            self: *@This(),
+            comptime action: anytype,
+            value: anytype,
+        ) !void {
+            _ = self;
+            _ = action;
+            _ = value;
+        }
     };
 
     var s: Stream(H) = .init(.{});
@@ -2572,6 +2920,16 @@ test "stream CSI W tab set" {
 
         pub fn tabSet(self: *@This()) !void {
             self.called = true;
+        }
+
+        pub fn vt(
+            self: *@This(),
+            comptime action: anytype,
+            value: anytype,
+        ) !void {
+            _ = self;
+            _ = action;
+            _ = value;
         }
     };
 
@@ -2600,6 +2958,16 @@ test "stream CSI ? W reset tab stops" {
         pub fn tabReset(self: *@This()) !void {
             self.reset = true;
         }
+
+        pub fn vt(
+            self: *@This(),
+            comptime action: anytype,
+            value: anytype,
+        ) !void {
+            _ = self;
+            _ = action;
+            _ = value;
+        }
     };
 
     var s: Stream(H) = .init(.{});
@@ -2623,6 +2991,16 @@ test "stream: SGR with 17+ parameters for underline color" {
         pub fn setAttribute(self: *@This(), attr: sgr.Attribute) !void {
             self.attrs = attr;
             self.called = true;
+        }
+
+        pub fn vt(
+            self: *@This(),
+            comptime action: anytype,
+            value: anytype,
+        ) !void {
+            _ = self;
+            _ = action;
+            _ = value;
         }
     };
 
