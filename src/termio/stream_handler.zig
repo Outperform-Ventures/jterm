@@ -197,7 +197,8 @@ pub const StreamHandler = struct {
             .print => try self.terminal.print(value.cp),
             .bell => self.bell(),
             .backspace => self.terminal.backspace(),
-            .horizontal_tab => try self.horizontalTab(value.count),
+            .horizontal_tab => try self.horizontalTab(value),
+            .horizontal_tab_back => try self.horizontalTabBack(value),
             .linefeed => try self.linefeed(),
             .carriage_return => self.terminal.carriageReturn(),
             .enquiry => try self.enquiry(),
@@ -372,7 +373,7 @@ pub const StreamHandler = struct {
         }
     }
 
-    pub inline fn horizontalTabBack(self: *StreamHandler, count: u16) !void {
+    inline fn horizontalTabBack(self: *StreamHandler, count: u16) !void {
         for (0..count) |_| {
             const x = self.terminal.screen.cursor.x;
             try self.terminal.horizontalTabBack();
@@ -385,8 +386,6 @@ pub const StreamHandler = struct {
         // identical and this avoids one layer of function call overhead.
         try self.terminal.index();
     }
-
-
 
     pub inline fn eraseDisplay(self: *StreamHandler, mode: terminal.EraseDisplay, protected: bool) !void {
         if (mode == .complete) {

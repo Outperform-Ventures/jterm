@@ -33,7 +33,8 @@ pub const Action = union(Key) {
     print: Print,
     bell,
     backspace,
-    horizontal_tab: HorizontalTab,
+    horizontal_tab: u16,
+    horizontal_tab_back: u16,
     linefeed,
     carriage_return,
     enquiry,
@@ -55,6 +56,7 @@ pub const Action = union(Key) {
             "bell",
             "backspace",
             "horizontal_tab",
+            "horizontal_tab_back",
             "linefeed",
             "carriage_return",
             "enquiry",
@@ -97,10 +99,6 @@ pub const Action = union(Key) {
             return .{ .cp = @intCast(self.cp) };
         }
     };
-
-    pub const HorizontalTab = lib.Struct(lib_target, struct {
-        count: u16,
-    });
 
     pub const InvokeCharset = lib.Struct(lib_target, struct {
         bank: charsets.ActiveSlot,
@@ -446,7 +444,7 @@ pub fn Stream(comptime Handler: type) type {
                 .ENQ => try self.handler.vt(.enquiry, {}),
                 .BEL => try self.handler.vt(.bell, {}),
                 .BS => try self.handler.vt(.backspace, {}),
-                .HT => try self.handler.vt(.horizontal_tab, .{ .count = 1 }),
+                .HT => try self.handler.vt(.horizontal_tab, 1),
                 .LF, .VT, .FF => try self.handler.vt(.linefeed, {}),
                 .CR => try self.handler.vt(.carriage_return, {}),
                 .SO => try self.handler.vt(.invoke_charset, .{ .bank = .GL, .charset = .G1, .locking = false }),
@@ -622,16 +620,14 @@ pub fn Stream(comptime Handler: type) type {
 
                 // CHT - Cursor Horizontal Tabulation
                 'I' => switch (input.intermediates.len) {
-                    0 => if (@hasDecl(T, "horizontalTab")) try self.handler.horizontalTab(
-                        switch (input.params.len) {
-                            0 => 1,
-                            1 => input.params[0],
-                            else => {
-                                log.warn("invalid horizontal tab command: {f}", .{input});
-                                return;
-                            },
+                    0 => try self.handler.vt(.horizontal_tab, switch (input.params.len) {
+                        0 => 1,
+                        1 => input.params[0],
+                        else => {
+                            log.warn("invalid horizontal tab command: {f}", .{input});
+                            return;
                         },
-                    ) else log.warn("unimplemented CSI callback: {f}", .{input}),
+                    }),
 
                     else => log.warn(
                         "ignoring unimplemented CSI I with intermediates: {s}",
@@ -855,16 +851,14 @@ pub fn Stream(comptime Handler: type) type {
 
                 // CHT - Cursor Horizontal Tabulation Back
                 'Z' => switch (input.intermediates.len) {
-                    0 => if (@hasDecl(T, "horizontalTabBack")) try self.handler.horizontalTabBack(
-                        switch (input.params.len) {
-                            0 => 1,
-                            1 => input.params[0],
-                            else => {
-                                log.warn("invalid horizontal tab back command: {f}", .{input});
-                                return;
-                            },
+                    0 => try self.handler.vt(.horizontal_tab_back, switch (input.params.len) {
+                        0 => 1,
+                        1 => input.params[0],
+                        else => {
+                            log.warn("invalid horizontal tab back command: {f}", .{input});
+                            return;
                         },
-                    ) else log.warn("unimplemented CSI callback: {f}", .{input}),
+                    }),
 
                     else => log.warn(
                         "ignoring unimplemented CSI Z with intermediates: {s}",
