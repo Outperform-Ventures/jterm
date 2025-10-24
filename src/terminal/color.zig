@@ -68,6 +68,12 @@ pub const Name = enum(u8) {
     // Remainders are valid unnamed values in the 256 color palette.
     _,
 
+    pub const C = u8;
+
+    pub fn cval(self: Name) C {
+        return @intFromEnum(self);
+    }
+
     /// Default colors for tagged values.
     pub fn default(self: Name) !RGB {
         return switch (self) {
@@ -178,6 +184,20 @@ pub const RGB = packed struct(u24) {
     r: u8 = 0,
     g: u8 = 0,
     b: u8 = 0,
+
+    pub const C = extern struct {
+        r: u8,
+        g: u8,
+        b: u8,
+    };
+
+    pub fn cval(self: RGB) C {
+        return .{
+            .r = self.r,
+            .g = self.g,
+            .b = self.b,
+        };
+    }
 
     pub fn eql(self: RGB, other: RGB) bool {
         return self.r == other.r and self.g == other.g and self.b == other.b;

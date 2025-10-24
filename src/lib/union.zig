@@ -104,7 +104,7 @@ pub fn TaggedUnion(
                     @tagName(tag),
                     value: {
                         switch (@typeInfo(@TypeOf(v))) {
-                            .@"enum", .@"struct", .@"union" => if (@hasDecl(@TypeOf(v), "cval")) v.cval(),
+                            .@"enum", .@"struct", .@"union" => if (@hasDecl(@TypeOf(v), "cval")) break :value v.cval(),
                             else => {},
                         }
 
