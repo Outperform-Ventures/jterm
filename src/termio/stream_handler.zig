@@ -219,6 +219,7 @@ pub const StreamHandler = struct {
                 self.terminal.screen.cursor.y + 1 +| value.value,
                 self.terminal.screen.cursor.x + 1,
             ),
+            .cursor_style => try self.setCursorStyle(value),
             .erase_display_below => self.terminal.eraseDisplay(.below, value),
             .erase_display_above => self.terminal.eraseDisplay(.above, value),
             .erase_display_complete => {
@@ -828,8 +829,6 @@ pub const StreamHandler = struct {
                 self.terminal.screen.cursor.cursor_style = .bar;
                 self.terminal.modes.set(.cursor_blinking, false);
             },
-
-            else => log.warn("unimplemented cursor style: {}", .{style}),
         }
     }
 

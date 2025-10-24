@@ -63,26 +63,18 @@ pub const DeviceAttributeReq = lib.Enum(
 );
 
 /// Possible cursor styles (ESC [ q)
-pub const CursorStyle = enum(u16) {
-    default = 0,
-    blinking_block = 1,
-    steady_block = 2,
-    blinking_underline = 3,
-    steady_underline = 4,
-    blinking_bar = 5,
-    steady_bar = 6,
-
-    // Non-exhaustive so that @intToEnum never fails for unsupported modes.
-    _,
-
-    /// True if the cursor should blink.
-    pub fn blinking(self: CursorStyle) bool {
-        return switch (self) {
-            .blinking_block, .blinking_underline, .blinking_bar => true,
-            else => false,
-        };
-    }
-};
+pub const CursorStyle = lib.Enum(
+    lib_target,
+    &.{
+        "default",
+        "blinking_block",
+        "steady_block",
+        "blinking_underline",
+        "steady_underline",
+        "blinking_bar",
+        "steady_bar",
+    },
+);
 
 /// The status line type for DECSSDT.
 pub const StatusLineType = enum(u16) {

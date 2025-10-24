@@ -49,6 +49,7 @@ pub const Action = union(Key) {
     cursor_col_relative: CursorMovement,
     cursor_row_relative: CursorMovement,
     cursor_pos: CursorPos,
+    cursor_style: ansi.CursorStyle,
     erase_display_below: bool,
     erase_display_above: bool,
     erase_display_complete: bool,
@@ -135,6 +136,7 @@ pub const Action = union(Key) {
             "cursor_col_relative",
             "cursor_row_relative",
             "cursor_pos",
+            "cursor_style",
             "erase_display_below",
             "erase_display_above",
             "erase_display_complete",
@@ -1356,16 +1358,27 @@ pub fn Stream(comptime Handler: type) type {
                         // DECSCUSR - Select Cursor Style
                         // TODO: test
                         ' ' => {
-                            if (@hasDecl(T, "setCursorStyle")) try self.handler.setCursorStyle(
-                                switch (input.params.len) {
-                                    0 => ansi.CursorStyle.default,
-                                    1 => @enumFromInt(input.params[0]),
+                            const style: ansi.CursorStyle = switch (input.params.len) {
+                                0 => .default,
+                                1 => switch (input.params[0]) {
+                                    0 => .default,
+                                    1 => .blinking_block,
+                                    2 => .steady_block,
+                                    3 => .blinking_underline,
+                                    4 => .steady_underline,
+                                    5 => .blinking_bar,
+                                    6 => .steady_bar,
                                     else => {
-                                        log.warn("invalid set curor style command: {f}", .{input});
+                                        log.warn("invalid cursor style value: {}", .{input.params[0]});
                                         return;
                                     },
                                 },
-                            ) else log.warn("unimplemented CSI callback: {f}", .{input});
+                                else => {
+                                    log.warn("invalid set curor style command: {f}", .{input});
+                                    return;
+                                },
+                            };
+                            try self.handler.vt(.cursor_style, style);
                         },
 
                         // DECSCA
@@ -2544,18 +2557,15 @@ test "stream: DECSCUSR" {
     const H = struct {
         style: ?ansi.CursorStyle = null,
 
-        pub fn setCursorStyle(self: *@This(), style: ansi.CursorStyle) !void {
-            self.style = style;
-        }
-
         pub fn vt(
             self: *@This(),
-            comptime action: anytype,
-            value: anytype,
+            comptime action: Stream(@This()).Action.Tag,
+            value: Stream(@This()).Action.Value(action),
         ) !void {
-            _ = self;
-            _ = action;
-            _ = value;
+            switch (action) {
+                .cursor_style => self.style = value,
+                else => {},
+            }
         }
     };
 
@@ -2575,18 +2585,15 @@ test "stream: DECSCUSR without space" {
     const H = struct {
         style: ?ansi.CursorStyle = null,
 
-        pub fn setCursorStyle(self: *@This(), style: ansi.CursorStyle) !void {
-            self.style = style;
-        }
-
         pub fn vt(
             self: *@This(),
-            comptime action: anytype,
-            value: anytype,
+            comptime action: Stream(@This()).Action.Tag,
+            value: Stream(@This()).Action.Value(action),
         ) !void {
-            _ = self;
-            _ = action;
-            _ = value;
+            switch (action) {
+                .cursor_style => self.style = value,
+                else => {},
+            }
         }
     };
 
