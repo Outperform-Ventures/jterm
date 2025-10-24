@@ -73,6 +73,8 @@ pub const Action = union(Key) {
     reset_mode: Mode,
     save_mode: Mode,
     restore_mode: Mode,
+    request_mode: Mode,
+    request_mode_unknown: RawMode,
     modify_key_format: ansi.ModifyKeyFormat,
 
     pub const Key = lib.Enum(
@@ -121,6 +123,8 @@ pub const Action = union(Key) {
             "reset_mode",
             "save_mode",
             "restore_mode",
+            "request_mode",
+            "request_mode_unknown",
             "modify_key_format",
         },
     );
@@ -179,6 +183,11 @@ pub const Action = union(Key) {
         pub fn cval(self: Mode) Mode.C {
             return @bitCast(self.mode);
         }
+    };
+
+    pub const RawMode = extern struct {
+        mode: u16,
+        ansi: bool,
     };
 };
 
@@ -1242,9 +1251,16 @@ pub fn Stream(comptime Handler: type) type {
                             break :decrqm;
                         }
 
-                        if (@hasDecl(T, "requestMode")) {
-                            try self.handler.requestMode(input.params[0], ansi_mode);
-                        } else log.warn("unimplemented DECRQM callback: {f}", .{input});
+                        const mode_raw = input.params[0];
+                        const mode = modes.modeFromInt(mode_raw, ansi_mode);
+                        if (mode) |m| {
+                            try self.handler.vt(.request_mode, .{ .mode = m });
+                        } else {
+                            try self.handler.vt(.request_mode_unknown, .{
+                                .mode = mode_raw,
+                                .ansi = ansi_mode,
+                            });
+                        }
                     },
 
                     else => log.warn(

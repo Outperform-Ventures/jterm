@@ -253,6 +253,8 @@ pub const StreamHandler = struct {
                 const v = self.terminal.modes.restore(value.mode);
                 try self.setMode(value.mode, v);
             },
+            .request_mode => try self.requestMode(value.mode),
+            .request_mode_unknown => try self.requestModeUnknown(value.mode, value.ansi),
             .modify_key_format => try self.setModifyKeyFormat(value),
         }
     }
@@ -456,22 +458,32 @@ pub const StreamHandler = struct {
         }
     }
 
-    pub fn requestMode(self: *StreamHandler, mode_raw: u16, ansi: bool) !void {
-        // Get the mode value and respond.
-        const code: u8 = code: {
-            const mode = terminal.modes.modeFromInt(mode_raw, ansi) orelse break :code 0;
-            if (self.terminal.modes.get(mode)) break :code 1;
-            break :code 2;
-        };
+    fn requestMode(self: *StreamHandler, mode: terminal.Mode) !void {
+        const tag: terminal.modes.ModeTag = @bitCast(@intFromEnum(mode));
+        const code: u8 = if (self.terminal.modes.get(mode)) 1 else 2;
 
         var msg: termio.Message = .{ .write_small = .{} };
         const resp = try std.fmt.bufPrint(
             &msg.write_small.data,
             "\x1B[{s}{};{}$y",
             .{
+                if (tag.ansi) "" else "?",
+                tag.value,
+                code,
+            },
+        );
+        msg.write_small.len = @intCast(resp.len);
+        self.messageWriter(msg);
+    }
+
+    fn requestModeUnknown(self: *StreamHandler, mode_raw: u16, ansi: bool) !void {
+        var msg: termio.Message = .{ .write_small = .{} };
+        const resp = try std.fmt.bufPrint(
+            &msg.write_small.data,
+            "\x1B[{s}{};0$y",
+            .{
                 if (ansi) "" else "?",
                 mode_raw,
-                code,
             },
         );
         msg.write_small.len = @intCast(resp.len);
