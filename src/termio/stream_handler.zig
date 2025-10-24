@@ -303,6 +303,9 @@ pub const StreamHandler = struct {
             .end_hyperlink => try self.endHyperlink(),
             .active_status_display => self.terminal.status_display = value,
             .decaln => try self.decaln(),
+            .apc_start => self.apc.start(),
+            .apc_end => try self.apcEnd(),
+            .apc_put => self.apc.feed(self.alloc, value),
 
             // Unimplemented
             .title_push,
@@ -416,14 +419,6 @@ pub const StreamHandler = struct {
                 self.messageWriter(msg);
             },
         }
-    }
-
-    pub inline fn apcStart(self: *StreamHandler) !void {
-        self.apc.start();
-    }
-
-    pub inline fn apcPut(self: *StreamHandler, byte: u8) !void {
-        self.apc.feed(self.alloc, byte);
     }
 
     pub fn apcEnd(self: *StreamHandler) !void {

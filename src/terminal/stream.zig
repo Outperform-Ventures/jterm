@@ -99,6 +99,9 @@ pub const Action = union(Key) {
     kitty_keyboard_set: KittyKeyboardFlags,
     kitty_keyboard_set_or: KittyKeyboardFlags,
     kitty_keyboard_set_not: KittyKeyboardFlags,
+    apc_start,
+    apc_end,
+    apc_put: u8,
     prompt_end,
     end_of_input,
     end_hyperlink,
@@ -177,6 +180,9 @@ pub const Action = union(Key) {
             "kitty_keyboard_set",
             "kitty_keyboard_set_or",
             "kitty_keyboard_set_not",
+            "apc_start",
+            "apc_end",
+            "apc_put",
             "prompt_end",
             "end_of_input",
             "end_hyperlink",
@@ -559,15 +565,9 @@ pub fn Stream(comptime Handler: type) type {
                     .dcs_unhook => if (@hasDecl(T, "dcsUnhook")) {
                         try self.handler.dcsUnhook();
                     } else log.warn("unimplemented DCS unhook", .{}),
-                    .apc_start => if (@hasDecl(T, "apcStart")) {
-                        try self.handler.apcStart();
-                    } else log.warn("unimplemented APC start", .{}),
-                    .apc_put => |code| if (@hasDecl(T, "apcPut")) {
-                        try self.handler.apcPut(code);
-                    } else log.warn("unimplemented APC put: {x}", .{code}),
-                    .apc_end => if (@hasDecl(T, "apcEnd")) {
-                        try self.handler.apcEnd();
-                    } else log.warn("unimplemented APC end", .{}),
+                    .apc_start => try self.handler.vt(.apc_start, {}),
+                    .apc_put => |code| try self.handler.vt(.apc_put, code),
+                    .apc_end => try self.handler.vt(.apc_end, {}),
                 }
             }
         }
