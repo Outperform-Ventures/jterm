@@ -69,6 +69,10 @@ pub const Action = union(Key) {
     tab_clear_all,
     tab_set,
     tab_reset,
+    set_mode: Mode,
+    reset_mode: Mode,
+    save_mode: Mode,
+    restore_mode: Mode,
 
     pub const Key = lib.Enum(
         lib_target,
@@ -112,6 +116,10 @@ pub const Action = union(Key) {
             "tab_clear_all",
             "tab_set",
             "tab_reset",
+            "set_mode",
+            "reset_mode",
+            "save_mode",
+            "restore_mode",
         },
     );
 
@@ -159,6 +167,16 @@ pub const Action = union(Key) {
     pub const CursorPos = extern struct {
         row: u16,
         col: u16,
+    };
+
+    pub const Mode = struct {
+        mode: modes.Mode,
+
+        pub const C = u16;
+
+        pub fn cval(self: Mode) Mode.C {
+            return @bitCast(self.mode);
+        }
     };
 };
 
@@ -1022,7 +1040,7 @@ pub fn Stream(comptime Handler: type) type {
                 },
 
                 // SM - Set Mode
-                'h' => if (@hasDecl(T, "setMode")) mode: {
+                'h' => mode: {
                     const ansi_mode = ansi: {
                         if (input.intermediates.len == 0) break :ansi true;
                         if (input.intermediates.len == 1 and
@@ -1034,15 +1052,15 @@ pub fn Stream(comptime Handler: type) type {
 
                     for (input.params) |mode_int| {
                         if (modes.modeFromInt(mode_int, ansi_mode)) |mode| {
-                            try self.handler.setMode(mode, true);
+                            try self.handler.vt(.set_mode, .{ .mode = mode });
                         } else {
                             log.warn("unimplemented mode: {}", .{mode_int});
                         }
                     }
-                } else log.warn("unimplemented CSI callback: {f}", .{input}),
+                },
 
                 // RM - Reset Mode
-                'l' => if (@hasDecl(T, "setMode")) mode: {
+                'l' => mode: {
                     const ansi_mode = ansi: {
                         if (input.intermediates.len == 0) break :ansi true;
                         if (input.intermediates.len == 1 and
@@ -1054,12 +1072,12 @@ pub fn Stream(comptime Handler: type) type {
 
                     for (input.params) |mode_int| {
                         if (modes.modeFromInt(mode_int, ansi_mode)) |mode| {
-                            try self.handler.setMode(mode, false);
+                            try self.handler.vt(.reset_mode, .{ .mode = mode });
                         } else {
                             log.warn("unimplemented mode: {}", .{mode_int});
                         }
                     }
-                } else log.warn("unimplemented CSI callback: {f}", .{input}),
+                },
 
                 // SGR - Select Graphic Rendition
                 'm' => switch (input.intermediates.len) {
@@ -1304,10 +1322,10 @@ pub fn Stream(comptime Handler: type) type {
 
                     1 => switch (input.intermediates[0]) {
                         // Restore Mode
-                        '?' => if (@hasDecl(T, "restoreMode")) {
+                        '?' => {
                             for (input.params) |mode_int| {
                                 if (modes.modeFromInt(mode_int, false)) |mode| {
-                                    try self.handler.restoreMode(mode);
+                                    try self.handler.vt(.restore_mode, .{ .mode = mode });
                                 } else {
                                     log.warn(
                                         "unimplemented restore mode: {}",
@@ -1348,10 +1366,10 @@ pub fn Stream(comptime Handler: type) type {
                     ),
 
                     1 => switch (input.intermediates[0]) {
-                        '?' => if (@hasDecl(T, "saveMode")) {
+                        '?' => {
                             for (input.params) |mode_int| {
                                 if (modes.modeFromInt(mode_int, false)) |mode| {
-                                    try self.handler.saveMode(mode);
+                                    try self.handler.vt(.save_mode, .{ .mode = mode });
                                 } else {
                                     log.warn(
                                         "unimplemented save mode: {}",
@@ -2091,19 +2109,17 @@ test "stream: cursor right (CUF)" {
 test "stream: dec set mode (SM) and reset mode (RM)" {
     const H = struct {
         mode: modes.Mode = @as(modes.Mode, @enumFromInt(1)),
-        pub fn setMode(self: *@This(), mode: modes.Mode, v: bool) !void {
-            self.mode = @as(modes.Mode, @enumFromInt(1));
-            if (v) self.mode = mode;
-        }
 
         pub fn vt(
             self: *@This(),
             comptime action: anytype,
             value: anytype,
         ) !void {
-            _ = self;
-            _ = action;
-            _ = value;
+            switch (action) {
+                .set_mode => self.mode = value.mode,
+                .reset_mode => self.mode = @as(modes.Mode, @enumFromInt(1)),
+                else => {},
+            }
         }
     };
 
@@ -2123,19 +2139,16 @@ test "stream: ansi set mode (SM) and reset mode (RM)" {
     const H = struct {
         mode: ?modes.Mode = null,
 
-        pub fn setMode(self: *@This(), mode: modes.Mode, v: bool) !void {
-            self.mode = null;
-            if (v) self.mode = mode;
-        }
-
         pub fn vt(
             self: *@This(),
             comptime action: anytype,
             value: anytype,
         ) !void {
-            _ = self;
-            _ = action;
-            _ = value;
+            switch (action) {
+                .set_mode => self.mode = value.mode,
+                .reset_mode => self.mode = null,
+                else => {},
+            }
         }
     };
 

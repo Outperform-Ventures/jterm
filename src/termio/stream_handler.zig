@@ -243,6 +243,16 @@ pub const StreamHandler = struct {
             .tab_clear_all => self.terminal.tabClear(.all),
             .tab_set => self.terminal.tabSet(),
             .tab_reset => self.terminal.tabReset(),
+            .set_mode => try self.setMode(value.mode, true),
+            .reset_mode => try self.setMode(value.mode, false),
+            .save_mode => self.terminal.modes.save(value.mode),
+            .restore_mode => {
+                // For restore mode we have to restore but if we set it, we
+                // always have to call setMode because setting some modes have
+                // side effects and we want to make sure we process those.
+                const v = self.terminal.modes.restore(value.mode);
+                try self.setMode(value.mode, v);
+            },
         }
     }
 
@@ -468,20 +478,6 @@ pub const StreamHandler = struct {
         );
         msg.write_small.len = @intCast(resp.len);
         self.messageWriter(msg);
-    }
-
-    pub inline fn saveMode(self: *StreamHandler, mode: terminal.Mode) !void {
-        // log.debug("save mode={}", .{mode});
-        self.terminal.modes.save(mode);
-    }
-
-    pub inline fn restoreMode(self: *StreamHandler, mode: terminal.Mode) !void {
-        // For restore mode we have to restore but if we set it, we
-        // always have to call setMode because setting some modes have
-        // side effects and we want to make sure we process those.
-        const v = self.terminal.modes.restore(mode);
-        // log.debug("restore mode={} v={}", .{ mode, v });
-        try self.setMode(mode, v);
     }
 
     pub fn setMode(self: *StreamHandler, mode: terminal.Mode, enabled: bool) !void {
