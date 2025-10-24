@@ -86,6 +86,11 @@ pub const Action = union(Key) {
     protected_mode_dec,
     xtversion,
     kitty_keyboard_query,
+    kitty_keyboard_push: KittyKeyboardFlags,
+    kitty_keyboard_pop: u16,
+    kitty_keyboard_set: KittyKeyboardFlags,
+    kitty_keyboard_set_or: KittyKeyboardFlags,
+    kitty_keyboard_set_not: KittyKeyboardFlags,
     prompt_end,
     end_of_input,
     end_hyperlink,
@@ -150,6 +155,11 @@ pub const Action = union(Key) {
             "protected_mode_dec",
             "xtversion",
             "kitty_keyboard_query",
+            "kitty_keyboard_push",
+            "kitty_keyboard_pop",
+            "kitty_keyboard_set",
+            "kitty_keyboard_set_or",
+            "kitty_keyboard_set_not",
             "prompt_end",
             "end_of_input",
             "end_hyperlink",
@@ -221,6 +231,16 @@ pub const Action = union(Key) {
     pub const Margin = extern struct {
         top_left: u16,
         bottom_right: u16,
+    };
+
+    pub const KittyKeyboardFlags = struct {
+        flags: kitty.KeyFlags,
+
+        pub const C = u8;
+
+        pub fn cval(self: KittyKeyboardFlags) KittyKeyboardFlags.C {
+            return @intCast(self.flags.int());
+        }
     };
 };
 
@@ -1564,7 +1584,7 @@ pub fn Stream(comptime Handler: type) type {
                     1 => switch (input.intermediates[0]) {
                         '?' => try self.handler.vt(.kitty_keyboard_query, {}),
 
-                        '>' => if (@hasDecl(T, "pushKittyKeyboard")) push: {
+                        '>' => push: {
                             const flags: u5 = if (input.params.len == 1)
                                 std.math.cast(u5, input.params[0]) orelse {
                                     log.warn("invalid pushKittyKeyboard command: {f}", .{input});
@@ -1573,19 +1593,19 @@ pub fn Stream(comptime Handler: type) type {
                             else
                                 0;
 
-                            try self.handler.pushKittyKeyboard(@bitCast(flags));
+                            try self.handler.vt(.kitty_keyboard_push, .{ .flags = @as(kitty.KeyFlags, @bitCast(flags)) });
                         },
 
-                        '<' => if (@hasDecl(T, "popKittyKeyboard")) {
+                        '<' => {
                             const number: u16 = if (input.params.len == 1)
                                 input.params[0]
                             else
                                 1;
 
-                            try self.handler.popKittyKeyboard(number);
+                            try self.handler.vt(.kitty_keyboard_pop, number);
                         },
 
-                        '=' => if (@hasDecl(T, "setKittyKeyboard")) set: {
+                        '=' => set: {
                             const flags: u5 = if (input.params.len >= 1)
                                 std.math.cast(u5, input.params[0]) orelse {
                                     log.warn("invalid setKittyKeyboard command: {f}", .{input});
@@ -1599,20 +1619,23 @@ pub fn Stream(comptime Handler: type) type {
                             else
                                 1;
 
-                            const mode: kitty.KeySetMode = switch (number) {
-                                1 => .set,
-                                2 => .@"or",
-                                3 => .not,
+                            const action_tag: streampkg.Action.Tag = switch (number) {
+                                1 => .kitty_keyboard_set,
+                                2 => .kitty_keyboard_set_or,
+                                3 => .kitty_keyboard_set_not,
                                 else => {
                                     log.warn("invalid setKittyKeyboard command: {f}", .{input});
                                     break :set;
                                 },
                             };
 
-                            try self.handler.setKittyKeyboard(
-                                mode,
-                                @bitCast(flags),
-                            );
+                            const kitty_flags: streampkg.Action.KittyKeyboardFlags = .{ .flags = @as(kitty.KeyFlags, @bitCast(flags)) };
+                            switch (action_tag) {
+                                .kitty_keyboard_set => try self.handler.vt(.kitty_keyboard_set, kitty_flags),
+                                .kitty_keyboard_set_or => try self.handler.vt(.kitty_keyboard_set_or, kitty_flags),
+                                .kitty_keyboard_set_not => try self.handler.vt(.kitty_keyboard_set_not, kitty_flags),
+                                else => unreachable,
+                            }
                         },
 
                         else => log.warn(
@@ -2254,18 +2277,15 @@ test "stream: pop kitty keyboard with no params defaults to 1" {
         const Self = @This();
         n: u16 = 0,
 
-        pub fn popKittyKeyboard(self: *Self, n: u16) !void {
-            self.n = n;
-        }
-
         pub fn vt(
-            self: *@This(),
-            comptime action: anytype,
-            value: anytype,
+            self: *Self,
+            comptime action: streampkg.Action.Tag,
+            value: streampkg.Action.Value(action),
         ) !void {
-            _ = self;
-            _ = action;
-            _ = value;
+            switch (action) {
+                .kitty_keyboard_pop => self.n = value,
+                else => {},
+            }
         }
     };
 

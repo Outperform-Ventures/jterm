@@ -272,6 +272,26 @@ pub const StreamHandler = struct {
             .protected_mode_dec => self.terminal.setProtectedMode(.dec),
             .xtversion => try self.reportXtversion(),
             .kitty_keyboard_query => try self.queryKittyKeyboard(),
+            .kitty_keyboard_push => {
+                log.debug("pushing kitty keyboard mode: {}", .{value.flags});
+                self.terminal.screen.kitty_keyboard.push(value.flags);
+            },
+            .kitty_keyboard_pop => {
+                log.debug("popping kitty keyboard mode n={}", .{value});
+                self.terminal.screen.kitty_keyboard.pop(@intCast(value));
+            },
+            .kitty_keyboard_set => {
+                log.debug("setting kitty keyboard mode: set {}", .{value.flags});
+                self.terminal.screen.kitty_keyboard.set(.set, value.flags);
+            },
+            .kitty_keyboard_set_or => {
+                log.debug("setting kitty keyboard mode: or {}", .{value.flags});
+                self.terminal.screen.kitty_keyboard.set(.@"or", value.flags);
+            },
+            .kitty_keyboard_set_not => {
+                log.debug("setting kitty keyboard mode: not {}", .{value.flags});
+                self.terminal.screen.kitty_keyboard.set(.not, value.flags);
+            },
             .prompt_end => try self.promptEnd(),
             .end_of_input => try self.endOfInput(),
             .end_hyperlink => try self.endHyperlink(),
@@ -863,28 +883,6 @@ pub const StreamHandler = struct {
                 .len = @intCast(resp.len),
             },
         });
-    }
-
-    pub fn pushKittyKeyboard(
-        self: *StreamHandler,
-        flags: terminal.kitty.KeyFlags,
-    ) !void {
-        log.debug("pushing kitty keyboard mode: {}", .{flags});
-        self.terminal.screen.kitty_keyboard.push(flags);
-    }
-
-    pub fn popKittyKeyboard(self: *StreamHandler, n: u16) !void {
-        log.debug("popping kitty keyboard mode n={}", .{n});
-        self.terminal.screen.kitty_keyboard.pop(@intCast(n));
-    }
-
-    pub fn setKittyKeyboard(
-        self: *StreamHandler,
-        mode: terminal.kitty.KeySetMode,
-        flags: terminal.kitty.KeyFlags,
-    ) !void {
-        log.debug("setting kitty keyboard mode: {} {}", .{ mode, flags });
-        self.terminal.screen.kitty_keyboard.set(mode, flags);
     }
 
     pub fn reportXtversion(
