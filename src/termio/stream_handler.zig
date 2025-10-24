@@ -195,6 +195,7 @@ pub const StreamHandler = struct {
     ) !void {
         switch (action) {
             .print => try self.terminal.print(value.cp),
+            .print_repeat => try self.terminal.printRepeat(value),
             .bell => self.bell(),
             .backspace => self.terminal.backspace(),
             .horizontal_tab => try self.horizontalTab(value),
@@ -238,6 +239,10 @@ pub const StreamHandler = struct {
             .delete_lines => self.terminal.deleteLines(value),
             .scroll_up => self.terminal.scrollUp(value),
             .scroll_down => self.terminal.scrollDown(value),
+            .tab_clear_current => self.terminal.tabClear(.current),
+            .tab_clear_all => self.terminal.tabClear(.all),
+            .tab_set => self.terminal.tabSet(),
+            .tab_reset => self.terminal.tabReset(),
         }
     }
 
@@ -375,10 +380,6 @@ pub const StreamHandler = struct {
                 }
             },
         }
-    }
-
-    pub inline fn printRepeat(self: *StreamHandler, count: usize) !void {
-        try self.terminal.printRepeat(count);
     }
 
     inline fn bell(self: *StreamHandler) void {
@@ -803,18 +804,6 @@ pub const StreamHandler = struct {
 
     pub inline fn decaln(self: *StreamHandler) !void {
         try self.terminal.decaln();
-    }
-
-    pub inline fn tabClear(self: *StreamHandler, cmd: terminal.TabClear) !void {
-        self.terminal.tabClear(cmd);
-    }
-
-    pub inline fn tabSet(self: *StreamHandler) !void {
-        self.terminal.tabSet();
-    }
-
-    pub inline fn tabReset(self: *StreamHandler) !void {
-        self.terminal.tabReset();
     }
 
     pub inline fn saveCursor(self: *StreamHandler) !void {

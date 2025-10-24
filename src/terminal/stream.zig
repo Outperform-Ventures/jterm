@@ -31,6 +31,7 @@ const lib_target: lib.Target = if (build_options.c_abi) .c else .zig;
 
 pub const Action = union(Key) {
     print: Print,
+    print_repeat: usize,
     bell,
     backspace,
     horizontal_tab: u16,
@@ -64,11 +65,16 @@ pub const Action = union(Key) {
     delete_lines: usize,
     scroll_up: usize,
     scroll_down: usize,
+    tab_clear_current,
+    tab_clear_all,
+    tab_set,
+    tab_reset,
 
     pub const Key = lib.Enum(
         lib_target,
         &.{
             "print",
+            "print_repeat",
             "bell",
             "backspace",
             "horizontal_tab",
@@ -102,6 +108,10 @@ pub const Action = union(Key) {
             "delete_lines",
             "scroll_up",
             "scroll_down",
+            "tab_clear_current",
+            "tab_clear_all",
+            "tab_set",
+            "tab_reset",
         },
     );
 
@@ -827,11 +837,7 @@ pub fn Stream(comptime Handler: type) type {
                         if (input.params.len == 0 or
                             (input.params.len == 1 and input.params[0] == 0))
                         {
-                            if (@hasDecl(T, "tabSet"))
-                                try self.handler.tabSet()
-                            else
-                                log.warn("unimplemented tab set callback: {f}", .{input});
-
+                            try self.handler.vt(.tab_set, {});
                             return;
                         }
 
@@ -841,15 +847,9 @@ pub fn Stream(comptime Handler: type) type {
                             1 => switch (input.params[0]) {
                                 0 => unreachable,
 
-                                2 => if (@hasDecl(T, "tabClear"))
-                                    try self.handler.tabClear(.current)
-                                else
-                                    log.warn("unimplemented tab clear callback: {f}", .{input}),
+                                2 => try self.handler.vt(.tab_clear_current, {}),
 
-                                5 => if (@hasDecl(T, "tabClear"))
-                                    try self.handler.tabClear(.all)
-                                else
-                                    log.warn("unimplemented tab clear callback: {f}", .{input}),
+                                5 => try self.handler.vt(.tab_clear_all, {}),
 
                                 else => {},
                             },
@@ -862,10 +862,7 @@ pub fn Stream(comptime Handler: type) type {
                     },
 
                     1 => if (input.intermediates[0] == '?' and input.params[0] == 5) {
-                        if (@hasDecl(T, "tabReset"))
-                            try self.handler.tabReset()
-                        else
-                            log.warn("unimplemented tab reset callback: {f}", .{input});
+                        try self.handler.vt(.tab_reset, {});
                     } else log.warn("invalid cursor tabulation control: {f}", .{input}),
 
                     else => log.warn(
@@ -929,16 +926,14 @@ pub fn Stream(comptime Handler: type) type {
 
                 // Repeat Previous Char (REP)
                 'b' => switch (input.intermediates.len) {
-                    0 => if (@hasDecl(T, "printRepeat")) try self.handler.printRepeat(
-                        switch (input.params.len) {
-                            0 => 1,
-                            1 => input.params[0],
-                            else => {
-                                log.warn("invalid print repeat command: {f}", .{input});
-                                return;
-                            },
+                    0 => try self.handler.vt(.print_repeat, switch (input.params.len) {
+                        0 => 1,
+                        1 => input.params[0],
+                        else => {
+                            log.warn("invalid print repeat command: {f}", .{input});
+                            return;
                         },
-                    ) else log.warn("unimplemented CSI callback: {f}", .{input}),
+                    }),
 
                     else => log.warn(
                         "ignoring unimplemented CSI b with intermediates: {s}",
@@ -1005,15 +1000,20 @@ pub fn Stream(comptime Handler: type) type {
                 // TBC - Tab Clear
                 // TODO: test
                 'g' => switch (input.intermediates.len) {
-                    0 => if (@hasDecl(T, "tabClear")) try self.handler.tabClear(
-                        switch (input.params.len) {
+                    0 => {
+                        const mode: csi.TabClear = switch (input.params.len) {
                             1 => @enumFromInt(input.params[0]),
                             else => {
                                 log.warn("invalid tab clear command: {f}", .{input});
                                 return;
                             },
-                        },
-                    ) else log.warn("unimplemented CSI callback: {f}", .{input}),
+                        };
+                        switch (mode) {
+                            .current => try self.handler.vt(.tab_clear_current, {}),
+                            .all => try self.handler.vt(.tab_clear_all, {}),
+                            _ => log.warn("unknown tab clear mode: {}", .{mode}),
+                        }
+                    },
 
                     else => log.warn(
                         "ignoring unimplemented CSI g with intermediates: {s}",
@@ -1856,13 +1856,13 @@ pub fn Stream(comptime Handler: type) type {
                 } else log.warn("unimplemented ESC callback: {f}", .{action}),
 
                 // HTS - Horizontal Tab Set
-                'H' => if (@hasDecl(T, "tabSet")) switch (action.intermediates.len) {
-                    0 => try self.handler.tabSet(),
+                'H' => switch (action.intermediates.len) {
+                    0 => try self.handler.vt(.tab_set, {}),
                     else => {
                         log.warn("invalid tab set command: {f}", .{action});
                         return;
                     },
-                } else log.warn("unimplemented tab set callback: {f}", .{action}),
+                },
 
                 // RI - Reverse Index
                 'M' => if (@hasDecl(T, "reverseIndex")) switch (action.intermediates.len) {
@@ -2979,99 +2979,85 @@ test "stream: CSI t pop title with index" {
 
 test "stream CSI W clear tab stops" {
     const H = struct {
-        op: ?csi.TabClear = null,
-
-        pub fn tabClear(self: *@This(), op: csi.TabClear) !void {
-            self.op = op;
-        }
+        action: ?Action.Key = null,
 
         pub fn vt(
             self: *@This(),
             comptime action: anytype,
             value: anytype,
         ) !void {
-            _ = self;
-            _ = action;
             _ = value;
+            self.action = action;
         }
     };
 
     var s: Stream(H) = .init(.{});
 
     try s.nextSlice("\x1b[2W");
-    try testing.expectEqual(csi.TabClear.current, s.handler.op.?);
+    try testing.expectEqual(Action.Key.tab_clear_current, s.handler.action.?);
 
     try s.nextSlice("\x1b[5W");
-    try testing.expectEqual(csi.TabClear.all, s.handler.op.?);
+    try testing.expectEqual(Action.Key.tab_clear_all, s.handler.action.?);
 }
 
 test "stream CSI W tab set" {
     const H = struct {
-        called: bool = false,
-
-        pub fn tabSet(self: *@This()) !void {
-            self.called = true;
-        }
+        action: ?Action.Key = null,
 
         pub fn vt(
             self: *@This(),
             comptime action: anytype,
             value: anytype,
         ) !void {
-            _ = self;
-            _ = action;
             _ = value;
+            self.action = action;
         }
     };
 
     var s: Stream(H) = .init(.{});
 
     try s.nextSlice("\x1b[W");
-    try testing.expect(s.handler.called);
+    try testing.expectEqual(Action.Key.tab_set, s.handler.action.?);
 
-    s.handler.called = false;
+    s.handler.action = null;
     try s.nextSlice("\x1b[0W");
-    try testing.expect(s.handler.called);
+    try testing.expectEqual(Action.Key.tab_set, s.handler.action.?);
 
-    s.handler.called = false;
+    s.handler.action = null;
     try s.nextSlice("\x1b[>W");
-    try testing.expect(!s.handler.called);
+    try testing.expect(s.handler.action == null);
 
-    s.handler.called = false;
+    s.handler.action = null;
     try s.nextSlice("\x1b[99W");
-    try testing.expect(!s.handler.called);
+    try testing.expect(s.handler.action == null);
 }
 
 test "stream CSI ? W reset tab stops" {
     const H = struct {
-        reset: bool = false,
-
-        pub fn tabReset(self: *@This()) !void {
-            self.reset = true;
-        }
+        action: ?Action.Key = null,
 
         pub fn vt(
             self: *@This(),
             comptime action: anytype,
             value: anytype,
         ) !void {
-            _ = self;
-            _ = action;
             _ = value;
+            self.action = action;
         }
     };
 
     var s: Stream(H) = .init(.{});
 
     try s.nextSlice("\x1b[?2W");
-    try testing.expect(!s.handler.reset);
+    try testing.expect(s.handler.action == null);
 
     try s.nextSlice("\x1b[?5W");
-    try testing.expect(s.handler.reset);
+    try testing.expectEqual(Action.Key.tab_reset, s.handler.action.?);
 
     // Invalid and ignored by the handler
+    s.handler.action = null;
     try s.nextSlice("\x1b[?1;2;3W");
-    try testing.expect(s.handler.reset);
+    try testing.expect(s.handler.action == null);
 }
 
 test "stream: SGR with 17+ parameters for underline color" {
