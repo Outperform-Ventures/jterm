@@ -92,10 +92,13 @@ pub const StatusLineType = enum(u16) {
 };
 
 /// The display to target for status updates (DECSASD).
-pub const StatusDisplay = enum(u16) {
-    main = 0,
-    status_line = 1,
-};
+pub const StatusDisplay = lib.Enum(
+    lib_target,
+    &.{
+        "main",
+        "status_line",
+    },
+);
 
 /// The possible modify key formats to ESC[>{a};{b}m
 /// Note: this is not complete, we should add more as we support more

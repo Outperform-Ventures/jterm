@@ -98,6 +98,7 @@ pub const Action = union(Key) {
     prompt_end,
     end_of_input,
     end_hyperlink,
+    active_status_display: ansi.StatusDisplay,
     decaln,
 
     pub const Key = lib.Enum(
@@ -171,6 +172,7 @@ pub const Action = union(Key) {
             "prompt_end",
             "end_of_input",
             "end_hyperlink",
+            "active_status_display",
             "decaln",
         },
     );
@@ -1643,26 +1645,27 @@ pub fn Stream(comptime Handler: type) type {
                 },
 
                 // DECSASD - Select Active Status Display
-                '}' => {
-                    const success = decsasd: {
-                        // Verify we're getting a DECSASD command
-                        if (input.intermediates.len != 1 or input.intermediates[0] != '$')
-                            break :decsasd false;
-                        if (input.params.len != 1)
-                            break :decsasd false;
-                        if (!@hasDecl(T, "setActiveStatusDisplay"))
-                            break :decsasd false;
+                '}' => decsasd: {
+                    // Verify we're getting a DECSASD command
+                    if (input.intermediates.len != 1 or input.intermediates[0] != '$') {
+                        log.warn("unimplemented CSI callback: {f}", .{input});
+                        break :decsasd;
+                    }
+                    if (input.params.len != 1) {
+                        log.warn("unimplemented CSI callback: {f}", .{input});
+                        break :decsasd;
+                    }
 
-                        const display = std.meta.intToEnum(
-                            ansi.StatusDisplay,
-                            input.params[0],
-                        ) catch break :decsasd false;
-
-                        try self.handler.setActiveStatusDisplay(display);
-                        break :decsasd true;
+                    const display: ansi.StatusDisplay = switch (input.params[0]) {
+                        0 => .main,
+                        1 => .status_line,
+                        else => {
+                            log.warn("unimplemented CSI callback: {f}", .{input});
+                            break :decsasd;
+                        },
                     };
 
-                    if (!success) log.warn("unimplemented CSI callback: {f}", .{input});
+                    try self.handler.vt(.active_status_display, display);
                 },
 
                 else => if (@hasDecl(T, "csiUnimplemented"))

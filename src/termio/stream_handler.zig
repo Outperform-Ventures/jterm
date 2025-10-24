@@ -297,6 +297,7 @@ pub const StreamHandler = struct {
             .prompt_end => try self.promptEnd(),
             .end_of_input => try self.endOfInput(),
             .end_hyperlink => try self.endHyperlink(),
+            .active_status_display => self.terminal.status_display = value,
             .decaln => try self.decaln(),
 
             // Unimplemented
@@ -846,13 +847,6 @@ pub const StreamHandler = struct {
     pub fn enquiry(self: *StreamHandler) !void {
         log.debug("sending enquiry response={s}", .{self.enquiry_response});
         self.messageWriter(try termio.Message.writeReq(self.alloc, self.enquiry_response));
-    }
-
-    pub fn setActiveStatusDisplay(
-        self: *StreamHandler,
-        req: terminal.StatusDisplay,
-    ) !void {
-        self.terminal.status_display = req;
     }
 
     pub fn configureCharset(
