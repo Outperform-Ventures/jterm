@@ -264,10 +264,18 @@ pub const StreamHandler = struct {
                     self.terminal.saveCursor();
                 }
             },
+            .save_cursor => try self.saveCursor(),
+            .restore_cursor => try self.restoreCursor(),
             .modify_key_format => try self.setModifyKeyFormat(value),
             .protected_mode_off => self.terminal.setProtectedMode(.off),
             .protected_mode_iso => self.terminal.setProtectedMode(.iso),
             .protected_mode_dec => self.terminal.setProtectedMode(.dec),
+            .xtversion => try self.reportXtversion(),
+            .kitty_keyboard_query => try self.queryKittyKeyboard(),
+            .prompt_end => try self.promptEnd(),
+            .end_of_input => try self.endOfInput(),
+            .end_hyperlink => try self.endHyperlink(),
+            .decaln => try self.decaln(),
         }
     }
 

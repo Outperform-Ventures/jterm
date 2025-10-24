@@ -78,10 +78,18 @@ pub const Action = union(Key) {
     top_and_bottom_margin: Margin,
     left_and_right_margin: Margin,
     left_and_right_margin_ambiguous,
+    save_cursor,
+    restore_cursor,
     modify_key_format: ansi.ModifyKeyFormat,
     protected_mode_off,
     protected_mode_iso,
     protected_mode_dec,
+    xtversion,
+    kitty_keyboard_query,
+    prompt_end,
+    end_of_input,
+    end_hyperlink,
+    decaln,
 
     pub const Key = lib.Enum(
         lib_target,
@@ -134,10 +142,18 @@ pub const Action = union(Key) {
             "top_and_bottom_margin",
             "left_and_right_margin",
             "left_and_right_margin_ambiguous",
+            "save_cursor",
+            "restore_cursor",
             "modify_key_format",
             "protected_mode_off",
             "protected_mode_iso",
             "protected_mode_dec",
+            "xtversion",
+            "kitty_keyboard_query",
+            "prompt_end",
+            "end_of_input",
+            "end_hyperlink",
+            "decaln",
         },
     );
 
@@ -1328,9 +1344,7 @@ pub fn Stream(comptime Handler: type) type {
                         },
 
                         // XTVERSION
-                        '>' => {
-                            if (@hasDecl(T, "reportXtversion")) try self.handler.reportXtversion();
-                        },
+                        '>' => try self.handler.vt(.xtversion, {}),
                         else => {
                             log.warn(
                                 "ignoring unimplemented CSI q with intermediates: {s}",
@@ -1548,9 +1562,7 @@ pub fn Stream(comptime Handler: type) type {
 
                     // Kitty keyboard protocol
                     1 => switch (input.intermediates[0]) {
-                        '?' => if (@hasDecl(T, "queryKittyKeyboard")) {
-                            try self.handler.queryKittyKeyboard();
-                        },
+                        '?' => try self.handler.vt(.kitty_keyboard_query, {}),
 
                         '>' => if (@hasDecl(T, "pushKittyKeyboard")) push: {
                             const flags: u5 = if (input.params.len == 1)
@@ -1698,17 +1710,11 @@ pub fn Stream(comptime Handler: type) type {
                 },
 
                 .prompt_end => {
-                    if (@hasDecl(T, "promptEnd")) {
-                        try self.handler.promptEnd();
-                        return;
-                    } else log.warn("unimplemented OSC callback: {}", .{cmd});
+                    try self.handler.vt(.prompt_end, {});
                 },
 
                 .end_of_input => {
-                    if (@hasDecl(T, "endOfInput")) {
-                        try self.handler.endOfInput();
-                        return;
-                    } else log.warn("unimplemented OSC callback: {}", .{cmd});
+                    try self.handler.vt(.end_of_input, {});
                 },
 
                 .end_of_command => |end| {
@@ -1770,10 +1776,7 @@ pub fn Stream(comptime Handler: type) type {
                 },
 
                 .hyperlink_end => {
-                    if (@hasDecl(T, "endHyperlink")) {
-                        try self.handler.endHyperlink();
-                        return;
-                    } else log.warn("unimplemented OSC callback: {}", .{cmd});
+                    try self.handler.vt(.end_hyperlink, {});
                 },
 
                 .conemu_progress_report => |v| {
@@ -1852,28 +1855,28 @@ pub fn Stream(comptime Handler: type) type {
                 '0' => try self.configureCharset(action.intermediates, .dec_special),
 
                 // DECSC - Save Cursor
-                '7' => if (@hasDecl(T, "saveCursor")) switch (action.intermediates.len) {
-                    0 => try self.handler.saveCursor(),
+                '7' => switch (action.intermediates.len) {
+                    0 => try self.handler.vt(.save_cursor, {}),
                     else => {
                         log.warn("invalid command: {f}", .{action});
                         return;
                     },
-                } else log.warn("unimplemented ESC callback: {f}", .{action}),
+                },
 
                 '8' => blk: {
                     switch (action.intermediates.len) {
                         // DECRC - Restore Cursor
-                        0 => if (@hasDecl(T, "restoreCursor")) {
-                            try self.handler.restoreCursor();
+                        0 => {
+                            try self.handler.vt(.restore_cursor, {});
                             break :blk {};
-                        } else log.warn("unimplemented restore cursor callback: {f}", .{action}),
+                        },
 
                         1 => switch (action.intermediates[0]) {
                             // DECALN - Fill Screen with E
-                            '#' => if (@hasDecl(T, "decaln")) {
-                                try self.handler.decaln();
+                            '#' => {
+                                try self.handler.vt(.decaln, {});
                                 break :blk {};
-                            } else log.warn("unimplemented ESC callback: {f}", .{action}),
+                            },
 
                             else => {},
                         },
