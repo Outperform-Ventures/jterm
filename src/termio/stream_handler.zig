@@ -255,6 +255,15 @@ pub const StreamHandler = struct {
             },
             .request_mode => try self.requestMode(value.mode),
             .request_mode_unknown => try self.requestModeUnknown(value.mode, value.ansi),
+            .top_and_bottom_margin => self.terminal.setTopAndBottomMargin(value.top_left, value.bottom_right),
+            .left_and_right_margin => self.terminal.setLeftAndRightMargin(value.top_left, value.bottom_right),
+            .left_and_right_margin_ambiguous => {
+                if (self.terminal.modes.get(.enable_left_and_right_margin)) {
+                    self.terminal.setLeftAndRightMargin(0, 0);
+                } else {
+                    self.terminal.saveCursor();
+                }
+            },
             .modify_key_format => try self.setModifyKeyFormat(value),
             .protected_mode_off => self.terminal.setProtectedMode(.off),
             .protected_mode_iso => self.terminal.setProtectedMode(.iso),
@@ -435,22 +444,6 @@ pub const StreamHandler = struct {
     pub inline fn nextLine(self: *StreamHandler) !void {
         try self.terminal.index();
         self.terminal.carriageReturn();
-    }
-
-    pub inline fn setTopAndBottomMargin(self: *StreamHandler, top: u16, bot: u16) !void {
-        self.terminal.setTopAndBottomMargin(top, bot);
-    }
-
-    pub inline fn setLeftAndRightMarginAmbiguous(self: *StreamHandler) !void {
-        if (self.terminal.modes.get(.enable_left_and_right_margin)) {
-            try self.setLeftAndRightMargin(0, 0);
-        } else {
-            try self.saveCursor();
-        }
-    }
-
-    pub inline fn setLeftAndRightMargin(self: *StreamHandler, left: u16, right: u16) !void {
-        self.terminal.setLeftAndRightMargin(left, right);
     }
 
     pub fn setModifyKeyFormat(self: *StreamHandler, format: terminal.ModifyKeyFormat) !void {

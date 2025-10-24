@@ -75,6 +75,9 @@ pub const Action = union(Key) {
     restore_mode: Mode,
     request_mode: Mode,
     request_mode_unknown: RawMode,
+    top_and_bottom_margin: Margin,
+    left_and_right_margin: Margin,
+    left_and_right_margin_ambiguous,
     modify_key_format: ansi.ModifyKeyFormat,
     protected_mode_off,
     protected_mode_iso,
@@ -128,6 +131,9 @@ pub const Action = union(Key) {
             "restore_mode",
             "request_mode",
             "request_mode_unknown",
+            "top_and_bottom_margin",
+            "left_and_right_margin",
+            "left_and_right_margin_ambiguous",
             "modify_key_format",
             "protected_mode_off",
             "protected_mode_iso",
@@ -194,6 +200,11 @@ pub const Action = union(Key) {
     pub const RawMode = extern struct {
         mode: u16,
         ansi: bool,
+    };
+
+    pub const Margin = extern struct {
+        top_left: u16,
+        bottom_right: u16,
     };
 };
 
@@ -1336,17 +1347,12 @@ pub fn Stream(comptime Handler: type) type {
 
                 'r' => switch (input.intermediates.len) {
                     // DECSTBM - Set Top and Bottom Margins
-                    0 => if (@hasDecl(T, "setTopAndBottomMargin")) {
-                        switch (input.params.len) {
-                            0 => try self.handler.setTopAndBottomMargin(0, 0),
-                            1 => try self.handler.setTopAndBottomMargin(input.params[0], 0),
-                            2 => try self.handler.setTopAndBottomMargin(input.params[0], input.params[1]),
-                            else => log.warn("invalid DECSTBM command: {f}", .{input}),
-                        }
-                    } else log.warn(
-                        "unimplemented CSI callback: {f}",
-                        .{input},
-                    ),
+                    0 => switch (input.params.len) {
+                        0 => try self.handler.vt(.top_and_bottom_margin, .{ .top_left = 0, .bottom_right = 0 }),
+                        1 => try self.handler.vt(.top_and_bottom_margin, .{ .top_left = input.params[0], .bottom_right = 0 }),
+                        2 => try self.handler.vt(.top_and_bottom_margin, .{ .top_left = input.params[0], .bottom_right = input.params[1] }),
+                        else => log.warn("invalid DECSTBM command: {f}", .{input}),
+                    },
 
                     1 => switch (input.intermediates[0]) {
                         // Restore Mode
@@ -1377,21 +1383,16 @@ pub fn Stream(comptime Handler: type) type {
 
                 's' => switch (input.intermediates.len) {
                     // DECSLRM
-                    0 => if (@hasDecl(T, "setLeftAndRightMargin")) {
-                        switch (input.params.len) {
-                            // CSI S is ambiguous with zero params so we defer
-                            // to our handler to do the proper logic. If mode 69
-                            // is set, then we should invoke DECSLRM, otherwise
-                            // we should invoke SC.
-                            0 => try self.handler.setLeftAndRightMarginAmbiguous(),
-                            1 => try self.handler.setLeftAndRightMargin(input.params[0], 0),
-                            2 => try self.handler.setLeftAndRightMargin(input.params[0], input.params[1]),
-                            else => log.warn("invalid DECSLRM command: {f}", .{input}),
-                        }
-                    } else log.warn(
-                        "unimplemented CSI callback: {f}",
-                        .{input},
-                    ),
+                    0 => switch (input.params.len) {
+                        // CSI S is ambiguous with zero params so we defer
+                        // to our handler to do the proper logic. If mode 69
+                        // is set, then we should invoke DECSLRM, otherwise
+                        // we should invoke SC.
+                        0 => try self.handler.vt(.left_and_right_margin_ambiguous, {}),
+                        1 => try self.handler.vt(.left_and_right_margin, .{ .top_left = input.params[0], .bottom_right = 0 }),
+                        2 => try self.handler.vt(.left_and_right_margin, .{ .top_left = input.params[0], .bottom_right = input.params[1] }),
+                        else => log.warn("invalid DECSLRM command: {f}", .{input}),
+                    },
 
                     1 => switch (input.intermediates[0]) {
                         '?' => {
@@ -2227,20 +2228,16 @@ test "stream: restore mode" {
         const Self = @This();
         called: bool = false,
 
-        pub fn setTopAndBottomMargin(self: *Self, t: u16, b: u16) !void {
-            _ = t;
-            _ = b;
-            self.called = true;
-        }
-
         pub fn vt(
-            self: *@This(),
-            comptime action: anytype,
-            value: anytype,
+            self: *Self,
+            comptime action: Stream(Self).Action.Tag,
+            value: Stream(Self).Action.Value(action),
         ) !void {
-            _ = self;
-            _ = action;
             _ = value;
+            switch (action) {
+                .top_and_bottom_margin => self.called = true,
+                else => {},
+            }
         }
     };
 
@@ -2654,25 +2651,17 @@ test "stream: SCOSC" {
         const Self = @This();
         called: bool = false,
 
-        pub fn setLeftAndRightMargin(self: *Self, left: u16, right: u16) !void {
-            _ = self;
-            _ = left;
-            _ = right;
-            @panic("bad");
-        }
-
-        pub fn setLeftAndRightMarginAmbiguous(self: *Self) !void {
-            self.called = true;
-        }
-
         pub fn vt(
-            self: *@This(),
-            comptime action: anytype,
-            value: anytype,
+            self: *Self,
+            comptime action: Stream(Self).Action.Tag,
+            value: Stream(Self).Action.Value(action),
         ) !void {
-            _ = self;
-            _ = action;
             _ = value;
+            switch (action) {
+                .left_and_right_margin => @panic("bad"),
+                .left_and_right_margin_ambiguous => self.called = true,
+                else => {},
+            }
         }
     };
 
