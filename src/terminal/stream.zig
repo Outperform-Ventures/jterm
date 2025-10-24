@@ -1937,22 +1937,30 @@ pub fn Stream(comptime Handler: type) type {
                 },
 
                 // SS2 - Single Shift 2
-                'N' => if (@hasDecl(T, "invokeCharset")) switch (action.intermediates.len) {
-                    0 => try self.handler.invokeCharset(.GL, .G2, true),
+                'N' => switch (action.intermediates.len) {
+                    0 => try self.handler.vt(.invoke_charset, .{
+                        .bank = .GL,
+                        .charset = .G2,
+                        .locking = true,
+                    }),
                     else => {
                         log.warn("invalid single shift 2 command: {f}", .{action});
                         return;
                     },
-                } else log.warn("unimplemented invokeCharset: {f}", .{action}),
+                },
 
                 // SS3 - Single Shift 3
-                'O' => if (@hasDecl(T, "invokeCharset")) switch (action.intermediates.len) {
-                    0 => try self.handler.invokeCharset(.GL, .G3, true),
+                'O' => switch (action.intermediates.len) {
+                    0 => try self.handler.vt(.invoke_charset, .{
+                        .bank = .GL,
+                        .charset = .G3,
+                        .locking = true,
+                    }),
                     else => {
                         log.warn("invalid single shift 3 command: {f}", .{action});
                         return;
                     },
-                } else log.warn("unimplemented invokeCharset: {f}", .{action}),
+                },
 
                 // SPA - Start of Guarded Area
                 'V' => switch (action.intermediates.len) {
@@ -1981,49 +1989,69 @@ pub fn Stream(comptime Handler: type) type {
                 },
 
                 // LS2 - Locking Shift 2
-                'n' => if (@hasDecl(T, "invokeCharset")) switch (action.intermediates.len) {
-                    0 => try self.handler.invokeCharset(.GL, .G2, false),
+                'n' => switch (action.intermediates.len) {
+                    0 => try self.handler.vt(.invoke_charset, .{
+                        .bank = .GL,
+                        .charset = .G2,
+                        .locking = false,
+                    }),
                     else => {
                         log.warn("invalid single shift 2 command: {f}", .{action});
                         return;
                     },
-                } else log.warn("unimplemented invokeCharset: {f}", .{action}),
+                },
 
                 // LS3 - Locking Shift 3
-                'o' => if (@hasDecl(T, "invokeCharset")) switch (action.intermediates.len) {
-                    0 => try self.handler.invokeCharset(.GL, .G3, false),
+                'o' => switch (action.intermediates.len) {
+                    0 => try self.handler.vt(.invoke_charset, .{
+                        .bank = .GL,
+                        .charset = .G3,
+                        .locking = false,
+                    }),
                     else => {
                         log.warn("invalid single shift 3 command: {f}", .{action});
                         return;
                     },
-                } else log.warn("unimplemented invokeCharset: {f}", .{action}),
+                },
 
                 // LS1R - Locking Shift 1 Right
-                '~' => if (@hasDecl(T, "invokeCharset")) switch (action.intermediates.len) {
-                    0 => try self.handler.invokeCharset(.GR, .G1, false),
+                '~' => switch (action.intermediates.len) {
+                    0 => try self.handler.vt(.invoke_charset, .{
+                        .bank = .GR,
+                        .charset = .G1,
+                        .locking = false,
+                    }),
                     else => {
                         log.warn("invalid locking shift 1 right command: {f}", .{action});
                         return;
                     },
-                } else log.warn("unimplemented invokeCharset: {f}", .{action}),
+                },
 
                 // LS2R - Locking Shift 2 Right
-                '}' => if (@hasDecl(T, "invokeCharset")) switch (action.intermediates.len) {
-                    0 => try self.handler.invokeCharset(.GR, .G2, false),
+                '}' => switch (action.intermediates.len) {
+                    0 => try self.handler.vt(.invoke_charset, .{
+                        .bank = .GR,
+                        .charset = .G2,
+                        .locking = false,
+                    }),
                     else => {
                         log.warn("invalid locking shift 2 right command: {f}", .{action});
                         return;
                     },
-                } else log.warn("unimplemented invokeCharset: {f}", .{action}),
+                },
 
                 // LS3R - Locking Shift 3 Right
-                '|' => if (@hasDecl(T, "invokeCharset")) switch (action.intermediates.len) {
-                    0 => try self.handler.invokeCharset(.GR, .G3, false),
+                '|' => switch (action.intermediates.len) {
+                    0 => try self.handler.vt(.invoke_charset, .{
+                        .bank = .GR,
+                        .charset = .G3,
+                        .locking = false,
+                    }),
                     else => {
                         log.warn("invalid locking shift 3 right command: {f}", .{action});
                         return;
                     },
-                } else log.warn("unimplemented invokeCharset: {f}", .{action}),
+                },
 
                 // Set application keypad mode
                 '=' => switch (action.intermediates.len) {
