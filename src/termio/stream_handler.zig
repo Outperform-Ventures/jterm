@@ -270,6 +270,8 @@ pub const StreamHandler = struct {
             .protected_mode_off => self.terminal.setProtectedMode(.off),
             .protected_mode_iso => self.terminal.setProtectedMode(.iso),
             .protected_mode_dec => self.terminal.setProtectedMode(.dec),
+            .mouse_shift_capture => self.terminal.flags.mouse_shift_capture = if (value) .true else .false,
+            .size_report => self.sendSizeReport(value),
             .xtversion => try self.reportXtversion(),
             .kitty_keyboard_query => try self.queryKittyKeyboard(),
             .kitty_keyboard_push => {
@@ -296,6 +298,11 @@ pub const StreamHandler = struct {
             .end_of_input => try self.endOfInput(),
             .end_hyperlink => try self.endHyperlink(),
             .decaln => try self.decaln(),
+
+            // Unimplemented
+            .title_push,
+            .title_pop,
+            => {},
         }
     }
 
@@ -690,10 +697,6 @@ pub const StreamHandler = struct {
 
             else => {},
         }
-    }
-
-    pub inline fn setMouseShiftCapture(self: *StreamHandler, v: bool) !void {
-        self.terminal.flags.mouse_shift_capture = if (v) .true else .false;
     }
 
     pub inline fn setAttribute(self: *StreamHandler, attr: terminal.Attribute) !void {

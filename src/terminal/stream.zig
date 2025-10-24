@@ -81,9 +81,13 @@ pub const Action = union(Key) {
     save_cursor,
     restore_cursor,
     modify_key_format: ansi.ModifyKeyFormat,
+    mouse_shift_capture: bool,
     protected_mode_off,
     protected_mode_iso,
     protected_mode_dec,
+    size_report: csi.SizeReportStyle,
+    title_push: u16,
+    title_pop: u16,
     xtversion,
     kitty_keyboard_query,
     kitty_keyboard_push: KittyKeyboardFlags,
@@ -150,9 +154,13 @@ pub const Action = union(Key) {
             "save_cursor",
             "restore_cursor",
             "modify_key_format",
+            "mouse_shift_capture",
             "protected_mode_off",
             "protected_mode_iso",
             "protected_mode_dec",
+            "size_report",
+            "title_push",
+            "title_pop",
             "xtversion",
             "kitty_keyboard_query",
             "kitty_keyboard_push",
@@ -1443,7 +1451,7 @@ pub fn Stream(comptime Handler: type) type {
                         },
 
                         // XTSHIFTESCAPE
-                        '>' => if (@hasDecl(T, "setMouseShiftCapture")) capture: {
+                        '>' => capture: {
                             const capture = switch (input.params.len) {
                                 0 => false,
                                 1 => switch (input.params[0]) {
@@ -1460,11 +1468,8 @@ pub fn Stream(comptime Handler: type) type {
                                 },
                             };
 
-                            try self.handler.setMouseShiftCapture(capture);
-                        } else log.warn(
-                            "unimplemented CSI callback: {f}",
-                            .{input},
-                        ),
+                            try self.handler.vt(.mouse_shift_capture, capture);
+                        },
 
                         else => log.warn(
                             "unknown CSI s with intermediate: {f}",
@@ -1485,48 +1490,28 @@ pub fn Stream(comptime Handler: type) type {
                             switch (input.params[0]) {
                                 14 => if (input.params.len == 1) {
                                     // report the text area size in pixels
-                                    if (@hasDecl(T, "sendSizeReport")) {
-                                        self.handler.sendSizeReport(.csi_14_t);
-                                    } else log.warn(
-                                        "ignoring unimplemented CSI 14 t",
-                                        .{},
-                                    );
+                                    try self.handler.vt(.size_report, .csi_14_t);
                                 } else log.warn(
                                     "ignoring CSI 14 t with extra parameters: {f}",
                                     .{input},
                                 ),
                                 16 => if (input.params.len == 1) {
                                     // report cell size in pixels
-                                    if (@hasDecl(T, "sendSizeReport")) {
-                                        self.handler.sendSizeReport(.csi_16_t);
-                                    } else log.warn(
-                                        "ignoring unimplemented CSI 16 t",
-                                        .{},
-                                    );
+                                    try self.handler.vt(.size_report, .csi_16_t);
                                 } else log.warn(
                                     "ignoring CSI 16 t with extra parameters: {f}",
                                     .{input},
                                 ),
                                 18 => if (input.params.len == 1) {
                                     // report screen size in characters
-                                    if (@hasDecl(T, "sendSizeReport")) {
-                                        self.handler.sendSizeReport(.csi_18_t);
-                                    } else log.warn(
-                                        "ignoring unimplemented CSI 18 t",
-                                        .{},
-                                    );
+                                    try self.handler.vt(.size_report, .csi_18_t);
                                 } else log.warn(
                                     "ignoring CSI 18 t with extra parameters: {f}",
                                     .{input},
                                 ),
                                 21 => if (input.params.len == 1) {
                                     // report window title
-                                    if (@hasDecl(T, "sendSizeReport")) {
-                                        self.handler.sendSizeReport(.csi_21_t);
-                                    } else log.warn(
-                                        "ignoring unimplemented CSI 21 t",
-                                        .{},
-                                    );
+                                    try self.handler.vt(.size_report, .csi_21_t);
                                 } else log.warn(
                                     "ignoring CSI 21 t with extra parameters: {f}",
                                     .{input},
@@ -1538,22 +1523,15 @@ pub fn Stream(comptime Handler: type) type {
                                         input.params[1] == 2))
                                 {
                                     // push/pop title
-                                    if (@hasDecl(T, "pushPopTitle")) {
-                                        self.handler.pushPopTitle(.{
-                                            .op = switch (number) {
-                                                22 => .push,
-                                                23 => .pop,
-                                                else => @compileError("unreachable"),
-                                            },
-                                            .index = if (input.params.len == 3)
-                                                input.params[2]
-                                            else
-                                                0,
-                                        });
-                                    } else log.warn(
-                                        "ignoring unimplemented CSI 22/23 t",
-                                        .{},
-                                    );
+                                    const index: u16 = if (input.params.len == 3)
+                                        input.params[2]
+                                    else
+                                        0;
+                                    switch (number) {
+                                        22 => try self.handler.vt(.title_push, index),
+                                        23 => try self.handler.vt(.title_pop, index),
+                                        else => @compileError("unreachable"),
+                                    }
                                 } else log.warn(
                                     "ignoring CSI 22/23 t with extra parameters: {f}",
                                     .{input},
@@ -1575,10 +1553,7 @@ pub fn Stream(comptime Handler: type) type {
                 },
 
                 'u' => switch (input.intermediates.len) {
-                    0 => if (@hasDecl(T, "restoreCursor"))
-                        try self.handler.restoreCursor()
-                    else
-                        log.warn("unimplemented CSI callback: {f}", .{input}),
+                    0 => try self.handler.vt(.restore_cursor, {}),
 
                     // Kitty keyboard protocol
                     1 => switch (input.intermediates[0]) {
@@ -2575,18 +2550,15 @@ test "stream: XTSHIFTESCAPE" {
     const H = struct {
         escape: ?bool = null,
 
-        pub fn setMouseShiftCapture(self: *@This(), v: bool) !void {
-            self.escape = v;
-        }
-
         pub fn vt(
             self: *@This(),
-            comptime action: anytype,
-            value: anytype,
+            comptime action: streampkg.Action.Tag,
+            value: streampkg.Action.Value(action),
         ) !void {
-            _ = self;
-            _ = action;
-            _ = value;
+            switch (action) {
+                .mouse_shift_capture => self.escape = value,
+                else => {},
+            }
         }
     };
 
@@ -2698,18 +2670,16 @@ test "stream: SCORC" {
         const Self = @This();
         called: bool = false,
 
-        pub fn restoreCursor(self: *Self) !void {
-            self.called = true;
-        }
-
         pub fn vt(
-            self: *@This(),
-            comptime action: anytype,
-            value: anytype,
+            self: *Self,
+            comptime action: streampkg.Action.Tag,
+            value: streampkg.Action.Value(action),
         ) !void {
-            _ = self;
-            _ = action;
             _ = value;
+            switch (action) {
+                .restore_cursor => self.called = true,
+                else => {},
+            }
         }
     };
 
@@ -2759,18 +2729,15 @@ test "stream: send report with CSI t" {
     const H = struct {
         style: ?csi.SizeReportStyle = null,
 
-        pub fn sendSizeReport(self: *@This(), style: csi.SizeReportStyle) void {
-            self.style = style;
-        }
-
         pub fn vt(
             self: *@This(),
-            comptime action: anytype,
-            value: anytype,
+            comptime action: streampkg.Action.Tag,
+            value: streampkg.Action.Value(action),
         ) !void {
-            _ = self;
-            _ = action;
-            _ = value;
+            switch (action) {
+                .size_report => self.style = value,
+                else => {},
+            }
         }
     };
 
@@ -2816,220 +2783,178 @@ test "stream: invalid CSI t" {
 
 test "stream: CSI t push title" {
     const H = struct {
-        op: ?csi.TitlePushPop = null,
-
-        pub fn pushPopTitle(self: *@This(), op: csi.TitlePushPop) void {
-            self.op = op;
-        }
+        index: ?u16 = null,
 
         pub fn vt(
             self: *@This(),
-            comptime action: anytype,
-            value: anytype,
+            comptime action: streampkg.Action.Tag,
+            value: streampkg.Action.Value(action),
         ) !void {
-            _ = self;
-            _ = action;
-            _ = value;
+            switch (action) {
+                .title_push => self.index = value,
+                else => {},
+            }
         }
     };
 
     var s: Stream(H) = .init(.{});
 
     try s.nextSlice("\x1b[22;0t");
-    try testing.expectEqual(csi.TitlePushPop{
-        .op = .push,
-        .index = 0,
-    }, s.handler.op.?);
+    try testing.expectEqual(@as(u16, 0), s.handler.index.?);
 }
 
 test "stream: CSI t push title with explicit window" {
     const H = struct {
-        op: ?csi.TitlePushPop = null,
-
-        pub fn pushPopTitle(self: *@This(), op: csi.TitlePushPop) void {
-            self.op = op;
-        }
+        index: ?u16 = null,
 
         pub fn vt(
             self: *@This(),
-            comptime action: anytype,
-            value: anytype,
+            comptime action: streampkg.Action.Tag,
+            value: streampkg.Action.Value(action),
         ) !void {
-            _ = self;
-            _ = action;
-            _ = value;
+            switch (action) {
+                .title_push => self.index = value,
+                else => {},
+            }
         }
     };
 
     var s: Stream(H) = .init(.{});
 
     try s.nextSlice("\x1b[22;2t");
-    try testing.expectEqual(csi.TitlePushPop{
-        .op = .push,
-        .index = 0,
-    }, s.handler.op.?);
+    try testing.expectEqual(@as(u16, 0), s.handler.index.?);
 }
 
 test "stream: CSI t push title with explicit icon" {
     const H = struct {
-        op: ?csi.TitlePushPop = null,
-
-        pub fn pushPopTitle(self: *@This(), op: csi.TitlePushPop) void {
-            self.op = op;
-        }
+        index: ?u16 = null,
 
         pub fn vt(
             self: *@This(),
-            comptime action: anytype,
-            value: anytype,
+            comptime action: streampkg.Action.Tag,
+            value: streampkg.Action.Value(action),
         ) !void {
-            _ = self;
-            _ = action;
-            _ = value;
+            switch (action) {
+                .title_push => self.index = value,
+                else => {},
+            }
         }
     };
 
     var s: Stream(H) = .init(.{});
 
     try s.nextSlice("\x1b[22;1t");
-    try testing.expectEqual(null, s.handler.op);
+    try testing.expectEqual(null, s.handler.index);
 }
 
 test "stream: CSI t push title with index" {
     const H = struct {
-        op: ?csi.TitlePushPop = null,
-
-        pub fn pushPopTitle(self: *@This(), op: csi.TitlePushPop) void {
-            self.op = op;
-        }
+        index: ?u16 = null,
 
         pub fn vt(
             self: *@This(),
-            comptime action: anytype,
-            value: anytype,
+            comptime action: streampkg.Action.Tag,
+            value: streampkg.Action.Value(action),
         ) !void {
-            _ = self;
-            _ = action;
-            _ = value;
+            switch (action) {
+                .title_push => self.index = value,
+                else => {},
+            }
         }
     };
 
     var s: Stream(H) = .init(.{});
 
     try s.nextSlice("\x1b[22;0;5t");
-    try testing.expectEqual(csi.TitlePushPop{
-        .op = .push,
-        .index = 5,
-    }, s.handler.op.?);
+    try testing.expectEqual(@as(u16, 5), s.handler.index.?);
 }
 
 test "stream: CSI t pop title" {
     const H = struct {
-        op: ?csi.TitlePushPop = null,
-
-        pub fn pushPopTitle(self: *@This(), op: csi.TitlePushPop) void {
-            self.op = op;
-        }
+        index: ?u16 = null,
 
         pub fn vt(
             self: *@This(),
-            comptime action: anytype,
-            value: anytype,
+            comptime action: streampkg.Action.Tag,
+            value: streampkg.Action.Value(action),
         ) !void {
-            _ = self;
-            _ = action;
-            _ = value;
+            switch (action) {
+                .title_pop => self.index = value,
+                else => {},
+            }
         }
     };
 
     var s: Stream(H) = .init(.{});
 
     try s.nextSlice("\x1b[23;0t");
-    try testing.expectEqual(csi.TitlePushPop{
-        .op = .pop,
-        .index = 0,
-    }, s.handler.op.?);
+    try testing.expectEqual(@as(u16, 0), s.handler.index.?);
 }
 
 test "stream: CSI t pop title with explicit window" {
     const H = struct {
-        op: ?csi.TitlePushPop = null,
-
-        pub fn pushPopTitle(self: *@This(), op: csi.TitlePushPop) void {
-            self.op = op;
-        }
+        index: ?u16 = null,
 
         pub fn vt(
             self: *@This(),
-            comptime action: anytype,
-            value: anytype,
+            comptime action: streampkg.Action.Tag,
+            value: streampkg.Action.Value(action),
         ) !void {
-            _ = self;
-            _ = action;
-            _ = value;
+            switch (action) {
+                .title_pop => self.index = value,
+                else => {},
+            }
         }
     };
 
     var s: Stream(H) = .init(.{});
 
     try s.nextSlice("\x1b[23;2t");
-    try testing.expectEqual(csi.TitlePushPop{
-        .op = .pop,
-        .index = 0,
-    }, s.handler.op.?);
+    try testing.expectEqual(@as(u16, 0), s.handler.index.?);
 }
 
 test "stream: CSI t pop title with explicit icon" {
     const H = struct {
-        op: ?csi.TitlePushPop = null,
-
-        pub fn pushPopTitle(self: *@This(), op: csi.TitlePushPop) void {
-            self.op = op;
-        }
+        index: ?u16 = null,
 
         pub fn vt(
             self: *@This(),
-            comptime action: anytype,
-            value: anytype,
+            comptime action: streampkg.Action.Tag,
+            value: streampkg.Action.Value(action),
         ) !void {
-            _ = self;
-            _ = action;
-            _ = value;
+            switch (action) {
+                .title_pop => self.index = value,
+                else => {},
+            }
         }
     };
 
     var s: Stream(H) = .init(.{});
 
     try s.nextSlice("\x1b[23;1t");
-    try testing.expectEqual(null, s.handler.op);
+    try testing.expectEqual(null, s.handler.index);
 }
 
 test "stream: CSI t pop title with index" {
     const H = struct {
-        op: ?csi.TitlePushPop = null,
-
-        pub fn pushPopTitle(self: *@This(), op: csi.TitlePushPop) void {
-            self.op = op;
-        }
+        index: ?u16 = null,
 
         pub fn vt(
             self: *@This(),
-            comptime action: anytype,
-            value: anytype,
+            comptime action: streampkg.Action.Tag,
+            value: streampkg.Action.Value(action),
         ) !void {
-            _ = self;
-            _ = action;
-            _ = value;
+            switch (action) {
+                .title_pop => self.index = value,
+                else => {},
+            }
         }
     };
 
     var s: Stream(H) = .init(.{});
 
     try s.nextSlice("\x1b[23;0;5t");
-    try testing.expectEqual(csi.TitlePushPop{
-        .op = .pop,
-        .index = 5,
-    }, s.handler.op.?);
+    try testing.expectEqual(@as(u16, 5), s.handler.index.?);
 }
 
 test "stream CSI W clear tab stops" {
