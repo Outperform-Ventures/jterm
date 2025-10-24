@@ -317,6 +317,11 @@ pub const StreamHandler = struct {
             .end_of_command => self.endOfCommand(value.exit_code),
             .mouse_shape => try self.setMouseShape(value),
             .configure_charset => self.configureCharset(value.slot, value.charset),
+            .set_attribute => switch (value) {
+                .unknown => |unk| log.warn("unimplemented or unknown SGR attribute: {any}", .{unk}),
+                else => self.terminal.setAttribute(value) catch |err|
+                    log.warn("error setting attribute {}: {}", .{ value, err }),
+            },
             .dcs_hook => try self.dcsHook(value),
             .dcs_put => try self.dcsPut(value),
             .dcs_unhook => try self.dcsUnhook(),
@@ -713,15 +718,6 @@ pub const StreamHandler = struct {
             .mouse_format_sgr_pixels => self.terminal.flags.mouse_format = if (enabled) .sgr_pixels else .x10,
 
             else => {},
-        }
-    }
-
-    pub inline fn setAttribute(self: *StreamHandler, attr: terminal.Attribute) !void {
-        switch (attr) {
-            .unknown => |unk| log.warn("unimplemented or unknown SGR attribute: {any}", .{unk}),
-
-            else => self.terminal.setAttribute(attr) catch |err|
-                log.warn("error setting attribute {}: {}", .{ attr, err }),
         }
     }
 

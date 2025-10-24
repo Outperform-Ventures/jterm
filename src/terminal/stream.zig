@@ -124,6 +124,7 @@ pub const Action = union(Key) {
     end_of_command: EndOfCommand,
     mouse_shape: MouseShape,
     configure_charset: ConfigureCharset,
+    set_attribute: sgr.Attribute,
 
     pub const Key = lib.Enum(
         lib_target,
@@ -222,6 +223,7 @@ pub const Action = union(Key) {
             "end_of_command",
             "mouse_shape",
             "configure_charset",
+            "set_attribute",
         },
     );
 
@@ -231,7 +233,7 @@ pub const Action = union(Key) {
         @This(),
         // TODO: Before shipping an ABI-compatible libghostty, verify this.
         // This was just arbitrarily chosen for now.
-        [8]u64,
+        [16]u64,
     );
     pub const Tag = c_union.Tag;
     pub const Value = c_union.Value;
@@ -1320,7 +1322,7 @@ pub fn Stream(comptime Handler: type) type {
 
                 // SGR - Select Graphic Rendition
                 'm' => switch (input.intermediates.len) {
-                    0 => if (@hasDecl(T, "setAttribute")) {
+                    0 => {
                         // log.info("parse SGR params={any}", .{input.params});
                         var p: sgr.Parser = .{
                             .params = input.params,
@@ -1328,9 +1330,9 @@ pub fn Stream(comptime Handler: type) type {
                         };
                         while (p.next()) |attr| {
                             // log.info("SGR attribute: {}", .{attr});
-                            try self.handler.setAttribute(attr);
+                            try self.handler.vt(.set_attribute, attr);
                         }
-                    } else log.warn("unimplemented CSI callback: {f}", .{input}),
+                    },
 
                     1 => switch (input.intermediates[0]) {
                         '>' => blk: {
@@ -3217,19 +3219,18 @@ test "stream: SGR with 17+ parameters for underline color" {
         attrs: ?sgr.Attribute = null,
         called: bool = false,
 
-        pub fn setAttribute(self: *@This(), attr: sgr.Attribute) !void {
-            self.attrs = attr;
-            self.called = true;
-        }
-
         pub fn vt(
             self: *@This(),
             comptime action: anytype,
             value: anytype,
         ) !void {
-            _ = self;
-            _ = action;
-            _ = value;
+            switch (action) {
+                .set_attribute => {
+                    self.attrs = value;
+                    self.called = true;
+                },
+                else => {},
+            }
         }
     };
 
