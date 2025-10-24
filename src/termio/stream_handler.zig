@@ -256,6 +256,9 @@ pub const StreamHandler = struct {
             .request_mode => try self.requestMode(value.mode),
             .request_mode_unknown => try self.requestModeUnknown(value.mode, value.ansi),
             .modify_key_format => try self.setModifyKeyFormat(value),
+            .protected_mode_off => self.terminal.setProtectedMode(.off),
+            .protected_mode_iso => self.terminal.setProtectedMode(.iso),
+            .protected_mode_dec => self.terminal.setProtectedMode(.dec),
         }
     }
 
@@ -802,10 +805,6 @@ pub const StreamHandler = struct {
 
             else => log.warn("unimplemented cursor style: {}", .{style}),
         }
-    }
-
-    pub inline fn setProtectedMode(self: *StreamHandler, mode: terminal.ProtectedMode) !void {
-        self.terminal.setProtectedMode(mode);
     }
 
     pub inline fn decaln(self: *StreamHandler) !void {

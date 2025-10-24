@@ -76,6 +76,9 @@ pub const Action = union(Key) {
     request_mode: Mode,
     request_mode_unknown: RawMode,
     modify_key_format: ansi.ModifyKeyFormat,
+    protected_mode_off,
+    protected_mode_iso,
+    protected_mode_dec,
 
     pub const Key = lib.Enum(
         lib_target,
@@ -126,6 +129,9 @@ pub const Action = union(Key) {
             "request_mode",
             "request_mode_unknown",
             "modify_key_format",
+            "protected_mode_off",
+            "protected_mode_iso",
+            "protected_mode_dec",
         },
     );
 
@@ -1288,24 +1294,26 @@ pub fn Stream(comptime Handler: type) type {
 
                         // DECSCA
                         '"' => {
-                            if (@hasDecl(T, "setProtectedMode")) {
-                                const mode_: ?ansi.ProtectedMode = switch (input.params.len) {
+                            const mode_: ?ansi.ProtectedMode = switch (input.params.len) {
+                                else => null,
+                                0 => .off,
+                                1 => switch (input.params[0]) {
+                                    0, 2 => .off,
+                                    1 => .dec,
                                     else => null,
-                                    0 => .off,
-                                    1 => switch (input.params[0]) {
-                                        0, 2 => .off,
-                                        1 => .dec,
-                                        else => null,
-                                    },
-                                };
+                                },
+                            };
 
-                                const mode = mode_ orelse {
-                                    log.warn("invalid set protected mode command: {f}", .{input});
-                                    return;
-                                };
+                            const mode = mode_ orelse {
+                                log.warn("invalid set protected mode command: {f}", .{input});
+                                return;
+                            };
 
-                                try self.handler.setProtectedMode(mode);
-                            } else log.warn("unimplemented CSI callback: {f}", .{input});
+                            switch (mode) {
+                                .off => try self.handler.vt(.protected_mode_off, {}),
+                                .iso => try self.handler.vt(.protected_mode_iso, {}),
+                                .dec => try self.handler.vt(.protected_mode_dec, {}),
+                            }
                         },
 
                         // XTVERSION
@@ -1930,14 +1938,16 @@ pub fn Stream(comptime Handler: type) type {
                 } else log.warn("unimplemented invokeCharset: {f}", .{action}),
 
                 // SPA - Start of Guarded Area
-                'V' => if (@hasDecl(T, "setProtectedMode") and action.intermediates.len == 0) {
-                    try self.handler.setProtectedMode(ansi.ProtectedMode.iso);
-                } else log.warn("unimplemented ESC callback: {f}", .{action}),
+                'V' => switch (action.intermediates.len) {
+                    0 => try self.handler.vt(.protected_mode_iso, {}),
+                    else => log.warn("unimplemented ESC callback: {f}", .{action}),
+                },
 
                 // EPA - End of Guarded Area
-                'W' => if (@hasDecl(T, "setProtectedMode") and action.intermediates.len == 0) {
-                    try self.handler.setProtectedMode(ansi.ProtectedMode.off);
-                } else log.warn("unimplemented ESC callback: {f}", .{action}),
+                'W' => switch (action.intermediates.len) {
+                    0 => try self.handler.vt(.protected_mode_off, {}),
+                    else => log.warn("unimplemented ESC callback: {f}", .{action}),
+                },
 
                 // DECID
                 'Z' => if (@hasDecl(T, "deviceAttributes") and action.intermediates.len == 0) {
@@ -2269,18 +2279,18 @@ test "stream: DECSCA" {
         const Self = @This();
         v: ?ansi.ProtectedMode = null,
 
-        pub fn setProtectedMode(self: *Self, v: ansi.ProtectedMode) !void {
-            self.v = v;
-        }
-
         pub fn vt(
-            self: *@This(),
-            comptime action: anytype,
-            value: anytype,
+            self: *Self,
+            comptime action: Stream(Self).Action.Tag,
+            value: Stream(Self).Action.Value(action),
         ) !void {
-            _ = self;
-            _ = action;
             _ = value;
+            switch (action) {
+                .protected_mode_off => self.v = .off,
+                .protected_mode_iso => self.v = .iso,
+                .protected_mode_dec => self.v = .dec,
+                else => {},
+            }
         }
     };
 
