@@ -69,6 +69,10 @@ pub const Action = union(Key) {
     tab_clear_all,
     tab_set,
     tab_reset,
+    index,
+    next_line,
+    reverse_index,
+    full_reset,
     set_mode: Mode,
     reset_mode: Mode,
     save_mode: Mode,
@@ -143,6 +147,10 @@ pub const Action = union(Key) {
             "tab_clear_all",
             "tab_set",
             "tab_reset",
+            "index",
+            "next_line",
+            "reverse_index",
+            "full_reset",
             "set_mode",
             "reset_mode",
             "save_mode",
@@ -1889,22 +1897,22 @@ pub fn Stream(comptime Handler: type) type {
                 },
 
                 // IND - Index
-                'D' => if (@hasDecl(T, "index")) switch (action.intermediates.len) {
-                    0 => try self.handler.index(),
+                'D' => switch (action.intermediates.len) {
+                    0 => try self.handler.vt(.index, {}),
                     else => {
                         log.warn("invalid index command: {f}", .{action});
                         return;
                     },
-                } else log.warn("unimplemented ESC callback: {f}", .{action}),
+                },
 
                 // NEL - Next Line
-                'E' => if (@hasDecl(T, "nextLine")) switch (action.intermediates.len) {
-                    0 => try self.handler.nextLine(),
+                'E' => switch (action.intermediates.len) {
+                    0 => try self.handler.vt(.next_line, {}),
                     else => {
                         log.warn("invalid next line command: {f}", .{action});
                         return;
                     },
-                } else log.warn("unimplemented ESC callback: {f}", .{action}),
+                },
 
                 // HTS - Horizontal Tab Set
                 'H' => switch (action.intermediates.len) {
@@ -1916,13 +1924,13 @@ pub fn Stream(comptime Handler: type) type {
                 },
 
                 // RI - Reverse Index
-                'M' => if (@hasDecl(T, "reverseIndex")) switch (action.intermediates.len) {
-                    0 => try self.handler.reverseIndex(),
+                'M' => switch (action.intermediates.len) {
+                    0 => try self.handler.vt(.reverse_index, {}),
                     else => {
                         log.warn("invalid reverse index command: {f}", .{action});
                         return;
                     },
-                } else log.warn("unimplemented ESC callback: {f}", .{action}),
+                },
 
                 // SS2 - Single Shift 2
                 'N' => if (@hasDecl(T, "invokeCharset")) switch (action.intermediates.len) {
@@ -1960,13 +1968,13 @@ pub fn Stream(comptime Handler: type) type {
                 } else log.warn("unimplemented ESC callback: {f}", .{action}),
 
                 // RIS - Full Reset
-                'c' => if (@hasDecl(T, "fullReset")) switch (action.intermediates.len) {
-                    0 => try self.handler.fullReset(),
+                'c' => switch (action.intermediates.len) {
+                    0 => try self.handler.vt(.full_reset, {}),
                     else => {
                         log.warn("invalid full reset command: {f}", .{action});
                         return;
                     },
-                } else log.warn("unimplemented ESC callback: {f}", .{action}),
+                },
 
                 // LS2 - Locking Shift 2
                 'n' => if (@hasDecl(T, "invokeCharset")) switch (action.intermediates.len) {
@@ -2014,14 +2022,16 @@ pub fn Stream(comptime Handler: type) type {
                 } else log.warn("unimplemented invokeCharset: {f}", .{action}),
 
                 // Set application keypad mode
-                '=' => if (@hasDecl(T, "setMode") and action.intermediates.len == 0) {
-                    try self.handler.setMode(.keypad_keys, true);
-                } else log.warn("unimplemented setMode: {f}", .{action}),
+                '=' => switch (action.intermediates.len) {
+                    0 => try self.handler.vt(.set_mode, .{ .mode = .keypad_keys }),
+                    else => log.warn("unimplemented setMode: {f}", .{action}),
+                },
 
                 // Reset application keypad mode
-                '>' => if (@hasDecl(T, "setMode") and action.intermediates.len == 0) {
-                    try self.handler.setMode(.keypad_keys, false);
-                } else log.warn("unimplemented setMode: {f}", .{action}),
+                '>' => switch (action.intermediates.len) {
+                    0 => try self.handler.vt(.reset_mode, .{ .mode = .keypad_keys }),
+                    else => log.warn("unimplemented setMode: {f}", .{action}),
+                },
 
                 else => if (@hasDecl(T, "escUnimplemented"))
                     try self.handler.escUnimplemented(action)
