@@ -278,6 +278,7 @@ pub const StreamHandler = struct {
             .size_report => self.sendSizeReport(value),
             .xtversion => try self.reportXtversion(),
             .device_attributes => try self.deviceAttributes(value),
+            .device_status => try self.deviceStatusReport(value.request),
             .kitty_keyboard_query => try self.queryKittyKeyboard(),
             .kitty_keyboard_push => {
                 log.debug("pushing kitty keyboard mode: {}", .{value.flags});

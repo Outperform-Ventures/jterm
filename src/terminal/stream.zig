@@ -94,6 +94,7 @@ pub const Action = union(Key) {
     title_pop: u16,
     xtversion,
     device_attributes: ansi.DeviceAttributeReq,
+    device_status: DeviceStatus,
     kitty_keyboard_query,
     kitty_keyboard_push: KittyKeyboardFlags,
     kitty_keyboard_pop: u16,
@@ -179,6 +180,7 @@ pub const Action = union(Key) {
             "title_pop",
             "xtversion",
             "device_attributes",
+            "device_status",
             "kitty_keyboard_query",
             "kitty_keyboard_push",
             "kitty_keyboard_pop",
@@ -243,6 +245,16 @@ pub const Action = union(Key) {
     pub const CursorPos = extern struct {
         row: u16,
         col: u16,
+    };
+
+    pub const DeviceStatus = struct {
+        request: device_status.Request,
+
+        pub const C = u16;
+
+        pub fn cval(self: DeviceStatus) DeviceStatus.C {
+            return @bitCast(self.request);
+        }
     };
 
     pub const Mode = struct {
@@ -1054,7 +1066,7 @@ pub fn Stream(comptime Handler: type) type {
                         },
                         else => null,
                     };
-                    
+
                     if (req) |r| {
                         try self.handler.vt(.device_attributes, r);
                     } else {
@@ -1249,11 +1261,6 @@ pub fn Stream(comptime Handler: type) type {
                     if (input.intermediates.len == 0 or
                         input.intermediates[0] == '?')
                     {
-                        if (!@hasDecl(T, "deviceStatusReport")) {
-                            log.warn("unimplemented CSI callback: {f}", .{input});
-                            return;
-                        }
-
                         if (input.params.len != 1) {
                             log.warn("invalid device status report command: {f}", .{input});
                             return;
@@ -1273,7 +1280,7 @@ pub fn Stream(comptime Handler: type) type {
                             return;
                         };
 
-                        try self.handler.deviceStatusReport(req);
+                        try self.handler.vt(.device_status, .{ .request = req });
                         return;
                     }
 
