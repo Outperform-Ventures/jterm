@@ -1841,10 +1841,7 @@ pub fn Stream(comptime Handler: type) type {
                     try self.handler.vt(.active_status_display, display);
                 },
 
-                else => if (@hasDecl(T, "csiUnimplemented"))
-                    try self.handler.csiUnimplemented(input)
-                else
-                    log.warn("unimplemented CSI action: {f}", .{input}),
+                else => log.warn("unimplemented CSI action: {f}", .{input}),
             }
         }
 
@@ -1959,12 +1956,7 @@ pub fn Stream(comptime Handler: type) type {
                 },
             }
 
-            // Fall through for when we don't have a handler.
-            if (@hasDecl(T, "oscUnimplemented")) {
-                try self.handler.oscUnimplemented(cmd);
-            } else {
-                log.warn("unimplemented OSC command: {s}", .{@tagName(cmd)});
-            }
+            log.warn("unimplemented OSC command: {s}", .{@tagName(cmd)});
         }
 
         inline fn configureCharset(
@@ -2204,14 +2196,11 @@ pub fn Stream(comptime Handler: type) type {
                     else => log.warn("unimplemented setMode: {f}", .{action}),
                 },
 
-                else => if (@hasDecl(T, "escUnimplemented"))
-                    try self.handler.escUnimplemented(action)
-                else
-                    log.warn("unimplemented ESC action: {f}", .{action}),
-
                 // Sets ST (string terminator). We don't have to do anything
                 // because our parser always accepts ST.
                 '\\' => {},
+
+                else => log.warn("unimplemented ESC action: {f}", .{action}),
             }
         }
     };
