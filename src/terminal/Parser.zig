@@ -127,6 +127,14 @@ pub const Action = union(enum) {
         intermediates: []const u8 = "",
         params: []const u16 = &.{},
         final: u8,
+
+        pub const C = extern struct {
+            intermediates: [*]const u8,
+            intermediates_len: usize,
+            params: [*]const u16,
+            params_len: usize,
+            final: u8,
+        };
     };
 
     // Implement formatter for logging. This is mostly copied from the

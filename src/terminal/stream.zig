@@ -99,6 +99,9 @@ pub const Action = union(Key) {
     kitty_keyboard_set: KittyKeyboardFlags,
     kitty_keyboard_set_or: KittyKeyboardFlags,
     kitty_keyboard_set_not: KittyKeyboardFlags,
+    dcs_hook: Parser.Action.DCS,
+    dcs_put: u8,
+    dcs_unhook,
     apc_start,
     apc_end,
     apc_put: u8,
@@ -180,6 +183,9 @@ pub const Action = union(Key) {
             "kitty_keyboard_set",
             "kitty_keyboard_set_or",
             "kitty_keyboard_set_not",
+            "dcs_hook",
+            "dcs_put",
+            "dcs_unhook",
             "apc_start",
             "apc_end",
             "apc_put",
@@ -556,15 +562,9 @@ pub fn Stream(comptime Handler: type) type {
                     .csi_dispatch => |csi_action| try self.csiDispatch(csi_action),
                     .esc_dispatch => |esc| try self.escDispatch(esc),
                     .osc_dispatch => |cmd| try self.oscDispatch(cmd),
-                    .dcs_hook => |dcs| if (@hasDecl(T, "dcsHook")) {
-                        try self.handler.dcsHook(dcs);
-                    } else log.warn("unimplemented DCS hook", .{}),
-                    .dcs_put => |code| if (@hasDecl(T, "dcsPut")) {
-                        try self.handler.dcsPut(code);
-                    } else log.warn("unimplemented DCS put: {x}", .{code}),
-                    .dcs_unhook => if (@hasDecl(T, "dcsUnhook")) {
-                        try self.handler.dcsUnhook();
-                    } else log.warn("unimplemented DCS unhook", .{}),
+                    .dcs_hook => |dcs| try self.handler.vt(.dcs_hook, dcs),
+                    .dcs_put => |code| try self.handler.vt(.dcs_put, code),
+                    .dcs_unhook => try self.handler.vt(.dcs_unhook, {}),
                     .apc_start => try self.handler.vt(.apc_start, {}),
                     .apc_put => |code| try self.handler.vt(.apc_put, code),
                     .apc_end => try self.handler.vt(.apc_end, {}),
