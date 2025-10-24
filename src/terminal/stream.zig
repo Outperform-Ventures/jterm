@@ -93,6 +93,7 @@ pub const Action = union(Key) {
     title_push: u16,
     title_pop: u16,
     xtversion,
+    device_attributes: ansi.DeviceAttributeReq,
     kitty_keyboard_query,
     kitty_keyboard_push: KittyKeyboardFlags,
     kitty_keyboard_pop: u16,
@@ -177,6 +178,7 @@ pub const Action = union(Key) {
             "title_push",
             "title_pop",
             "xtversion",
+            "device_attributes",
             "kitty_keyboard_query",
             "kitty_keyboard_push",
             "kitty_keyboard_pop",
@@ -1042,22 +1044,24 @@ pub fn Stream(comptime Handler: type) type {
                 },
 
                 // c - Device Attributes (DA1)
-                'c' => if (@hasDecl(T, "deviceAttributes")) {
-                    const req: ansi.DeviceAttributeReq = switch (input.intermediates.len) {
-                        0 => ansi.DeviceAttributeReq.primary,
+                'c' => {
+                    const req: ?ansi.DeviceAttributeReq = switch (input.intermediates.len) {
+                        0 => .primary,
                         1 => switch (input.intermediates[0]) {
-                            '>' => ansi.DeviceAttributeReq.secondary,
-                            '=' => ansi.DeviceAttributeReq.tertiary,
+                            '>' => .secondary,
+                            '=' => .tertiary,
                             else => null,
                         },
-                        else => @as(?ansi.DeviceAttributeReq, null),
-                    } orelse {
+                        else => null,
+                    };
+                    
+                    if (req) |r| {
+                        try self.handler.vt(.device_attributes, r);
+                    } else {
                         log.warn("invalid device attributes command: {f}", .{input});
                         return;
-                    };
-
-                    try self.handler.deviceAttributes(req, input.params);
-                } else log.warn("unimplemented CSI callback: {f}", .{input}),
+                    }
+                },
 
                 // VPA - Cursor Vertical Position Absolute
                 'd' => switch (input.intermediates.len) {
@@ -1963,8 +1967,8 @@ pub fn Stream(comptime Handler: type) type {
                 },
 
                 // DECID
-                'Z' => if (@hasDecl(T, "deviceAttributes") and action.intermediates.len == 0) {
-                    try self.handler.deviceAttributes(.primary, &.{});
+                'Z' => if (action.intermediates.len == 0) {
+                    try self.handler.vt(.device_attributes, .primary);
                 } else log.warn("unimplemented ESC callback: {f}", .{action}),
 
                 // RIS - Full Reset

@@ -277,6 +277,7 @@ pub const StreamHandler = struct {
             .mouse_shift_capture => self.terminal.flags.mouse_shift_capture = if (value) .true else .false,
             .size_report => self.sendSizeReport(value),
             .xtversion => try self.reportXtversion(),
+            .device_attributes => try self.deviceAttributes(value),
             .kitty_keyboard_query => try self.queryKittyKeyboard(),
             .kitty_keyboard_push => {
                 log.debug("pushing kitty keyboard mode: {}", .{value.flags});
@@ -722,10 +723,7 @@ pub const StreamHandler = struct {
     pub fn deviceAttributes(
         self: *StreamHandler,
         req: terminal.DeviceAttributeReq,
-        params: []const u16,
     ) !void {
-        _ = params;
-
         // For the below, we quack as a VT220. We don't quack as
         // a 420 because we don't support DCS sequences.
         switch (req) {

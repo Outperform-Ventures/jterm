@@ -53,11 +53,14 @@ pub const RenditionAspect = enum(u16) {
 };
 
 /// The device attribute request type (ESC [ c).
-pub const DeviceAttributeReq = enum {
-    primary, // Blank
-    secondary, // >
-    tertiary, // =
-};
+pub const DeviceAttributeReq = lib.Enum(
+    lib_target,
+    &.{
+        "primary", // Blank
+        "secondary", // >
+        "tertiary", // =
+    },
+);
 
 /// Possible cursor styles (ESC [ q)
 pub const CursorStyle = enum(u16) {
