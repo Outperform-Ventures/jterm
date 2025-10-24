@@ -73,6 +73,7 @@ pub const Action = union(Key) {
     reset_mode: Mode,
     save_mode: Mode,
     restore_mode: Mode,
+    modify_key_format: ansi.ModifyKeyFormat,
 
     pub const Key = lib.Enum(
         lib_target,
@@ -120,6 +121,7 @@ pub const Action = union(Key) {
             "reset_mode",
             "save_mode",
             "restore_mode",
+            "modify_key_format",
         },
     );
 
@@ -1094,18 +1096,18 @@ pub fn Stream(comptime Handler: type) type {
                     } else log.warn("unimplemented CSI callback: {f}", .{input}),
 
                     1 => switch (input.intermediates[0]) {
-                        '>' => if (@hasDecl(T, "setModifyKeyFormat")) blk: {
+                        '>' => blk: {
                             if (input.params.len == 0) {
                                 // Reset
-                                try self.handler.setModifyKeyFormat(.{ .legacy = {} });
+                                try self.handler.vt(.modify_key_format, .legacy);
                                 break :blk;
                             }
 
                             var format: ansi.ModifyKeyFormat = switch (input.params[0]) {
-                                0 => .{ .legacy = {} },
-                                1 => .{ .cursor_keys = {} },
-                                2 => .{ .function_keys = {} },
-                                4 => .{ .other_keys = .none },
+                                0 => .legacy,
+                                1 => .cursor_keys,
+                                2 => .function_keys,
+                                4 => .other_keys_none,
                                 else => {
                                     log.warn("invalid setModifyKeyFormat: {f}", .{input});
                                     break :blk;
@@ -1125,15 +1127,17 @@ pub fn Stream(comptime Handler: type) type {
                                     .function_keys => {},
 
                                     // We only support the numeric form.
-                                    .other_keys => |*v| switch (input.params[1]) {
-                                        2 => v.* = .numeric,
-                                        else => v.* = .none,
+                                    .other_keys_none => switch (input.params[1]) {
+                                        2 => format = .other_keys_numeric,
+                                        else => {},
                                     },
+                                    .other_keys_numeric_except => {},
+                                    .other_keys_numeric => {},
                                 }
                             }
 
-                            try self.handler.setModifyKeyFormat(format);
-                        } else log.warn("unimplemented setModifyKeyFormat: {f}", .{input}),
+                            try self.handler.vt(.modify_key_format, format);
+                        },
 
                         else => log.warn(
                             "unknown CSI m with intermediate: {}",
@@ -1194,13 +1198,13 @@ pub fn Stream(comptime Handler: type) type {
                         0 => unreachable, // handled above
 
                         1 => switch (input.intermediates[0]) {
-                            '>' => if (@hasDecl(T, "setModifyKeyFormat")) {
+                            '>' => {
                                 // This isn't strictly correct. CSI > n has parameters that
                                 // control what exactly is being disabled. However, we
                                 // only support reverting back to modify other keys in
                                 // numeric except format.
-                                try self.handler.setModifyKeyFormat(.{ .other_keys = .numeric_except });
-                            } else log.warn("unimplemented setModifyKeyFormat: {f}", .{input}),
+                                try self.handler.vt(.modify_key_format, .other_keys_numeric_except);
+                            },
 
                             else => log.warn(
                                 "unknown CSI n with intermediate: {}",

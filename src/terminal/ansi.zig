@@ -1,3 +1,7 @@
+const build_options = @import("terminal_options");
+const lib = @import("../lib/main.zig");
+const lib_target: lib.Target = if (build_options.c_abi) .c else .zig;
+
 /// C0 (7-bit) control characters from ANSI.
 ///
 /// This is not complete, control characters are only added to this
@@ -95,12 +99,17 @@ pub const StatusDisplay = enum(u16) {
 
 /// The possible modify key formats to ESC[>{a};{b}m
 /// Note: this is not complete, we should add more as we support more
-pub const ModifyKeyFormat = union(enum) {
-    legacy: void,
-    cursor_keys: void,
-    function_keys: void,
-    other_keys: enum { none, numeric_except, numeric },
-};
+pub const ModifyKeyFormat = lib.Enum(
+    lib_target,
+    &.{
+        "legacy",
+        "cursor_keys",
+        "function_keys",
+        "other_keys_none",
+        "other_keys_numeric_except",
+        "other_keys_numeric",
+    },
+);
 
 /// The protection modes that can be set for the terminal. See DECSCA and
 /// ESC V, W.

@@ -253,6 +253,7 @@ pub const StreamHandler = struct {
                 const v = self.terminal.modes.restore(value.mode);
                 try self.setMode(value.mode, v);
             },
+            .modify_key_format => try self.setModifyKeyFormat(value),
         }
     }
 
@@ -450,10 +451,7 @@ pub const StreamHandler = struct {
     pub fn setModifyKeyFormat(self: *StreamHandler, format: terminal.ModifyKeyFormat) !void {
         self.terminal.flags.modify_other_keys_2 = false;
         switch (format) {
-            .other_keys => |v| switch (v) {
-                .numeric => self.terminal.flags.modify_other_keys_2 = true,
-                else => {},
-            },
+            .other_keys_numeric => self.terminal.flags.modify_other_keys_2 = true,
             else => {},
         }
     }
