@@ -306,6 +306,16 @@ pub const StreamHandler = struct {
             .end_hyperlink => try self.endHyperlink(),
             .active_status_display => self.terminal.status_display = value,
             .decaln => try self.decaln(),
+            .window_title => try self.windowTitle(value.title),
+            .report_pwd => try self.reportPwd(value.url),
+            .show_desktop_notification => try self.showDesktopNotification(value.title, value.body),
+            .progress_report => self.progressReport(value),
+            .start_hyperlink => try self.startHyperlink(value.uri, value.id),
+            .clipboard_contents => try self.clipboardContents(value.kind, value.data),
+            .prompt_start => self.promptStart(value.aid, value.redraw),
+            .prompt_continuation => self.promptContinuation(value.aid),
+            .end_of_command => self.endOfCommand(value.exit_code),
+            .mouse_shape => try self.setMouseShape(value),
             .dcs_hook => try self.dcsHook(value),
             .dcs_put => try self.dcsPut(value),
             .dcs_unhook => try self.dcsUnhook(),
@@ -714,7 +724,7 @@ pub const StreamHandler = struct {
         }
     }
 
-    pub inline fn startHyperlink(self: *StreamHandler, uri: []const u8, id: ?[]const u8) !void {
+    inline fn startHyperlink(self: *StreamHandler, uri: []const u8, id: ?[]const u8) !void {
         try self.terminal.screen.startHyperlink(uri, id);
     }
 
@@ -902,7 +912,7 @@ pub const StreamHandler = struct {
     //-------------------------------------------------------------------------
     // OSC
 
-    pub fn changeWindowTitle(self: *StreamHandler, title: []const u8) !void {
+    fn windowTitle(self: *StreamHandler, title: []const u8) !void {
         var buf: [256]u8 = undefined;
         if (title.len >= buf.len) {
             log.warn("change title requested larger than our buffer size, ignoring", .{});
@@ -933,7 +943,7 @@ pub const StreamHandler = struct {
         self.surfaceMessageWriter(.{ .set_title = buf });
     }
 
-    pub inline fn setMouseShape(
+    inline fn setMouseShape(
         self: *StreamHandler,
         shape: terminal.MouseShape,
     ) !void {
@@ -945,7 +955,7 @@ pub const StreamHandler = struct {
         self.surfaceMessageWriter(.{ .set_mouse_shape = shape });
     }
 
-    pub fn clipboardContents(self: *StreamHandler, kind: u8, data: []const u8) !void {
+    fn clipboardContents(self: *StreamHandler, kind: u8, data: []const u8) !void {
         // Note: we ignore the "kind" field and always use the standard clipboard.
         // iTerm also appears to do this but other terminals seem to only allow
         // certain. Let's investigate more.
@@ -975,13 +985,13 @@ pub const StreamHandler = struct {
         });
     }
 
-    pub inline fn promptStart(self: *StreamHandler, aid: ?[]const u8, redraw: bool) !void {
+    inline fn promptStart(self: *StreamHandler, aid: ?[]const u8, redraw: bool) void {
         _ = aid;
         self.terminal.markSemanticPrompt(.prompt);
         self.terminal.flags.shell_redraws_prompt = redraw;
     }
 
-    pub inline fn promptContinuation(self: *StreamHandler, aid: ?[]const u8) !void {
+    inline fn promptContinuation(self: *StreamHandler, aid: ?[]const u8) void {
         _ = aid;
         self.terminal.markSemanticPrompt(.prompt_continuation);
     }
@@ -995,11 +1005,11 @@ pub const StreamHandler = struct {
         self.surfaceMessageWriter(.start_command);
     }
 
-    pub inline fn endOfCommand(self: *StreamHandler, exit_code: ?u8) !void {
+    inline fn endOfCommand(self: *StreamHandler, exit_code: ?u8) void {
         self.surfaceMessageWriter(.{ .stop_command = exit_code });
     }
 
-    pub fn reportPwd(self: *StreamHandler, url: []const u8) !void {
+    fn reportPwd(self: *StreamHandler, url: []const u8) !void {
         // Special handling for the empty URL. We treat the empty URL
         // as resetting the pwd as if we never saw a pwd. I can't find any
         // other terminal that does this but it seems like a reasonable
@@ -1013,7 +1023,7 @@ pub const StreamHandler = struct {
             // If we haven't seen a title, we're using the pwd as our title.
             // Set it to blank which will reset our title behavior.
             if (!self.seen_title) {
-                try self.changeWindowTitle("");
+                try self.windowTitle("");
                 assert(!self.seen_title);
             }
 
@@ -1093,7 +1103,7 @@ pub const StreamHandler = struct {
 
         // If we haven't seen a title, use our pwd as the title.
         if (!self.seen_title) {
-            try self.changeWindowTitle(path);
+            try self.windowTitle(path);
             self.seen_title = false;
         }
     }
@@ -1347,7 +1357,7 @@ pub const StreamHandler = struct {
         }
     }
 
-    pub fn showDesktopNotification(
+    fn showDesktopNotification(
         self: *StreamHandler,
         title: []const u8,
         body: []const u8,
@@ -1500,7 +1510,7 @@ pub const StreamHandler = struct {
     }
 
     /// Display a GUI progress report.
-    pub fn handleProgressReport(self: *StreamHandler, report: terminal.osc.Command.ProgressReport) error{}!void {
+    fn progressReport(self: *StreamHandler, report: terminal.osc.Command.ProgressReport) void {
         self.surfaceMessageWriter(.{ .progress_report = report });
     }
 };

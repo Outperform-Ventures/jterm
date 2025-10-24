@@ -113,6 +113,16 @@ pub const Action = union(Key) {
     end_hyperlink,
     active_status_display: ansi.StatusDisplay,
     decaln,
+    window_title: WindowTitle,
+    report_pwd: ReportPwd,
+    show_desktop_notification: ShowDesktopNotification,
+    progress_report: osc.Command.ProgressReport,
+    start_hyperlink: StartHyperlink,
+    clipboard_contents: ClipboardContents,
+    prompt_start: PromptStart,
+    prompt_continuation: PromptContinuation,
+    end_of_command: EndOfCommand,
+    mouse_shape: MouseShape,
 
     pub const Key = lib.Enum(
         lib_target,
@@ -200,6 +210,16 @@ pub const Action = union(Key) {
             "end_hyperlink",
             "active_status_display",
             "decaln",
+            "window_title",
+            "report_pwd",
+            "show_desktop_notification",
+            "progress_report",
+            "start_hyperlink",
+            "clipboard_contents",
+            "prompt_start",
+            "prompt_continuation",
+            "end_of_command",
+            "mouse_shape",
         },
     );
 
@@ -286,6 +306,118 @@ pub const Action = union(Key) {
 
         pub fn cval(self: KittyKeyboardFlags) KittyKeyboardFlags.C {
             return @intCast(self.flags.int());
+        }
+    };
+
+    pub const WindowTitle = struct {
+        title: []const u8,
+
+        pub const C = lib.String;
+
+        pub fn cval(self: WindowTitle) WindowTitle.C {
+            return .init(self.title);
+        }
+    };
+
+    pub const ReportPwd = struct {
+        url: []const u8,
+
+        pub const C = lib.String;
+
+        pub fn cval(self: ReportPwd) ReportPwd.C {
+            return .init(self.url);
+        }
+    };
+
+    pub const ShowDesktopNotification = struct {
+        title: []const u8,
+        body: []const u8,
+
+        pub const C = extern struct {
+            title: lib.String,
+            body: lib.String,
+        };
+
+        pub fn cval(self: ShowDesktopNotification) ShowDesktopNotification.C {
+            return .{
+                .title = .init(self.title),
+                .body = .init(self.body),
+            };
+        }
+    };
+
+    pub const StartHyperlink = struct {
+        uri: []const u8,
+        id: ?[]const u8,
+
+        pub const C = extern struct {
+            uri: lib.String,
+            id: lib.String,
+        };
+
+        pub fn cval(self: StartHyperlink) StartHyperlink.C {
+            return .{
+                .uri = .init(self.uri),
+                .id = .init(self.id orelse ""),
+            };
+        }
+    };
+
+    pub const ClipboardContents = struct {
+        kind: u8,
+        data: []const u8,
+
+        pub const C = extern struct {
+            kind: u8,
+            data: lib.String,
+        };
+
+        pub fn cval(self: ClipboardContents) ClipboardContents.C {
+            return .{
+                .kind = self.kind,
+                .data = .init(self.data),
+            };
+        }
+    };
+
+    pub const PromptStart = struct {
+        aid: ?[]const u8,
+        redraw: bool,
+
+        pub const C = extern struct {
+            aid: lib.String,
+            redraw: bool,
+        };
+
+        pub fn cval(self: PromptStart) PromptStart.C {
+            return .{
+                .aid = .init(self.aid orelse ""),
+                .redraw = self.redraw,
+            };
+        }
+    };
+
+    pub const PromptContinuation = struct {
+        aid: ?[]const u8,
+
+        pub const C = lib.String;
+
+        pub fn cval(self: PromptContinuation) PromptContinuation.C {
+            return .init(self.aid orelse "");
+        }
+    };
+
+    pub const EndOfCommand = struct {
+        exit_code: ?u8,
+
+        pub const C = extern struct {
+            exit_code: i16,
+        };
+
+        pub fn cval(self: EndOfCommand) EndOfCommand.C {
+            return .{
+                .exit_code = if (self.exit_code) |code| @intCast(code) else -1,
+            };
         }
     };
 };
@@ -1710,15 +1842,12 @@ pub fn Stream(comptime Handler: type) type {
         inline fn oscDispatch(self: *Self, cmd: osc.Command) !void {
             switch (cmd) {
                 .change_window_title => |title| {
-                    if (@hasDecl(T, "changeWindowTitle")) {
-                        if (!std.unicode.utf8ValidateSlice(title)) {
-                            log.warn("change title request: invalid utf-8, ignoring request", .{});
-                            return;
-                        }
-
-                        try self.handler.changeWindowTitle(title);
+                    if (!std.unicode.utf8ValidateSlice(title)) {
+                        log.warn("change title request: invalid utf-8, ignoring request", .{});
                         return;
-                    } else log.warn("unimplemented OSC callback: {}", .{cmd});
+                    }
+
+                    try self.handler.vt(.window_title, .{ .title = title });
                 },
 
                 .change_window_icon => |icon| {
@@ -1726,54 +1855,43 @@ pub fn Stream(comptime Handler: type) type {
                 },
 
                 .clipboard_contents => |clip| {
-                    if (@hasDecl(T, "clipboardContents")) {
-                        try self.handler.clipboardContents(clip.kind, clip.data);
-                        return;
-                    } else log.warn("unimplemented OSC callback: {}", .{cmd});
+                    try self.handler.vt(.clipboard_contents, .{
+                        .kind = clip.kind,
+                        .data = clip.data,
+                    });
                 },
 
                 .prompt_start => |v| {
-                    if (@hasDecl(T, "promptStart")) {
-                        switch (v.kind) {
-                            .primary, .right => try self.handler.promptStart(v.aid, v.redraw),
-                            .continuation, .secondary => try self.handler.promptContinuation(v.aid),
-                        }
-                        return;
-                    } else log.warn("unimplemented OSC callback: {}", .{cmd});
+                    switch (v.kind) {
+                        .primary, .right => try self.handler.vt(.prompt_start, .{
+                            .aid = v.aid,
+                            .redraw = v.redraw,
+                        }),
+                        .continuation, .secondary => try self.handler.vt(.prompt_continuation, .{
+                            .aid = v.aid,
+                        }),
+                    }
                 },
 
-                .prompt_end => {
-                    try self.handler.vt(.prompt_end, {});
-                },
+                .prompt_end => try self.handler.vt(.prompt_end, {}),
 
-                .end_of_input => {
-                    try self.handler.vt(.end_of_input, {});
-                },
+                .end_of_input => try self.handler.vt(.end_of_input, {}),
 
                 .end_of_command => |end| {
-                    if (@hasDecl(T, "endOfCommand")) {
-                        try self.handler.endOfCommand(end.exit_code);
-                        return;
-                    } else log.warn("unimplemented OSC callback: {}", .{cmd});
+                    try self.handler.vt(.end_of_command, .{ .exit_code = end.exit_code });
                 },
 
                 .report_pwd => |v| {
-                    if (@hasDecl(T, "reportPwd")) {
-                        try self.handler.reportPwd(v.value);
-                        return;
-                    } else log.warn("unimplemented OSC callback: {}", .{cmd});
+                    try self.handler.vt(.report_pwd, .{ .url = v.value });
                 },
 
                 .mouse_shape => |v| {
-                    if (@hasDecl(T, "setMouseShape")) {
-                        const shape = MouseShape.fromString(v.value) orelse {
-                            log.warn("unknown cursor shape: {s}", .{v.value});
-                            return;
-                        };
-
-                        try self.handler.setMouseShape(shape);
+                    const shape = MouseShape.fromString(v.value) orelse {
+                        log.warn("unknown cursor shape: {s}", .{v.value});
                         return;
-                    } else log.warn("unimplemented OSC callback: {}", .{cmd});
+                    };
+
+                    try self.handler.vt(.mouse_shape, shape);
                 },
 
                 .color_operation => |v| {
@@ -1795,17 +1913,17 @@ pub fn Stream(comptime Handler: type) type {
                 },
 
                 .show_desktop_notification => |v| {
-                    if (@hasDecl(T, "showDesktopNotification")) {
-                        try self.handler.showDesktopNotification(v.title, v.body);
-                        return;
-                    } else log.warn("unimplemented OSC callback: {}", .{cmd});
+                    try self.handler.vt(.show_desktop_notification, .{
+                        .title = v.title,
+                        .body = v.body,
+                    });
                 },
 
                 .hyperlink_start => |v| {
-                    if (@hasDecl(T, "startHyperlink")) {
-                        try self.handler.startHyperlink(v.uri, v.id);
-                        return;
-                    } else log.warn("unimplemented OSC callback: {}", .{cmd});
+                    try self.handler.vt(.start_hyperlink, .{
+                        .uri = v.uri,
+                        .id = v.id,
+                    });
                 },
 
                 .hyperlink_end => {
@@ -1813,10 +1931,7 @@ pub fn Stream(comptime Handler: type) type {
                 },
 
                 .conemu_progress_report => |v| {
-                    if (@hasDecl(T, "handleProgressReport")) {
-                        try self.handler.handleProgressReport(v);
-                        return;
-                    } else log.warn("unimplemented OSC callback: {}", .{cmd});
+                    try self.handler.vt(.progress_report, v);
                 },
 
                 .conemu_sleep,
@@ -2643,20 +2758,16 @@ test "stream: change window title with invalid utf-8" {
     const H = struct {
         seen: bool = false,
 
-        pub fn changeWindowTitle(self: *@This(), title: []const u8) !void {
-            _ = title;
-
-            self.seen = true;
-        }
-
         pub fn vt(
             self: *@This(),
             comptime action: anytype,
             value: anytype,
         ) !void {
-            _ = self;
-            _ = action;
             _ = value;
+            switch (action) {
+                .window_title => self.seen = true,
+                else => {},
+            }
         }
     };
 
