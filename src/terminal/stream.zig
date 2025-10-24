@@ -123,6 +123,7 @@ pub const Action = union(Key) {
     prompt_continuation: PromptContinuation,
     end_of_command: EndOfCommand,
     mouse_shape: MouseShape,
+    configure_charset: ConfigureCharset,
 
     pub const Key = lib.Enum(
         lib_target,
@@ -220,6 +221,7 @@ pub const Action = union(Key) {
             "prompt_continuation",
             "end_of_command",
             "mouse_shape",
+            "configure_charset",
         },
     );
 
@@ -420,6 +422,11 @@ pub const Action = union(Key) {
             };
         }
     };
+
+    pub const ConfigureCharset = lib.Struct(lib_target, struct {
+        slot: charsets.Slots,
+        charset: charsets.Charset,
+    });
 };
 
 /// Returns a type that can process a stream of tty control characters.
@@ -1981,14 +1988,9 @@ pub fn Stream(comptime Handler: type) type {
                 },
             };
 
-            if (@hasDecl(T, "configureCharset")) {
-                try self.handler.configureCharset(slot, set);
-                return;
-            }
-
-            log.warn("unimplemented configureCharset callback slot={} set={}", .{
-                slot,
-                set,
+            try self.handler.vt(.configure_charset, .{
+                .slot = slot,
+                .charset = set,
             });
         }
 

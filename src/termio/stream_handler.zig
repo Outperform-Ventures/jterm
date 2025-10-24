@@ -316,6 +316,7 @@ pub const StreamHandler = struct {
             .prompt_continuation => self.promptContinuation(value.aid),
             .end_of_command => self.endOfCommand(value.exit_code),
             .mouse_shape => try self.setMouseShape(value),
+            .configure_charset => self.configureCharset(value.slot, value.charset),
             .dcs_hook => try self.dcsHook(value),
             .dcs_put => try self.dcsPut(value),
             .dcs_unhook => try self.dcsUnhook(),
@@ -859,11 +860,11 @@ pub const StreamHandler = struct {
         self.messageWriter(try termio.Message.writeReq(self.alloc, self.enquiry_response));
     }
 
-    pub fn configureCharset(
+    fn configureCharset(
         self: *StreamHandler,
         slot: terminal.CharsetSlot,
         set: terminal.Charset,
-    ) !void {
+    ) void {
         self.terminal.configureCharset(slot, set);
     }
 
