@@ -125,6 +125,7 @@ pub const Action = union(Key) {
     mouse_shape: MouseShape,
     configure_charset: ConfigureCharset,
     set_attribute: sgr.Attribute,
+    kitty_color_report: kitty.color.OSC,
 
     pub const Key = lib.Enum(
         lib_target,
@@ -224,6 +225,7 @@ pub const Action = union(Key) {
             "mouse_shape",
             "configure_charset",
             "set_attribute",
+            "kitty_color_report",
         },
     );
 
@@ -432,24 +434,25 @@ pub const Action = union(Key) {
 };
 
 /// Returns a type that can process a stream of tty control characters.
-/// This will call various callback functions on type T. Type T only has to
-/// implement the callbacks it cares about; any unimplemented callbacks will
-/// logged at runtime.
+/// This will call the `vt` function on type T with the following signature:
 ///
-/// To figure out what callbacks exist, search the source for "hasDecl". This
-/// isn't ideal but for now that's the best approach.
+///   fn(comptime action: Action.Key, value: Action.Value(action)) !void
 ///
-/// This is implemented this way because we purposely do NOT want dynamic
-/// dispatch for performance reasons. The way this is implemented forces
-/// comptime resolution for all function calls.
+/// The handler type T can choose to react to whatever actions it cares
+/// about in its pursuit of implementing a terminal emulator or other
+/// functionality.
+///
+/// The "comptime" key is on purpose (vs. a standard Zig tagged union)
+/// because it allows the compiler to optimize away unimplemented actions.
+/// e.g. you don't need to pay a conditional branching cost on every single
+/// action because the Zig compiler codegens separate code paths for every
+/// single action at comptime.
 pub fn Stream(comptime Handler: type) type {
     return struct {
         const Self = @This();
 
         pub const Action = streampkg.Action;
 
-        // We use T with @hasDecl so it needs to be a struct. Unwrap the
-        // pointer if we were given one.
         const T = switch (@typeInfo(Handler)) {
             .pointer => |p| p.child,
             else => Handler,
@@ -1912,10 +1915,7 @@ pub fn Stream(comptime Handler: type) type {
                 },
 
                 .kitty_color_protocol => |v| {
-                    if (@hasDecl(T, "sendKittyColorReport")) {
-                        try self.handler.sendKittyColorReport(v);
-                        return;
-                    } else log.warn("unimplemented OSC callback: {}", .{cmd});
+                    try self.handler.vt(.kitty_color_report, v);
                 },
 
                 .show_desktop_notification => |v| {

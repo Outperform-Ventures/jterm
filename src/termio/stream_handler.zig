@@ -301,6 +301,7 @@ pub const StreamHandler = struct {
                 log.debug("setting kitty keyboard mode: not {}", .{value.flags});
                 self.terminal.screen.kitty_keyboard.set(.not, value.flags);
             },
+            .kitty_color_report => try self.kittyColorReport(value),
             .prompt_end => try self.promptEnd(),
             .end_of_input => try self.endOfInput(),
             .end_hyperlink => try self.endHyperlink(),
@@ -1382,7 +1383,7 @@ pub const StreamHandler = struct {
         }
     }
 
-    pub fn sendKittyColorReport(
+    fn kittyColorReport(
         self: *StreamHandler,
         request: terminal.kitty.color.OSC,
     ) !void {
