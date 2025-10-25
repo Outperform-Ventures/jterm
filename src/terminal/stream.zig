@@ -126,6 +126,7 @@ pub const Action = union(Key) {
     configure_charset: ConfigureCharset,
     set_attribute: sgr.Attribute,
     kitty_color_report: kitty.color.OSC,
+    color_operation: ColorOperation,
 
     pub const Key = lib.Enum(
         lib_target,
@@ -226,6 +227,7 @@ pub const Action = union(Key) {
             "configure_charset",
             "set_attribute",
             "kitty_color_report",
+            "color_operation",
         },
     );
 
@@ -431,6 +433,18 @@ pub const Action = union(Key) {
         slot: charsets.Slots,
         charset: charsets.Charset,
     });
+
+    pub const ColorOperation = struct {
+        op: osc.color.Operation,
+        requests: osc.color.List,
+        terminator: osc.Terminator,
+
+        pub const C = void;
+
+        pub fn cval(_: ColorOperation) ColorOperation.C {
+            return {};
+        }
+    };
 };
 
 /// Returns a type that can process a stream of tty control characters.
@@ -1904,14 +1918,11 @@ pub fn Stream(comptime Handler: type) type {
                 },
 
                 .color_operation => |v| {
-                    if (@hasDecl(T, "handleColorOperation")) {
-                        try self.handler.handleColorOperation(
-                            v.op,
-                            &v.requests,
-                            v.terminator,
-                        );
-                        return;
-                    } else log.warn("unimplemented OSC callback: {}", .{cmd});
+                    try self.handler.vt(.color_operation, .{
+                        .op = v.op,
+                        .requests = v.requests,
+                        .terminator = v.terminator,
+                    });
                 },
 
                 .kitty_color_protocol => |v| {

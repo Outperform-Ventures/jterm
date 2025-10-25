@@ -302,6 +302,7 @@ pub const StreamHandler = struct {
                 self.terminal.screen.kitty_keyboard.set(.not, value.flags);
             },
             .kitty_color_report => try self.kittyColorReport(value),
+            .color_operation => try self.colorOperation(value.op, &value.requests, value.terminator),
             .prompt_end => try self.promptEnd(),
             .end_of_input => try self.endOfInput(),
             .end_hyperlink => try self.endHyperlink(),
@@ -1106,7 +1107,7 @@ pub const StreamHandler = struct {
         }
     }
 
-    pub fn handleColorOperation(
+    fn colorOperation(
         self: *StreamHandler,
         op: terminal.osc.color.Operation,
         requests: *const terminal.osc.color.List,
