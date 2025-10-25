@@ -25,6 +25,7 @@ pub const x11_color = @import("x11_color.zig");
 pub const Charset = charsets.Charset;
 pub const CharsetSlot = charsets.Slots;
 pub const CharsetActiveSlot = charsets.ActiveSlot;
+pub const charsetTable = charsets.table;
 pub const Cell = page.Cell;
 pub const Coordinate = point.Coordinate;
 pub const CSI = Parser.Action.CSI;

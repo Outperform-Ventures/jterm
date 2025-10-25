@@ -1,4 +1,6 @@
 const std = @import("std");
+const build_options = @import("terminal_options");
+const LibEnum = @import("../../lib/enum.zig").Enum;
 const terminal = @import("../main.zig");
 const RGB = terminal.color.RGB;
 const Terminator = terminal.osc.Terminator;
@@ -16,6 +18,13 @@ pub const OSC = struct {
     /// We must reply with the same string terminator (ST) as used in the
     /// request.
     terminator: Terminator = .st,
+
+    /// We don't currently support encoding this to C in any way.
+    pub const C = void;
+
+    pub fn cval(_: OSC) C {
+        return {};
+    }
 };
 
 pub const Special = enum {

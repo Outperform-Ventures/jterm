@@ -1,26 +1,22 @@
 //! SGR (Select Graphic Rendition) attrinvbute parsing and types.
 
 const std = @import("std");
+const build_options = @import("terminal_options");
 const assert = std.debug.assert;
 const testing = std.testing;
+const lib = @import("../lib/main.zig");
 const color = @import("color.zig");
 const SepList = @import("Parser.zig").Action.CSI.SepList;
 
-/// Attribute type for SGR
-pub const Attribute = union(enum) {
-    pub const Tag = std.meta.FieldEnum(Attribute);
+const lib_target: lib.Target = if (build_options.c_abi) .c else .zig;
 
+/// Attribute type for SGR
+pub const Attribute = union(Tag) {
     /// Unset all attributes
     unset,
 
     /// Unknown attribute, the raw CSI command parameters are here.
-    unknown: struct {
-        /// Full is the full SGR input.
-        full: []const u16,
-
-        /// Partial is the remaining, where we got hung up.
-        partial: []const u16,
-    },
+    unknown: Unknown,
 
     /// Bold the text.
     bold,
@@ -85,6 +81,68 @@ pub const Attribute = union(enum) {
     /// Set foreground color as 256-color palette.
     @"256_fg": u8,
 
+    pub const Tag = lib.Enum(
+        lib_target,
+        &.{
+            "unset",
+            "unknown",
+            "bold",
+            "reset_bold",
+            "italic",
+            "reset_italic",
+            "faint",
+            "underline",
+            "reset_underline",
+            "underline_color",
+            "256_underline_color",
+            "reset_underline_color",
+            "overline",
+            "reset_overline",
+            "blink",
+            "reset_blink",
+            "inverse",
+            "reset_inverse",
+            "invisible",
+            "reset_invisible",
+            "strikethrough",
+            "reset_strikethrough",
+            "direct_color_fg",
+            "direct_color_bg",
+            "8_bg",
+            "8_fg",
+            "reset_fg",
+            "reset_bg",
+            "8_bright_bg",
+            "8_bright_fg",
+            "256_bg",
+            "256_fg",
+        },
+    );
+
+    pub const Unknown = struct {
+        /// Full is the full SGR input.
+        full: []const u16,
+
+        /// Partial is the remaining, where we got hung up.
+        partial: []const u16,
+
+        pub const C = extern struct {
+            full_ptr: [*]const u16,
+            full_len: usize,
+            partial_ptr: [*]const u16,
+            partial_len: usize,
+        };
+
+        pub fn cval(self: Unknown) Unknown.C {
+            return .{
+                .full_ptr = self.full.ptr,
+                .full_len = self.full.len,
+                .partial_ptr = self.partial.ptr,
+                .partial_len = self.partial.len,
+            };
+        }
+    };
+
     pub const Underline = enum(u3) {
         none = 0,
         single = 1,
@@ -92,7 +150,28 @@ pub const Attribute = union(enum) {
         curly = 3,
         dotted = 4,
         dashed = 5,
+
+        pub const C = u8;
+
+        pub fn cval(self: Underline) Underline.C {
+            return @intFromEnum(self);
+        }
     };
+
+    /// C ABI functions.
+    const c_union = lib.TaggedUnion(
+        lib_target,
+        @This(),
+        // Padding size for C ABI compatibility.
+        // Largest variant is Unknown.C: 2 pointers + 2 usize = 32 bytes on 64-bit.
+        // We use [8]u64 (64 bytes) to allow room for future expansion while
+        // maintaining ABI compatibility.
+        [8]u64,
+    );
+    pub const Value = c_union.Value;
+    pub const C = c_union.C;
+    pub const CValue = c_union.CValue;
+    pub const cval = c_union.cval;
 };
 
 /// Parser parses the attributes from a list of SGR parameters.
@@ -378,6 +457,10 @@ fn testParse(params: []const u16) Attribute {
 fn testParseColon(params: []const u16) Attribute {
     var p: Parser = .{ .params = params, .params_sep = .initFull() };
     return p.next().?;
+}
+
+test "sgr: Attribute C compat" {
+    _ = Attribute.C;
 }
 
 test "sgr: Parser" {

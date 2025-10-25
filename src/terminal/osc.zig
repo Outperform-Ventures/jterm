@@ -271,6 +271,8 @@ pub const Terminator = enum {
     /// Some applications and terminals use BELL (0x07) as the string terminator.
     bel,
 
+    pub const C = LibEnum(.c, &.{ "st", "bel" });
+
     /// Initialize the terminator based on the last byte seen. If the
     /// last byte is a BEL then we use BEL, otherwise we just assume ST.
     pub fn init(ch: ?u8) Terminator {
@@ -286,6 +288,13 @@ pub const Terminator = enum {
         return switch (self) {
             .st => "\x1b\\",
             .bel => "\x07",
+        };
+    }
+
+    pub fn cval(self: Terminator) C {
+        return switch (self) {
+            .st => .st,
+            .bel => .bel,
         };
     }
 

@@ -581,7 +581,7 @@ fn printCell(
         if (unmapped_c > std.math.maxInt(u8)) break :c ' ';
 
         // Get our lookup table and map it
-        const table = set.table();
+        const table = charsets.table(set);
         break :c @intCast(table[@intCast(unmapped_c)]);
     };
 

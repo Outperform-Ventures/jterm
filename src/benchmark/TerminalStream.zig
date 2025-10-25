@@ -138,8 +138,15 @@ fn step(ptr: *anyopaque) Benchmark.Error!void {
 const Handler = struct {
     t: *Terminal,
 
-    pub fn print(self: *Handler, cp: u21) !void {
-        try self.t.print(cp);
+    pub fn vt(
+        self: *Handler,
+        comptime action: Stream.Action.Tag,
+        value: Stream.Action.Value(action),
+    ) !void {
+        switch (action) {
+            .print => try self.t.print(value.cp),
+            else => {},
+        }
     }
 };
 

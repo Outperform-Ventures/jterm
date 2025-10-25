@@ -95,6 +95,8 @@ pub const StreamHandler = struct {
     /// this to determine if we need to default the window title.
     seen_title: bool = false,
 
+    pub const Stream = terminal.Stream(StreamHandler);
+
     pub fn deinit(self: *StreamHandler) void {
         self.apc.deinit();
         self.dcs.deinit();
@@ -184,6 +186,156 @@ pub const StreamHandler = struct {
             );
         };
         _ = self.renderer_mailbox.push(msg, .{ .forever = {} });
+    }
+
+    pub fn vt(
+        self: *StreamHandler,
+        comptime action: Stream.Action.Tag,
+        value: Stream.Action.Value(action),
+    ) !void {
+        switch (action) {
+            .print => try self.terminal.print(value.cp),
+            .print_repeat => try self.terminal.printRepeat(value),
+            .bell => self.bell(),
+            .backspace => self.terminal.backspace(),
+            .horizontal_tab => try self.horizontalTab(value),
+            .horizontal_tab_back => try self.horizontalTabBack(value),
+            .linefeed => try self.linefeed(),
+            .carriage_return => self.terminal.carriageReturn(),
+            .enquiry => try self.enquiry(),
+            .invoke_charset => self.terminal.invokeCharset(value.bank, value.charset, value.locking),
+            .cursor_up => self.terminal.cursorUp(value.value),
+            .cursor_down => self.terminal.cursorDown(value.value),
+            .cursor_left => self.terminal.cursorLeft(value.value),
+            .cursor_right => self.terminal.cursorRight(value.value),
+            .cursor_pos => self.terminal.setCursorPos(value.row, value.col),
+            .cursor_col => self.terminal.setCursorPos(self.terminal.screen.cursor.y + 1, value.value),
+            .cursor_row => self.terminal.setCursorPos(value.value, self.terminal.screen.cursor.x + 1),
+            .cursor_col_relative => self.terminal.setCursorPos(
+                self.terminal.screen.cursor.y + 1,
+                self.terminal.screen.cursor.x + 1 +| value.value,
+            ),
+            .cursor_row_relative => self.terminal.setCursorPos(
+                self.terminal.screen.cursor.y + 1 +| value.value,
+                self.terminal.screen.cursor.x + 1,
+            ),
+            .cursor_style => try self.setCursorStyle(value),
+            .erase_display_below => self.terminal.eraseDisplay(.below, value),
+            .erase_display_above => self.terminal.eraseDisplay(.above, value),
+            .erase_display_complete => {
+                try self.terminal.scrollViewport(.{ .bottom = {} });
+                try self.queueRender();
+                self.terminal.eraseDisplay(.complete, value);
+            },
+            .erase_display_scrollback => self.terminal.eraseDisplay(.scrollback, value),
+            .erase_display_scroll_complete => self.terminal.eraseDisplay(.scroll_complete, value),
+            .erase_line_right => self.terminal.eraseLine(.right, value),
+            .erase_line_left => self.terminal.eraseLine(.left, value),
+            .erase_line_complete => self.terminal.eraseLine(.complete, value),
+            .erase_line_right_unless_pending_wrap => self.terminal.eraseLine(.right_unless_pending_wrap, value),
+            .delete_chars => self.terminal.deleteChars(value),
+            .erase_chars => self.terminal.eraseChars(value),
+            .insert_lines => self.terminal.insertLines(value),
+            .insert_blanks => self.terminal.insertBlanks(value),
+            .delete_lines => self.terminal.deleteLines(value),
+            .scroll_up => self.terminal.scrollUp(value),
+            .scroll_down => self.terminal.scrollDown(value),
+            .tab_clear_current => self.terminal.tabClear(.current),
+            .tab_clear_all => self.terminal.tabClear(.all),
+            .tab_set => self.terminal.tabSet(),
+            .tab_reset => self.terminal.tabReset(),
+            .index => try self.index(),
+            .next_line => try self.nextLine(),
+            .reverse_index => try self.reverseIndex(),
+            .full_reset => try self.fullReset(),
+            .set_mode => try self.setMode(value.mode, true),
+            .reset_mode => try self.setMode(value.mode, false),
+            .save_mode => self.terminal.modes.save(value.mode),
+            .restore_mode => {
+                // For restore mode we have to restore but if we set it, we
+                // always have to call setMode because setting some modes have
+                // side effects and we want to make sure we process those.
+                const v = self.terminal.modes.restore(value.mode);
+                try self.setMode(value.mode, v);
+            },
+            .request_mode => try self.requestMode(value.mode),
+            .request_mode_unknown => try self.requestModeUnknown(value.mode, value.ansi),
+            .top_and_bottom_margin => self.terminal.setTopAndBottomMargin(value.top_left, value.bottom_right),
+            .left_and_right_margin => self.terminal.setLeftAndRightMargin(value.top_left, value.bottom_right),
+            .left_and_right_margin_ambiguous => {
+                if (self.terminal.modes.get(.enable_left_and_right_margin)) {
+                    self.terminal.setLeftAndRightMargin(0, 0);
+                } else {
+                    self.terminal.saveCursor();
+                }
+            },
+            .save_cursor => try self.saveCursor(),
+            .restore_cursor => try self.restoreCursor(),
+            .modify_key_format => try self.setModifyKeyFormat(value),
+            .protected_mode_off => self.terminal.setProtectedMode(.off),
+            .protected_mode_iso => self.terminal.setProtectedMode(.iso),
+            .protected_mode_dec => self.terminal.setProtectedMode(.dec),
+            .mouse_shift_capture => self.terminal.flags.mouse_shift_capture = if (value) .true else .false,
+            .size_report => self.sendSizeReport(value),
+            .xtversion => try self.reportXtversion(),
+            .device_attributes => try self.deviceAttributes(value),
+            .device_status => try self.deviceStatusReport(value.request),
+            .kitty_keyboard_query => try self.queryKittyKeyboard(),
+            .kitty_keyboard_push => {
+                log.debug("pushing kitty keyboard mode: {}", .{value.flags});
+                self.terminal.screen.kitty_keyboard.push(value.flags);
+            },
+            .kitty_keyboard_pop => {
+                log.debug("popping kitty keyboard mode n={}", .{value});
+                self.terminal.screen.kitty_keyboard.pop(@intCast(value));
+            },
+            .kitty_keyboard_set => {
+                log.debug("setting kitty keyboard mode: set {}", .{value.flags});
+                self.terminal.screen.kitty_keyboard.set(.set, value.flags);
+            },
+            .kitty_keyboard_set_or => {
+                log.debug("setting kitty keyboard mode: or {}", .{value.flags});
+                self.terminal.screen.kitty_keyboard.set(.@"or", value.flags);
+            },
+            .kitty_keyboard_set_not => {
+                log.debug("setting kitty keyboard mode: not {}", .{value.flags});
+                self.terminal.screen.kitty_keyboard.set(.not, value.flags);
+            },
+            .kitty_color_report => try self.kittyColorReport(value),
+            .color_operation => try self.colorOperation(value.op, &value.requests, value.terminator),
+            .prompt_end => try self.promptEnd(),
+            .end_of_input => try self.endOfInput(),
+            .end_hyperlink => try self.endHyperlink(),
+            .active_status_display => self.terminal.status_display = value,
+            .decaln => try self.decaln(),
+            .window_title => try self.windowTitle(value.title),
+            .report_pwd => try self.reportPwd(value.url),
+            .show_desktop_notification => try self.showDesktopNotification(value.title, value.body),
+            .progress_report => self.progressReport(value),
+            .start_hyperlink => try self.startHyperlink(value.uri, value.id),
+            .clipboard_contents => try self.clipboardContents(value.kind, value.data),
+            .prompt_start => self.promptStart(value.aid, value.redraw),
+            .prompt_continuation => self.promptContinuation(value.aid),
+            .end_of_command => self.endOfCommand(value.exit_code),
+            .mouse_shape => try self.setMouseShape(value),
+            .configure_charset => self.configureCharset(value.slot, value.charset),
+            .set_attribute => switch (value) {
+                .unknown => |unk| log.warn("unimplemented or unknown SGR attribute: {any}", .{unk}),
+                else => self.terminal.setAttribute(value) catch |err|
+                    log.warn("error setting attribute {}: {}", .{ value, err }),
+            },
+            .dcs_hook => try self.dcsHook(value),
+            .dcs_put => try self.dcsPut(value),
+            .dcs_unhook => try self.dcsUnhook(),
+            .apc_start => self.apc.start(),
+            .apc_end => try self.apcEnd(),
+            .apc_put => self.apc.feed(self.alloc, value),
+
+            // Unimplemented
+            .title_push,
+            .title_pop,
+            => {},
+        }
     }
 
     pub inline fn dcsHook(self: *StreamHandler, dcs: terminal.DCS) !void {
@@ -293,14 +445,6 @@ pub const StreamHandler = struct {
         }
     }
 
-    pub inline fn apcStart(self: *StreamHandler) !void {
-        self.apc.start();
-    }
-
-    pub inline fn apcPut(self: *StreamHandler, byte: u8) !void {
-        self.apc.feed(self.alloc, byte);
-    }
-
     pub fn apcEnd(self: *StreamHandler) !void {
         var cmd = self.apc.end() orelse return;
         defer cmd.deinit(self.alloc);
@@ -322,23 +466,11 @@ pub const StreamHandler = struct {
         }
     }
 
-    pub inline fn print(self: *StreamHandler, ch: u21) !void {
-        try self.terminal.print(ch);
-    }
-
-    pub inline fn printRepeat(self: *StreamHandler, count: usize) !void {
-        try self.terminal.printRepeat(count);
-    }
-
-    pub inline fn bell(self: *StreamHandler) !void {
+    inline fn bell(self: *StreamHandler) void {
         self.surfaceMessageWriter(.ring_bell);
     }
 
-    pub inline fn backspace(self: *StreamHandler) !void {
-        self.terminal.backspace();
-    }
-
-    pub inline fn horizontalTab(self: *StreamHandler, count: u16) !void {
+    inline fn horizontalTab(self: *StreamHandler, count: u16) !void {
         for (0..count) |_| {
             const x = self.terminal.screen.cursor.x;
             try self.terminal.horizontalTab();
@@ -346,7 +478,7 @@ pub const StreamHandler = struct {
         }
     }
 
-    pub inline fn horizontalTabBack(self: *StreamHandler, count: u16) !void {
+    inline fn horizontalTabBack(self: *StreamHandler, count: u16) !void {
         for (0..count) |_| {
             const x = self.terminal.screen.cursor.x;
             try self.terminal.horizontalTabBack();
@@ -354,92 +486,10 @@ pub const StreamHandler = struct {
         }
     }
 
-    pub inline fn linefeed(self: *StreamHandler) !void {
+    inline fn linefeed(self: *StreamHandler) !void {
         // Small optimization: call index instead of linefeed because they're
         // identical and this avoids one layer of function call overhead.
         try self.terminal.index();
-    }
-
-    pub inline fn carriageReturn(self: *StreamHandler) !void {
-        self.terminal.carriageReturn();
-    }
-
-    pub inline fn setCursorLeft(self: *StreamHandler, amount: u16) !void {
-        self.terminal.cursorLeft(amount);
-    }
-
-    pub inline fn setCursorRight(self: *StreamHandler, amount: u16) !void {
-        self.terminal.cursorRight(amount);
-    }
-
-    pub inline fn setCursorDown(self: *StreamHandler, amount: u16, carriage: bool) !void {
-        self.terminal.cursorDown(amount);
-        if (carriage) self.terminal.carriageReturn();
-    }
-
-    pub inline fn setCursorUp(self: *StreamHandler, amount: u16, carriage: bool) !void {
-        self.terminal.cursorUp(amount);
-        if (carriage) self.terminal.carriageReturn();
-    }
-
-    pub inline fn setCursorCol(self: *StreamHandler, col: u16) !void {
-        self.terminal.setCursorPos(self.terminal.screen.cursor.y + 1, col);
-    }
-
-    pub inline fn setCursorColRelative(self: *StreamHandler, offset: u16) !void {
-        self.terminal.setCursorPos(
-            self.terminal.screen.cursor.y + 1,
-            self.terminal.screen.cursor.x + 1 +| offset,
-        );
-    }
-
-    pub inline fn setCursorRow(self: *StreamHandler, row: u16) !void {
-        self.terminal.setCursorPos(row, self.terminal.screen.cursor.x + 1);
-    }
-
-    pub inline fn setCursorRowRelative(self: *StreamHandler, offset: u16) !void {
-        self.terminal.setCursorPos(
-            self.terminal.screen.cursor.y + 1 +| offset,
-            self.terminal.screen.cursor.x + 1,
-        );
-    }
-
-    pub inline fn setCursorPos(self: *StreamHandler, row: u16, col: u16) !void {
-        self.terminal.setCursorPos(row, col);
-    }
-
-    pub inline fn eraseDisplay(self: *StreamHandler, mode: terminal.EraseDisplay, protected: bool) !void {
-        if (mode == .complete) {
-            // Whenever we erase the full display, scroll to bottom.
-            try self.terminal.scrollViewport(.{ .bottom = {} });
-            try self.queueRender();
-        }
-
-        self.terminal.eraseDisplay(mode, protected);
-    }
-
-    pub inline fn eraseLine(self: *StreamHandler, mode: terminal.EraseLine, protected: bool) !void {
-        self.terminal.eraseLine(mode, protected);
-    }
-
-    pub inline fn deleteChars(self: *StreamHandler, count: usize) !void {
-        self.terminal.deleteChars(count);
-    }
-
-    pub inline fn eraseChars(self: *StreamHandler, count: usize) !void {
-        self.terminal.eraseChars(count);
-    }
-
-    pub inline fn insertLines(self: *StreamHandler, count: usize) !void {
-        self.terminal.insertLines(count);
-    }
-
-    pub inline fn insertBlanks(self: *StreamHandler, count: usize) !void {
-        self.terminal.insertBlanks(count);
-    }
-
-    pub inline fn deleteLines(self: *StreamHandler, count: usize) !void {
-        self.terminal.deleteLines(count);
     }
 
     pub inline fn reverseIndex(self: *StreamHandler) !void {
@@ -455,48 +505,25 @@ pub const StreamHandler = struct {
         self.terminal.carriageReturn();
     }
 
-    pub inline fn setTopAndBottomMargin(self: *StreamHandler, top: u16, bot: u16) !void {
-        self.terminal.setTopAndBottomMargin(top, bot);
-    }
-
-    pub inline fn setLeftAndRightMarginAmbiguous(self: *StreamHandler) !void {
-        if (self.terminal.modes.get(.enable_left_and_right_margin)) {
-            try self.setLeftAndRightMargin(0, 0);
-        } else {
-            try self.saveCursor();
-        }
-    }
-
-    pub inline fn setLeftAndRightMargin(self: *StreamHandler, left: u16, right: u16) !void {
-        self.terminal.setLeftAndRightMargin(left, right);
-    }
-
     pub fn setModifyKeyFormat(self: *StreamHandler, format: terminal.ModifyKeyFormat) !void {
         self.terminal.flags.modify_other_keys_2 = false;
         switch (format) {
-            .other_keys => |v| switch (v) {
-                .numeric => self.terminal.flags.modify_other_keys_2 = true,
-                else => {},
-            },
+            .other_keys_numeric => self.terminal.flags.modify_other_keys_2 = true,
             else => {},
         }
     }
 
-    pub fn requestMode(self: *StreamHandler, mode_raw: u16, ansi: bool) !void {
-        // Get the mode value and respond.
-        const code: u8 = code: {
-            const mode = terminal.modes.modeFromInt(mode_raw, ansi) orelse break :code 0;
-            if (self.terminal.modes.get(mode)) break :code 1;
-            break :code 2;
-        };
+    fn requestMode(self: *StreamHandler, mode: terminal.Mode) !void {
+        const tag: terminal.modes.ModeTag = @bitCast(@intFromEnum(mode));
+        const code: u8 = if (self.terminal.modes.get(mode)) 1 else 2;
 
         var msg: termio.Message = .{ .write_small = .{} };
         const resp = try std.fmt.bufPrint(
             &msg.write_small.data,
             "\x1B[{s}{};{}$y",
             .{
-                if (ansi) "" else "?",
-                mode_raw,
+                if (tag.ansi) "" else "?",
+                tag.value,
                 code,
             },
         );
@@ -504,18 +531,18 @@ pub const StreamHandler = struct {
         self.messageWriter(msg);
     }
 
-    pub inline fn saveMode(self: *StreamHandler, mode: terminal.Mode) !void {
-        // log.debug("save mode={}", .{mode});
-        self.terminal.modes.save(mode);
-    }
-
-    pub inline fn restoreMode(self: *StreamHandler, mode: terminal.Mode) !void {
-        // For restore mode we have to restore but if we set it, we
-        // always have to call setMode because setting some modes have
-        // side effects and we want to make sure we process those.
-        const v = self.terminal.modes.restore(mode);
-        // log.debug("restore mode={} v={}", .{ mode, v });
-        try self.setMode(mode, v);
+    fn requestModeUnknown(self: *StreamHandler, mode_raw: u16, ansi: bool) !void {
+        var msg: termio.Message = .{ .write_small = .{} };
+        const resp = try std.fmt.bufPrint(
+            &msg.write_small.data,
+            "\x1B[{s}{};0$y",
+            .{
+                if (ansi) "" else "?",
+                mode_raw,
+            },
+        );
+        msg.write_small.len = @intCast(resp.len);
+        self.messageWriter(msg);
     }
 
     pub fn setMode(self: *StreamHandler, mode: terminal.Mode, enabled: bool) !void {
@@ -696,20 +723,7 @@ pub const StreamHandler = struct {
         }
     }
 
-    pub inline fn setMouseShiftCapture(self: *StreamHandler, v: bool) !void {
-        self.terminal.flags.mouse_shift_capture = if (v) .true else .false;
-    }
-
-    pub inline fn setAttribute(self: *StreamHandler, attr: terminal.Attribute) !void {
-        switch (attr) {
-            .unknown => |unk| log.warn("unimplemented or unknown SGR attribute: {any}", .{unk}),
-
-            else => self.terminal.setAttribute(attr) catch |err|
-                log.warn("error setting attribute {}: {}", .{ attr, err }),
-        }
-    }
-
-    pub inline fn startHyperlink(self: *StreamHandler, uri: []const u8, id: ?[]const u8) !void {
+    inline fn startHyperlink(self: *StreamHandler, uri: []const u8, id: ?[]const u8) !void {
         try self.terminal.screen.startHyperlink(uri, id);
     }
 
@@ -720,10 +734,7 @@ pub const StreamHandler = struct {
     pub fn deviceAttributes(
         self: *StreamHandler,
         req: terminal.DeviceAttributeReq,
-        params: []const u16,
     ) !void {
-        _ = params;
-
         // For the below, we quack as a VT220. We don't quack as
         // a 420 because we don't support DCS sequences.
         switch (req) {
@@ -827,29 +838,11 @@ pub const StreamHandler = struct {
                 self.terminal.screen.cursor.cursor_style = .bar;
                 self.terminal.modes.set(.cursor_blinking, false);
             },
-
-            else => log.warn("unimplemented cursor style: {}", .{style}),
         }
-    }
-
-    pub inline fn setProtectedMode(self: *StreamHandler, mode: terminal.ProtectedMode) !void {
-        self.terminal.setProtectedMode(mode);
     }
 
     pub inline fn decaln(self: *StreamHandler) !void {
         try self.terminal.decaln();
-    }
-
-    pub inline fn tabClear(self: *StreamHandler, cmd: terminal.TabClear) !void {
-        self.terminal.tabClear(cmd);
-    }
-
-    pub inline fn tabSet(self: *StreamHandler) !void {
-        self.terminal.tabSet();
-    }
-
-    pub inline fn tabReset(self: *StreamHandler) !void {
-        self.terminal.tabReset();
     }
 
     pub inline fn saveCursor(self: *StreamHandler) !void {
@@ -865,36 +858,12 @@ pub const StreamHandler = struct {
         self.messageWriter(try termio.Message.writeReq(self.alloc, self.enquiry_response));
     }
 
-    pub inline fn scrollDown(self: *StreamHandler, count: usize) !void {
-        self.terminal.scrollDown(count);
-    }
-
-    pub inline fn scrollUp(self: *StreamHandler, count: usize) !void {
-        self.terminal.scrollUp(count);
-    }
-
-    pub fn setActiveStatusDisplay(
-        self: *StreamHandler,
-        req: terminal.StatusDisplay,
-    ) !void {
-        self.terminal.status_display = req;
-    }
-
-    pub fn configureCharset(
+    fn configureCharset(
         self: *StreamHandler,
         slot: terminal.CharsetSlot,
         set: terminal.Charset,
-    ) !void {
+    ) void {
         self.terminal.configureCharset(slot, set);
-    }
-
-    pub fn invokeCharset(
-        self: *StreamHandler,
-        active: terminal.CharsetActiveSlot,
-        slot: terminal.CharsetSlot,
-        single: bool,
-    ) !void {
-        self.terminal.invokeCharset(active, slot, single);
     }
 
     pub fn fullReset(
@@ -922,28 +891,6 @@ pub const StreamHandler = struct {
         });
     }
 
-    pub fn pushKittyKeyboard(
-        self: *StreamHandler,
-        flags: terminal.kitty.KeyFlags,
-    ) !void {
-        log.debug("pushing kitty keyboard mode: {}", .{flags});
-        self.terminal.screen.kitty_keyboard.push(flags);
-    }
-
-    pub fn popKittyKeyboard(self: *StreamHandler, n: u16) !void {
-        log.debug("popping kitty keyboard mode n={}", .{n});
-        self.terminal.screen.kitty_keyboard.pop(@intCast(n));
-    }
-
-    pub fn setKittyKeyboard(
-        self: *StreamHandler,
-        mode: terminal.kitty.KeySetMode,
-        flags: terminal.kitty.KeyFlags,
-    ) !void {
-        log.debug("setting kitty keyboard mode: {} {}", .{ mode, flags });
-        self.terminal.screen.kitty_keyboard.set(mode, flags);
-    }
-
     pub fn reportXtversion(
         self: *StreamHandler,
     ) !void {
@@ -964,7 +911,7 @@ pub const StreamHandler = struct {
     //-------------------------------------------------------------------------
     // OSC
 
-    pub fn changeWindowTitle(self: *StreamHandler, title: []const u8) !void {
+    fn windowTitle(self: *StreamHandler, title: []const u8) !void {
         var buf: [256]u8 = undefined;
         if (title.len >= buf.len) {
             log.warn("change title requested larger than our buffer size, ignoring", .{});
@@ -995,7 +942,7 @@ pub const StreamHandler = struct {
         self.surfaceMessageWriter(.{ .set_title = buf });
     }
 
-    pub inline fn setMouseShape(
+    inline fn setMouseShape(
         self: *StreamHandler,
         shape: terminal.MouseShape,
     ) !void {
@@ -1007,7 +954,7 @@ pub const StreamHandler = struct {
         self.surfaceMessageWriter(.{ .set_mouse_shape = shape });
     }
 
-    pub fn clipboardContents(self: *StreamHandler, kind: u8, data: []const u8) !void {
+    fn clipboardContents(self: *StreamHandler, kind: u8, data: []const u8) !void {
         // Note: we ignore the "kind" field and always use the standard clipboard.
         // iTerm also appears to do this but other terminals seem to only allow
         // certain. Let's investigate more.
@@ -1037,13 +984,13 @@ pub const StreamHandler = struct {
         });
     }
 
-    pub inline fn promptStart(self: *StreamHandler, aid: ?[]const u8, redraw: bool) !void {
+    inline fn promptStart(self: *StreamHandler, aid: ?[]const u8, redraw: bool) void {
         _ = aid;
         self.terminal.markSemanticPrompt(.prompt);
         self.terminal.flags.shell_redraws_prompt = redraw;
     }
 
-    pub inline fn promptContinuation(self: *StreamHandler, aid: ?[]const u8) !void {
+    inline fn promptContinuation(self: *StreamHandler, aid: ?[]const u8) void {
         _ = aid;
         self.terminal.markSemanticPrompt(.prompt_continuation);
     }
@@ -1057,11 +1004,11 @@ pub const StreamHandler = struct {
         self.surfaceMessageWriter(.start_command);
     }
 
-    pub inline fn endOfCommand(self: *StreamHandler, exit_code: ?u8) !void {
+    inline fn endOfCommand(self: *StreamHandler, exit_code: ?u8) void {
         self.surfaceMessageWriter(.{ .stop_command = exit_code });
     }
 
-    pub fn reportPwd(self: *StreamHandler, url: []const u8) !void {
+    fn reportPwd(self: *StreamHandler, url: []const u8) !void {
         // Special handling for the empty URL. We treat the empty URL
         // as resetting the pwd as if we never saw a pwd. I can't find any
         // other terminal that does this but it seems like a reasonable
@@ -1075,7 +1022,7 @@ pub const StreamHandler = struct {
             // If we haven't seen a title, we're using the pwd as our title.
             // Set it to blank which will reset our title behavior.
             if (!self.seen_title) {
-                try self.changeWindowTitle("");
+                try self.windowTitle("");
                 assert(!self.seen_title);
             }
 
@@ -1155,12 +1102,12 @@ pub const StreamHandler = struct {
 
         // If we haven't seen a title, use our pwd as the title.
         if (!self.seen_title) {
-            try self.changeWindowTitle(path);
+            try self.windowTitle(path);
             self.seen_title = false;
         }
     }
 
-    pub fn handleColorOperation(
+    fn colorOperation(
         self: *StreamHandler,
         op: terminal.osc.color.Operation,
         requests: *const terminal.osc.color.List,
@@ -1409,7 +1356,7 @@ pub const StreamHandler = struct {
         }
     }
 
-    pub fn showDesktopNotification(
+    fn showDesktopNotification(
         self: *StreamHandler,
         title: []const u8,
         body: []const u8,
@@ -1437,7 +1384,7 @@ pub const StreamHandler = struct {
         }
     }
 
-    pub fn sendKittyColorReport(
+    fn kittyColorReport(
         self: *StreamHandler,
         request: terminal.kitty.color.OSC,
     ) !void {
@@ -1562,7 +1509,7 @@ pub const StreamHandler = struct {
     }
 
     /// Display a GUI progress report.
-    pub fn handleProgressReport(self: *StreamHandler, report: terminal.osc.Command.ProgressReport) error{}!void {
+    fn progressReport(self: *StreamHandler, report: terminal.osc.Command.ProgressReport) void {
         self.surfaceMessageWriter(.{ .progress_report = report });
     }
 };
