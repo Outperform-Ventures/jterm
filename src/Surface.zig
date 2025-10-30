@@ -1945,7 +1945,10 @@ fn clipboardWrite(self: *const Surface, data: []const u8, loc: apprt.Clipboard) 
     // them to confirm the clipboard access. Each app runtime handles this
     // differently.
     const confirm = self.config.clipboard_write == .ask;
-    self.rt_surface.setClipboardString(buf, loc, confirm) catch |err| {
+    self.rt_surface.setClipboard(loc, &.{.{
+        .mime = "text/plain",
+        .data = buf,
+    }}, confirm) catch |err| {
         log.err("error setting clipboard string err={}", .{err});
         return;
     };
@@ -1965,11 +1968,10 @@ fn copySelectionToClipboards(
     };
     defer self.alloc.free(buf);
 
-    for (clipboards) |clipboard| self.rt_surface.setClipboardString(
-        buf,
-        clipboard,
-        false,
-    ) catch |err| {
+    for (clipboards) |clipboard| self.rt_surface.setClipboard(clipboard, &.{.{
+        .mime = "text/plain",
+        .data = buf,
+    }}, false) catch |err| {
         log.err(
             "error setting clipboard string clipboard={} err={}",
             .{ clipboard, err },
@@ -4670,7 +4672,10 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
                 };
                 defer self.alloc.free(buf);
 
-                self.rt_surface.setClipboardString(buf, .standard, false) catch |err| {
+                self.rt_surface.setClipboard(.standard, &.{.{
+                    .mime = "text/plain",
+                    .data = buf,
+                }}, false) catch |err| {
                     log.err("error setting clipboard string err={}", .{err});
                     return true;
                 };
@@ -4721,7 +4726,10 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
                 };
                 defer self.alloc.free(url_text);
 
-                self.rt_surface.setClipboardString(url_text, .standard, false) catch |err| {
+                self.rt_surface.setClipboard(.standard, &.{.{
+                    .mime = "text/plain",
+                    .data = url_text,
+                }}, false) catch |err| {
                     log.err("error copying url to clipboard err={}", .{err});
                     return false;
                 };
@@ -4736,7 +4744,10 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             const title = self.rt_surface.getTitle() orelse return false;
             if (title.len == 0) return false;
 
-            self.rt_surface.setClipboardString(title, .standard, false) catch |err| {
+            self.rt_surface.setClipboard(.standard, &.{.{
+                .mime = "text/plain",
+                .data = title,
+            }}, false) catch |err| {
                 log.err("error copying title to clipboard err={}", .{err});
                 return true;
             };
@@ -5273,7 +5284,10 @@ fn writeScreenFile(
         .copy => {
             const pathZ = try self.alloc.dupeZ(u8, path);
             defer self.alloc.free(pathZ);
-            try self.rt_surface.setClipboardString(pathZ, .standard, false);
+            try self.rt_surface.setClipboard(.standard, &.{.{
+                .mime = "text/plain",
+                .data = pathZ,
+            }}, false);
         },
         .open => try self.openUrl(.{ .kind = .text, .url = path }),
         .paste => self.io.queueMessage(try termio.Message.writeReq(
@@ -5313,11 +5327,10 @@ pub fn completeClipboardRequest(
             confirmed,
         ),
 
-        .osc_52_write => |clipboard| try self.rt_surface.setClipboardString(
-            data,
-            clipboard,
-            !confirmed,
-        ),
+        .osc_52_write => |clipboard| try self.rt_surface.setClipboard(clipboard, &.{.{
+            .mime = "text/plain",
+            .data = data,
+        }}, !confirmed),
     }
 }
 

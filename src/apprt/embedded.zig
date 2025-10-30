@@ -705,20 +705,27 @@ pub const Surface = struct {
         alloc.destroy(state);
     }
 
-    pub fn setClipboardString(
+    pub fn setClipboard(
         self: *const Surface,
-        val: [:0]const u8,
         clipboard_type: apprt.Clipboard,
+        contents: []const apprt.ClipboardContent,
         confirm: bool,
     ) !void {
+        const alloc = self.app.core_app.alloc;
+        const array = try alloc.alloc(CAPI.ClipboardContent, contents.len);
+        defer alloc.free(array);
+        for (contents, 0..) |content, i| {
+            array[i] = .{
+                .mime = content.mime,
+                .data = content.data,
+            };
+        }
+
         self.app.opts.write_clipboard(
             self.userdata,
             @intCast(@intFromEnum(clipboard_type)),
-            &.{.{
-                .mime = "text/plain",
-                .data = val.ptr,
-            }},
-            1,
+            array.ptr,
+            array.len,
             confirm,
         );
     }
