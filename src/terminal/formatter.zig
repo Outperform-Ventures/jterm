@@ -225,24 +225,24 @@ pub const TerminalFormatter = struct {
                 .plain => break :palette,
 
                 .vt => {
-                for (self.terminal.colors.palette.current, 0..) |rgb, i| {
-                try writer.print(
-                "\x1b]4;{d};rgb:{x:0>2}/{x:0>2}/{x:0>2}\x1b\\",
-                .{ i, rgb.r, rgb.g, rgb.b },
-                );
-                }
+                    for (self.terminal.colors.palette.current, 0..) |rgb, i| {
+                        try writer.print(
+                            "\x1b]4;{d};rgb:{x:0>2}/{x:0>2}/{x:0>2}\x1b\\",
+                            .{ i, rgb.r, rgb.g, rgb.b },
+                        );
+                    }
                 },
 
                 // For HTML, we emit CSS to setup our palette variables.
                 .html => {
-                try writer.writeAll("<style>:root{");
-                for (self.terminal.colors.palette.current, 0..) |rgb, i| {
-                try writer.print(
-                "--vt-palette-{d}: #{x:0>2}{x:0>2}{x:0>2};",
-                .{ i, rgb.r, rgb.g, rgb.b },
-                );
-                }
-                try writer.writeAll("}</style>");
+                    try writer.writeAll("<style>:root{");
+                    for (self.terminal.colors.palette.current, 0..) |rgb, i| {
+                        try writer.print(
+                            "--vt-palette-{d}: #{x:0>2}{x:0>2}{x:0>2};",
+                            .{ i, rgb.r, rgb.g, rgb.b },
+                        );
+                    }
+                    try writer.writeAll("}</style>");
                 },
             }
 
