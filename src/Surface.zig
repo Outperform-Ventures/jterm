@@ -1958,20 +1958,103 @@ fn copySelectionToClipboards(
     self: *Surface,
     sel: terminal.Selection,
     clipboards: []const apprt.Clipboard,
-) void {
-    const buf = self.io.terminal.screen.selectionString(self.alloc, .{
-        .sel = sel,
-        .trim = self.config.clipboard_trim_trailing_spaces,
-    }) catch |err| {
-        log.err("error reading selection string err={}", .{err});
-        return;
-    };
-    defer self.alloc.free(buf);
+    format: input.Binding.Action.CopyToClipboard,
+) !void {
+    // Create an arena to simplify memory management here.
+    var arena = ArenaAllocator.init(self.alloc);
+    errdefer arena.deinit();
+    const alloc = arena.allocator();
 
-    for (clipboards) |clipboard| self.rt_surface.setClipboard(clipboard, &.{.{
-        .mime = "text/plain",
-        .data = buf,
-    }}, false) catch |err| {
+    // The options we'll use for all formatting. We'll just override the
+    // emit format.
+    const opts: terminal.formatter.Options = .{
+        .emit = .plain, // We'll override this below
+        .unwrap = true,
+        .trim = self.config.clipboard_trim_trailing_spaces,
+        .background = self.io.terminal.colors.background.get(),
+        .foreground = self.io.terminal.colors.foreground.get(),
+        .palette = &self.io.terminal.colors.palette.current,
+    };
+
+    const ScreenFormatter = terminal.formatter.ScreenFormatter;
+    var aw: std.Io.Writer.Allocating = .init(alloc);
+    var contents: std.ArrayList(apprt.ClipboardContent) = .empty;
+    switch (format) {
+        .plain => {
+            var formatter: ScreenFormatter = .init(&self.io.terminal.screen, opts);
+            formatter.content = .{ .selection = sel };
+            try formatter.format(&aw.writer);
+            try contents.append(alloc, .{
+                .mime = "text/plain",
+                .data = try aw.toOwnedSliceSentinel(0),
+            });
+        },
+
+        .vt => {
+            var formatter: ScreenFormatter = .init(&self.io.terminal.screen, opts: {
+                var copy = opts;
+                copy.emit = .vt;
+                break :opts copy;
+            });
+            formatter.content = .{ .selection = sel };
+            try formatter.format(&aw.writer);
+            try contents.append(alloc, .{
+                .mime = "text/plain",
+                .data = try aw.toOwnedSliceSentinel(0),
+            });
+        },
+
+        .html => {
+            var formatter: ScreenFormatter = .init(&self.io.terminal.screen, opts: {
+                var copy = opts;
+                copy.emit = .html;
+                break :opts copy;
+            });
+            formatter.content = .{ .selection = sel };
+            try formatter.format(&aw.writer);
+            try contents.append(alloc, .{
+                .mime = "text/html",
+                .data = try aw.toOwnedSliceSentinel(0),
+            });
+        },
+
+        .mixed => {
+            var formatter: ScreenFormatter = .init(&self.io.terminal.screen, opts);
+            formatter.content = .{ .selection = sel };
+            try formatter.format(&aw.writer);
+            try contents.append(alloc, .{
+                .mime = "text/plain",
+                .data = try aw.toOwnedSliceSentinel(0),
+            });
+
+            assert(aw.written().len == 0);
+            formatter = .init(&self.io.terminal.screen, opts: {
+                var copy = opts;
+                copy.emit = .html;
+
+                // We purposely don't emit background/foreground for mixed
+                // mode because the HTML contents is often used for rich text
+                // input and with trimmed spaces it looks pretty bad.
+                copy.background = null;
+                copy.foreground = null;
+
+                break :opts copy;
+            });
+            formatter.content = .{ .selection = sel };
+            try formatter.format(&aw.writer);
+            try contents.append(alloc, .{
+                .mime = "text/html",
+                .data = try aw.toOwnedSliceSentinel(0),
+            });
+        },
+    }
+
+    assert(contents.items.len > 0);
+    for (clipboards) |clipboard| self.rt_surface.setClipboard(
+        clipboard,
+        contents.items,
+        false,
+    ) catch |err| {
         log.err(
             "error setting clipboard string clipboard={} err={}",
             .{ clipboard, err },
@@ -2000,9 +2083,11 @@ fn setSelection(self: *Surface, sel_: ?terminal.Selection) !void {
         .false => unreachable, // handled above with an early exit
 
         // Both standard and selection clipboards are set.
-        .clipboard => {
-            self.copySelectionToClipboards(sel, &.{ .standard, .selection });
-        },
+        .clipboard => try self.copySelectionToClipboards(
+            sel,
+            &.{ .standard, .selection },
+            .mixed,
+        ),
 
         // The selection clipboard is set if supported, otherwise the standard.
         .true => {
@@ -2010,7 +2095,11 @@ fn setSelection(self: *Surface, sel_: ?terminal.Selection) !void {
                 .selection
             else
                 .standard;
-            self.copySelectionToClipboards(sel, &.{clipboard});
+            try self.copySelectionToClipboards(
+                sel,
+                &.{clipboard},
+                .mixed,
+            );
         },
     }
 }
@@ -3748,14 +3837,22 @@ pub fn mouseButtonCallback(
             },
             .copy => {
                 if (self.io.terminal.screen.selection) |sel| {
-                    self.copySelectionToClipboards(sel, &.{.standard});
+                    try self.copySelectionToClipboards(
+                        sel,
+                        &.{.standard},
+                        .mixed,
+                    );
                 }
 
                 try self.setSelection(null);
                 try self.queueRender();
             },
             .@"copy-or-paste" => if (self.io.terminal.screen.selection) |sel| {
-                self.copySelectionToClipboards(sel, &.{.standard});
+                try self.copySelectionToClipboards(
+                    sel,
+                    &.{.standard},
+                    .mixed,
+                );
                 try self.setSelection(null);
                 try self.queueRender();
             } else {
@@ -4659,26 +4756,15 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             self.renderer_state.terminal.fullReset();
         },
 
-        .copy_to_clipboard => {
+        .copy_to_clipboard => |format| {
             // We can read from the renderer state without holding
             // the lock because only we will write to this field.
             if (self.io.terminal.screen.selection) |sel| {
-                const buf = self.io.terminal.screen.selectionString(self.alloc, .{
-                    .sel = sel,
-                    .trim = self.config.clipboard_trim_trailing_spaces,
-                }) catch |err| {
-                    log.err("error reading selection string err={}", .{err});
-                    return true;
-                };
-                defer self.alloc.free(buf);
-
-                self.rt_surface.setClipboard(.standard, &.{.{
-                    .mime = "text/plain",
-                    .data = buf,
-                }}, false) catch |err| {
-                    log.err("error setting clipboard string err={}", .{err});
-                    return true;
-                };
+                try self.copySelectionToClipboards(
+                    sel,
+                    &.{.standard},
+                    format,
+                );
 
                 // Clear the selection if configured to do so.
                 if (self.config.selection_clear_on_copy) {
