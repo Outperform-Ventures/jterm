@@ -196,7 +196,6 @@ pub const StreamHandler = struct {
             .erase_display_above => self.terminal.eraseDisplay(.above, value),
             .erase_display_complete => {
                 try self.terminal.scrollViewport(.{ .bottom = {} });
-                try self.queueRender();
                 self.terminal.eraseDisplay(.complete, value);
             },
             .erase_display_scrollback => self.terminal.eraseDisplay(.scrollback, value),
@@ -569,10 +568,7 @@ pub const StreamHandler = struct {
             .autorepeat => {},
 
             // Schedule a render since we changed colors
-            .reverse_colors => {
-                self.terminal.flags.dirty.reverse_colors = true;
-                try self.queueRender();
-            },
+            .reverse_colors => self.terminal.flags.dirty.reverse_colors = true,
 
             // Origin resets cursor pos. This is called whether or not
             // we're enabling or disabling origin mode and whether or
@@ -588,17 +584,14 @@ pub const StreamHandler = struct {
 
             .alt_screen_legacy => {
                 self.terminal.switchScreenMode(.@"47", enabled);
-                try self.queueRender();
             },
 
             .alt_screen => {
                 self.terminal.switchScreenMode(.@"1047", enabled);
-                try self.queueRender();
             },
 
             .alt_screen_save_cursor_clear_enter => {
                 self.terminal.switchScreenMode(.@"1049", enabled);
-                try self.queueRender();
             },
 
             // Mode 1048 is xterm's conditional save cursor depending
@@ -634,7 +627,6 @@ pub const StreamHandler = struct {
             // forever.
             .synchronized_output => {
                 if (enabled) self.messageWriter(.{ .start_synchronized_output = {} });
-                try self.queueRender();
             },
 
             .linefeed => {
@@ -1108,24 +1100,9 @@ pub const StreamHandler = struct {
                             self.terminal.colors.palette.set(i, set.color);
                         },
                         .dynamic => |dynamic| switch (dynamic) {
-                            .foreground => {
-                                self.terminal.colors.foreground.set(set.color);
-                                self.rendererMessageWriter(.{
-                                    .foreground_color = set.color,
-                                });
-                            },
-                            .background => {
-                                self.terminal.colors.background.set(set.color);
-                                self.rendererMessageWriter(.{
-                                    .background_color = set.color,
-                                });
-                            },
-                            .cursor => {
-                                self.terminal.colors.cursor.set(set.color);
-                                self.rendererMessageWriter(.{
-                                    .cursor_color = set.color,
-                                });
-                            },
+                            .foreground => self.terminal.colors.foreground.set(set.color),
+                            .background => self.terminal.colors.background.set(set.color),
+                            .cursor => self.terminal.colors.cursor.set(set.color),
                             .pointer_foreground,
                             .pointer_background,
                             .tektronix_foreground,
@@ -1162,9 +1139,6 @@ pub const StreamHandler = struct {
                     .dynamic => |dynamic| switch (dynamic) {
                         .foreground => {
                             self.terminal.colors.foreground.reset();
-                            self.rendererMessageWriter(.{
-                                .foreground_color = null,
-                            });
 
                             if (self.terminal.colors.foreground.default) |c| {
                                 self.surfaceMessageWriter(.{ .color_change = .{
@@ -1175,9 +1149,6 @@ pub const StreamHandler = struct {
                         },
                         .background => {
                             self.terminal.colors.background.reset();
-                            self.rendererMessageWriter(.{
-                                .background_color = null,
-                            });
 
                             if (self.terminal.colors.background.default) |c| {
                                 self.surfaceMessageWriter(.{ .color_change = .{
@@ -1188,10 +1159,6 @@ pub const StreamHandler = struct {
                         },
                         .cursor => {
                             self.terminal.colors.cursor.reset();
-
-                            self.rendererMessageWriter(.{
-                                .cursor_color = null,
-                            });
 
                             if (self.terminal.colors.cursor.default) |c| {
                                 self.surfaceMessageWriter(.{ .color_change = .{
@@ -1396,32 +1363,17 @@ pub const StreamHandler = struct {
                         self.terminal.colors.palette.set(palette, v.color);
                     },
 
-                    .special => |special| {
-                        const msg: renderer.Message = switch (special) {
-                            .foreground => msg: {
-                                self.terminal.colors.foreground.set(v.color);
-                                break :msg .{ .foreground_color = v.color };
-                            },
-                            .background => msg: {
-                                self.terminal.colors.background.set(v.color);
-                                break :msg .{ .background_color = v.color };
-                            },
-                            .cursor => msg: {
-                                self.terminal.colors.cursor.set(v.color);
-                                break :msg .{ .cursor_color = v.color };
-                            },
-                            else => {
-                                log.warn(
-                                    "ignoring unsupported kitty color protocol key: {f}",
-                                    .{v.key},
-                                );
-                                continue;
-                            },
-                        };
-
-                        // See messageWriter which has similar logic and
-                        // explains why we may have to do this.
-                        self.rendererMessageWriter(msg);
+                    .special => |special| switch (special) {
+                        .foreground => self.terminal.colors.foreground.set(v.color),
+                        .background => self.terminal.colors.background.set(v.color),
+                        .cursor => self.terminal.colors.cursor.set(v.color),
+                        else => {
+                            log.warn(
+                                "ignoring unsupported kitty color protocol key: {f}",
+                                .{v.key},
+                            );
+                            continue;
+                        },
                     },
                 },
                 .reset => |key| switch (key) {
@@ -1430,32 +1382,17 @@ pub const StreamHandler = struct {
                         self.terminal.colors.palette.reset(palette);
                     },
 
-                    .special => |special| {
-                        const msg: renderer.Message = switch (special) {
-                            .foreground => msg: {
-                                self.terminal.colors.foreground.reset();
-                                break :msg .{ .foreground_color = null };
-                            },
-                            .background => msg: {
-                                self.terminal.colors.background.reset();
-                                break :msg .{ .background_color = null };
-                            },
-                            .cursor => msg: {
-                                self.terminal.colors.cursor.reset();
-                                break :msg .{ .cursor_color = null };
-                            },
-                            else => {
-                                log.warn(
-                                    "ignoring unsupported kitty color protocol key: {f}",
-                                    .{key},
-                                );
-                                continue;
-                            },
-                        };
-
-                        // See messageWriter which has similar logic and
-                        // explains why we may have to do this.
-                        self.rendererMessageWriter(msg);
+                    .special => |special| switch (special) {
+                        .foreground => self.terminal.colors.foreground.reset(),
+                        .background => self.terminal.colors.background.reset(),
+                        .cursor => self.terminal.colors.cursor.reset(),
+                        else => {
+                            log.warn(
+                                "ignoring unsupported kitty color protocol key: {f}",
+                                .{key},
+                            );
+                            continue;
+                        },
                     },
                 },
             }
