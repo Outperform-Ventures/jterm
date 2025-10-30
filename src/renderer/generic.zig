@@ -1258,7 +1258,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     .mouse = state.mouse,
                     .preedit = preedit,
                     .cursor_style = cursor_style,
-                    .color_palette = state.terminal.color_palette.colors,
+                    .color_palette = state.terminal.colors.palette.current,
                     .scrollbar = scrollbar,
                     .full_rebuild = full_rebuild,
                 };

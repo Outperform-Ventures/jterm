@@ -1133,8 +1133,7 @@ pub const StreamHandler = struct {
                     switch (set.target) {
                         .palette => |i| {
                             self.terminal.flags.dirty.palette = true;
-                            self.terminal.color_palette.colors[i] = set.color;
-                            self.terminal.color_palette.mask.set(i);
+                            self.terminal.colors.palette.set(i, set.color);
                         },
                         .dynamic => |dynamic| switch (dynamic) {
                             .foreground => {
@@ -1178,15 +1177,13 @@ pub const StreamHandler = struct {
 
                 .reset => |target| switch (target) {
                     .palette => |i| {
-                        const mask = &self.terminal.color_palette.mask;
                         self.terminal.flags.dirty.palette = true;
-                        self.terminal.color_palette.colors[i] = self.terminal.default_palette[i];
-                        mask.unset(i);
+                        self.terminal.colors.palette.reset(i);
 
                         self.surfaceMessageWriter(.{
                             .color_change = .{
                                 .target = target,
-                                .color = self.terminal.color_palette.colors[i],
+                                .color = self.terminal.colors.palette.current[i],
                             },
                         });
                     },
@@ -1242,15 +1239,15 @@ pub const StreamHandler = struct {
                 },
 
                 .reset_palette => {
-                    const mask = &self.terminal.color_palette.mask;
-                    var mask_iterator = mask.iterator(.{});
-                    while (mask_iterator.next()) |i| {
+                    const mask = &self.terminal.colors.palette.mask;
+                    var mask_it = mask.iterator(.{});
+                    while (mask_it.next()) |i| {
                         self.terminal.flags.dirty.palette = true;
-                        self.terminal.color_palette.colors[i] = self.terminal.default_palette[i];
+                        self.terminal.colors.palette.reset(@intCast(i));
                         self.surfaceMessageWriter(.{
                             .color_change = .{
                                 .target = .{ .palette = @intCast(i) },
-                                .color = self.terminal.color_palette.colors[i],
+                                .color = self.terminal.colors.palette.current[i],
                             },
                         });
                     }
@@ -1266,7 +1263,7 @@ pub const StreamHandler = struct {
                     if (self.osc_color_report_format == .none) break :report;
 
                     const color = switch (kind) {
-                        .palette => |i| self.terminal.color_palette.colors[i],
+                        .palette => |i| self.terminal.colors.palette.current[i],
                         .dynamic => |dynamic| switch (dynamic) {
                             .foreground => self.foreground_color orelse self.default_foreground_color,
                             .background => self.background_color orelse self.default_background_color,
@@ -1399,7 +1396,7 @@ pub const StreamHandler = struct {
                     if (stream.written().len == 0) try writer.writeAll("\x1b]21");
 
                     const color: terminal.color.RGB = switch (key) {
-                        .palette => |palette| self.terminal.color_palette.colors[palette],
+                        .palette => |palette| self.terminal.colors.palette.current[palette],
                         .special => |special| switch (special) {
                             .foreground => self.foreground_color orelse self.default_foreground_color,
                             .background => self.background_color orelse self.default_background_color,
@@ -1422,8 +1419,7 @@ pub const StreamHandler = struct {
                 .set => |v| switch (v.key) {
                     .palette => |palette| {
                         self.terminal.flags.dirty.palette = true;
-                        self.terminal.color_palette.colors[palette] = v.color;
-                        self.terminal.color_palette.mask.unset(palette);
+                        self.terminal.colors.palette.set(palette, v.color);
                     },
 
                     .special => |special| {
@@ -1457,8 +1453,7 @@ pub const StreamHandler = struct {
                 .reset => |key| switch (key) {
                     .palette => |palette| {
                         self.terminal.flags.dirty.palette = true;
-                        self.terminal.color_palette.colors[palette] = self.terminal.default_palette[palette];
-                        self.terminal.color_palette.mask.unset(palette);
+                        self.terminal.colors.palette.reset(palette);
                     },
 
                     .special => |special| {

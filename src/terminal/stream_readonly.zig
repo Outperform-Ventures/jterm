@@ -305,10 +305,7 @@ pub const Handler = struct {
             switch (req.*) {
                 .set => |set| {
                     switch (set.target) {
-                        .palette => |i| {
-                            self.terminal.color_palette.colors[i] = set.color;
-                            self.terminal.color_palette.mask.set(i);
-                        },
+                        .palette => |i| self.terminal.colors.palette.set(i, set.color),
                         .dynamic,
                         .special,
                         => {},
@@ -316,24 +313,13 @@ pub const Handler = struct {
                 },
 
                 .reset => |target| switch (target) {
-                    .palette => |i| {
-                        const mask = &self.terminal.color_palette.mask;
-                        self.terminal.color_palette.colors[i] = self.terminal.default_palette[i];
-                        mask.unset(i);
-                    },
+                    .palette => |i| self.terminal.colors.palette.reset(i),
                     .dynamic,
                     .special,
                     => {},
                 },
 
-                .reset_palette => {
-                    const mask = &self.terminal.color_palette.mask;
-                    var mask_iterator = mask.iterator(.{});
-                    while (mask_iterator.next()) |i| {
-                        self.terminal.color_palette.colors[i] = self.terminal.default_palette[i];
-                    }
-                    mask.* = .initEmpty();
-                },
+                .reset_palette => self.terminal.colors.palette.resetAll(),
 
                 .query,
                 .reset_special,
@@ -599,19 +585,19 @@ test "OSC 4 set and reset palette" {
     defer s.deinit();
 
     // Save default color
-    const default_color_0 = t.default_palette[0];
+    const default_color_0 = t.colors.palette.original[0];
 
     // Set color 0 to red
     try s.nextSlice("\x1b]4;0;rgb:ff/00/00\x1b\\");
-    try testing.expectEqual(@as(u8, 0xff), t.color_palette.colors[0].r);
-    try testing.expectEqual(@as(u8, 0x00), t.color_palette.colors[0].g);
-    try testing.expectEqual(@as(u8, 0x00), t.color_palette.colors[0].b);
-    try testing.expect(t.color_palette.mask.isSet(0));
+    try testing.expectEqual(@as(u8, 0xff), t.colors.palette.current[0].r);
+    try testing.expectEqual(@as(u8, 0x00), t.colors.palette.current[0].g);
+    try testing.expectEqual(@as(u8, 0x00), t.colors.palette.current[0].b);
+    try testing.expect(t.colors.palette.mask.isSet(0));
 
     // Reset color 0
     try s.nextSlice("\x1b]104;0\x1b\\");
-    try testing.expectEqual(default_color_0, t.color_palette.colors[0]);
-    try testing.expect(!t.color_palette.mask.isSet(0));
+    try testing.expectEqual(default_color_0, t.colors.palette.current[0]);
+    try testing.expect(!t.colors.palette.mask.isSet(0));
 }
 
 test "OSC 104 reset all palette colors" {
@@ -625,16 +611,16 @@ test "OSC 104 reset all palette colors" {
     try s.nextSlice("\x1b]4;0;rgb:ff/00/00\x1b\\");
     try s.nextSlice("\x1b]4;1;rgb:00/ff/00\x1b\\");
     try s.nextSlice("\x1b]4;2;rgb:00/00/ff\x1b\\");
-    try testing.expect(t.color_palette.mask.isSet(0));
-    try testing.expect(t.color_palette.mask.isSet(1));
-    try testing.expect(t.color_palette.mask.isSet(2));
+    try testing.expect(t.colors.palette.mask.isSet(0));
+    try testing.expect(t.colors.palette.mask.isSet(1));
+    try testing.expect(t.colors.palette.mask.isSet(2));
 
     // Reset all palette colors
     try s.nextSlice("\x1b]104\x1b\\");
-    try testing.expectEqual(t.default_palette[0], t.color_palette.colors[0]);
-    try testing.expectEqual(t.default_palette[1], t.color_palette.colors[1]);
-    try testing.expectEqual(t.default_palette[2], t.color_palette.colors[2]);
-    try testing.expect(!t.color_palette.mask.isSet(0));
-    try testing.expect(!t.color_palette.mask.isSet(1));
-    try testing.expect(!t.color_palette.mask.isSet(2));
+    try testing.expectEqual(t.colors.palette.original[0], t.colors.palette.current[0]);
+    try testing.expectEqual(t.colors.palette.original[1], t.colors.palette.current[1]);
+    try testing.expectEqual(t.colors.palette.original[2], t.colors.palette.current[2]);
+    try testing.expect(!t.colors.palette.mask.isSet(0));
+    try testing.expect(!t.colors.palette.mask.isSet(1));
+    try testing.expect(!t.colors.palette.mask.isSet(2));
 }

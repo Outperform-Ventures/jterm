@@ -234,8 +234,7 @@ pub fn init(self: *Termio, alloc: Allocator, opts: termio.Options) !void {
         };
     });
     errdefer term.deinit(alloc);
-    term.default_palette = opts.config.palette;
-    term.color_palette.colors = opts.config.palette;
+    term.colors.palette.changeDefault(opts.config.palette);
 
     // Set the image size limits
     try term.screen.kitty_images.setLimit(
@@ -451,16 +450,8 @@ pub fn changeConfig(self: *Termio, td: *ThreadData, config: *DerivedConfig) !voi
 
     // Update the default palette. Note this will only apply to new colors drawn
     // since we decode all palette colors to RGB on usage.
-    self.terminal.default_palette = config.palette;
-
-    // Update the active palette, except for any colors that were modified with
-    // OSC 4
-    for (0..config.palette.len) |i| {
-        if (!self.terminal.color_palette.mask.isSet(i)) {
-            self.terminal.color_palette.colors[i] = config.palette[i];
-            self.terminal.flags.dirty.palette = true;
-        }
-    }
+    self.terminal.colors.palette.changeDefault(config.palette);
+    self.terminal.flags.dirty.palette = true;
 
     // Set the image size limits
     try self.terminal.screen.kitty_images.setLimit(
