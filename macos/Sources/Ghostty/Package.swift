@@ -299,6 +299,23 @@ extension Ghostty {
             }
         }
     }
+    
+    struct ClipboardContent {
+        let mime: String
+        let data: String
+        
+        static func from(content: ghostty_clipboard_content_s) -> ClipboardContent? {
+            guard let mimePtr = content.mime,
+                  let dataPtr = content.data else {
+                return nil
+            }
+            
+            return ClipboardContent(
+                mime: String(cString: mimePtr),
+                data: String(cString: dataPtr)
+            )
+        }
+    }
 
     /// macos-icon
     enum MacOSIcon: String {

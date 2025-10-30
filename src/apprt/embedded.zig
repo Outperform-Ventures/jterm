@@ -66,7 +66,13 @@ pub const App = struct {
         ) callconv(.c) void,
 
         /// Write the clipboard value.
-        write_clipboard: *const fn (SurfaceUD, [*:0]const u8, c_int, bool) callconv(.c) void,
+        write_clipboard: *const fn (
+            SurfaceUD,
+            c_int,
+            [*]const CAPI.ClipboardContent,
+            usize,
+            bool,
+        ) callconv(.c) void,
 
         /// Close the current surface given by this function.
         close_surface: ?*const fn (SurfaceUD, bool) callconv(.c) void = null,
@@ -707,8 +713,12 @@ pub const Surface = struct {
     ) !void {
         self.app.opts.write_clipboard(
             self.userdata,
-            val.ptr,
             @intCast(@intFromEnum(clipboard_type)),
+            &.{.{
+                .mime = "text/plain",
+                .data = val.ptr,
+            }},
+            1,
             confirm,
         );
     }
@@ -1209,6 +1219,12 @@ pub const CAPI = struct {
         height_px: u32,
         cell_width_px: u32,
         cell_height_px: u32,
+    };
+
+    // ghostty_clipboard_content_s
+    const ClipboardContent = extern struct {
+        mime: [*:0]const u8,
+        data: [*:0]const u8,
     };
 
     // ghostty_text_s
