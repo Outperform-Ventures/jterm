@@ -296,7 +296,7 @@ pub const Action = union(enum) {
     reset,
 
     /// Copy the selected text to the clipboard.
-    copy_to_clipboard,
+    copy_to_clipboard: CopyToClipboard,
 
     /// Paste the contents of the default clipboard.
     paste_from_clipboard,
@@ -887,6 +887,19 @@ pub const Action = union(enum) {
     pub const SplitResizeParameter = struct {
         SplitResizeDirection,
         u16,
+    };
+
+    pub const CopyToClipboard = enum {
+        plain,
+        vt,
+        html,
+
+        /// This type will mix multiple distinct types with a set content-type
+        /// such as text/html for html, so that the OS/application can choose
+        /// what is best when pasting.
+        mixed,
+
+        pub const default: CopyToClipboard = .mixed;
     };
 
     pub const WriteScreenAction = enum {
@@ -3236,6 +3249,28 @@ test "parse: set_font_size" {
         const binding = try parseSingle("a=set_font_size:13.5");
         try testing.expect(binding.action == .set_font_size);
         try testing.expectEqual(13.5, binding.action.set_font_size);
+    }
+}
+
+test "parse: copy to clipboard default" {
+    const testing = std.testing;
+
+    // parameter
+    {
+        const binding = try parseSingle("a=copy_to_clipboard");
+        try testing.expect(binding.action == .copy_to_clipboard);
+        try testing.expectEqual(Action.CopyToClipboard.mixed, binding.action.copy_to_clipboard);
+    }
+}
+
+test "parse: copy to clipboard explicit" {
+    const testing = std.testing;
+
+    // parameter
+    {
+        const binding = try parseSingle("a=copy_to_clipboard:html");
+        try testing.expect(binding.action == .copy_to_clipboard);
+        try testing.expectEqual(Action.CopyToClipboard.html, binding.action.copy_to_clipboard);
     }
 }
 

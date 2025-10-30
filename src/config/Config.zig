@@ -5651,12 +5651,12 @@ pub const Keybinds = struct {
             try self.set.put(
                 alloc,
                 .{ .key = .{ .physical = .copy } },
-                .{ .copy_to_clipboard = {} },
+                .{ .copy_to_clipboard = .mixed },
             );
             try self.set.put(
                 alloc,
                 .{ .key = .{ .physical = .paste } },
-                .{ .paste_from_clipboard = {} },
+                .paste_from_clipboard,
             );
 
             // On non-MacOS desktop envs (Windows, KDE, Gnome, Xfce), ctrl+insert is an
@@ -5669,7 +5669,7 @@ pub const Keybinds = struct {
                 try self.set.put(
                     alloc,
                     .{ .key = .{ .physical = .insert }, .mods = .{ .ctrl = true } },
-                    .{ .copy_to_clipboard = {} },
+                    .{ .copy_to_clipboard = .mixed },
                 );
                 try self.set.put(
                     alloc,
@@ -5688,7 +5688,7 @@ pub const Keybinds = struct {
             try self.set.putFlags(
                 alloc,
                 .{ .key = .{ .unicode = 'c' }, .mods = mods },
-                .{ .copy_to_clipboard = {} },
+                .{ .copy_to_clipboard = .mixed },
                 .{ .performable = true },
             );
             try self.set.put(
