@@ -1801,7 +1801,7 @@ pub const Window = extern struct {
         _: ?*glib.Variant,
         self: *Window,
     ) callconv(.c) void {
-        self.performBindingAction(.copy_to_clipboard);
+        self.performBindingAction(.{ .copy_to_clipboard = .mixed });
     }
 
     fn actionPaste(

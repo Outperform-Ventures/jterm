@@ -66,7 +66,13 @@ pub const App = struct {
         ) callconv(.c) void,
 
         /// Write the clipboard value.
-        write_clipboard: *const fn (SurfaceUD, [*:0]const u8, c_int, bool) callconv(.c) void,
+        write_clipboard: *const fn (
+            SurfaceUD,
+            c_int,
+            [*]const CAPI.ClipboardContent,
+            usize,
+            bool,
+        ) callconv(.c) void,
 
         /// Close the current surface given by this function.
         close_surface: ?*const fn (SurfaceUD, bool) callconv(.c) void = null,
@@ -699,16 +705,27 @@ pub const Surface = struct {
         alloc.destroy(state);
     }
 
-    pub fn setClipboardString(
+    pub fn setClipboard(
         self: *const Surface,
-        val: [:0]const u8,
         clipboard_type: apprt.Clipboard,
+        contents: []const apprt.ClipboardContent,
         confirm: bool,
     ) !void {
+        const alloc = self.app.core_app.alloc;
+        const array = try alloc.alloc(CAPI.ClipboardContent, contents.len);
+        defer alloc.free(array);
+        for (contents, 0..) |content, i| {
+            array[i] = .{
+                .mime = content.mime,
+                .data = content.data,
+            };
+        }
+
         self.app.opts.write_clipboard(
             self.userdata,
-            val.ptr,
             @intCast(@intFromEnum(clipboard_type)),
+            array.ptr,
+            array.len,
             confirm,
         );
     }
@@ -1209,6 +1226,12 @@ pub const CAPI = struct {
         height_px: u32,
         cell_width_px: u32,
         cell_height_px: u32,
+    };
+
+    // ghostty_clipboard_content_s
+    const ClipboardContent = extern struct {
+        mime: [*:0]const u8,
+        data: [*:0]const u8,
     };
 
     // ghostty_text_s

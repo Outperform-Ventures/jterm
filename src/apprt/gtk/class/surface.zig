@@ -1553,16 +1553,16 @@ pub const Surface = extern struct {
         );
     }
 
-    pub fn setClipboardString(
+    pub fn setClipboard(
         self: *Self,
-        val: [:0]const u8,
         clipboard_type: apprt.Clipboard,
+        contents: []const apprt.ClipboardContent,
         confirm: bool,
     ) void {
         Clipboard.set(
             self,
-            val,
             clipboard_type,
+            contents,
             confirm,
         );
     }
@@ -3334,11 +3334,18 @@ const Clipboard = struct {
     /// Set the clipboard contents.
     pub fn set(
         self: *Surface,
-        val: [:0]const u8,
         clipboard_type: apprt.Clipboard,
+        contents: []const apprt.ClipboardContent,
         confirm: bool,
     ) void {
         const priv = self.private();
+
+        // For GTK, we only support text/plain type to set strings currently.
+        const val: [:0]const u8 = for (contents) |content| {
+            if (std.mem.eql(u8, content.mime, "text/plain")) {
+                break content.data;
+            }
+        } else return;
 
         // If no confirmation is necessary, set the clipboard.
         if (!confirm) {

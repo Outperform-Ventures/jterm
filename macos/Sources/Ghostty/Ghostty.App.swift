@@ -61,7 +61,8 @@ extension Ghostty {
                 action_cb: { app, target, action in App.action(app!, target: target, action: action) },
                 read_clipboard_cb: { userdata, loc, state in App.readClipboard(userdata, location: loc, state: state) },
                 confirm_read_clipboard_cb: { userdata, str, state, request in App.confirmReadClipboard(userdata, string: str, state: state, request: request ) },
-                write_clipboard_cb: { userdata, str, loc, confirm in App.writeClipboard(userdata, string: str, location: loc, confirm: confirm) },
+                write_clipboard_cb: { userdata, loc, content, len, confirm in
+                    App.writeClipboard(userdata, location: loc, content: content, len: len, confirm: confirm) },
                 close_surface_cb: { userdata, processAlive in App.closeSurface(userdata, processAlive: processAlive) }
             )
 
@@ -276,8 +277,9 @@ extension Ghostty {
 
         static func writeClipboard(
             _ userdata: UnsafeMutableRawPointer?,
-            string: UnsafePointer<CChar>?,
             location: ghostty_clipboard_e,
+            content: UnsafePointer<ghostty_clipboard_content_s>?,
+            len: Int,
             confirm: Bool
         ) {}
 
@@ -364,23 +366,53 @@ extension Ghostty {
             }
         }
 
-        static func writeClipboard(_ userdata: UnsafeMutableRawPointer?, string: UnsafePointer<CChar>?, location: ghostty_clipboard_e, confirm: Bool) {
+        static func writeClipboard(
+            _ userdata: UnsafeMutableRawPointer?,
+            location: ghostty_clipboard_e,
+            content: UnsafePointer<ghostty_clipboard_content_s>?,
+            len: Int,
+            confirm: Bool
+        ) {
             let surface = self.surfaceUserdata(from: userdata)
-
-
             guard let pasteboard = NSPasteboard.ghostty(location) else { return }
-            guard let valueStr = String(cString: string!, encoding: .utf8) else { return }
+            guard let content = content, len > 0 else { return }
+            
+            // Convert the C array to Swift array
+            let contentArray = (0..<len).compactMap { i in
+                Ghostty.ClipboardContent.from(content: content[i])
+            }
+            guard !contentArray.isEmpty else { return }
+            
+            // Assert there is only one text/plain entry. For security reasons we need
+            // to guarantee this for now since our confirmation dialog only shows one.
+            assert(contentArray.filter({ $0.mime == "text/plain" }).count <= 1,
+                   "clipboard contents should have at most one text/plain entry")
+            
             if !confirm {
-                pasteboard.declareTypes([.string], owner: nil)
-                pasteboard.setString(valueStr, forType: .string)
+                // Declare all types
+                let types = contentArray.compactMap { item in
+                    NSPasteboard.PasteboardType(mimeType: item.mime)
+                }
+                pasteboard.declareTypes(types, owner: nil)
+                
+                // Set data for each type
+                for item in contentArray {
+                    guard let type = NSPasteboard.PasteboardType(mimeType: item.mime) else { continue }
+                    pasteboard.setString(item.data, forType: type)
+                }
                 return
             }
 
+            // For confirmation, use the text/plain content if it exists
+            guard let textPlainContent = contentArray.first(where: { $0.mime == "text/plain" }) else {
+                return
+            }
+            
             NotificationCenter.default.post(
                 name: Notification.confirmClipboard,
                 object: surface,
                 userInfo: [
-                    Notification.ConfirmClipboardStrKey: valueStr,
+                    Notification.ConfirmClipboardStrKey: textPlainContent.data,
                     Notification.ConfirmClipboardRequestKey: Ghostty.ClipboardRequest.osc_52_write(pasteboard),
                 ]
             )
