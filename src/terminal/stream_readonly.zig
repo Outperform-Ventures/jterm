@@ -2,8 +2,10 @@ const std = @import("std");
 const testing = std.testing;
 const stream = @import("stream.zig");
 const Action = stream.Action;
-const CursorStyle = @import("Screen.zig").CursorStyle;
-const Mode = @import("modes.zig").Mode;
+const Screen = @import("Screen.zig");
+const modes = @import("modes.zig");
+const osc_color = @import("osc/color.zig");
+const kitty_color = @import("kitty/color.zig");
 const Terminal = @import("Terminal.zig");
 
 /// This is a Stream implementation that processes actions against
@@ -76,7 +78,7 @@ pub const Handler = struct {
                     .default, .steady_block, .steady_bar, .steady_underline => false,
                     .blinking_block, .blinking_bar, .blinking_underline => true,
                 };
-                const style: CursorStyle = switch (value) {
+                const style: Screen.CursorStyle = switch (value) {
                     .default, .blinking_block, .steady_block => .block,
                     .blinking_bar, .steady_bar => .bar,
                     .blinking_underline, .steady_underline => .underline,
@@ -214,7 +216,7 @@ pub const Handler = struct {
         }
     }
 
-    fn setMode(self: *Handler, mode: Mode, enabled: bool) !void {
+    fn setMode(self: *Handler, mode: modes.Mode, enabled: bool) !void {
         // Set the mode on the terminal
         self.terminal.modes.set(mode, enabled);
 
@@ -294,8 +296,8 @@ pub const Handler = struct {
 
     fn colorOperation(
         self: *Handler,
-        op: @import("osc/color.zig").Operation,
-        requests: *const @import("osc/color.zig").List,
+        op: osc_color.Operation,
+        requests: *const osc_color.List,
     ) !void {
         _ = op;
         if (requests.count() == 0) return;
@@ -366,7 +368,7 @@ pub const Handler = struct {
 
     fn kittyColorOperation(
         self: *Handler,
-        request: @import("kitty/color.zig").OSC,
+        request: kitty_color.OSC,
     ) !void {
         for (request.list.items) |item| {
             switch (item) {
