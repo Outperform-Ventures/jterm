@@ -130,11 +130,11 @@ pub const DynamicRGB = struct {
     }
 
     pub fn set(self: *DynamicRGB, color: RGB) void {
-        self.current = color;
+        self.override = color;
     }
 
     pub fn reset(self: *DynamicRGB) void {
-        self.current = self.default;
+        self.override = self.default;
     }
 };
 

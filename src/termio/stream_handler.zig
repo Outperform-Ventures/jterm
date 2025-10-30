@@ -45,22 +45,6 @@ pub const StreamHandler = struct {
     default_cursor: bool = true,
     default_cursor_style: terminal.CursorStyle,
     default_cursor_blink: ?bool,
-    default_cursor_color: ?terminal.color.RGB,
-
-    /// Actual cursor color. This can be changed with OSC 12. If unset, falls
-    /// back to the default cursor color.
-    cursor_color: ?terminal.color.RGB,
-
-    /// The default foreground and background color are those set by the user's
-    /// config file.
-    default_foreground_color: terminal.color.RGB,
-    default_background_color: terminal.color.RGB,
-
-    /// The foreground and background color as set by an OSC 10 or OSC 11
-    /// sequence. If unset then the respective color falls back to the default
-    /// value.
-    foreground_color: ?terminal.color.RGB,
-    background_color: ?terminal.color.RGB,
 
     /// The response to use for ENQ requests. The memory is owned by
     /// whoever owns StreamHandler.
@@ -114,20 +98,8 @@ pub const StreamHandler = struct {
         self.osc_color_report_format = config.osc_color_report_format;
         self.clipboard_write = config.clipboard_write;
         self.enquiry_response = config.enquiry_response;
-        self.default_foreground_color = config.foreground.toTerminalRGB();
-        self.default_background_color = config.background.toTerminalRGB();
         self.default_cursor_style = config.cursor_style;
         self.default_cursor_blink = config.cursor_blink;
-        self.default_cursor_color = color: {
-            if (config.cursor_color) |color| switch (color) {
-                .color => break :color color.color.toTerminalRGB(),
-                .@"cell-foreground",
-                .@"cell-background",
-                => {},
-            };
-
-            break :color null;
-        };
 
         // If our cursor is the default, then we update it immediately.
         if (self.default_cursor) self.setCursorStyle(.default) catch |err| {
@@ -1137,19 +1109,19 @@ pub const StreamHandler = struct {
                         },
                         .dynamic => |dynamic| switch (dynamic) {
                             .foreground => {
-                                self.foreground_color = set.color;
+                                self.terminal.colors.foreground.set(set.color);
                                 self.rendererMessageWriter(.{
                                     .foreground_color = set.color,
                                 });
                             },
                             .background => {
-                                self.background_color = set.color;
+                                self.terminal.colors.background.set(set.color);
                                 self.rendererMessageWriter(.{
                                     .background_color = set.color,
                                 });
                             },
                             .cursor => {
-                                self.cursor_color = set.color;
+                                self.terminal.colors.cursor.set(set.color);
                                 self.rendererMessageWriter(.{
                                     .cursor_color = set.color,
                                 });
@@ -1189,38 +1161,42 @@ pub const StreamHandler = struct {
                     },
                     .dynamic => |dynamic| switch (dynamic) {
                         .foreground => {
-                            self.foreground_color = null;
+                            self.terminal.colors.foreground.reset();
                             self.rendererMessageWriter(.{
-                                .foreground_color = self.foreground_color,
+                                .foreground_color = null,
                             });
 
-                            self.surfaceMessageWriter(.{ .color_change = .{
-                                .target = target,
-                                .color = self.default_foreground_color,
-                            } });
-                        },
-                        .background => {
-                            self.background_color = null;
-                            self.rendererMessageWriter(.{
-                                .background_color = self.background_color,
-                            });
-
-                            self.surfaceMessageWriter(.{ .color_change = .{
-                                .target = target,
-                                .color = self.default_background_color,
-                            } });
-                        },
-                        .cursor => {
-                            self.cursor_color = null;
-
-                            self.rendererMessageWriter(.{
-                                .cursor_color = self.cursor_color,
-                            });
-
-                            if (self.default_cursor_color) |color| {
+                            if (self.terminal.colors.foreground.default) |c| {
                                 self.surfaceMessageWriter(.{ .color_change = .{
                                     .target = target,
-                                    .color = color,
+                                    .color = c,
+                                } });
+                            }
+                        },
+                        .background => {
+                            self.terminal.colors.background.reset();
+                            self.rendererMessageWriter(.{
+                                .background_color = null,
+                            });
+
+                            if (self.terminal.colors.background.default) |c| {
+                                self.surfaceMessageWriter(.{ .color_change = .{
+                                    .target = target,
+                                    .color = c,
+                                } });
+                            }
+                        },
+                        .cursor => {
+                            self.terminal.colors.cursor.reset();
+
+                            self.rendererMessageWriter(.{
+                                .cursor_color = null,
+                            });
+
+                            if (self.terminal.colors.cursor.default) |c| {
+                                self.surfaceMessageWriter(.{ .color_change = .{
+                                    .target = target,
+                                    .color = c,
                                 } });
                             }
                         },
@@ -1265,12 +1241,10 @@ pub const StreamHandler = struct {
                     const color = switch (kind) {
                         .palette => |i| self.terminal.colors.palette.current[i],
                         .dynamic => |dynamic| switch (dynamic) {
-                            .foreground => self.foreground_color orelse self.default_foreground_color,
-                            .background => self.background_color orelse self.default_background_color,
-                            .cursor => self.cursor_color orelse
-                                self.default_cursor_color orelse
-                                self.foreground_color orelse
-                                self.default_foreground_color,
+                            .foreground => self.terminal.colors.foreground.get().?,
+                            .background => self.terminal.colors.background.get().?,
+                            .cursor => self.terminal.colors.cursor.get() orelse
+                                self.terminal.colors.foreground.get().?,
                             .pointer_foreground,
                             .pointer_background,
                             .tektronix_foreground,
@@ -1398,9 +1372,9 @@ pub const StreamHandler = struct {
                     const color: terminal.color.RGB = switch (key) {
                         .palette => |palette| self.terminal.colors.palette.current[palette],
                         .special => |special| switch (special) {
-                            .foreground => self.foreground_color orelse self.default_foreground_color,
-                            .background => self.background_color orelse self.default_background_color,
-                            .cursor => self.cursor_color orelse self.default_cursor_color,
+                            .foreground => self.terminal.colors.foreground.get(),
+                            .background => self.terminal.colors.background.get(),
+                            .cursor => self.terminal.colors.cursor.get(),
                             else => {
                                 log.warn("ignoring unsupported kitty color protocol key: {f}", .{key});
                                 continue;
@@ -1425,15 +1399,15 @@ pub const StreamHandler = struct {
                     .special => |special| {
                         const msg: renderer.Message = switch (special) {
                             .foreground => msg: {
-                                self.foreground_color = v.color;
+                                self.terminal.colors.foreground.set(v.color);
                                 break :msg .{ .foreground_color = v.color };
                             },
                             .background => msg: {
-                                self.background_color = v.color;
+                                self.terminal.colors.background.set(v.color);
                                 break :msg .{ .background_color = v.color };
                             },
                             .cursor => msg: {
-                                self.cursor_color = v.color;
+                                self.terminal.colors.cursor.set(v.color);
                                 break :msg .{ .cursor_color = v.color };
                             },
                             else => {
@@ -1459,16 +1433,16 @@ pub const StreamHandler = struct {
                     .special => |special| {
                         const msg: renderer.Message = switch (special) {
                             .foreground => msg: {
-                                self.foreground_color = null;
-                                break :msg .{ .foreground_color = self.foreground_color };
+                                self.terminal.colors.foreground.reset();
+                                break :msg .{ .foreground_color = null };
                             },
                             .background => msg: {
-                                self.background_color = null;
-                                break :msg .{ .background_color = self.background_color };
+                                self.terminal.colors.background.reset();
+                                break :msg .{ .background_color = null };
                             },
                             .cursor => msg: {
-                                self.cursor_color = null;
-                                break :msg .{ .cursor_color = self.cursor_color };
+                                self.terminal.colors.cursor.reset();
+                                break :msg .{ .cursor_color = null };
                             },
                             else => {
                                 log.warn(
