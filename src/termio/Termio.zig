@@ -231,11 +231,19 @@ pub fn init(self: *Termio, alloc: Allocator, opts: termio.Options) !void {
             .rows = grid_size.rows,
             .max_scrollback = opts.full_config.@"scrollback-limit",
             .default_modes = default_modes,
+            .colors = .{
+                .background = .init(opts.config.background.toTerminalRGB()),
+                .foreground = .init(opts.config.foreground.toTerminalRGB()),
+                .cursor = cursor: {
+                    const color = opts.config.cursor_color orelse break :cursor .unset;
+                    const rgb = color.toTerminalRGB() orelse break :cursor .unset;
+                    break :cursor .init(rgb);
+                },
+                .palette = .init(opts.config.palette),
+            },
         };
     });
     errdefer term.deinit(alloc);
-    term.default_palette = opts.config.palette;
-    term.color_palette.colors = opts.config.palette;
 
     // Set the image size limits
     try term.screen.kitty_images.setLimit(
@@ -262,39 +270,20 @@ pub fn init(self: *Termio, alloc: Allocator, opts: termio.Options) !void {
 
     // Create our stream handler. This points to memory in self so it
     // isn't safe to use until self.* is set.
-    const handler: StreamHandler = handler: {
-        const default_cursor_color: ?terminalpkg.color.RGB = color: {
-            if (opts.config.cursor_color) |color| switch (color) {
-                .color => break :color color.color.toTerminalRGB(),
-                .@"cell-foreground",
-                .@"cell-background",
-                => {},
-            };
-
-            break :color null;
-        };
-
-        break :handler .{
-            .alloc = alloc,
-            .termio_mailbox = &self.mailbox,
-            .surface_mailbox = opts.surface_mailbox,
-            .renderer_state = opts.renderer_state,
-            .renderer_wakeup = opts.renderer_wakeup,
-            .renderer_mailbox = opts.renderer_mailbox,
-            .size = &self.size,
-            .terminal = &self.terminal,
-            .osc_color_report_format = opts.config.osc_color_report_format,
-            .clipboard_write = opts.config.clipboard_write,
-            .enquiry_response = opts.config.enquiry_response,
-            .default_foreground_color = opts.config.foreground.toTerminalRGB(),
-            .default_background_color = opts.config.background.toTerminalRGB(),
-            .default_cursor_style = opts.config.cursor_style,
-            .default_cursor_blink = opts.config.cursor_blink,
-            .default_cursor_color = default_cursor_color,
-            .cursor_color = null,
-            .foreground_color = null,
-            .background_color = null,
-        };
+    const handler: StreamHandler = .{
+        .alloc = alloc,
+        .termio_mailbox = &self.mailbox,
+        .surface_mailbox = opts.surface_mailbox,
+        .renderer_state = opts.renderer_state,
+        .renderer_wakeup = opts.renderer_wakeup,
+        .renderer_mailbox = opts.renderer_mailbox,
+        .size = &self.size,
+        .terminal = &self.terminal,
+        .osc_color_report_format = opts.config.osc_color_report_format,
+        .clipboard_write = opts.config.clipboard_write,
+        .enquiry_response = opts.config.enquiry_response,
+        .default_cursor_style = opts.config.cursor_style,
+        .default_cursor_blink = opts.config.cursor_blink,
     };
 
     const thread_enter_state = try ThreadEnterState.create(
@@ -449,18 +438,17 @@ pub fn changeConfig(self: *Termio, td: *ThreadData, config: *DerivedConfig) !voi
     //   - command, working-directory: we never restart the underlying
     //   process so we don't care or need to know about these.
 
-    // Update the default palette. Note this will only apply to new colors drawn
-    // since we decode all palette colors to RGB on usage.
-    self.terminal.default_palette = config.palette;
+    // Update the default palette.
+    self.terminal.colors.palette.changeDefault(config.palette);
+    self.terminal.flags.dirty.palette = true;
 
-    // Update the active palette, except for any colors that were modified with
-    // OSC 4
-    for (0..config.palette.len) |i| {
-        if (!self.terminal.color_palette.mask.isSet(i)) {
-            self.terminal.color_palette.colors[i] = config.palette[i];
-            self.terminal.flags.dirty.palette = true;
-        }
-    }
+    // Update all our other colors
+    self.terminal.colors.background.default = config.background.toTerminalRGB();
+    self.terminal.colors.foreground.default = config.foreground.toTerminalRGB();
+    self.terminal.colors.cursor.default = cursor: {
+        const color = config.cursor_color orelse break :cursor null;
+        break :cursor color.toTerminalRGB() orelse break :cursor null;
+    };
 
     // Set the image size limits
     try self.terminal.screen.kitty_images.setLimit(

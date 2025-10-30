@@ -225,7 +225,7 @@ pub const TerminalFormatter = struct {
                 .plain => break :palette,
 
                 .vt => {
-                    for (self.terminal.color_palette.colors, 0..) |rgb, i| {
+                    for (self.terminal.colors.palette.current, 0..) |rgb, i| {
                         try writer.print(
                             "\x1b]4;{d};rgb:{x:0>2}/{x:0>2}/{x:0>2}\x1b\\",
                             .{ i, rgb.r, rgb.g, rgb.b },
@@ -236,7 +236,7 @@ pub const TerminalFormatter = struct {
                 // For HTML, we emit CSS to setup our palette variables.
                 .html => {
                     try writer.writeAll("<style>:root{");
-                    for (self.terminal.color_palette.colors, 0..) |rgb, i| {
+                    for (self.terminal.colors.palette.current, 0..) |rgb, i| {
                         try writer.print(
                             "--vt-palette-{d}: #{x:0>2}{x:0>2}{x:0>2};",
                             .{ i, rgb.r, rgb.g, rgb.b },
@@ -3839,9 +3839,9 @@ test "TerminalFormatter vt with palette" {
     try s2.nextSlice(output);
 
     // Verify the palettes match
-    try testing.expectEqual(t.color_palette.colors[0], t2.color_palette.colors[0]);
-    try testing.expectEqual(t.color_palette.colors[1], t2.color_palette.colors[1]);
-    try testing.expectEqual(t.color_palette.colors[255], t2.color_palette.colors[255]);
+    try testing.expectEqual(t.colors.palette.current[0], t2.colors.palette.current[0]);
+    try testing.expectEqual(t.colors.palette.current[1], t2.colors.palette.current[1]);
+    try testing.expectEqual(t.colors.palette.current[255], t2.colors.palette.current[255]);
 }
 
 test "TerminalFormatter with selection" {
@@ -4972,7 +4972,7 @@ test "Page VT with palette option emits RGB" {
     {
         builder.clearRetainingCapacity();
         var opts: Options = .vt;
-        opts.palette = &t.color_palette.colors;
+        opts.palette = &t.colors.palette.current;
         var formatter: PageFormatter = .init(page, opts);
         try formatter.format(&builder.writer);
         const output = builder.writer.buffered();
@@ -5021,7 +5021,7 @@ test "Page html with palette option emits RGB" {
     {
         builder.clearRetainingCapacity();
         var opts: Options = .{ .emit = .html };
-        opts.palette = &t.color_palette.colors;
+        opts.palette = &t.colors.palette.current;
         var formatter: PageFormatter = .init(page, opts);
         try formatter.format(&builder.writer);
         const output = builder.writer.buffered();

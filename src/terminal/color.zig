@@ -1,3 +1,5 @@
+const colorpkg = @This();
+
 const std = @import("std");
 const assert = std.debug.assert;
 const x11_color = @import("x11_color.zig");
@@ -44,6 +46,97 @@ pub const default: Palette = default: {
 
 /// Palette is the 256 color palette.
 pub const Palette = [256]RGB;
+
+/// A palette that can have its colors changed and reset. Purposely built
+/// for terminal color operations.
+pub const DynamicPalette = struct {
+    /// The current palette including any user modifications.
+    current: Palette,
+
+    /// The original/default palette values.
+    original: Palette,
+
+    /// A bitset where each bit represents whether the corresponding
+    /// palette index has been modified from its default value.
+    mask: Mask,
+
+    const Mask = std.StaticBitSet(@typeInfo(Palette).array.len);
+
+    pub const default: DynamicPalette = .init(colorpkg.default);
+
+    /// Initialize a dynamic palette with a default palette.
+    pub fn init(def: Palette) DynamicPalette {
+        return .{
+            .current = def,
+            .original = def,
+            .mask = .initEmpty(),
+        };
+    }
+
+    /// Set a custom color at the given palette index.
+    pub fn set(self: *DynamicPalette, idx: u8, color: RGB) void {
+        self.current[idx] = color;
+        self.mask.set(idx);
+    }
+
+    /// Reset the color at the given palette index to its original value.
+    pub fn reset(self: *DynamicPalette, idx: u8) void {
+        self.current[idx] = self.original[idx];
+        self.mask.unset(idx);
+    }
+
+    /// Reset all colors to their original values.
+    pub fn resetAll(self: *DynamicPalette) void {
+        self.* = .init(self.original);
+    }
+
+    /// Change the default palette, but preserve the changed values.
+    pub fn changeDefault(self: *DynamicPalette, def: Palette) void {
+        self.original = def;
+
+        // Fast path, the palette is usually not changed.
+        if (self.mask.count() == 0) {
+            self.current = self.original;
+            return;
+        }
+
+        // There are usually less set than unset, so iterate over the changed
+        // values and override them.
+        var current = def;
+        var it = self.mask.iterator(.{});
+        while (it.next()) |idx| current[idx] = self.current[idx];
+        self.current = current;
+    }
+};
+
+/// RGB value that can be changed and reset. This can also be totally unset
+/// in every way, in which case the caller can determine their own ultimate
+/// default.
+pub const DynamicRGB = struct {
+    override: ?RGB,
+    default: ?RGB,
+
+    pub const unset: DynamicRGB = .{ .override = null, .default = null };
+
+    pub fn init(def: RGB) DynamicRGB {
+        return .{
+            .override = null,
+            .default = def,
+        };
+    }
+
+    pub fn get(self: *const DynamicRGB) ?RGB {
+        return self.override orelse self.default;
+    }
+
+    pub fn set(self: *DynamicRGB, color: RGB) void {
+        self.override = color;
+    }
+
+    pub fn reset(self: *DynamicRGB) void {
+        self.override = self.default;
+    }
+};
 
 /// Color names in the standard 8 or 16 color palette.
 pub const Name = enum(u8) {
@@ -455,4 +548,119 @@ test "RGB.parse" {
     try testing.expectError(error.InvalidFormat, RGB.parse("#ffff"));
     try testing.expectError(error.InvalidFormat, RGB.parse("#fffff"));
     try testing.expectError(error.InvalidFormat, RGB.parse("#gggggg"));
+}
+
+test "DynamicPalette: init" {
+    const testing = std.testing;
+
+    var p: DynamicPalette = .init(default);
+    try testing.expectEqual(default, p.current);
+    try testing.expectEqual(default, p.original);
+    try testing.expectEqual(@as(usize, 0), p.mask.count());
+}
+
+test "DynamicPalette: set" {
+    const testing = std.testing;
+
+    var p: DynamicPalette = .init(default);
+    const new_color = RGB{ .r = 255, .g = 0, .b = 0 };
+
+    p.set(0, new_color);
+    try testing.expectEqual(new_color, p.current[0]);
+    try testing.expect(p.mask.isSet(0));
+    try testing.expectEqual(@as(usize, 1), p.mask.count());
+
+    try testing.expectEqual(default[0], p.original[0]);
+}
+
+test "DynamicPalette: reset" {
+    const testing = std.testing;
+
+    var p: DynamicPalette = .init(default);
+    const new_color = RGB{ .r = 255, .g = 0, .b = 0 };
+
+    p.set(0, new_color);
+    try testing.expect(p.mask.isSet(0));
+
+    p.reset(0);
+    try testing.expectEqual(default[0], p.current[0]);
+    try testing.expect(!p.mask.isSet(0));
+    try testing.expectEqual(@as(usize, 0), p.mask.count());
+}
+
+test "DynamicPalette: resetAll" {
+    const testing = std.testing;
+
+    var p: DynamicPalette = .init(default);
+    const new_color = RGB{ .r = 255, .g = 0, .b = 0 };
+
+    p.set(0, new_color);
+    p.set(5, new_color);
+    p.set(10, new_color);
+    try testing.expectEqual(@as(usize, 3), p.mask.count());
+
+    p.resetAll();
+    try testing.expectEqual(default, p.current);
+    try testing.expectEqual(default, p.original);
+    try testing.expectEqual(@as(usize, 0), p.mask.count());
+}
+
+test "DynamicPalette: changeDefault with no changes" {
+    const testing = std.testing;
+
+    var p: DynamicPalette = .init(default);
+    var new_palette = default;
+    new_palette[0] = RGB{ .r = 100, .g = 100, .b = 100 };
+
+    p.changeDefault(new_palette);
+    try testing.expectEqual(new_palette, p.original);
+    try testing.expectEqual(new_palette, p.current);
+    try testing.expectEqual(@as(usize, 0), p.mask.count());
+}
+
+test "DynamicPalette: changeDefault preserves changes" {
+    const testing = std.testing;
+
+    var p: DynamicPalette = .init(default);
+    const custom_color = RGB{ .r = 255, .g = 0, .b = 0 };
+
+    p.set(5, custom_color);
+    try testing.expect(p.mask.isSet(5));
+
+    var new_palette = default;
+    new_palette[0] = RGB{ .r = 100, .g = 100, .b = 100 };
+    new_palette[5] = RGB{ .r = 50, .g = 50, .b = 50 };
+
+    p.changeDefault(new_palette);
+
+    try testing.expectEqual(new_palette, p.original);
+    try testing.expectEqual(new_palette[0], p.current[0]);
+    try testing.expectEqual(custom_color, p.current[5]);
+    try testing.expect(p.mask.isSet(5));
+    try testing.expectEqual(@as(usize, 1), p.mask.count());
+}
+
+test "DynamicPalette: changeDefault with multiple changes" {
+    const testing = std.testing;
+
+    var p: DynamicPalette = .init(default);
+    const red = RGB{ .r = 255, .g = 0, .b = 0 };
+    const green = RGB{ .r = 0, .g = 255, .b = 0 };
+    const blue = RGB{ .r = 0, .g = 0, .b = 255 };
+
+    p.set(1, red);
+    p.set(2, green);
+    p.set(3, blue);
+
+    var new_palette = default;
+    new_palette[0] = RGB{ .r = 50, .g = 50, .b = 50 };
+    new_palette[1] = RGB{ .r = 60, .g = 60, .b = 60 };
+
+    p.changeDefault(new_palette);
+
+    try testing.expectEqual(new_palette[0], p.current[0]);
+    try testing.expectEqual(red, p.current[1]);
+    try testing.expectEqual(green, p.current[2]);
+    try testing.expectEqual(blue, p.current[3]);
+    try testing.expectEqual(@as(usize, 3), p.mask.count());
 }

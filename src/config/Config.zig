@@ -4960,6 +4960,13 @@ pub const TerminalColor = union(enum) {
         return .{ .color = try Color.parseCLI(input) };
     }
 
+    pub fn toTerminalRGB(self: TerminalColor) ?terminal.color.RGB {
+        return switch (self) {
+            .color => |v| v.toTerminalRGB(),
+            .@"cell-foreground", .@"cell-background" => null,
+        };
+    }
+
     /// Used by Formatter
     pub fn formatEntry(self: TerminalColor, formatter: formatterpkg.EntryFormatter) !void {
         switch (self) {

@@ -161,6 +161,7 @@ pub const Handler = struct {
             .end_of_command => self.terminal.screen.cursor.page_row.semantic_prompt = .input,
             .mouse_shape => self.terminal.mouse_shape = value,
             .color_operation => try self.colorOperation(value.op, &value.requests),
+            .kitty_color_report => try self.kittyColorOperation(value),
 
             // No supported DCS commands have any terminal-modifying effects,
             // but they may in the future. For now we just ignore it.
@@ -186,7 +187,6 @@ pub const Handler = struct {
             .device_attributes,
             .device_status,
             .kitty_keyboard_query,
-            .kitty_color_report,
             .window_title,
             .report_pwd,
             .show_desktop_notification,
@@ -306,31 +306,53 @@ pub const Handler = struct {
                 .set => |set| {
                     switch (set.target) {
                         .palette => |i| {
-                            self.terminal.color_palette.colors[i] = set.color;
-                            self.terminal.color_palette.mask.set(i);
+                            self.terminal.flags.dirty.palette = true;
+                            self.terminal.colors.palette.set(i, set.color);
                         },
-                        .dynamic,
-                        .special,
-                        => {},
+                        .dynamic => |dynamic| switch (dynamic) {
+                            .foreground => self.terminal.colors.foreground.set(set.color),
+                            .background => self.terminal.colors.background.set(set.color),
+                            .cursor => self.terminal.colors.cursor.set(set.color),
+                            .pointer_foreground,
+                            .pointer_background,
+                            .tektronix_foreground,
+                            .tektronix_background,
+                            .highlight_background,
+                            .tektronix_cursor,
+                            .highlight_foreground,
+                            => {},
+                        },
+                        .special => {},
                     }
                 },
 
                 .reset => |target| switch (target) {
                     .palette => |i| {
-                        const mask = &self.terminal.color_palette.mask;
-                        self.terminal.color_palette.colors[i] = self.terminal.default_palette[i];
-                        mask.unset(i);
+                        self.terminal.flags.dirty.palette = true;
+                        self.terminal.colors.palette.reset(i);
                     },
-                    .dynamic,
-                    .special,
-                    => {},
+                    .dynamic => |dynamic| switch (dynamic) {
+                        .foreground => self.terminal.colors.foreground.reset(),
+                        .background => self.terminal.colors.background.reset(),
+                        .cursor => self.terminal.colors.cursor.reset(),
+                        .pointer_foreground,
+                        .pointer_background,
+                        .tektronix_foreground,
+                        .tektronix_background,
+                        .highlight_background,
+                        .tektronix_cursor,
+                        .highlight_foreground,
+                        => {},
+                    },
+                    .special => {},
                 },
 
                 .reset_palette => {
-                    const mask = &self.terminal.color_palette.mask;
-                    var mask_iterator = mask.iterator(.{});
-                    while (mask_iterator.next()) |i| {
-                        self.terminal.color_palette.colors[i] = self.terminal.default_palette[i];
+                    const mask = &self.terminal.colors.palette.mask;
+                    var mask_it = mask.iterator(.{});
+                    while (mask_it.next()) |i| {
+                        self.terminal.flags.dirty.palette = true;
+                        self.terminal.colors.palette.reset(@intCast(i));
                     }
                     mask.* = .initEmpty();
                 },
@@ -338,6 +360,41 @@ pub const Handler = struct {
                 .query,
                 .reset_special,
                 => {},
+            }
+        }
+    }
+
+    fn kittyColorOperation(
+        self: *Handler,
+        request: @import("kitty/color.zig").OSC,
+    ) !void {
+        for (request.list.items) |item| {
+            switch (item) {
+                .set => |v| switch (v.key) {
+                    .palette => |palette| {
+                        self.terminal.flags.dirty.palette = true;
+                        self.terminal.colors.palette.set(palette, v.color);
+                    },
+                    .special => |special| switch (special) {
+                        .foreground => self.terminal.colors.foreground.set(v.color),
+                        .background => self.terminal.colors.background.set(v.color),
+                        .cursor => self.terminal.colors.cursor.set(v.color),
+                        else => {},
+                    },
+                },
+                .reset => |key| switch (key) {
+                    .palette => |palette| {
+                        self.terminal.flags.dirty.palette = true;
+                        self.terminal.colors.palette.reset(palette);
+                    },
+                    .special => |special| switch (special) {
+                        .foreground => self.terminal.colors.foreground.reset(),
+                        .background => self.terminal.colors.background.reset(),
+                        .cursor => self.terminal.colors.cursor.reset(),
+                        else => {},
+                    },
+                },
+                .query => {},
             }
         }
     }
@@ -599,19 +656,19 @@ test "OSC 4 set and reset palette" {
     defer s.deinit();
 
     // Save default color
-    const default_color_0 = t.default_palette[0];
+    const default_color_0 = t.colors.palette.original[0];
 
     // Set color 0 to red
     try s.nextSlice("\x1b]4;0;rgb:ff/00/00\x1b\\");
-    try testing.expectEqual(@as(u8, 0xff), t.color_palette.colors[0].r);
-    try testing.expectEqual(@as(u8, 0x00), t.color_palette.colors[0].g);
-    try testing.expectEqual(@as(u8, 0x00), t.color_palette.colors[0].b);
-    try testing.expect(t.color_palette.mask.isSet(0));
+    try testing.expectEqual(@as(u8, 0xff), t.colors.palette.current[0].r);
+    try testing.expectEqual(@as(u8, 0x00), t.colors.palette.current[0].g);
+    try testing.expectEqual(@as(u8, 0x00), t.colors.palette.current[0].b);
+    try testing.expect(t.colors.palette.mask.isSet(0));
 
     // Reset color 0
     try s.nextSlice("\x1b]104;0\x1b\\");
-    try testing.expectEqual(default_color_0, t.color_palette.colors[0]);
-    try testing.expect(!t.color_palette.mask.isSet(0));
+    try testing.expectEqual(default_color_0, t.colors.palette.current[0]);
+    try testing.expect(!t.colors.palette.mask.isSet(0));
 }
 
 test "OSC 104 reset all palette colors" {
@@ -625,16 +682,195 @@ test "OSC 104 reset all palette colors" {
     try s.nextSlice("\x1b]4;0;rgb:ff/00/00\x1b\\");
     try s.nextSlice("\x1b]4;1;rgb:00/ff/00\x1b\\");
     try s.nextSlice("\x1b]4;2;rgb:00/00/ff\x1b\\");
-    try testing.expect(t.color_palette.mask.isSet(0));
-    try testing.expect(t.color_palette.mask.isSet(1));
-    try testing.expect(t.color_palette.mask.isSet(2));
+    try testing.expect(t.colors.palette.mask.isSet(0));
+    try testing.expect(t.colors.palette.mask.isSet(1));
+    try testing.expect(t.colors.palette.mask.isSet(2));
 
     // Reset all palette colors
     try s.nextSlice("\x1b]104\x1b\\");
-    try testing.expectEqual(t.default_palette[0], t.color_palette.colors[0]);
-    try testing.expectEqual(t.default_palette[1], t.color_palette.colors[1]);
-    try testing.expectEqual(t.default_palette[2], t.color_palette.colors[2]);
-    try testing.expect(!t.color_palette.mask.isSet(0));
-    try testing.expect(!t.color_palette.mask.isSet(1));
-    try testing.expect(!t.color_palette.mask.isSet(2));
+    try testing.expectEqual(t.colors.palette.original[0], t.colors.palette.current[0]);
+    try testing.expectEqual(t.colors.palette.original[1], t.colors.palette.current[1]);
+    try testing.expectEqual(t.colors.palette.original[2], t.colors.palette.current[2]);
+    try testing.expect(!t.colors.palette.mask.isSet(0));
+    try testing.expect(!t.colors.palette.mask.isSet(1));
+    try testing.expect(!t.colors.palette.mask.isSet(2));
+}
+
+test "OSC 10 set and reset foreground color" {
+    var t: Terminal = try .init(testing.allocator, .{ .cols = 10, .rows = 10 });
+    defer t.deinit(testing.allocator);
+
+    var s: Stream = .initAlloc(testing.allocator, .init(&t));
+    defer s.deinit();
+
+    // Initially unset
+    try testing.expect(t.colors.foreground.get() == null);
+
+    // Set foreground to red
+    try s.nextSlice("\x1b]10;rgb:ff/00/00\x1b\\");
+    const fg = t.colors.foreground.get().?;
+    try testing.expectEqual(@as(u8, 0xff), fg.r);
+    try testing.expectEqual(@as(u8, 0x00), fg.g);
+    try testing.expectEqual(@as(u8, 0x00), fg.b);
+
+    // Reset foreground
+    try s.nextSlice("\x1b]110\x1b\\");
+    try testing.expect(t.colors.foreground.get() == null);
+}
+
+test "OSC 11 set and reset background color" {
+    var t: Terminal = try .init(testing.allocator, .{ .cols = 10, .rows = 10 });
+    defer t.deinit(testing.allocator);
+
+    var s: Stream = .initAlloc(testing.allocator, .init(&t));
+    defer s.deinit();
+
+    // Set background to green
+    try s.nextSlice("\x1b]11;rgb:00/ff/00\x1b\\");
+    const bg = t.colors.background.get().?;
+    try testing.expectEqual(@as(u8, 0x00), bg.r);
+    try testing.expectEqual(@as(u8, 0xff), bg.g);
+    try testing.expectEqual(@as(u8, 0x00), bg.b);
+
+    // Reset background
+    try s.nextSlice("\x1b]111\x1b\\");
+    try testing.expect(t.colors.background.get() == null);
+}
+
+test "OSC 12 set and reset cursor color" {
+    var t: Terminal = try .init(testing.allocator, .{ .cols = 10, .rows = 10 });
+    defer t.deinit(testing.allocator);
+
+    var s: Stream = .initAlloc(testing.allocator, .init(&t));
+    defer s.deinit();
+
+    // Set cursor to blue
+    try s.nextSlice("\x1b]12;rgb:00/00/ff\x1b\\");
+    const cursor = t.colors.cursor.get().?;
+    try testing.expectEqual(@as(u8, 0x00), cursor.r);
+    try testing.expectEqual(@as(u8, 0x00), cursor.g);
+    try testing.expectEqual(@as(u8, 0xff), cursor.b);
+
+    // Reset cursor
+    try s.nextSlice("\x1b]112\x1b\\");
+    // After reset, cursor might be null (using default)
+}
+
+test "kitty color protocol set palette" {
+    var t: Terminal = try .init(testing.allocator, .{ .cols = 10, .rows = 10 });
+    defer t.deinit(testing.allocator);
+
+    var s: Stream = .initAlloc(testing.allocator, .init(&t));
+    defer s.deinit();
+
+    // Set palette color 5 to magenta using kitty protocol
+    try s.nextSlice("\x1b]21;5=rgb:ff/00/ff\x1b\\");
+    try testing.expectEqual(@as(u8, 0xff), t.colors.palette.current[5].r);
+    try testing.expectEqual(@as(u8, 0x00), t.colors.palette.current[5].g);
+    try testing.expectEqual(@as(u8, 0xff), t.colors.palette.current[5].b);
+    try testing.expect(t.colors.palette.mask.isSet(5));
+    try testing.expect(t.flags.dirty.palette);
+}
+
+test "kitty color protocol reset palette" {
+    var t: Terminal = try .init(testing.allocator, .{ .cols = 10, .rows = 10 });
+    defer t.deinit(testing.allocator);
+
+    var s: Stream = .initAlloc(testing.allocator, .init(&t));
+    defer s.deinit();
+
+    // Set and then reset palette color
+    const original = t.colors.palette.original[7];
+    try s.nextSlice("\x1b]21;7=rgb:aa/bb/cc\x1b\\");
+    try testing.expect(t.colors.palette.mask.isSet(7));
+
+    try s.nextSlice("\x1b]21;7=\x1b\\");
+    try testing.expectEqual(original, t.colors.palette.current[7]);
+    try testing.expect(!t.colors.palette.mask.isSet(7));
+}
+
+test "kitty color protocol set foreground" {
+    var t: Terminal = try .init(testing.allocator, .{ .cols = 10, .rows = 10 });
+    defer t.deinit(testing.allocator);
+
+    var s: Stream = .initAlloc(testing.allocator, .init(&t));
+    defer s.deinit();
+
+    // Set foreground using kitty protocol
+    try s.nextSlice("\x1b]21;foreground=rgb:12/34/56\x1b\\");
+    const fg = t.colors.foreground.get().?;
+    try testing.expectEqual(@as(u8, 0x12), fg.r);
+    try testing.expectEqual(@as(u8, 0x34), fg.g);
+    try testing.expectEqual(@as(u8, 0x56), fg.b);
+}
+
+test "kitty color protocol set background" {
+    var t: Terminal = try .init(testing.allocator, .{ .cols = 10, .rows = 10 });
+    defer t.deinit(testing.allocator);
+
+    var s: Stream = .initAlloc(testing.allocator, .init(&t));
+    defer s.deinit();
+
+    // Set background using kitty protocol
+    try s.nextSlice("\x1b]21;background=rgb:78/9a/bc\x1b\\");
+    const bg = t.colors.background.get().?;
+    try testing.expectEqual(@as(u8, 0x78), bg.r);
+    try testing.expectEqual(@as(u8, 0x9a), bg.g);
+    try testing.expectEqual(@as(u8, 0xbc), bg.b);
+}
+
+test "kitty color protocol set cursor" {
+    var t: Terminal = try .init(testing.allocator, .{ .cols = 10, .rows = 10 });
+    defer t.deinit(testing.allocator);
+
+    var s: Stream = .initAlloc(testing.allocator, .init(&t));
+    defer s.deinit();
+
+    // Set cursor using kitty protocol
+    try s.nextSlice("\x1b]21;cursor=rgb:de/f0/12\x1b\\");
+    const cursor = t.colors.cursor.get().?;
+    try testing.expectEqual(@as(u8, 0xde), cursor.r);
+    try testing.expectEqual(@as(u8, 0xf0), cursor.g);
+    try testing.expectEqual(@as(u8, 0x12), cursor.b);
+}
+
+test "kitty color protocol reset foreground" {
+    var t: Terminal = try .init(testing.allocator, .{ .cols = 10, .rows = 10 });
+    defer t.deinit(testing.allocator);
+
+    var s: Stream = .initAlloc(testing.allocator, .init(&t));
+    defer s.deinit();
+
+    // Set and reset foreground
+    try s.nextSlice("\x1b]21;foreground=rgb:11/22/33\x1b\\");
+    try testing.expect(t.colors.foreground.get() != null);
+
+    try s.nextSlice("\x1b]21;foreground=\x1b\\");
+    // After reset, should be unset
+    try testing.expect(t.colors.foreground.get() == null);
+}
+
+test "palette dirty flag set on color change" {
+    var t: Terminal = try .init(testing.allocator, .{ .cols = 10, .rows = 10 });
+    defer t.deinit(testing.allocator);
+
+    var s: Stream = .initAlloc(testing.allocator, .init(&t));
+    defer s.deinit();
+
+    // Clear dirty flag
+    t.flags.dirty.palette = false;
+
+    // Setting palette color should set dirty flag
+    try s.nextSlice("\x1b]4;0;rgb:ff/00/00\x1b\\");
+    try testing.expect(t.flags.dirty.palette);
+
+    // Clear and test reset
+    t.flags.dirty.palette = false;
+    try s.nextSlice("\x1b]104;0\x1b\\");
+    try testing.expect(t.flags.dirty.palette);
+
+    // Clear and test kitty protocol
+    t.flags.dirty.palette = false;
+    try s.nextSlice("\x1b]21;1=rgb:00/ff/00\x1b\\");
+    try testing.expect(t.flags.dirty.palette);
 }

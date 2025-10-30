@@ -437,21 +437,6 @@ fn drainMailbox(self: *Thread) !void {
                 grid.set.deref(grid.old_key);
             },
 
-            .foreground_color => |color| {
-                self.renderer.foreground_color = color;
-                self.renderer.markDirty();
-            },
-
-            .background_color => |color| {
-                self.renderer.background_color = color;
-                self.renderer.markDirty();
-            },
-
-            .cursor_color => |color| {
-                self.renderer.cursor_color = color;
-                self.renderer.markDirty();
-            },
-
             .resize => |v| self.renderer.setScreenSize(v),
 
             .change_config => |config| {

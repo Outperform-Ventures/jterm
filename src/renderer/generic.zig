@@ -120,30 +120,6 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
         scrollbar: terminal.Scrollbar,
         scrollbar_dirty: bool,
 
-        /// The foreground color set by an OSC 10 sequence. If unset then
-        /// default_foreground_color is used.
-        foreground_color: ?terminal.color.RGB,
-
-        /// Foreground color set in the user's config file.
-        default_foreground_color: terminal.color.RGB,
-
-        /// The background color set by an OSC 11 sequence. If unset then
-        /// default_background_color is used.
-        background_color: ?terminal.color.RGB,
-
-        /// Background color set in the user's config file.
-        default_background_color: terminal.color.RGB,
-
-        /// The cursor color set by an OSC 12 sequence. If unset then
-        /// default_cursor_color is used.
-        cursor_color: ?terminal.color.RGB,
-
-        /// Default cursor color when no color is set explicitly by an OSC 12 command.
-        /// This is cursor color as set in the user's config, if any. If no cursor color
-        /// is set in the user's config, then the cursor color is determined by the
-        /// current foreground color.
-        default_cursor_color: ?configpkg.Config.TerminalColor,
-
         /// The current set of cells to render. This is rebuilt on every frame
         /// but we keep this around so that we don't reallocate. Each set of
         /// cells goes into a separate shader.
@@ -691,12 +667,6 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 .focused = true,
                 .scrollbar = .zero,
                 .scrollbar_dirty = false,
-                .foreground_color = null,
-                .default_foreground_color = options.config.foreground,
-                .background_color = null,
-                .default_background_color = options.config.background,
-                .cursor_color = null,
-                .default_cursor_color = options.config.cursor_color,
 
                 // Render state
                 .cells = .{},
@@ -1094,10 +1064,12 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             // Data we extract out of the critical area.
             const Critical = struct {
                 bg: terminal.color.RGB,
+                fg: terminal.color.RGB,
                 screen: terminal.Screen,
                 screen_type: terminal.ScreenType,
                 mouse: renderer.State.Mouse,
                 preedit: ?renderer.State.Preedit,
+                cursor_color: ?terminal.color.RGB,
                 cursor_style: ?renderer.CursorStyle,
                 color_palette: terminal.color.Palette,
                 scrollbar: terminal.Scrollbar,
@@ -1132,36 +1104,16 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 // cross-thread mailbox message within the IO path.
                 const scrollbar = state.terminal.screen.pages.scrollbar();
 
-                // Swap bg/fg if the terminal is reversed
-                const bg = self.background_color orelse self.default_background_color;
-                const fg = self.foreground_color orelse self.default_foreground_color;
-                defer {
-                    if (self.background_color) |*c| {
-                        c.* = bg;
-                    } else {
-                        self.default_background_color = bg;
-                    }
-
-                    if (self.foreground_color) |*c| {
-                        c.* = fg;
-                    } else {
-                        self.default_foreground_color = fg;
-                    }
-                }
-
-                if (state.terminal.modes.get(.reverse_colors)) {
-                    if (self.background_color) |*c| {
-                        c.* = fg;
-                    } else {
-                        self.default_background_color = fg;
-                    }
-
-                    if (self.foreground_color) |*c| {
-                        c.* = bg;
-                    } else {
-                        self.default_foreground_color = bg;
-                    }
-                }
+                // Get our bg/fg, swap them if reversed.
+                const RGB = terminal.color.RGB;
+                const bg: RGB, const fg: RGB = colors: {
+                    const bg = state.terminal.colors.background.get().?;
+                    const fg = state.terminal.colors.foreground.get().?;
+                    break :colors if (state.terminal.modes.get(.reverse_colors))
+                        .{ fg, bg }
+                    else
+                        .{ bg, fg };
+                };
 
                 // Get the viewport pin so that we can compare it to the current.
                 const viewport_pin = state.terminal.screen.pages.pin(.{ .viewport = .{} }).?;
@@ -1252,13 +1204,15 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 self.cells_viewport = viewport_pin;
 
                 break :critical .{
-                    .bg = self.background_color orelse self.default_background_color,
+                    .bg = bg,
+                    .fg = fg,
                     .screen = screen_copy,
                     .screen_type = state.terminal.active_screen,
                     .mouse = state.mouse,
                     .preedit = preedit,
+                    .cursor_color = state.terminal.colors.cursor.get(),
                     .cursor_style = cursor_style,
-                    .color_palette = state.terminal.color_palette.colors,
+                    .color_palette = state.terminal.colors.palette.current,
                     .scrollbar = scrollbar,
                     .full_rebuild = full_rebuild,
                 };
@@ -1277,6 +1231,9 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 critical.preedit,
                 critical.cursor_style,
                 &critical.color_palette,
+                critical.bg,
+                critical.fg,
+                critical.cursor_color,
             );
 
             // Notify our shaper we're done for the frame. For some shapers,
@@ -2104,11 +2061,6 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             self.uniforms.bools.use_linear_blending = config.blending.isLinear();
             self.uniforms.bools.use_linear_correction = config.blending == .@"linear-corrected";
 
-            // Set our new colors
-            self.default_background_color = config.background;
-            self.default_foreground_color = config.foreground;
-            self.default_cursor_color = config.cursor_color;
-
             const bg_image_config_changed =
                 self.config.bg_image_fit != config.bg_image_fit or
                 self.config.bg_image_position != config.bg_image_position or
@@ -2370,6 +2322,9 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             preedit: ?renderer.State.Preedit,
             cursor_style_: ?renderer.CursorStyle,
             color_palette: *const terminal.color.Palette,
+            background: terminal.color.RGB,
+            foreground: terminal.color.RGB,
+            terminal_cursor_color: ?terminal.color.RGB,
         ) !void {
             self.draw_mutex.lock();
             defer self.draw_mutex.unlock();
@@ -2503,12 +2458,12 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     .extend => if (y == 0) {
                         self.uniforms.padding_extend.up = !row.neverExtendBg(
                             color_palette,
-                            self.background_color orelse self.default_background_color,
+                            background,
                         );
                     } else if (y == self.cells.size.rows - 1) {
                         self.uniforms.padding_extend.down = !row.neverExtendBg(
                             color_palette,
-                            self.background_color orelse self.default_background_color,
+                            background,
                         );
                     },
                 }
@@ -2629,7 +2584,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     // configuration, inversions, selections, etc.
                     const bg_style = style.bg(cell, color_palette);
                     const fg_style = style.fg(.{
-                        .default = self.foreground_color orelse self.default_foreground_color,
+                        .default = foreground,
                         .palette = color_palette,
                         .bold = self.config.bold_color,
                     });
@@ -2649,7 +2604,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
                             // If no configuration, then our selection background
                             // is our foreground color.
-                            break :bg self.foreground_color orelse self.default_foreground_color;
+                            break :bg foreground;
                         }
 
                         // Not selected
@@ -2671,9 +2626,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     const fg = fg: {
                         // Our happy-path non-selection background color
                         // is our style or our configured defaults.
-                        const final_bg = bg_style orelse
-                            self.background_color orelse
-                            self.default_background_color;
+                        const final_bg = bg_style orelse background;
 
                         // Whether we need to use the bg color as our fg color:
                         // - Cell is selected, inverted, and set to cell-foreground
@@ -2689,7 +2642,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                                 };
                             }
 
-                            break :fg self.background_color orelse self.default_background_color;
+                            break :fg background;
                         }
 
                         break :fg if (style.flags.inverse)
@@ -2703,7 +2656,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
                     // Set the cell's background color.
                     {
-                        const rgb = bg orelse self.background_color orelse self.default_background_color;
+                        const rgb = bg orelse background;
 
                         // Determine our background alpha. If we have transparency configured
                         // then this is dynamic depending on some situations. This is all
@@ -2888,24 +2841,24 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 const style = cursor_style_ orelse break :cursor;
                 const cursor_color = cursor_color: {
                     // If an explicit cursor color was set by OSC 12, use that.
-                    if (self.cursor_color) |v| break :cursor_color v;
+                    if (terminal_cursor_color) |v| break :cursor_color v;
 
                     // Use our configured color if specified
-                    if (self.default_cursor_color) |v| switch (v) {
+                    if (self.config.cursor_color) |v| switch (v) {
                         .color => |color| break :cursor_color color.toTerminalRGB(),
                         inline .@"cell-foreground",
                         .@"cell-background",
                         => |_, tag| {
                             const sty = screen.cursor.page_pin.style(screen.cursor.page_cell);
                             const fg_style = sty.fg(.{
-                                .default = self.foreground_color orelse self.default_foreground_color,
+                                .default = foreground,
                                 .palette = color_palette,
                                 .bold = self.config.bold_color,
                             });
                             const bg_style = sty.bg(
                                 screen.cursor.page_cell,
                                 color_palette,
-                            ) orelse self.background_color orelse self.default_background_color;
+                            ) orelse background;
 
                             break :cursor_color switch (tag) {
                                 .color => unreachable,
@@ -2915,7 +2868,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                         },
                     };
 
-                    break :cursor_color self.foreground_color orelse self.default_foreground_color;
+                    break :cursor_color foreground;
                 };
 
                 self.addCursor(screen, style, cursor_color);
@@ -2950,11 +2903,14 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
                         const sty = screen.cursor.page_pin.style(screen.cursor.page_cell);
                         const fg_style = sty.fg(.{
-                            .default = self.foreground_color orelse self.default_foreground_color,
+                            .default = foreground,
                             .palette = color_palette,
                             .bold = self.config.bold_color,
                         });
-                        const bg_style = sty.bg(screen.cursor.page_cell, color_palette) orelse self.background_color orelse self.default_background_color;
+                        const bg_style = sty.bg(
+                            screen.cursor.page_cell,
+                            color_palette,
+                        ) orelse background;
 
                         break :blk switch (txt) {
                             // If the cell is reversed, use the opposite cell color instead.
@@ -2962,7 +2918,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                             .@"cell-background" => if (sty.flags.inverse) fg_style else bg_style,
                             else => unreachable,
                         };
-                    } else self.background_color orelse self.default_background_color;
+                    } else background;
 
                     self.uniforms.cursor_color = .{
                         uniform_color.r,
@@ -2978,7 +2934,12 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 const range = preedit_range.?;
                 var x = range.x[0];
                 for (preedit_v.codepoints[range.cp_offset..]) |cp| {
-                    self.addPreeditCell(cp, .{ .x = x, .y = range.y }) catch |err| {
+                    self.addPreeditCell(
+                        cp,
+                        .{ .x = x, .y = range.y },
+                        background,
+                        foreground,
+                    ) catch |err| {
                         log.warn("error building preedit cell, will be invalid x={} y={}, err={}", .{
                             x,
                             range.y,
@@ -3253,10 +3214,12 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             self: *Self,
             cp: renderer.State.Preedit.Codepoint,
             coord: terminal.Coordinate,
+            screen_bg: terminal.color.RGB,
+            screen_fg: terminal.color.RGB,
         ) !void {
             // Preedit is rendered inverted
-            const bg = self.foreground_color orelse self.default_foreground_color;
-            const fg = self.background_color orelse self.default_background_color;
+            const bg = screen_fg;
+            const fg = screen_bg;
 
             // Render the glyph for our preedit text
             const render_ = self.font_grid.renderCodepoint(
