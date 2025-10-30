@@ -31,7 +31,7 @@ pub fn main() !void {
     // Use TerminalFormatter to emit HTML
     const formatter: ghostty_vt.formatter.TerminalFormatter = .init(&t, .{
         .emit = .html,
-        .palette = &t.color_palette.colors,
+        .palette = &t.colors.palette.current,
     });
 
     // Write to stdout
