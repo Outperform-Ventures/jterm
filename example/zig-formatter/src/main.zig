@@ -38,4 +38,5 @@ pub fn main() !void {
     var stdout_writer = std.fs.File.stdout().writer(&buf);
     const stdout = &stdout_writer.interface;
     try stdout.print("{f}", .{formatter});
+    try stdout.flush();
 }

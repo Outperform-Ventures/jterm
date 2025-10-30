@@ -74,6 +74,11 @@ pub const Options = struct {
     /// is currently only space characters (0x20).
     trim: bool = true,
 
+    /// Set a background and foreground color to use for the "screen".
+    /// For styled formats, this will emit the proper sequences or styles.
+    background: ?color.RGB = null,
+    foreground: ?color.RGB = null,
+
     /// If set, then styled formats in `emit` will use this palette to
     /// emit colors directly as RGB. If this is null, styled formats will
     /// still work but will use deferred palette styling (e.g. CSS variables
@@ -902,14 +907,66 @@ pub const PageFormatter = struct {
         }
 
         // Wrap HTML output in monospace font styling
-        if (self.opts.emit == .html) {
-            const monospace = "<div style=\"font-family: monospace; white-space: pre;\">";
-            try writer.writeAll(monospace);
-            if (self.point_map) |*map| map.map.appendNTimes(
-                map.alloc,
-                .{ .x = 0, .y = 0 },
-                monospace.len,
-            ) catch return error.WriteFailed;
+        switch (self.opts.emit) {
+            .plain => {},
+
+            .html => {
+                // Setup our div. We use a buffer here that should always
+                // fit the stuff we need, in order to make counting bytes easier.
+                var buf: [1024]u8 = undefined;
+                var stream = std.io.fixedBufferStream(&buf);
+                const buf_writer = stream.writer();
+
+                // Monospace and whitespace preserving
+                buf_writer.writeAll("<div style=\"font-family: monospace; white-space: pre;") catch return error.WriteFailed;
+
+                // Background/foreground colors
+                if (self.opts.background) |bg| buf_writer.print(
+                    "background-color: #{x:0>2}{x:0>2}{x:0>2};",
+                    .{ bg.r, bg.g, bg.b },
+                ) catch return error.WriteFailed;
+                if (self.opts.foreground) |fg| buf_writer.print(
+                    "color: #{x:0>2}{x:0>2}{x:0>2};",
+                    .{ fg.r, fg.g, fg.b },
+                ) catch return error.WriteFailed;
+
+                buf_writer.writeAll("\">") catch return error.WriteFailed;
+
+                const header = stream.getWritten();
+                try writer.writeAll(header);
+                if (self.point_map) |*map| map.map.appendNTimes(
+                    map.alloc,
+                    .{ .x = 0, .y = 0 },
+                    header.len,
+                ) catch return error.WriteFailed;
+            },
+
+            .vt => {
+                // OSC 10 sets foreground color, OSC 11 sets background color
+                var buf: [512]u8 = undefined;
+                var stream = std.io.fixedBufferStream(&buf);
+                const buf_writer = stream.writer();
+                if (self.opts.foreground) |fg| {
+                    buf_writer.print(
+                        "\x1b]10;rgb:{x:0>2}/{x:0>2}/{x:0>2}\x1b\\",
+                        .{ fg.r, fg.g, fg.b },
+                    ) catch return error.WriteFailed;
+                }
+                if (self.opts.background) |bg| {
+                    buf_writer.print(
+                        "\x1b]11;rgb:{x:0>2}/{x:0>2}/{x:0>2}\x1b\\",
+                        .{ bg.r, bg.g, bg.b },
+                    ) catch return error.WriteFailed;
+                }
+
+                const header = stream.getWritten();
+                try writer.writeAll(header);
+                if (self.point_map) |*map| map.map.appendNTimes(
+                    map.alloc,
+                    .{ .x = 0, .y = 0 },
+                    header.len,
+                ) catch return error.WriteFailed;
+            },
         }
 
         // Our style for non-plain formats
@@ -3073,6 +3130,43 @@ test "Page VT with foreground color" {
     );
 }
 
+test "Page VT with background and foreground colors" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    var t = try Terminal.init(alloc, .{
+        .cols = 80,
+        .rows = 24,
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+
+    try s.nextSlice("hello");
+
+    const pages = &t.screen.pages;
+    const page = &pages.pages.last.?.data;
+
+    var formatter: PageFormatter = .init(page, .{
+        .emit = .vt,
+        .background = .{ .r = 0x12, .g = 0x34, .b = 0x56 },
+        .foreground = .{ .r = 0xab, .g = 0xcd, .b = 0xef },
+    });
+
+    try formatter.format(&builder.writer);
+    const output = builder.writer.buffered();
+
+    // Should emit OSC 10 for foreground, OSC 11 for background, then the text
+    try testing.expectEqualStrings(
+        "\x1b]10;rgb:ab/cd/ef\x1b\\\x1b]11;rgb:12/34/56\x1b\\hello",
+        output,
+    );
+}
+
 test "Page VT multi-line with styles" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -4864,6 +4958,41 @@ test "TerminalFormatter html with palette" {
     try testing.expect(std.mem.indexOf(u8, output, "--vt-palette-255: #ff00ff;") != null);
     try testing.expect(std.mem.indexOf(u8, output, "}</style>") != null);
     try testing.expect(std.mem.indexOf(u8, output, "test") != null);
+}
+
+test "Page html with background and foreground colors" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    var t = try Terminal.init(alloc, .{
+        .cols = 80,
+        .rows = 24,
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+
+    try s.nextSlice("hello");
+
+    const pages = &t.screen.pages;
+    const page = &pages.pages.last.?.data;
+    var formatter: PageFormatter = .init(page, .{
+        .emit = .html,
+        .background = .{ .r = 0x12, .g = 0x34, .b = 0x56 },
+        .foreground = .{ .r = 0xab, .g = 0xcd, .b = 0xef },
+    });
+
+    try formatter.format(&builder.writer);
+    const output = builder.writer.buffered();
+
+    try testing.expectEqualStrings(
+        "<div style=\"font-family: monospace; white-space: pre;background-color: #123456;color: #abcdef;\">hello</div>",
+        output,
+    );
 }
 
 test "Page html with escaping" {
