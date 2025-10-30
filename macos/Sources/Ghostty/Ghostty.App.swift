@@ -383,6 +383,11 @@ extension Ghostty {
             }
             guard !contentArray.isEmpty else { return }
             
+            // Assert there is only one text/plain entry. For security reasons we need
+            // to guarantee this for now since our confirmation dialog only shows one.
+            assert(contentArray.filter({ $0.mime == "text/plain" }).count <= 1,
+                   "clipboard contents should have at most one text/plain entry")
+            
             if !confirm {
                 // Declare all types
                 let types = contentArray.compactMap { item in
