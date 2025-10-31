@@ -676,6 +676,10 @@ extension Ghostty {
                     return true
                 }
                 
+            case .html:
+                // The extension will be HTML and we do the right thing automatically.
+                break
+                
             case .unknown:
                 break
             }

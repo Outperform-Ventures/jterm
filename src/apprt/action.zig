@@ -724,6 +724,9 @@ pub const OpenUrl = struct {
         /// should try to open the URL in a text editor or viewer or
         /// some equivalent, if possible.
         text,
+
+        /// The URL is known to contain HTML content.
+        html,
     };
 
     // Sync with: ghostty_action_open_url_s

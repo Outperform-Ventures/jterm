@@ -5280,14 +5280,24 @@ const WriteScreenLoc = enum {
 fn writeScreenFile(
     self: *Surface,
     loc: WriteScreenLoc,
-    write_action: input.Binding.Action.WriteScreenAction,
+    write_screen: input.Binding.Action.WriteScreen,
 ) !void {
     // Create a temporary directory to store our scrollback.
     var tmp_dir = try internal_os.TempDir.init();
     errdefer tmp_dir.deinit();
 
     var filename_buf: [std.fs.max_path_bytes]u8 = undefined;
-    const filename = try std.fmt.bufPrint(&filename_buf, "{s}.txt", .{@tagName(loc)});
+    const filename = try std.fmt.bufPrint(
+        &filename_buf,
+        "{s}.{s}",
+        .{
+            @tagName(loc),
+            switch (write_screen.emit) {
+                .plain, .vt => "txt",
+                .html => "html",
+            },
+        },
+    );
 
     // Open our scrollback file
     var file = try tmp_dir.dir.createFile(
@@ -5347,18 +5357,24 @@ fn writeScreenFile(
             return;
         };
 
-        // Use topLeft and bottomRight to ensure correct coordinate ordering
-        const tl = sel.topLeft(&self.io.terminal.screen);
-        const br = sel.bottomRight(&self.io.terminal.screen);
-
-        try self.io.terminal.screen.dumpString(
-            buf_writer,
-            .{
-                .tl = tl,
-                .br = br,
-                .unwrap = true,
+        const ScreenFormatter = terminal.formatter.ScreenFormatter;
+        var formatter: ScreenFormatter = .init(&self.io.terminal.screen, .{
+            .emit = switch (write_screen.emit) {
+                .plain => .plain,
+                .vt => .vt,
+                .html => .html,
             },
-        );
+            .unwrap = true,
+            .trim = false,
+            .background = self.io.terminal.colors.background.get(),
+            .foreground = self.io.terminal.colors.foreground.get(),
+            .palette = &self.io.terminal.colors.palette.current,
+        });
+        formatter.content = .{ .selection = sel.ordered(
+            &self.io.terminal.screen,
+            .forward,
+        ) };
+        try formatter.format(buf_writer);
     }
     try buf_writer.flush();
 
@@ -5366,7 +5382,7 @@ fn writeScreenFile(
     var path_buf: [std.fs.max_path_bytes]u8 = undefined;
     const path = try tmp_dir.dir.realpath(filename, &path_buf);
 
-    switch (write_action) {
+    switch (write_screen.action) {
         .copy => {
             const pathZ = try self.alloc.dupeZ(u8, path);
             defer self.alloc.free(pathZ);
@@ -5375,7 +5391,13 @@ fn writeScreenFile(
                 .data = pathZ,
             }}, false);
         },
-        .open => try self.openUrl(.{ .kind = .text, .url = path }),
+        .open => try self.openUrl(.{
+            .kind = switch (write_screen.emit) {
+                .plain, .vt => .text,
+                .html => .html,
+            },
+            .url = path,
+        }),
         .paste => self.io.queueMessage(try termio.Message.writeReq(
             self.alloc,
             path,
