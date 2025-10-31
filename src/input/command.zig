@@ -124,10 +124,18 @@ fn actionCommands(action: Action.Key) []const Command {
         .copy_to_clipboard => comptime &.{ .{
             .action = .{ .copy_to_clipboard = .mixed },
             .title = "Copy to Clipboard",
-            .description = "Copy the selected text to the clipboard.",
+            .description = "Copy the selected text to the clipboard in both plain and styled formats.",
+        }, .{
+            .action = .{ .copy_to_clipboard = .plain },
+            .title = "Copy Selection as Plain Text to Clipboard",
+            .description = "Copy the selected text as plain text to the clipboard.",
+        }, .{
+            .action = .{ .copy_to_clipboard = .vt },
+            .title = "Copy Selection as ANSI Sequences to Clipboard",
+            .description = "Copy the selected text as ANSI escape sequences to the clipboard.",
         }, .{
             .action = .{ .copy_to_clipboard = .html },
-            .title = "Copy HTML to Clipboard",
+            .title = "Copy Selection as HTML to Clipboard",
             .description = "Copy the selected text as HTML to the clipboard.",
         } },
 
