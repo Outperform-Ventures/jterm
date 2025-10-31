@@ -19,6 +19,7 @@ class SurfaceScrollView: NSView {
     private var observers: [NSObjectProtocol] = []
     private var cancellables: Set<AnyCancellable> = []
     private var isLiveScrolling = false
+    private var currentScrollbar: Ghostty.Action.Scrollbar? = nil
     
     /// The last row position sent via scroll_to_row action. Used to avoid
     /// sending redundant actions when the user drags the scrollbar but stays
@@ -174,19 +175,11 @@ class SurfaceScrollView: NSView {
             }
         }
         
-        // Keep document width synchronized with content width, and
-        // recalculate the height of the document view to account for the
-        // change in padding around the cell grid due to the resize.
-        var documentHeight = documentView.frame.height
-        let cellHeight = surfaceView.cellSize.height
-        if cellHeight > 0 {
-            let oldPadding = fmod(documentHeight, cellHeight)
-            let newPadding = fmod(contentSize.height, cellHeight)
-            documentHeight += newPadding - oldPadding
-        }
+        // Keep document width synchronized with content width, and update the
+        // document height as appropriate for the current surface size.
         documentView.setFrameSize(CGSize(
             width: contentSize.width,
-            height: documentHeight
+            height: documentHeight(currentScrollbar),
         ))
         
         // Inform the actual pty of our size change. This doesn't change the actual view
@@ -262,21 +255,18 @@ class SurfaceScrollView: NSView {
         guard let scrollbar = notification.userInfo?[SwiftUI.Notification.Name.ScrollbarKey] as? Ghostty.Action.Scrollbar else {
             return
         }
+        currentScrollbar = scrollbar
         
         // Convert row units to pixels using cell height, ignore zero height.
         let cellHeight = surfaceView.cellSize.height
         guard cellHeight > 0 else { return }
 
-        // The full document height must include the vertical padding around the cell
-        // grid, otherwise the content view ends up misaligned with the surface.
-        let documentGridHeight = CGFloat(scrollbar.total) * cellHeight
-        let padding = fmod(scrollView.contentSize.height, cellHeight)
-        let documentHeight = documentGridHeight + padding
-
         // Our width should be the content width to account for visible scrollers.
         // We don't do horizontal scrolling in terminals.
-        let newSize = CGSize(width: scrollView.contentSize.width, height: documentHeight)
-        documentView.setFrameSize(newSize)
+        documentView.setFrameSize(CGSize(
+            width: scrollView.contentSize.width,
+            height: documentHeight(scrollbar),
+        ))
         
         // Only update our actual scroll position if we're not actively scrolling.
         if !isLiveScrolling {
@@ -291,5 +281,20 @@ class SurfaceScrollView: NSView {
         
         // Always update our scrolled view with the latest dimensions
         scrollView.reflectScrolledClipView(scrollView.contentView)
+    }
+
+    /// Calculate the appropriate document view height given a scrollbar state
+    private func documentHeight(_ scrollbar: Ghostty.Action.Scrollbar?) -> CGFloat {
+        let contentHeight = scrollView.contentSize.height
+        let cellHeight = surfaceView.cellSize.height
+        if cellHeight > 0, let scrollbar = scrollbar {
+            // The document view must have the same vertical padding around the
+            // scrollback grid as the content view has around the terminal grid
+            // otherwise the content view loses alignment with the surface.
+            let documentGridHeight = CGFloat(scrollbar.total) * cellHeight
+            let padding = contentHeight - (CGFloat(scrollbar.len) * cellHeight)
+            return documentGridHeight + padding
+        }
+        return contentHeight
     }
 }
