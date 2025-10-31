@@ -45,11 +45,14 @@ extension Ghostty.Action {
         enum Kind {
             case unknown
             case text
+            case html
             
             init(_ c: ghostty_action_open_url_kind_e) {
                 switch c {
                 case GHOSTTY_ACTION_OPEN_URL_KIND_TEXT:
                     self = .text
+                case GHOSTTY_ACTION_OPEN_URL_KIND_HTML:
+                    self = .html
                 default:
                     self = .unknown
                 }
