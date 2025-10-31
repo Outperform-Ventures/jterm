@@ -1263,7 +1263,18 @@ pub const PageFormatter = struct {
                     '&' => try writer.writeAll("&amp;"),
                     '"' => try writer.writeAll("&quot;"),
                     '\'' => try writer.writeAll("&#39;"),
-                    else => try writer.print("{u}", .{codepoint}),
+                    else => {
+                        // For HTML, emit ASCII (< 0x80) directly, but encode
+                        // all non-ASCII as numeric entities to avoid encoding
+                        // detection issues (fixes #9426). We can't set the
+                        // meta tag because we emit partial HTML so this ensures
+                        // proper unicode handling.
+                        if (codepoint < 0x80) {
+                            try writer.print("{u}", .{codepoint});
+                        } else {
+                            try writer.print("&#{d};", .{codepoint});
+                        }
+                    },
                 }
             },
         }
@@ -5063,6 +5074,104 @@ test "Page html with escaping" {
     try testing.expectEqual(Coordinate{ .x = 10, .y = 0 }, point_map.items[offset + 29]);
     // t (1 byte) -> x=11
     try testing.expectEqual(Coordinate{ .x = 11, .y = 0 }, point_map.items[offset + 30]);
+}
+
+test "Page html with unicode as numeric entities" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    var t = try Terminal.init(alloc, .{
+        .cols = 80,
+        .rows = 24,
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+
+    // Box drawing characters that caused issue #9426
+    try s.nextSlice("╰─ ❯");
+
+    const pages = &t.screen.pages;
+    const page = &pages.pages.last.?.data;
+    var formatter: PageFormatter = .init(page, .{ .emit = .html });
+
+    try formatter.format(&builder.writer);
+    const output = builder.writer.buffered();
+
+    // Expected: box drawing chars as numeric entities
+    // ╰ = U+2570 = 9584, ─ = U+2500 = 9472, ❯ = U+276F = 10095
+    try testing.expectEqualStrings(
+        "<div style=\"font-family: monospace; white-space: pre;\">&#9584;&#9472; &#10095;</div>",
+        output,
+    );
+}
+
+test "Page html ascii characters unchanged" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    var t = try Terminal.init(alloc, .{
+        .cols = 80,
+        .rows = 24,
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+
+    try s.nextSlice("hello world");
+
+    const pages = &t.screen.pages;
+    const page = &pages.pages.last.?.data;
+    var formatter: PageFormatter = .init(page, .{ .emit = .html });
+
+    try formatter.format(&builder.writer);
+    const output = builder.writer.buffered();
+
+    // ASCII should be emitted directly
+    try testing.expectEqualStrings(
+        "<div style=\"font-family: monospace; white-space: pre;\">hello world</div>",
+        output,
+    );
+}
+
+test "Page html mixed ascii and unicode" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    var t = try Terminal.init(alloc, .{
+        .cols = 80,
+        .rows = 24,
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+
+    try s.nextSlice("test ╰─❯ ok");
+
+    const pages = &t.screen.pages;
+    const page = &pages.pages.last.?.data;
+    var formatter: PageFormatter = .init(page, .{ .emit = .html });
+
+    try formatter.format(&builder.writer);
+    const output = builder.writer.buffered();
+
+    // Mix of ASCII and Unicode entities
+    try testing.expectEqualStrings(
+        "<div style=\"font-family: monospace; white-space: pre;\">test &#9584;&#9472;&#10095; ok</div>",
+        output,
+    );
 }
 
 test "Page VT with palette option emits RGB" {
