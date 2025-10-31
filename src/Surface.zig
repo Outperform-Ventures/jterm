@@ -1962,7 +1962,7 @@ fn copySelectionToClipboards(
 ) !void {
     // Create an arena to simplify memory management here.
     var arena = ArenaAllocator.init(self.alloc);
-    errdefer arena.deinit();
+    defer arena.deinit();
     const alloc = arena.allocator();
 
     // The options we'll use for all formatting. We'll just override the
