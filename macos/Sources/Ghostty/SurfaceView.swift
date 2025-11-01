@@ -407,8 +407,8 @@ extension Ghostty {
         }
 
         func updateOSView(_ scrollView: SurfaceScrollView, context: Context) {
-            // Our scrollview always takes up the full size.
-            scrollView.frame.size = size
+            // Nothing to do: SwiftUI automatically updates the frame size, and
+            // SurfaceScrollView handles the rest in response to that
         }
         #else
         func makeOSView(context: Context) -> SurfaceView {
