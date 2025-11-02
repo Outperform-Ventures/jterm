@@ -107,10 +107,10 @@
       overlays = {
         default = self.overlays.releasefast;
         releasefast = final: prev: {
-          ghostty = self.packages.${prev.system}.ghostty-releasefast;
+          ghostty = self.packages.${prev.stdenv.hostPlatform.system}.ghostty-releasefast;
         };
         debug = final: prev: {
-          ghostty = self.packages.${prev.system}.ghostty-debug;
+          ghostty = self.packages.${prev.stdenv.hostPlatform.system}.ghostty-debug;
         };
       };
       create-vm = import ./nix/vm/create.nix;
