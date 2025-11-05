@@ -3330,6 +3330,35 @@ test "Terminal: print multicodepoint grapheme, mode 2027" {
     }
 }
 
+test "Terminal: Fitzpatrick skin tone next valid base" {
+    var t = try init(testing.allocator, .{ .cols = 80, .rows = 80 });
+    defer t.deinit(testing.allocator);
+
+    // Enable grapheme clustering
+    t.modes.set(.grapheme_cluster, true);
+
+    // This is: "👋🏿" (waving hand with dark skin tone)
+    try t.print(0x1F44B); // 👋 Waving hand (valid base)
+    try t.print(0x1F3FF); // 🏿 Dark skin tone modifier
+
+    // The skin tone should combine with the base emoji into a single grapheme cluster,
+    // taking 2 cells (wide character).
+    try testing.expectEqual(@as(usize, 0), t.screen.cursor.y);
+    try testing.expectEqual(@as(usize, 2), t.screen.cursor.x);
+
+    // Row should be dirty
+    try testing.expect(t.isDirty(.{ .screen = .{ .x = 0, .y = 0 } }));
+
+    // The base emoji should be in cell 0 with the skin tone as a grapheme
+    {
+        const list_cell = t.screen.pages.getCell(.{ .screen = .{ .x = 0, .y = 0 } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(@as(u21, 0x1F44B), cell.content.codepoint);
+        try testing.expect(cell.hasGrapheme());
+        try testing.expectEqual(Cell.Wide.wide, cell.wide);
+    }
+}
+
 test "Terminal: Fitzpatrick skin tone next to non-base" {
     var t = try init(testing.allocator, .{ .cols = 80, .rows = 80 });
     defer t.deinit(testing.allocator);

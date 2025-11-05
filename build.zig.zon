@@ -39,8 +39,8 @@
         },
         .uucode = .{
             // TODO: currently the use-llvm branch because its broken on self-hosted
-            .url = "https://deps.files.ghostty.org/uucode-f81f8ef8518b8ec5a7fca30ec5fdbc76cc6197df.tar.gz",
-            .hash = "uucode-0.1.0-ZZjBPjQHQADuCy1VMWftjrMl3iWqgMpUugWVQJG6_7xT",
+            .url = "https://github.com/jacobsandlund/uucode/archive/ca307fdeb7eca5c2812b288cdd5650e66b3115eb.tar.gz",
+            .hash = "uucode-0.1.0-ZZjBPkxTQwCphlTjg-UtY_TzztJy_TZqDL-S2nymmBXY",
         },
         .zig_wayland = .{
             // codeberg ifreund/zig-wayland
