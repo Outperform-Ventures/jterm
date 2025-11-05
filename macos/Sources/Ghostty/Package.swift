@@ -318,7 +318,7 @@ extension Ghostty {
     }
 
     /// macos-icon
-    enum MacOSIcon: String {
+    enum MacOSIcon: String, Sendable {
         case official
         case blueprint
         case chalkboard

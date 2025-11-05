@@ -119,19 +119,7 @@ class AppDelegate: NSObject,
     private var signals: [DispatchSourceSignal] = []
 
     /// The custom app icon image that is currently in use.
-    @Published private(set) var appIcon: NSImage? = nil {
-        didSet {
-#if DEBUG
-            // if no custom icon specified, we use blueprint to distinguish from release app
-            NSApplication.shared.applicationIconImage = appIcon ?? NSImage(named: "BlueprintImage")
-#else
-            NSApplication.shared.applicationIconImage = appIcon
-#endif
-            let appPath = Bundle.main.bundlePath
-            NSWorkspace.shared.setIcon(appIcon, forFile: appPath, options: [])
-            NSWorkspace.shared.noteFileSystemChanged(appPath)
-        }
-    }
+    @Published private(set) var appIcon: NSImage? = nil
 
     override init() {
         super.init()
@@ -874,48 +862,53 @@ class AppDelegate: NSObject,
         } else {
             GlobalEventTap.shared.disable()
         }
+        Task {
+            await updateAppIcon(from: config)
+        }
     }
 
     /// Sync the appearance of our app with the theme specified in the config.
     private func syncAppearance(config: Ghostty.Config) {
         NSApplication.shared.appearance = .init(ghosttyConfig: config)
-        
+    }
+
+    @concurrent
+    private func updateAppIcon(from config: Ghostty.Config) async  {
+        var appIcon: NSImage?
+
         switch (config.macosIcon) {
         case .official:
-            self.appIcon = nil
             break
-
         case .blueprint:
-            self.appIcon = NSImage(named: "BlueprintImage")!
+            appIcon = NSImage(named: "BlueprintImage")!
 
         case .chalkboard:
-            self.appIcon = NSImage(named: "ChalkboardImage")!
+            appIcon = NSImage(named: "ChalkboardImage")!
 
         case .glass:
-            self.appIcon = NSImage(named: "GlassImage")!
+            appIcon = NSImage(named: "GlassImage")!
 
         case .holographic:
-            self.appIcon = NSImage(named: "HolographicImage")!
+            appIcon = NSImage(named: "HolographicImage")!
 
         case .microchip:
-            self.appIcon = NSImage(named: "MicrochipImage")!
+            appIcon = NSImage(named: "MicrochipImage")!
 
         case .paper:
-            self.appIcon = NSImage(named: "PaperImage")!
+            appIcon = NSImage(named: "PaperImage")!
 
         case .retro:
-            self.appIcon = NSImage(named: "RetroImage")!
+            appIcon = NSImage(named: "RetroImage")!
 
         case .xray:
-            self.appIcon = NSImage(named: "XrayImage")!
+            appIcon = NSImage(named: "XrayImage")!
 
         case .custom:
             if let userIcon = NSImage(contentsOfFile: config.macosCustomIcon) {
-                self.appIcon = userIcon
+                appIcon = userIcon
             } else {
-                self.appIcon = nil // Revert back to official icon if invalid location
+                appIcon = nil // Revert back to official icon if invalid location
             }
-
         case .customStyle:
             guard let ghostColor = config.macosIconGhostColor else { break }
             guard let screenColors = config.macosIconScreenColor else { break }
@@ -924,7 +917,26 @@ class AppDelegate: NSObject,
                 ghostColor: ghostColor,
                 frame: config.macosIconFrame
             ).makeImage() else { break }
-            self.appIcon = icon
+            appIcon = icon
+        }
+        // make it immutable, so Swift 6 won't complain
+        let newIcon = appIcon
+
+        let appPath = Bundle.main.bundlePath
+        NSWorkspace.shared.setIcon(newIcon, forFile: appPath, options: [])
+        NSWorkspace.shared.noteFileSystemChanged(appPath)
+
+        await MainActor.run {
+            self.appIcon = newIcon
+#if DEBUG
+            // if no custom icon specified, we use blueprint to distinguish from release app
+            NSApplication.shared.applicationIconImage = newIcon ?? NSImage(named: "BlueprintImage")
+            // Changing the app bundle's icon will corrupt code signing.
+            // We only use the default blueprint icon for the dock,
+            // so developers don't need to clean and re-build every time.
+#else
+            NSApplication.shared.applicationIconImage = newIcon
+#endif
         }
     }
 
