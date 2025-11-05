@@ -1,4 +1,5 @@
 const std = @import("std");
+const assert = std.debug.assert;
 const config = @import("config.zig");
 const config_x = @import("config.x.zig");
 const d = config.default;
@@ -17,11 +18,25 @@ fn computeWidth(
     _ = cp;
     _ = backing;
     _ = tracking;
+
+    // Emoji modifiers are technically width 0 because they're joining
+    // points. But we handle joining via grapheme break and don't use width
+    // there. If a emoji modifier is standalone, we want it to take up
+    // two columns.
+    if (data.is_emoji_modifier) {
+        assert(data.wcwidth == 0);
+        data.wcwidth = 2;
+        return;
+    }
+
     data.width = @intCast(@min(2, @max(0, data.wcwidth)));
 }
 
 const width = config.Extension{
-    .inputs = &.{"wcwidth"},
+    .inputs = &.{
+        "is_emoji_modifier",
+        "wcwidth",
+    },
     .compute = &computeWidth,
     .fields = &.{
         .{ .name = "width", .type = u2 },
