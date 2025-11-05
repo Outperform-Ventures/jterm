@@ -114,10 +114,10 @@
     "url": "git+https://github.com/jacobsandlund/uucode#5f05f8f83a75caea201f12cc8ea32a2d82ea9732",
     "hash": "sha256-sHPh+TQSdUGus/QTbj7KSJJkTuNTrK4VNmQDjS30Lf8="
   },
-  "uucode-0.1.0-ZZjBPkxTQwCphlTjg-UtY_TzztJy_TZqDL-S2nymmBXY": {
+  "uucode-0.1.0-ZZjBPl_mQwDHQowHOzXwgTPhAqcFekfYpAeUfeHZNCl3": {
     "name": "uucode",
-    "url": "https://github.com/jacobsandlund/uucode/archive/ca307fdeb7eca5c2812b288cdd5650e66b3115eb.tar.gz",
-    "hash": "sha256-AY1JqW7qrWy1+WrlGzL8rHW7mZA6CmYhJVr1sSg19oI="
+    "url": "https://github.com/jacobsandlund/uucode/archive/b309dfb4e25a38201d7b300b201a698e02283862.tar.gz",
+    "hash": "sha256-jvko1MdWr1OG4P58KjdB1JMnWy4EbrO3xIkV8fiQkC0="
   },
   "vaxis-0.5.1-BWNV_LosCQAGmCCNOLljCIw6j6-yt53tji6n6rwJ2BhS": {
     "name": "vaxis",

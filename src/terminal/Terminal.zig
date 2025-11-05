@@ -374,10 +374,20 @@ pub fn print(self: *Terminal, c: u21) !void {
             // the cell width accordingly. VS16 makes the character wide and
             // VS15 makes it narrow.
             if (c == 0xFE0F or c == 0xFE0E) {
-                // This only applies to emoji
+                // This check below isn't robust enough to be correct.
+                // But it is correct enough (the emoji check alone served us
+                // well through Ghostty 1.2.3!) and we can fix it up later.
+
+                // Emoji always allow VS15/16
                 const prev_props = unicode.table.get(prev.cell.content.codepoint);
                 const emoji = prev_props.grapheme_boundary_class.isExtendedPictographic();
-                if (!emoji) return;
+                if (!emoji) valid_check: {
+                    // If not an emoji, check if it is a defined variation
+                    // sequence in emoji-variation-sequences.txt
+                    if (c == 0xFE0F and prev_props.emoji_vs_emoji) break :valid_check;
+                    if (c == 0xFE0E and prev_props.emoji_vs_text) break :valid_check;
+                    return;
+                }
 
                 switch (c) {
                     0xFE0F => wide: {
@@ -3327,6 +3337,64 @@ test "Terminal: print multicodepoint grapheme, mode 2027" {
         try testing.expectEqual(@as(u21, 0), cell.content.codepoint);
         try testing.expect(!cell.hasGrapheme());
         try testing.expectEqual(Cell.Wide.spacer_tail, cell.wide);
+    }
+}
+
+test "Terminal: keypad sequence VS15" {
+    var t = try init(testing.allocator, .{ .cols = 80, .rows = 80 });
+    defer t.deinit(testing.allocator);
+
+    // Enable grapheme clustering
+    t.modes.set(.grapheme_cluster, true);
+
+    // This is: "#︎" (number sign with text presentation selector)
+    try t.print(0x23); // # Number sign (valid base)
+    try t.print(0xFE0E); // VS15 (text presentation selector)
+
+    // VS15 should combine with the base character into a single grapheme cluster,
+    // taking 1 cell (narrow character).
+    try testing.expectEqual(@as(usize, 0), t.screen.cursor.y);
+    try testing.expectEqual(@as(usize, 1), t.screen.cursor.x);
+
+    // Row should be dirty
+    try testing.expect(t.isDirty(.{ .screen = .{ .x = 0, .y = 0 } }));
+
+    // The base emoji should be in cell 0 with the skin tone as a grapheme
+    {
+        const list_cell = t.screen.pages.getCell(.{ .screen = .{ .x = 0, .y = 0 } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(@as(u21, 0x23), cell.content.codepoint);
+        try testing.expect(cell.hasGrapheme());
+        try testing.expectEqual(Cell.Wide.narrow, cell.wide);
+    }
+}
+
+test "Terminal: keypad sequence VS16" {
+    var t = try init(testing.allocator, .{ .cols = 80, .rows = 80 });
+    defer t.deinit(testing.allocator);
+
+    // Enable grapheme clustering
+    t.modes.set(.grapheme_cluster, true);
+
+    // This is: "#️" (number sign with emoji presentation selector)
+    try t.print(0x23); // # Number sign (valid base)
+    try t.print(0xFE0F); // VS16 (emoji presentation selector)
+
+    // VS16 should combine with the base character into a single grapheme cluster,
+    // taking 2 cells (wide character).
+    try testing.expectEqual(@as(usize, 0), t.screen.cursor.y);
+    try testing.expectEqual(@as(usize, 2), t.screen.cursor.x);
+
+    // Row should be dirty
+    try testing.expect(t.isDirty(.{ .screen = .{ .x = 0, .y = 0 } }));
+
+    // The base emoji should be in cell 0 with the skin tone as a grapheme
+    {
+        const list_cell = t.screen.pages.getCell(.{ .screen = .{ .x = 0, .y = 0 } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(@as(u21, 0x23), cell.content.codepoint);
+        try testing.expect(cell.hasGrapheme());
+        try testing.expectEqual(Cell.Wide.wide, cell.wide);
     }
 }
 
