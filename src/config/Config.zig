@@ -3471,7 +3471,7 @@ fn loadReader(self: *Config, alloc: Allocator, reader: *std.Io.Reader, path: []c
         const bom: []const u8 = &.{ 0xef, 0xbb, 0xbf };
         const str = reader.peek(bom.len) catch break :bom;
         if (std.mem.eql(u8, str, bom)) {
-            log.warn("skipping UTF-8 byte order mark", .{});
+            log.info("skipping UTF-8 byte order mark", .{});
             reader.toss(bom.len);
         }
     }
