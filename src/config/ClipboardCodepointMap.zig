@@ -71,28 +71,6 @@ pub fn get(self: *const ClipboardCodepointMap, cp: u21) ?Replacement {
     return null;
 }
 
-/// Hash with the given hasher.
-pub fn hash(self: *const ClipboardCodepointMap, hasher: anytype) void {
-    const autoHash = std.hash.autoHash;
-    autoHash(hasher, self.list.len);
-    const slice = self.list.slice();
-    for (0..slice.len) |i| {
-        const entry = slice.get(i);
-        autoHash(hasher, entry.range);
-        switch (entry.replacement) {
-            .codepoint => |cp| autoHash(hasher, cp),
-            .string => |s| autoHash(hasher, s),
-        }
-    }
-}
-
-/// Returns a hash code that can be used to uniquely identify this
-/// action.
-pub fn hashcode(self: *const ClipboardCodepointMap) u64 {
-    var hasher = std.hash.Wyhash.init(0);
-    self.hash(&hasher);
-    return hasher.final();
-}
 
 test "clipboard codepoint map" {
     const testing = std.testing;
