@@ -139,9 +139,9 @@
   },
   {
     "type": "archive",
-    "url": "https://github.com/jacobsandlund/uucode/archive/ca307fdeb7eca5c2812b288cdd5650e66b3115eb.tar.gz",
-    "dest": "vendor/p/uucode-0.1.0-ZZjBPkxTQwCphlTjg-UtY_TzztJy_TZqDL-S2nymmBXY",
-    "sha256": "018d49a96eeaad6cb5f96ae51b32fcac75bb99903a0a6621255af5b12835f682"
+    "url": "https://github.com/jacobsandlund/uucode/archive/b309dfb4e25a38201d7b300b201a698e02283862.tar.gz",
+    "dest": "vendor/p/uucode-0.1.0-ZZjBPl_mQwDHQowHOzXwgTPhAqcFekfYpAeUfeHZNCl3",
+    "sha256": "8ef928d4c756af5386e0fe7c2a3741d493275b2e046eb3b7c48915f1f890902d"
   },
   {
     "type": "archive",

@@ -92,6 +92,8 @@ pub const tables = [_]config.Table{
             is_symbol.field("is_symbol"),
             d.field("is_emoji_modifier"),
             d.field("is_emoji_modifier_base"),
+            d.field("is_emoji_vs_text"),
+            d.field("is_emoji_vs_emoji"),
         },
     },
 };

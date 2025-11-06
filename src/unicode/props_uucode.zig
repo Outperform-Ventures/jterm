@@ -3,8 +3,8 @@ const std = @import("std");
 const assert = std.debug.assert;
 const uucode = @import("uucode");
 const lut = @import("lut.zig");
-const Properties = @import("Properties.zig");
-const GraphemeBoundaryClass = Properties.GraphemeBoundaryClass;
+const Properties = @import("props.zig").Properties;
+const GraphemeBoundaryClass = @import("props.zig").GraphemeBoundaryClass;
 
 /// Gets the grapheme boundary class for a codepoint.
 /// The use case for this is only in generating lookup tables.
@@ -48,14 +48,18 @@ fn graphemeBoundaryClass(cp: u21) GraphemeBoundaryClass {
 }
 
 pub fn get(cp: u21) Properties {
-    const width = if (cp > uucode.config.max_code_point)
-        1
-    else
-        uucode.get(.width, cp);
+    if (cp > uucode.config.max_code_point) return .{
+        .width = 1,
+        .grapheme_boundary_class = .invalid,
+        .emoji_vs_text = false,
+        .emoji_vs_emoji = false,
+    };
 
     return .{
-        .width = width,
+        .width = uucode.get(.width, cp),
         .grapheme_boundary_class = graphemeBoundaryClass(cp),
+        .emoji_vs_text = uucode.get(.is_emoji_vs_text, cp),
+        .emoji_vs_emoji = uucode.get(.is_emoji_vs_emoji, cp),
     };
 }
 
