@@ -50,8 +50,16 @@
         in {
           devShell.${system} = pkgs.callPackage ./nix/devShell.nix {
             zig = zig.packages.${system}."0.15.2";
-            wraptest = pkgs.callPackage ./nix/wraptest.nix {};
+            wraptest = pkgs.callPackage ./nix/pkgs/wraptest.nix {};
             zon2nix = zon2nix;
+
+            python3 = pkgs.python3.override {
+              self = pkgs.python3;
+              packageOverrides = pyfinal: pyprev: {
+                blessed = pyfinal.callPackage ./nix/pkgs/blessed.nix {};
+                ucs-detect = pyfinal.callPackage ./nix/pkgs/ucs-detect.nix {};
+              };
+            };
           };
 
           packages.${system} = let
