@@ -260,6 +260,7 @@ const DerivedConfig = struct {
     clipboard_trim_trailing_spaces: bool,
     clipboard_paste_protection: bool,
     clipboard_paste_bracketed_safe: bool,
+    clipboard_codepoint_map: configpkg.Config.RepeatableClipboardCodepointMap,
     copy_on_select: configpkg.CopyOnSelect,
     right_click_action: configpkg.RightClickAction,
     confirm_close_surface: configpkg.ConfirmCloseSurface,
@@ -334,6 +335,7 @@ const DerivedConfig = struct {
             .clipboard_trim_trailing_spaces = config.@"clipboard-trim-trailing-spaces",
             .clipboard_paste_protection = config.@"clipboard-paste-protection",
             .clipboard_paste_bracketed_safe = config.@"clipboard-paste-bracketed-safe",
+            .clipboard_codepoint_map = try config.@"clipboard-codepoint-map".clone(alloc),
             .copy_on_select = config.@"copy-on-select",
             .right_click_action = config.@"right-click-action",
             .confirm_close_surface = config.@"confirm-close-surface",
@@ -1954,6 +1956,54 @@ fn clipboardWrite(self: *const Surface, data: []const u8, loc: apprt.Clipboard) 
     };
 }
 
+/// Apply clipboard codepoint mappings to transform text content.
+/// Returns the transformed text, which may be the same as input if no mappings apply.
+fn applyClipboardCodepointMappings(
+    alloc: Allocator,
+    input_text: []const u8,
+    mappings: *const configpkg.Config.RepeatableClipboardCodepointMap,
+) ![]const u8 {
+    // If no mappings configured, return input unchanged
+    if (mappings.map.list.len == 0) {
+        return try alloc.dupe(u8, input_text);
+    }
+
+    // We'll build the output in this list
+    var output: std.ArrayList(u8) = .empty;
+    defer output.deinit(alloc);
+
+    // UTF-8 decode and process each codepoint
+    var iter = std.unicode.Utf8Iterator{ .bytes = input_text, .i = 0 };
+    while (iter.nextCodepoint()) |codepoint| {
+        if (mappings.map.get(codepoint)) |replacement| {
+            switch (replacement) {
+                .codepoint => |cp| {
+                    // Encode the replacement codepoint to UTF-8
+                    var utf8_buf: [4]u8 = undefined;
+                    const len = std.unicode.utf8Encode(cp, &utf8_buf) catch {
+                        // If encoding fails, use original codepoint
+                        const orig_len = std.unicode.utf8Encode(codepoint, &utf8_buf) catch continue;
+                        try output.appendSlice(alloc, utf8_buf[0..orig_len]);
+                        continue;
+                    };
+                    try output.appendSlice(alloc, utf8_buf[0..len]);
+                },
+                .string => |s| {
+                    // Append the replacement string directly
+                    try output.appendSlice(alloc, s);
+                },
+            }
+        } else {
+            // No mapping found, keep original codepoint
+            var utf8_buf: [4]u8 = undefined;
+            const len = std.unicode.utf8Encode(codepoint, &utf8_buf) catch continue;
+            try output.appendSlice(alloc, utf8_buf[0..len]);
+        }
+    }
+
+    return try output.toOwnedSlice(alloc);
+}
+
 fn copySelectionToClipboards(
     self: *Surface,
     sel: terminal.Selection,
@@ -1984,9 +2034,19 @@ fn copySelectionToClipboards(
             var formatter: ScreenFormatter = .init(&self.io.terminal.screen, opts);
             formatter.content = .{ .selection = sel };
             try formatter.format(&aw.writer);
+
+            // Apply clipboard codepoint mappings
+            const original_text = try aw.toOwnedSlice();
+            const transformed_text = try applyClipboardCodepointMappings(
+                alloc,
+                original_text,
+                &self.config.clipboard_codepoint_map,
+            );
+            const transformed_text_z = try alloc.dupeZ(u8, transformed_text);
+
             try contents.append(alloc, .{
                 .mime = "text/plain",
-                .data = try aw.toOwnedSliceSentinel(0),
+                .data = transformed_text_z,
             });
         },
 
@@ -1998,6 +2058,9 @@ fn copySelectionToClipboards(
             });
             formatter.content = .{ .selection = sel };
             try formatter.format(&aw.writer);
+
+            // Note: We don't apply codepoint mappings to VT format since it contains
+            // escape sequences that should be preserved as-is
             try contents.append(alloc, .{
                 .mime = "text/plain",
                 .data = try aw.toOwnedSliceSentinel(0),
@@ -2012,6 +2075,9 @@ fn copySelectionToClipboards(
             });
             formatter.content = .{ .selection = sel };
             try formatter.format(&aw.writer);
+
+            // Note: We don't apply codepoint mappings to HTML format since HTML
+            // has its own character encoding and entity system
             try contents.append(alloc, .{
                 .mime = "text/html",
                 .data = try aw.toOwnedSliceSentinel(0),
@@ -2019,15 +2085,27 @@ fn copySelectionToClipboards(
         },
 
         .mixed => {
+            // First, generate plain text with codepoint mappings applied
             var formatter: ScreenFormatter = .init(&self.io.terminal.screen, opts);
             formatter.content = .{ .selection = sel };
             try formatter.format(&aw.writer);
+
+            // Apply clipboard codepoint mappings to plain text
+            const original_text = try aw.toOwnedSlice();
+            const transformed_text = try applyClipboardCodepointMappings(
+                alloc,
+                original_text,
+                &self.config.clipboard_codepoint_map,
+            );
+            const transformed_text_z = try alloc.dupeZ(u8, transformed_text);
+
             try contents.append(alloc, .{
                 .mime = "text/plain",
-                .data = try aw.toOwnedSliceSentinel(0),
+                .data = transformed_text_z,
             });
 
             assert(aw.written().len == 0);
+            // Second, generate HTML without codepoint mappings
             formatter = .init(&self.io.terminal.screen, opts: {
                 var copy = opts;
                 copy.emit = .html;
@@ -2042,6 +2120,8 @@ fn copySelectionToClipboards(
             });
             formatter.content = .{ .selection = sel };
             try formatter.format(&aw.writer);
+
+            // Note: We don't apply codepoint mappings to HTML format
             try contents.append(alloc, .{
                 .mime = "text/html",
                 .data = try aw.toOwnedSliceSentinel(0),
