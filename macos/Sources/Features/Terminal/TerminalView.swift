@@ -136,6 +136,7 @@ fileprivate struct UpdateOverlay: View {
                         .padding(.trailing, 9)
                 }
             }
+            .frame(maxWidth: .greatestFiniteMagnitude, maxHeight: .greatestFiniteMagnitude)
         }
     }
 }
