@@ -3451,13 +3451,76 @@ pub fn loadFile(self: *Config, alloc: Allocator, path: []const u8) !void {
     };
     defer file.close();
 
+    try self.loadFsFile(alloc, &file, path);
+}
+
+/// Load config from the given File.
+fn loadFsFile(self: *Config, alloc: Allocator, file: *std.fs.File, path: []const u8) !void {
     std.log.info("reading configuration file path={s}", .{path});
     var buf: [2048]u8 = undefined;
     var file_reader = file.reader(&buf);
     const reader = &file_reader.interface;
+    try self.loadReader(alloc, reader, path);
+}
+
+/// Load config from the given Reader.
+fn loadReader(self: *Config, alloc: Allocator, reader: *std.Io.Reader, path: []const u8) !void {
+    bom: {
+        // If the file starts with a UTF-8 byte order mark, skip it.
+        // https://en.wikipedia.org/wiki/Byte_order_mark#UTF-8
+        const bom: []const u8 = &.{ 0xef, 0xbb, 0xbf };
+        const str = reader.peek(bom.len) catch break :bom;
+        if (std.mem.eql(u8, str, bom)) {
+            log.info("skipping UTF-8 byte order mark", .{});
+            reader.toss(bom.len);
+        }
+    }
     var iter: cli.args.LineIterator = .{ .r = reader, .filepath = path };
     try self.loadIter(alloc, &iter);
     try self.expandPaths(std.fs.path.dirname(path).?);
+}
+
+test "handle bom in config files" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    {
+        const data = "\xef\xbb\xbfabnormal-command-exit-runtime = 2500\n";
+        var reader: std.Io.Reader = .fixed(data);
+        var cfg = try Config.default(alloc);
+        defer cfg.deinit();
+        try cfg.loadReader(
+            alloc,
+            &reader,
+            "/home/ghostty/.config/ghostty/config.ghostty",
+        );
+        try cfg.finalize();
+
+        try testing.expect(cfg._diagnostics.empty());
+        try testing.expectEqual(
+            2500,
+            cfg.@"abnormal-command-exit-runtime",
+        );
+    }
+
+    {
+        const data = "abnormal-command-exit-runtime = 2500\n";
+        var reader: std.Io.Reader = .fixed(data);
+        var cfg = try Config.default(alloc);
+        defer cfg.deinit();
+        try cfg.loadReader(
+            alloc,
+            &reader,
+            "/home/ghostty/.config/ghostty/config.ghostty",
+        );
+        try cfg.finalize();
+
+        try testing.expect(cfg._diagnostics.empty());
+        try testing.expectEqual(
+            2500,
+            cfg.@"abnormal-command-exit-runtime",
+        );
+    }
 }
 
 pub const OptionalFileAction = enum { loaded, not_found, @"error" };
@@ -3764,13 +3827,7 @@ pub fn loadRecursiveFiles(self: *Config, alloc_gpa: Allocator) !void {
             },
         }
 
-        log.info("loading config-file path={s}", .{path});
-        var buf: [2048]u8 = undefined;
-        var file_reader = file.reader(&buf);
-        const reader = &file_reader.interface;
-        var iter: cli.args.LineIterator = .{ .r = reader, .filepath = path };
-        try self.loadIter(alloc_gpa, &iter);
-        try self.expandPaths(std.fs.path.dirname(path).?);
+        try self.loadFsFile(arena_alloc, &file, path);
     }
 
     // If we have a suffix, add that back.
