@@ -7,5 +7,4 @@ ucs-detect \
   --limit-codepoints=5000 \
   --limit-words=5000 \
   --limit-errors=1000 \
-  --quick=false \
   --stream=stderr
