@@ -89,6 +89,14 @@ extension Ghostty {
         // then the view is moved to a new window.
         var initialSize: NSSize? = nil
 
+        // A content size received through sizeDidChange that may in some cases
+        // be different from the frame size.
+        private var contentSizeBacking: NSSize?
+        private var contentSize: NSSize {
+            get { return contentSizeBacking ?? frame.size }
+            set { contentSizeBacking = newValue }
+        }
+
         // Set whether the surface is currently on a password input or not. This is
         // detected with the set_password_input_cb on the Ghostty state.
         var passwordInput: Bool = false {
@@ -144,6 +152,9 @@ extension Ghostty {
         var surface: ghostty_surface_t? {
             surfaceModel?.unsafeCValue
         }
+        /// Current scrollbar state, cached here for persistence across rebuilds
+        /// of the SwiftUI view hierarchy, for example when changing splits
+        var scrollbar: Ghostty.Action.Scrollbar?
 
         // Notification identifiers associated with this surface
         var notificationIdentifiers: Set<String> = []
@@ -410,6 +421,8 @@ extension Ghostty {
             // The size represents our final size we're going for.
             let scaledSize = self.convertToBacking(size)
             setSurfaceSize(width: UInt32(scaledSize.width), height: UInt32(scaledSize.height))
+            // Store this size so we can reuse it when backing properties change
+            contentSize = size
         }
 
         private func setSurfaceSize(width: UInt32, height: UInt32) {
@@ -764,7 +777,8 @@ extension Ghostty {
             ghostty_surface_set_content_scale(surface, xScale, yScale)
 
             // When our scale factor changes, so does our fb size so we send that too
-            setSurfaceSize(width: UInt32(fbFrame.size.width), height: UInt32(fbFrame.size.height))
+            let scaledSize = self.convertToBacking(contentSize)
+            setSurfaceSize(width: UInt32(scaledSize.width), height: UInt32(scaledSize.height))
         }
 
         override func mouseDown(with event: NSEvent) {
