@@ -1956,54 +1956,6 @@ fn clipboardWrite(self: *const Surface, data: []const u8, loc: apprt.Clipboard) 
     };
 }
 
-/// Apply clipboard codepoint mappings to transform text content.
-/// Returns the transformed text, which may be the same as input if no mappings apply.
-fn applyClipboardCodepointMappings(
-    alloc: Allocator,
-    input_text: []const u8,
-    mappings: *const configpkg.Config.RepeatableClipboardCodepointMap,
-) ![]const u8 {
-    // If no mappings configured, return input unchanged
-    if (mappings.map.list.len == 0) {
-        return try alloc.dupe(u8, input_text);
-    }
-
-    // We'll build the output in this list
-    var output: std.ArrayList(u8) = .empty;
-    defer output.deinit(alloc);
-
-    // UTF-8 decode and process each codepoint
-    var iter = std.unicode.Utf8Iterator{ .bytes = input_text, .i = 0 };
-    while (iter.nextCodepoint()) |codepoint| {
-        if (mappings.map.get(codepoint)) |replacement| {
-            switch (replacement) {
-                .codepoint => |cp| {
-                    // Encode the replacement codepoint to UTF-8
-                    var utf8_buf: [4]u8 = undefined;
-                    const len = std.unicode.utf8Encode(cp, &utf8_buf) catch {
-                        // If encoding fails, use original codepoint
-                        const orig_len = std.unicode.utf8Encode(codepoint, &utf8_buf) catch continue;
-                        try output.appendSlice(alloc, utf8_buf[0..orig_len]);
-                        continue;
-                    };
-                    try output.appendSlice(alloc, utf8_buf[0..len]);
-                },
-                .string => |s| {
-                    // Append the replacement string directly
-                    try output.appendSlice(alloc, s);
-                },
-            }
-        } else {
-            // No mapping found, keep original codepoint
-            var utf8_buf: [4]u8 = undefined;
-            const len = std.unicode.utf8Encode(codepoint, &utf8_buf) catch continue;
-            try output.appendSlice(alloc, utf8_buf[0..len]);
-        }
-    }
-
-    return try output.toOwnedSlice(alloc);
-}
-
 fn copySelectionToClipboards(
     self: *Surface,
     sel: terminal.Selection,
@@ -2021,6 +1973,7 @@ fn copySelectionToClipboards(
         .emit = .plain, // We'll override this below
         .unwrap = true,
         .trim = self.config.clipboard_trim_trailing_spaces,
+        .codepoint_map = self.config.clipboard_codepoint_map.map.list,
         .background = self.io.terminal.colors.background.get(),
         .foreground = self.io.terminal.colors.foreground.get(),
         .palette = &self.io.terminal.colors.palette.current,
@@ -2034,19 +1987,9 @@ fn copySelectionToClipboards(
             var formatter: ScreenFormatter = .init(&self.io.terminal.screen, opts);
             formatter.content = .{ .selection = sel };
             try formatter.format(&aw.writer);
-
-            // Apply clipboard codepoint mappings
-            const original_text = try aw.toOwnedSlice();
-            const transformed_text = try applyClipboardCodepointMappings(
-                alloc,
-                original_text,
-                &self.config.clipboard_codepoint_map,
-            );
-            const transformed_text_z = try alloc.dupeZ(u8, transformed_text);
-
             try contents.append(alloc, .{
                 .mime = "text/plain",
-                .data = transformed_text_z,
+                .data = try aw.toOwnedSliceSentinel(0),
             });
         },
 
@@ -2089,19 +2032,9 @@ fn copySelectionToClipboards(
             var formatter: ScreenFormatter = .init(&self.io.terminal.screen, opts);
             formatter.content = .{ .selection = sel };
             try formatter.format(&aw.writer);
-
-            // Apply clipboard codepoint mappings to plain text
-            const original_text = try aw.toOwnedSlice();
-            const transformed_text = try applyClipboardCodepointMappings(
-                alloc,
-                original_text,
-                &self.config.clipboard_codepoint_map,
-            );
-            const transformed_text_z = try alloc.dupeZ(u8, transformed_text);
-
             try contents.append(alloc, .{
                 .mime = "text/plain",
-                .data = transformed_text_z,
+                .data = try aw.toOwnedSliceSentinel(0),
             });
 
             assert(aw.written().len == 0);
