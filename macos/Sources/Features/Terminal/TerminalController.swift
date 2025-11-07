@@ -817,17 +817,12 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
     /// Close all windows, asking for confirmation if necessary.
     static func closeAllWindows() {
-        var confirmWindow: NSWindow?
-        var needsConfirm = false
-        for controller in all {
-            if let surfaceToConfirm = controller.surfaceTree.first(where: { $0.needsConfirmQuit }) {
-                needsConfirm = true
-                confirmWindow = surfaceToConfirm.window
-                break
-            }
-        }
+        let confirmWindow: NSWindow? = all
+            .first { $0.surfaceTree.contains(where: { $0.needsConfirmQuit }) }?
+            .surfaceTree.first { $0.needsConfirmQuit }?
+            .window
 
-        guard needsConfirm else {
+        guard let confirmWindow else {
             closeAllWindowsImmediately()
             return
         }
@@ -838,15 +833,6 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         alert.addButton(withTitle: "Close All Windows")
         alert.addButton(withTitle: "Cancel")
         alert.alertStyle = .warning
-        guard let confirmWindow else {
-            if (alert.runModal() == .alertFirstButtonReturn) {
-                // This is important so that we avoid losing focus when Stage
-                // Manager is used (#8336)
-                alert.window.orderOut(nil)
-                closeAllWindowsImmediately()
-            }
-            return
-        }
         alert.beginSheetModal(for: confirmWindow, completionHandler: { response in
             if (response == .alertFirstButtonReturn) {
                 // This is important so that we avoid losing focus when Stage
@@ -1168,22 +1154,16 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         // reason we check ourselves.
         let windows: [NSWindow] = window.tabGroup?.windows ?? [window]
 
-        var confirmWindow: NSWindow?
-        var needsConfirm = false
-        // Check if any windows require close confirmation.
-        for tabWindow in windows {
-            guard let controller = tabWindow.windowController as? TerminalController else {
-                continue
+        let confirmWindow: NSWindow? = windows
+            .first {
+                ($0.windowController as? TerminalController)?.surfaceTree.contains(where: { $0.needsConfirmQuit }) == true
             }
-            if let surfaceToConfirm = controller.surfaceTree.first(where: { $0.needsConfirmQuit }) {
-                needsConfirm = true
-                confirmWindow = surfaceToConfirm.window
-                break
-            }
-        }
+            .flatMap {
+                ($0.windowController as? TerminalController)?.surfaceTree.first(where: { $0.needsConfirmQuit })
+            }?.window
 
         // If none need confirmation then we can just close all the windows.
-        if !needsConfirm {
+        guard let confirmWindow else {
             closeWindowImmediately()
             return
         }
