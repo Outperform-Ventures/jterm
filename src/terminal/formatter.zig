@@ -59,6 +59,24 @@ pub const Format = enum {
     }
 };
 
+pub const CodepointMap = struct {
+    /// Unicode codepoint range to replace.
+    /// Asserts: range[0] <= range[1]
+    range: [2]u21,
+
+    /// Replacement value for this range.
+    replacement: Replacement,
+
+    pub const Replacement = union(enum) {
+        /// A single replacement codepoint.
+        codepoint: u21,
+
+        /// A UTF-8 encoded string to replace with. Asserts the
+        /// UTF-8 encoding (must be valid).
+        string: []const u8,
+    };
+};
+
 /// Common encoding options regardless of what exact formatter is used.
 pub const Options = struct {
     /// The format to emit.
@@ -73,6 +91,10 @@ pub const Options = struct {
     /// on rows that have at least one other cell with text. Whitespace
     /// is currently only space characters (0x20).
     trim: bool = true,
+
+    /// Replace matching Unicode codepoints with some other values.
+    /// This will use the last matching range found in the list.
+    codepoint_map: ?std.MultiArrayList(CodepointMap) = .{},
 
     /// Set a background and foreground color to use for the "screen".
     /// For styled formats, this will emit the proper sequences or styles.
@@ -1241,11 +1263,55 @@ pub const PageFormatter = struct {
         writer: *std.Io.Writer,
         cell: *const Cell,
     ) !void {
-        try self.writeCodepoint(writer, cell.content.codepoint);
+        try self.writeCodepointWithReplacement(writer, cell.content.codepoint);
         if (comptime tag == .codepoint_grapheme) {
             for (self.page.lookupGrapheme(cell).?) |cp| {
-                try self.writeCodepoint(writer, cp);
+                try self.writeCodepointWithReplacement(writer, cp);
             }
+        }
+    }
+
+    fn writeCodepointWithReplacement(
+        self: PageFormatter,
+        writer: *std.Io.Writer,
+        codepoint: u21,
+    ) !void {
+        // Search for our replacement
+        const r_: ?CodepointMap.Replacement = replacement: {
+            const map = self.opts.codepoint_map orelse break :replacement null;
+            const items = map.items(.range);
+            for (0..items.len) |forward_i| {
+                const i = items.len - forward_i - 1;
+                const range = items[i];
+                if (range[0] <= codepoint and codepoint <= range[1]) {
+                    const replacements = map.items(.replacement);
+                    break :replacement replacements[i];
+                }
+            }
+
+            break :replacement null;
+        };
+
+        // If no replacement, write it directly.
+        const r = r_ orelse return try self.writeCodepoint(
+            writer,
+            codepoint,
+        );
+
+        switch (r) {
+            .codepoint => |v| try self.writeCodepoint(
+                writer,
+                v,
+            ),
+
+            .string => |s| {
+                const view = std.unicode.Utf8View.init(s) catch unreachable;
+                var it = view.iterator();
+                while (it.nextCodepoint()) |cp| try self.writeCodepoint(
+                    writer,
+                    cp,
+                );
+            },
         }
     }
 
@@ -5301,4 +5367,383 @@ test "Page VT style reset properly closes styles" {
 
     // The reset should properly close the bold style
     try testing.expectEqualStrings("\x1b[0m\x1b[1mbold\x1b[0mnormal", output);
+}
+
+test "Page codepoint_map single replacement" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    var t = try Terminal.init(alloc, .{
+        .cols = 80,
+        .rows = 24,
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+
+    try s.nextSlice("hello world");
+
+    const pages = &t.screen.pages;
+    const page = &pages.pages.last.?.data;
+
+    // Replace 'o' with 'x'
+    var map: std.MultiArrayList(CodepointMap) = .{};
+    defer map.deinit(alloc);
+    try map.append(alloc, .{
+        .range = .{ 'o', 'o' },
+        .replacement = .{ .codepoint = 'x' },
+    });
+
+    var opts: Options = .plain;
+    opts.codepoint_map = map;
+    var formatter: PageFormatter = .init(page, opts);
+
+    var point_map: std.ArrayList(Coordinate) = .empty;
+    defer point_map.deinit(alloc);
+    formatter.point_map = .{ .alloc = alloc, .map = &point_map };
+
+    try formatter.format(&builder.writer);
+    const output = builder.writer.buffered();
+    try testing.expectEqualStrings("hellx wxrld", output);
+
+    // Verify point map - each output byte should map to original cell position
+    try testing.expectEqual(output.len, point_map.items.len);
+    // "hello world" -> "hellx wxrld"
+    // h e l l o   w o r l d
+    // 0 1 2 3 4 5 6 7 8 9 10
+    try testing.expectEqual(Coordinate{ .x = 0, .y = 0 }, point_map.items[0]); // h
+    try testing.expectEqual(Coordinate{ .x = 1, .y = 0 }, point_map.items[1]); // e
+    try testing.expectEqual(Coordinate{ .x = 2, .y = 0 }, point_map.items[2]); // l
+    try testing.expectEqual(Coordinate{ .x = 3, .y = 0 }, point_map.items[3]); // l
+    try testing.expectEqual(Coordinate{ .x = 4, .y = 0 }, point_map.items[4]); // x (was o)
+    try testing.expectEqual(Coordinate{ .x = 5, .y = 0 }, point_map.items[5]); // space
+    try testing.expectEqual(Coordinate{ .x = 6, .y = 0 }, point_map.items[6]); // w
+    try testing.expectEqual(Coordinate{ .x = 7, .y = 0 }, point_map.items[7]); // x (was o)
+    try testing.expectEqual(Coordinate{ .x = 8, .y = 0 }, point_map.items[8]); // r
+    try testing.expectEqual(Coordinate{ .x = 9, .y = 0 }, point_map.items[9]); // l
+    try testing.expectEqual(Coordinate{ .x = 10, .y = 0 }, point_map.items[10]); // d
+}
+
+test "Page codepoint_map conflicting replacement prefers last" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    var t = try Terminal.init(alloc, .{
+        .cols = 80,
+        .rows = 24,
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+
+    try s.nextSlice("hello");
+
+    const pages = &t.screen.pages;
+    const page = &pages.pages.last.?.data;
+
+    // Replace 'o' with 'x', then with 'y' - should prefer last
+    var map: std.MultiArrayList(CodepointMap) = .{};
+    defer map.deinit(alloc);
+    try map.append(alloc, .{
+        .range = .{ 'o', 'o' },
+        .replacement = .{ .codepoint = 'x' },
+    });
+    try map.append(alloc, .{
+        .range = .{ 'o', 'o' },
+        .replacement = .{ .codepoint = 'y' },
+    });
+
+    var opts: Options = .plain;
+    opts.codepoint_map = map;
+    var formatter: PageFormatter = .init(page, opts);
+
+    try formatter.format(&builder.writer);
+    const output = builder.writer.buffered();
+    try testing.expectEqualStrings("helly", output);
+}
+
+test "Page codepoint_map replace with string" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    var t = try Terminal.init(alloc, .{
+        .cols = 80,
+        .rows = 24,
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+
+    try s.nextSlice("hello");
+
+    const pages = &t.screen.pages;
+    const page = &pages.pages.last.?.data;
+
+    // Replace 'o' with a multi-byte string
+    var map: std.MultiArrayList(CodepointMap) = .{};
+    defer map.deinit(alloc);
+    try map.append(alloc, .{
+        .range = .{ 'o', 'o' },
+        .replacement = .{ .string = "XYZ" },
+    });
+
+    var opts: Options = .plain;
+    opts.codepoint_map = map;
+    var formatter: PageFormatter = .init(page, opts);
+
+    var point_map: std.ArrayList(Coordinate) = .empty;
+    defer point_map.deinit(alloc);
+    formatter.point_map = .{ .alloc = alloc, .map = &point_map };
+
+    try formatter.format(&builder.writer);
+    const output = builder.writer.buffered();
+    try testing.expectEqualStrings("hellXYZ", output);
+
+    // Verify point map - string replacements should all map to the original cell
+    try testing.expectEqual(output.len, point_map.items.len);
+    // "hello" -> "hellXYZ"
+    // h e l l o
+    // 0 1 2 3 4
+    try testing.expectEqual(Coordinate{ .x = 0, .y = 0 }, point_map.items[0]); // h
+    try testing.expectEqual(Coordinate{ .x = 1, .y = 0 }, point_map.items[1]); // e
+    try testing.expectEqual(Coordinate{ .x = 2, .y = 0 }, point_map.items[2]); // l
+    try testing.expectEqual(Coordinate{ .x = 3, .y = 0 }, point_map.items[3]); // l
+    // All bytes of the replacement string "XYZ" should point to position 4 (where 'o' was)
+    try testing.expectEqual(Coordinate{ .x = 4, .y = 0 }, point_map.items[4]); // X
+    try testing.expectEqual(Coordinate{ .x = 4, .y = 0 }, point_map.items[5]); // Y
+    try testing.expectEqual(Coordinate{ .x = 4, .y = 0 }, point_map.items[6]); // Z
+}
+
+test "Page codepoint_map range replacement" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    var t = try Terminal.init(alloc, .{
+        .cols = 80,
+        .rows = 24,
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+
+    try s.nextSlice("abcdefg");
+
+    const pages = &t.screen.pages;
+    const page = &pages.pages.last.?.data;
+
+    // Replace 'b' through 'e' with 'X'
+    var map: std.MultiArrayList(CodepointMap) = .{};
+    defer map.deinit(alloc);
+    try map.append(alloc, .{
+        .range = .{ 'b', 'e' },
+        .replacement = .{ .codepoint = 'X' },
+    });
+
+    var opts: Options = .plain;
+    opts.codepoint_map = map;
+    var formatter: PageFormatter = .init(page, opts);
+
+    try formatter.format(&builder.writer);
+    const output = builder.writer.buffered();
+    try testing.expectEqualStrings("aXXXXfg", output);
+}
+
+test "Page codepoint_map multiple ranges" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    var t = try Terminal.init(alloc, .{
+        .cols = 80,
+        .rows = 24,
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+
+    try s.nextSlice("hello world");
+
+    const pages = &t.screen.pages;
+    const page = &pages.pages.last.?.data;
+
+    // Replace 'a'-'m' with 'A' and 'n'-'z' with 'Z'
+    var map: std.MultiArrayList(CodepointMap) = .{};
+    defer map.deinit(alloc);
+    try map.append(alloc, .{
+        .range = .{ 'a', 'm' },
+        .replacement = .{ .codepoint = 'A' },
+    });
+    try map.append(alloc, .{
+        .range = .{ 'n', 'z' },
+        .replacement = .{ .codepoint = 'Z' },
+    });
+
+    var opts: Options = .plain;
+    opts.codepoint_map = map;
+    var formatter: PageFormatter = .init(page, opts);
+
+    try formatter.format(&builder.writer);
+    const output = builder.writer.buffered();
+    // h e l l o   w o r l d
+    // A A A A Z   Z Z Z A A
+    try testing.expectEqualStrings("AAAAZ ZZZAA", output);
+}
+
+test "Page codepoint_map unicode replacement" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    var t = try Terminal.init(alloc, .{
+        .cols = 80,
+        .rows = 24,
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+
+    try s.nextSlice("hello ⚡ world");
+
+    const pages = &t.screen.pages;
+    const page = &pages.pages.last.?.data;
+
+    // Replace lightning bolt with fire emoji
+    var map: std.MultiArrayList(CodepointMap) = .{};
+    defer map.deinit(alloc);
+    try map.append(alloc, .{
+        .range = .{ '⚡', '⚡' },
+        .replacement = .{ .string = "🔥" },
+    });
+
+    var opts: Options = .plain;
+    opts.codepoint_map = map;
+    var formatter: PageFormatter = .init(page, opts);
+
+    var point_map: std.ArrayList(Coordinate) = .empty;
+    defer point_map.deinit(alloc);
+    formatter.point_map = .{ .alloc = alloc, .map = &point_map };
+
+    try formatter.format(&builder.writer);
+    const output = builder.writer.buffered();
+    try testing.expectEqualStrings("hello 🔥 world", output);
+
+    // Verify point map
+    try testing.expectEqual(output.len, point_map.items.len);
+    // "hello ⚡ world"
+    // h e l l o   ⚡   w o r l  d
+    // 0 1 2 3 4 5 6   8 9 10 11 12
+    // Note: ⚡ is a wide character occupying cells 6-7
+    for (0..6) |i| try testing.expectEqual(
+        Coordinate{ .x = @intCast(i), .y = 0 },
+        point_map.items[i],
+    );
+    // 🔥 is 4 UTF-8 bytes, all should map to cell 6 (where ⚡ was)
+    const fire_start = 6; // "hello " is 6 bytes
+    for (0..4) |i| try testing.expectEqual(
+        Coordinate{ .x = 6, .y = 0 },
+        point_map.items[fire_start + i],
+    );
+    // " world" follows
+    const world_start = fire_start + 4;
+    for (0..6) |i| try testing.expectEqual(
+        Coordinate{ .x = @intCast(8 + i), .y = 0 },
+        point_map.items[world_start + i],
+    );
+}
+
+test "Page codepoint_map with styled formats" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    var t = try Terminal.init(alloc, .{
+        .cols = 10,
+        .rows = 24,
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+
+    try s.nextSlice("\x1b[31mred text\x1b[0m");
+
+    const pages = &t.screen.pages;
+    const page = &pages.pages.last.?.data;
+
+    // Replace 'e' with 'X' in styled text
+    var map: std.MultiArrayList(CodepointMap) = .{};
+    defer map.deinit(alloc);
+    try map.append(alloc, .{
+        .range = .{ 'e', 'e' },
+        .replacement = .{ .codepoint = 'X' },
+    });
+
+    var opts: Options = .vt;
+    opts.codepoint_map = map;
+    var formatter: PageFormatter = .init(page, opts);
+
+    try formatter.format(&builder.writer);
+    const output = builder.writer.buffered();
+    // Should preserve styles while replacing text
+    // "red text" becomes "rXd tXxt"
+    // VT format uses \x1b[38;5;1m for palette color 1
+    try testing.expectEqualStrings("\x1b[0m\x1b[38;5;1mrXd tXxt\x1b[0m", output);
+}
+
+test "Page codepoint_map empty map" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    var t = try Terminal.init(alloc, .{
+        .cols = 80,
+        .rows = 24,
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+
+    try s.nextSlice("hello world");
+
+    const pages = &t.screen.pages;
+    const page = &pages.pages.last.?.data;
+
+    // Empty map should not change anything
+    var map: std.MultiArrayList(CodepointMap) = .{};
+    defer map.deinit(alloc);
+
+    var opts: Options = .plain;
+    opts.codepoint_map = map;
+    var formatter: PageFormatter = .init(page, opts);
+
+    try formatter.format(&builder.writer);
+    const output = builder.writer.buffered();
+    try testing.expectEqualStrings("hello world", output);
 }

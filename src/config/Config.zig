@@ -38,6 +38,7 @@ const RepeatableReadableIO = @import("io.zig").RepeatableReadableIO;
 const RepeatableStringMap = @import("RepeatableStringMap.zig");
 pub const Path = @import("path.zig").Path;
 pub const RepeatablePath = @import("path.zig").RepeatablePath;
+const ClipboardCodepointMap = @import("ClipboardCodepointMap.zig");
 
 // We do this instead of importing all of terminal/main.zig to
 // limit the dependency graph. This is important because some things
@@ -278,6 +279,30 @@ pub const compatibility = std.StaticStringMap(
 /// Changing this configuration at runtime will only affect new terminals,
 /// i.e. new windows, tabs, etc.
 @"font-codepoint-map": RepeatableCodepointMap = .{},
+
+/// Map specific Unicode codepoints to replacement values when copying text
+/// to clipboard.
+///
+/// This configuration allows you to replace specific Unicode characters with
+/// other characters or strings when copying terminal content to the clipboard.
+/// This is useful for converting special terminal symbols to more compatible
+/// characters for pasting into other applications.
+///
+/// The syntax is similar to `font-codepoint-map`:
+/// - Single codepoint: `U+1234=U+ABCD` or `U+1234=replacement_text`
+/// - Codepoint range: `U+1234-U+5678=U+ABCD`
+///
+/// Examples:
+/// - `clipboard-codepoint-map = U+2500=U+002D` (box drawing horizontal → hyphen)
+/// - `clipboard-codepoint-map = U+2502=U+007C` (box drawing vertical → pipe)
+/// - `clipboard-codepoint-map = U+03A3=SUM` (Greek sigma → "SUM")
+///
+/// This configuration can be repeated multiple times to specify multiple
+/// mappings. Later entries take priority over earlier ones for overlapping
+/// ranges.
+///
+/// Note: This only applies to text copying operations, not URL copying.
+@"clipboard-codepoint-map": RepeatableClipboardCodepointMap = .{},
 
 /// Draw fonts with a thicker stroke, if supported.
 /// This is currently only supported on macOS.
@@ -6865,6 +6890,193 @@ pub const RepeatableCodepointMap = struct {
             \\a = U+ABCD=Courier
             \\
         , buf.written());
+    }
+};
+
+/// See "clipboard-codepoint-map" for documentation.
+pub const RepeatableClipboardCodepointMap = struct {
+    const Self = @This();
+
+    map: ClipboardCodepointMap = .{},
+
+    pub fn parseCLI(self: *Self, alloc: Allocator, input_: ?[]const u8) !void {
+        const input = input_ orelse return error.ValueRequired;
+        const eql_idx = std.mem.indexOf(u8, input, "=") orelse return error.InvalidValue;
+        const whitespace = " \t";
+        const key = std.mem.trim(u8, input[0..eql_idx], whitespace);
+        const value = std.mem.trim(u8, input[eql_idx + 1 ..], whitespace);
+
+        // Parse the replacement value - either a codepoint or string
+        const replacement: ClipboardCodepointMap.Replacement = if (std.mem.startsWith(u8, value, "U+")) blk: {
+            // Parse as codepoint
+            const cp_str = value[2..]; // Skip "U+"
+            const cp = std.fmt.parseInt(u21, cp_str, 16) catch return error.InvalidValue;
+            break :blk .{ .codepoint = cp };
+        } else blk: {
+            // Parse as UTF-8 string - validate it's valid UTF-8
+            if (!std.unicode.utf8ValidateSlice(value)) return error.InvalidValue;
+            const value_copy = try alloc.dupe(u8, value);
+            break :blk .{ .string = value_copy };
+        };
+
+        var p: UnicodeRangeParser = .{ .input = key };
+        while (try p.next()) |range| {
+            try self.map.add(alloc, .{
+                .range = range,
+                .replacement = replacement,
+            });
+        }
+    }
+
+    /// Deep copy of the struct. Required by Config.
+    pub fn clone(self: *const Self, alloc: Allocator) Allocator.Error!Self {
+        return .{ .map = try self.map.clone(alloc) };
+    }
+
+    /// Compare if two of our value are equal. Required by Config.
+    pub fn equal(self: Self, other: Self) bool {
+        const itemsA = self.map.list.slice();
+        const itemsB = other.map.list.slice();
+        if (itemsA.len != itemsB.len) return false;
+        for (0..itemsA.len) |i| {
+            const a = itemsA.get(i);
+            const b = itemsB.get(i);
+            if (!std.meta.eql(a.range, b.range)) return false;
+            switch (a.replacement) {
+                .codepoint => |cp_a| switch (b.replacement) {
+                    .codepoint => |cp_b| if (cp_a != cp_b) return false,
+                    .string => return false,
+                },
+                .string => |str_a| switch (b.replacement) {
+                    .string => |str_b| if (!std.mem.eql(u8, str_a, str_b)) return false,
+                    .codepoint => return false,
+                },
+            }
+        }
+        return true;
+    }
+
+    /// Used by Formatter
+    pub fn formatEntry(
+        self: Self,
+        formatter: anytype,
+    ) !void {
+        if (self.map.list.len == 0) {
+            try formatter.formatEntry(void, {});
+            return;
+        }
+
+        var buf: [1024]u8 = undefined;
+        var value_buf: [32]u8 = undefined;
+        const ranges = self.map.list.items(.range);
+        const replacements = self.map.list.items(.replacement);
+        for (ranges, replacements) |range, replacement| {
+            const value_str = switch (replacement) {
+                .codepoint => |cp| try std.fmt.bufPrint(&value_buf, "U+{X:0>4}", .{cp}),
+                .string => |s| s,
+            };
+
+            if (range[0] == range[1]) {
+                try formatter.formatEntry(
+                    []const u8,
+                    std.fmt.bufPrint(
+                        &buf,
+                        "U+{X:0>4}={s}",
+                        .{ range[0], value_str },
+                    ) catch return error.OutOfMemory,
+                );
+            } else {
+                try formatter.formatEntry(
+                    []const u8,
+                    std.fmt.bufPrint(
+                        &buf,
+                        "U+{X:0>4}-U+{X:0>4}={s}",
+                        .{ range[0], range[1], value_str },
+                    ) catch return error.OutOfMemory,
+                );
+            }
+        }
+    }
+
+    /// Reuse the same UnicodeRangeParser from RepeatableCodepointMap
+    const UnicodeRangeParser = RepeatableCodepointMap.UnicodeRangeParser;
+
+    test "parseCLI codepoint replacement" {
+        const testing = std.testing;
+        var arena = ArenaAllocator.init(testing.allocator);
+        defer arena.deinit();
+        const alloc = arena.allocator();
+
+        var list: Self = .{};
+        try list.parseCLI(alloc, "U+2500=U+002D"); // box drawing → hyphen
+
+        try testing.expectEqual(@as(usize, 1), list.map.list.len);
+        const entry = list.map.list.get(0);
+        try testing.expectEqual([2]u21{ 0x2500, 0x2500 }, entry.range);
+        try testing.expect(entry.replacement == .codepoint);
+        try testing.expectEqual(@as(u21, 0x002D), entry.replacement.codepoint);
+    }
+
+    test "parseCLI string replacement" {
+        const testing = std.testing;
+        var arena = ArenaAllocator.init(testing.allocator);
+        defer arena.deinit();
+        const alloc = arena.allocator();
+
+        var list: Self = .{};
+        try list.parseCLI(alloc, "U+03A3=SUM"); // Greek sigma → "SUM"
+
+        try testing.expectEqual(@as(usize, 1), list.map.list.len);
+        const entry = list.map.list.get(0);
+        try testing.expectEqual([2]u21{ 0x03A3, 0x03A3 }, entry.range);
+        try testing.expect(entry.replacement == .string);
+        try testing.expectEqualStrings("SUM", entry.replacement.string);
+    }
+
+    test "parseCLI range replacement" {
+        const testing = std.testing;
+        var arena = ArenaAllocator.init(testing.allocator);
+        defer arena.deinit();
+        const alloc = arena.allocator();
+
+        var list: Self = .{};
+        try list.parseCLI(alloc, "U+2500-U+2503=|"); // box drawing range → pipe
+
+        try testing.expectEqual(@as(usize, 1), list.map.list.len);
+        const entry = list.map.list.get(0);
+        try testing.expectEqual([2]u21{ 0x2500, 0x2503 }, entry.range);
+        try testing.expect(entry.replacement == .string);
+        try testing.expectEqualStrings("|", entry.replacement.string);
+    }
+
+    test "formatConfig codepoint" {
+        const testing = std.testing;
+        var buf: std.Io.Writer.Allocating = .init(testing.allocator);
+        defer buf.deinit();
+
+        var arena = ArenaAllocator.init(testing.allocator);
+        defer arena.deinit();
+        const alloc = arena.allocator();
+
+        var list: Self = .{};
+        try list.parseCLI(alloc, "U+2500=U+002D");
+        try list.formatEntry(formatterpkg.entryFormatter("a", &buf.writer));
+        try std.testing.expectEqualSlices(u8, "a = U+2500=U+002D\n", buf.written());
+    }
+
+    test "formatConfig string" {
+        const testing = std.testing;
+        var buf: std.Io.Writer.Allocating = .init(testing.allocator);
+        defer buf.deinit();
+
+        var arena = ArenaAllocator.init(testing.allocator);
+        defer arena.deinit();
+        const alloc = arena.allocator();
+
+        var list: Self = .{};
+        try list.parseCLI(alloc, "U+03A3=SUM");
+        try list.formatEntry(formatterpkg.entryFormatter("a", &buf.writer));
+        try std.testing.expectEqualSlices(u8, "a = U+03A3=SUM\n", buf.written());
     }
 };
 

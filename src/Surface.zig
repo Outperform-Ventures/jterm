@@ -260,6 +260,7 @@ const DerivedConfig = struct {
     clipboard_trim_trailing_spaces: bool,
     clipboard_paste_protection: bool,
     clipboard_paste_bracketed_safe: bool,
+    clipboard_codepoint_map: configpkg.Config.RepeatableClipboardCodepointMap,
     copy_on_select: configpkg.CopyOnSelect,
     right_click_action: configpkg.RightClickAction,
     confirm_close_surface: configpkg.ConfirmCloseSurface,
@@ -334,6 +335,7 @@ const DerivedConfig = struct {
             .clipboard_trim_trailing_spaces = config.@"clipboard-trim-trailing-spaces",
             .clipboard_paste_protection = config.@"clipboard-paste-protection",
             .clipboard_paste_bracketed_safe = config.@"clipboard-paste-bracketed-safe",
+            .clipboard_codepoint_map = try config.@"clipboard-codepoint-map".clone(alloc),
             .copy_on_select = config.@"copy-on-select",
             .right_click_action = config.@"right-click-action",
             .confirm_close_surface = config.@"confirm-close-surface",
@@ -1971,6 +1973,7 @@ fn copySelectionToClipboards(
         .emit = .plain, // We'll override this below
         .unwrap = true,
         .trim = self.config.clipboard_trim_trailing_spaces,
+        .codepoint_map = self.config.clipboard_codepoint_map.map.list,
         .background = self.io.terminal.colors.background.get(),
         .foreground = self.io.terminal.colors.foreground.get(),
         .palette = &self.io.terminal.colors.palette.current,
@@ -1998,6 +2001,9 @@ fn copySelectionToClipboards(
             });
             formatter.content = .{ .selection = sel };
             try formatter.format(&aw.writer);
+
+            // Note: We don't apply codepoint mappings to VT format since it contains
+            // escape sequences that should be preserved as-is
             try contents.append(alloc, .{
                 .mime = "text/plain",
                 .data = try aw.toOwnedSliceSentinel(0),
@@ -2012,6 +2018,9 @@ fn copySelectionToClipboards(
             });
             formatter.content = .{ .selection = sel };
             try formatter.format(&aw.writer);
+
+            // Note: We don't apply codepoint mappings to HTML format since HTML
+            // has its own character encoding and entity system
             try contents.append(alloc, .{
                 .mime = "text/html",
                 .data = try aw.toOwnedSliceSentinel(0),
@@ -2019,6 +2028,7 @@ fn copySelectionToClipboards(
         },
 
         .mixed => {
+            // First, generate plain text with codepoint mappings applied
             var formatter: ScreenFormatter = .init(&self.io.terminal.screen, opts);
             formatter.content = .{ .selection = sel };
             try formatter.format(&aw.writer);
@@ -2028,6 +2038,7 @@ fn copySelectionToClipboards(
             });
 
             assert(aw.written().len == 0);
+            // Second, generate HTML without codepoint mappings
             formatter = .init(&self.io.terminal.screen, opts: {
                 var copy = opts;
                 copy.emit = .html;
@@ -2042,6 +2053,8 @@ fn copySelectionToClipboards(
             });
             formatter.content = .{ .selection = sel };
             try formatter.format(&aw.writer);
+
+            // Note: We don't apply codepoint mappings to HTML format
             try contents.append(alloc, .{
                 .mime = "text/html",
                 .data = try aw.toOwnedSliceSentinel(0),
