@@ -817,32 +817,25 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
     /// Close all windows, asking for confirmation if necessary.
     static func closeAllWindows() {
-        let needsConfirm: Bool = all.contains {
-            $0.surfaceTree.contains { $0.needsConfirmQuit }
-        }
-
-        if (!needsConfirm) {
+        // The window we use for confirmations. Try to find the first window that
+        // needs quit confirmation. This lets us attach the confirmation to something
+        // that is running.
+        guard let confirmWindow = all
+            .first(where: { $0.surfaceTree.contains(where: { $0.needsConfirmQuit }) })?
+            .surfaceTree.first(where: { $0.needsConfirmQuit })?
+            .window
+        else {
             closeAllWindowsImmediately()
             return
         }
 
-        // If we don't have a main window, we just close all windows because
-        // we have no window to show the modal on top of. I'm sure there's a way
-        // to do an app-level alert but I don't know how and this case should never
-        // really happen.
-        guard let alertWindow = preferredParent?.window else {
-            closeAllWindowsImmediately()
-            return
-        }
-
-        // If we need confirmation by any, show one confirmation for all windows
         let alert = NSAlert()
         alert.messageText = "Close All Windows?"
         alert.informativeText = "All terminal sessions will be terminated."
         alert.addButton(withTitle: "Close All Windows")
         alert.addButton(withTitle: "Cancel")
         alert.alertStyle = .warning
-        alert.beginSheetModal(for: alertWindow, completionHandler: { response in
+        alert.beginSheetModal(for: confirmWindow, completionHandler: { response in
             if (response == .alertFirstButtonReturn) {
                 // This is important so that we avoid losing focus when Stage
                 // Manager is used (#8336)
@@ -1162,24 +1155,19 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         // if we're closing the window. If we don't have a tabgroup for any
         // reason we check ourselves.
         let windows: [NSWindow] = window.tabGroup?.windows ?? [window]
-
-        // Check if any windows require close confirmation.
-        let needsConfirm = windows.contains { tabWindow in
-            guard let controller = tabWindow.windowController as? TerminalController else {
-                return false
-            }
-            return controller.surfaceTree.contains(where: { $0.needsConfirmQuit })
-        }
-
-        // If none need confirmation then we can just close all the windows.
-        if !needsConfirm {
+        guard let confirmController = windows
+            .compactMap({ $0.windowController as? TerminalController })
+            .first(where: { $0.surfaceTree.contains(where: { $0.needsConfirmQuit }) })
+        else {
             closeWindowImmediately()
             return
         }
 
-        confirmClose(
+        // We call confirmClose on the proper controller so the alert is
+        // attached to the window that needs confirmation.
+        confirmController.confirmClose(
             messageText: "Close Window?",
-            informativeText: "All terminal sessions in this window will be terminated."
+            informativeText: "All terminal sessions in this window will be terminated.",
         ) {
             self.closeWindowImmediately()
         }
