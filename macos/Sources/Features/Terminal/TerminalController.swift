@@ -817,12 +817,14 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
     /// Close all windows, asking for confirmation if necessary.
     static func closeAllWindows() {
-        let confirmWindow: NSWindow? = all
-            .first { $0.surfaceTree.contains(where: { $0.needsConfirmQuit }) }?
-            .surfaceTree.first { $0.needsConfirmQuit }?
+        // The window we use for confirmations. Try to find the first window that
+        // needs quit confirmation. This lets us attach the confirmation to something
+        // that is running.
+        guard let confirmWindow = all
+            .first(where: { $0.surfaceTree.contains(where: { $0.needsConfirmQuit }) })?
+            .surfaceTree.first(where: { $0.needsConfirmQuit })?
             .window
-
-        guard let confirmWindow else {
+        else {
             closeAllWindowsImmediately()
             return
         }
@@ -1153,25 +1155,19 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         // if we're closing the window. If we don't have a tabgroup for any
         // reason we check ourselves.
         let windows: [NSWindow] = window.tabGroup?.windows ?? [window]
-
-        let confirmWindow: NSWindow? = windows
-            .first {
-                ($0.windowController as? TerminalController)?.surfaceTree.contains(where: { $0.needsConfirmQuit }) == true
-            }
-            .flatMap {
-                ($0.windowController as? TerminalController)?.surfaceTree.first(where: { $0.needsConfirmQuit })
-            }?.window
-
-        // If none need confirmation then we can just close all the windows.
-        guard let confirmWindow else {
+        guard let confirmController = windows
+            .compactMap({ $0.windowController as? TerminalController })
+            .first(where: { $0.surfaceTree.contains(where: { $0.needsConfirmQuit }) })
+        else {
             closeWindowImmediately()
             return
         }
 
-        confirmClose(
+        // We call confirmClose on the proper controller so the alert is
+        // attached to the window that needs confirmation.
+        confirmController.confirmClose(
             messageText: "Close Window?",
             informativeText: "All terminal sessions in this window will be terminated.",
-            attachedWindow: confirmWindow,
         ) {
             self.closeWindowImmediately()
         }
