@@ -287,6 +287,7 @@ class BaseTerminalController: NSWindowController,
     func confirmClose(
         messageText: String,
         informativeText: String,
+        attachedWindow: NSWindow? = nil,
         completion: @escaping () -> Void
     ) {
         // If we already have an alert, we need to wait for that one.
@@ -294,7 +295,7 @@ class BaseTerminalController: NSWindowController,
 
         // If there is no window to attach the modal then we assume success
         // since we'll never be able to show the modal.
-        guard let window else {
+        guard let window = attachedWindow ?? self.window else {
             completion()
             return
         }
