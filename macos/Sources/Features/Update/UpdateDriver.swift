@@ -164,10 +164,10 @@ class UpdateDriver: NSObject, SPUUserDriver {
     }
     
     func showReady(toInstallAndRelaunch reply: @escaping @Sendable (SPUUserUpdateChoice) -> Void) {
-        viewModel.state = .readyToInstall(.init(reply: reply))
-        
         if !hasUnobtrusiveTarget {
             standard.showReady(toInstallAndRelaunch: reply)
+        } else {
+            reply(.install)
         }
     }
     
