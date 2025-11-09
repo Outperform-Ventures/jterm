@@ -104,6 +104,14 @@ class SurfaceScrollView: NSView {
             self?.handleLiveScroll()
         })
         
+        observers.append(NotificationCenter.default.addObserver(
+            forName: NSScroller.preferredScrollerStyleDidChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.handleScrollerStyleChange()
+        })
+
         // Listen for frame change events. See the docstring for
         // handleFrameChange for why this is necessary.
         observers.append(NotificationCenter.default.addObserver(
@@ -154,19 +162,7 @@ class SurfaceScrollView: NSView {
         // When our scrollview changes make sure our scroller and surface views are synchronized
         synchronizeScrollView()
         synchronizeSurfaceView()
-        
-        // Inform the actual pty of our size change. This doesn't change the actual view
-        // frame because we do want to render the whole thing, but it will prevent our
-        // rows/cols from going into the non-content area.
-        //
-        // Only update the pty if we have a valid (non-zero) content size. The content size
-        // can be zero when this is added early to a view, or to an invisible hierarchy.
-        // Practically, this happened in the quick terminal.
-        let width = surfaceContentWidth()
-        let height = surfaceView.frame.height
-        if width > 0 && height > 0 {
-            surfaceView.sizeDidChange(CGSize(width: width, height: height))
-        }
+        synchronizeCoreSurface()
     }
     
     // MARK: Scrolling
@@ -184,6 +180,20 @@ class SurfaceScrollView: NSView {
     private func synchronizeSurfaceView() {
         let visibleRect = scrollView.contentView.documentVisibleRect
         surfaceView.frame.origin = visibleRect.origin
+    }
+
+    /// Inform the actual pty of our size change. This doesn't change the actual view
+    /// frame because we do want to render the whole thing, but it will prevent our
+    /// rows/cols from going into the non-content area.
+    private func synchronizeCoreSurface() {
+        // Only update the pty if we have a valid (non-zero) content size. The content size
+        // can be zero when this is added early to a view, or to an invisible hierarchy.
+        // Practically, this happened in the quick terminal.
+        let width = surfaceContentWidth()
+        let height = surfaceView.frame.height
+        if width > 0 && height > 0 {
+            surfaceView.sizeDidChange(CGSize(width: width, height: height))
+        }
     }
 
     /// Sizes the document view and scrolls the content view according to the scrollbar state
@@ -216,6 +226,11 @@ class SurfaceScrollView: NSView {
     /// Handles bounds changes in the scroll view's clip view, keeping the surface view synchronized.
     private func handleScrollChange(_ notification: Notification) {
         synchronizeSurfaceView()
+    }
+
+    /// Handles scrollbar style changes
+    private func handleScrollerStyleChange() {
+        synchronizeCoreSurface()
     }
     
     /// Handles live scroll events (user actively dragging the scrollbar).
