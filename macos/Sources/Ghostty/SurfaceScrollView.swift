@@ -129,7 +129,7 @@ class SurfaceScrollView: NSView {
         surfaceView.$derivedConfig
             .sink { [weak self] _ in
                 DispatchQueue.main.async { [weak self] in
-                    self?.synchronizeAppearance()
+                    self?.handleConfigChange()
                 }
             }
             .store(in: &cancellables)
@@ -230,6 +230,12 @@ class SurfaceScrollView: NSView {
 
     /// Handles scrollbar style changes
     private func handleScrollerStyleChange() {
+        synchronizeCoreSurface()
+    }
+
+    /// Handles config changes
+    private func handleConfigChange() {
+        synchronizeAppearance()
         synchronizeCoreSurface()
     }
     
