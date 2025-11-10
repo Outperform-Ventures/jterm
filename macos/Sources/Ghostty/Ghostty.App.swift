@@ -604,7 +604,8 @@ extension Ghostty {
                 scrollbar(app, target: target, v: action.action.scrollbar)
 
             case GHOSTTY_ACTION_CLOSE_ALL_WINDOWS:
-                fallthrough
+                closeAllWindows(app, target: target)
+
             case GHOSTTY_ACTION_TOGGLE_TAB_OVERVIEW:
                 fallthrough
             case GHOSTTY_ACTION_TOGGLE_WINDOW_DECORATIONS:
@@ -876,6 +877,11 @@ extension Ghostty {
             default:
                 assertionFailure()
             }
+        }
+
+        private static func closeAllWindows(_ app: ghostty_app_t, target: ghostty_target_s) {
+            guard let appDelegate = NSApplication.shared.delegate as? AppDelegate else { return }
+            appDelegate.closeAllWindows(nil)
         }
 
         private static func toggleFullscreen(
