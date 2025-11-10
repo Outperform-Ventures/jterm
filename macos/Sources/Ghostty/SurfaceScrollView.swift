@@ -176,6 +176,7 @@ class SurfaceScrollView: NSView {
     private func synchronizeAppearance() {
         let scrollbarConfig = surfaceView.derivedConfig.scrollbar
         scrollView.hasVerticalScroller = scrollbarConfig != .never
+        scrollView.verticalScroller?.controlSize = .small
     }
     
     /// Positions the surface view to fill the currently visible rectangle.
