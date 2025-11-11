@@ -8,10 +8,12 @@ class TerminalRestorableState: Codable {
 
     let focusedSurface: String?
     let surfaceTree: SplitTree<Ghostty.SurfaceView>
+    let effectiveFullscreenMode: FullscreenMode?
 
     init(from controller: TerminalController) {
         self.focusedSurface = controller.focusedSurface?.id.uuidString
         self.surfaceTree = controller.surfaceTree
+        self.effectiveFullscreenMode = controller.effectiveFullscreenMode
     }
 
     init?(coder aDecoder: NSCoder) {
@@ -28,6 +30,7 @@ class TerminalRestorableState: Codable {
 
         self.surfaceTree = v.value.surfaceTree
         self.focusedSurface = v.value.focusedSurface
+        self.effectiveFullscreenMode = v.value.effectiveFullscreenMode
     }
 
     func encode(with coder: NSCoder) {
@@ -109,11 +112,7 @@ class TerminalWindowRestoration: NSObject, NSWindowRestoration {
         }
 
         completionHandler(window, nil)
-        // We don't restore the previous fullscreen mode. If the saved mode differs from
-        // the current configuration, using either could be confusing. Instead, we honor
-        // the configured mode (consistent with new_window behavior).
-        let mode = appDelegate.ghostty.config.windowFullscreenMode
-        guard mode != .native else {
+        guard let mode = state.effectiveFullscreenMode, mode != .native else {
             // We let AppKit handle native fullscreen
             return
         }

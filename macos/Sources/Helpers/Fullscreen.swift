@@ -2,7 +2,7 @@ import Cocoa
 import GhosttyKit
 
 /// The fullscreen modes we support define how the fullscreen behaves.
-enum FullscreenMode {
+enum FullscreenMode: String, Codable {
     case native
     case nonNative
     case nonNativeVisibleMenu
