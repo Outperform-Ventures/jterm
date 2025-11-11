@@ -3365,27 +3365,17 @@ const Clipboard = struct {
                     const bytes = glib.Bytes.new(content.data.ptr, content.data.len);
                     defer bytes.unref();
                     if (std.mem.eql(u8, content.mime, "text/plain")) {
-                        // Add some extra MIME types (and X11 atoms) for
-                        // text/plain. This can be expanded on if certain
-                        // applications are expecting text in a particular type
-                        // or atom that is not currently here; UTF8_STRING
-                        // seems to be the most common one for modern X11, but
-                        // there are some older ones, e.g., XA_STRING or just
-                        // plain STRING. Kitty seems to get by with just
-                        // UTF8_STRING, but I'm also adding the explicit utf-8
-                        // MIME parameter for correctness; technically, for
-                        // MIME, when the charset is missing, the default
-                        // charset is ASCII.
+                        // Add an explicit UTF-8 encoding parameter to the
+                        // text/plain type. The default charset when there is
+                        // none is ASCII, and lots of things look for UTF-8
+                        // specifically.
+                        //
+                        // Note that under X11, GTK automatically adds the
+                        // UTF8_STRING atom when this is present.
                         const text_provider_atoms = [_][:0]const u8{
                             "text/plain",
                             "text/plain;charset=utf-8",
-                            "UTF8_STRING",
                         };
-                        // Following on the same logic as our outer union,
-                        // looks like we only need this memory during union
-                        // construction, so it's okay if this is just a
-                        // static-length array and goes out of scope when we're
-                        // done. Similarly, we don't unref these providers.
                         var text_providers: [text_provider_atoms.len]*gdk.ContentProvider = undefined;
                         for (text_provider_atoms, 0..) |atom, j| {
                             const provider = gdk.ContentProvider.newForBytes(atom, bytes);
