@@ -22,7 +22,13 @@ extension UpdateDriver: SPUUpdaterDelegate {
     /// When `auto-update = check`, Sparkle will call the corresponding
     /// delegate method on the responsible driver instead.
     func updater(_ updater: SPUUpdater, willInstallUpdateOnQuit item: SUAppcastItem, immediateInstallationBlock immediateInstallHandler: @escaping () -> Void) -> Bool {
-        viewModel.state = .installing(.init(isAutoUpdate: true, retryTerminatingApplication: immediateInstallHandler))
+        viewModel.state = .installing(.init(
+            isAutoUpdate: true,
+            retryTerminatingApplication: immediateInstallHandler,
+            dismiss: { [weak viewModel] in
+                viewModel?.state = .idle
+            }
+        ))
         return true
     }
 

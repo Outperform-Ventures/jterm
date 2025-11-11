@@ -367,5 +367,6 @@ enum UpdateState: Equatable {
         /// True if this state is triggered by ``Ghostty/UpdateDriver/updater(_:willInstallUpdateOnQuit:immediateInstallationBlock:)``
         var isAutoUpdate = false
         let retryTerminatingApplication: () -> Void
+        let dismiss: () -> Void
     }
 }

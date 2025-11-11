@@ -25,10 +25,10 @@ struct UpdateStateTests {
     }
     
     @Test func testInstallingEquality() {
-        let state1: UpdateState = .installing(.init(isAutoUpdate: false, retryTerminatingApplication: {}))
-        let state2: UpdateState = .installing(.init(isAutoUpdate: false, retryTerminatingApplication: {}))
+        let state1: UpdateState = .installing(.init(isAutoUpdate: false, retryTerminatingApplication: {}, dismiss: {}))
+        let state2: UpdateState = .installing(.init(isAutoUpdate: false, retryTerminatingApplication: {}, dismiss: {}))
         #expect(state1 == state2)
-        let state3: UpdateState = .installing(.init(isAutoUpdate: true, retryTerminatingApplication: {}))
+        let state3: UpdateState = .installing(.init(isAutoUpdate: true, retryTerminatingApplication: {}, dismiss: {}))
         #expect(state3 != state2)
     }
     

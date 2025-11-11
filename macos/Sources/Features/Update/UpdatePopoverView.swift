@@ -291,7 +291,15 @@ fileprivate struct InstallingView: View {
             }
             
             HStack {
+                Button("Restart Later") {
+                    installing.dismiss()
+                    dismiss()
+                }
+                .keyboardShortcut(.cancelAction)
+                .controlSize(.small)
+                
                 Spacer()
+                
                 Button("Restart Now") {
                     installing.retryTerminatingApplication()
                     dismiss()
