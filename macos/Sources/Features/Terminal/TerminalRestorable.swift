@@ -13,7 +13,7 @@ class TerminalRestorableState: Codable {
     init(from controller: TerminalController) {
         self.focusedSurface = controller.focusedSurface?.id.uuidString
         self.surfaceTree = controller.surfaceTree
-        self.effectiveFullscreenMode = controller.effectiveFullscreenMode
+        self.effectiveFullscreenMode = controller.fullscreenStyle?.fullscreenMode
     }
 
     init?(coder aDecoder: NSCoder) {

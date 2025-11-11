@@ -66,24 +66,6 @@ class BaseTerminalController: NSWindowController,
     /// Fullscreen state management.
     private(set) var fullscreenStyle: FullscreenStyle?
 
-    /// The current effective fullscreen mode.
-    /// This is non-nil only while the window is in fullscreen.
-    var effectiveFullscreenMode: FullscreenMode? {
-        guard let fullscreenStyle, fullscreenStyle.isFullscreen else {
-            return nil
-        }
-
-        switch fullscreenStyle {
-        case is NativeFullscreen: return .native
-        case is NonNativeFullscreen: return .nonNative
-        case is NonNativeFullscreenPaddedNotch: return .nonNativePaddedNotch
-        case is NonNativeFullscreenVisibleMenu: return .nonNativeVisibleMenu
-        default:
-            assertionFailure("Missing case here")
-            return nil
-        }
-    }
-
     /// Event monitor (see individual events for why)
     private var eventMonitor: Any? = nil
 
