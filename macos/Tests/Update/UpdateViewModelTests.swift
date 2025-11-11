@@ -52,9 +52,9 @@ struct UpdateViewModelTests {
     
     @Test func testInstallingText() {
         let viewModel = UpdateViewModel()
-        viewModel.state = .installing(.init(isAutoUpdate: false, retryTerminatingApplication: {}))
+        viewModel.state = .installing(.init(isAutoUpdate: false, retryTerminatingApplication: {}, dismiss: {}))
         #expect(viewModel.text == "Installing…")
-        viewModel.state = .installing(.init(isAutoUpdate: true, retryTerminatingApplication: {}))
+        viewModel.state = .installing(.init(isAutoUpdate: true, retryTerminatingApplication: {}, dismiss: {}))
         #expect(viewModel.text == "Restart to Complete Update")
     }
     
