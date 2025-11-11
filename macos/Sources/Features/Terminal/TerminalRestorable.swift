@@ -109,6 +109,17 @@ class TerminalWindowRestoration: NSObject, NSWindowRestoration {
         }
 
         completionHandler(window, nil)
+        // We don't restore the previous fullscreen mode. If the saved mode differs from
+        // the current configuration, using either could be confusing. Instead, we honor
+        // the configured mode (consistent with new_window behavior).
+        let mode = appDelegate.ghostty.config.windowFullscreenMode
+        guard mode != .native else {
+            // We let AppKit handle native fullscreen
+            return
+        }
+        // Give the window to AppKit first, then adjust its frame and style
+        // to minimise any visible frame changes.
+        c.toggleFullscreen(mode: mode)
     }
 
     /// This restores the focus state of the surfaceview within the given window. When restoring,
