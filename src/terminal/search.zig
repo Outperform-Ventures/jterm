@@ -1,5 +1,6 @@
 //! Search functionality for the terminal.
 
+pub const Active = @import("search/active.zig").ActiveSearch;
 pub const PageList = @import("search/pagelist.zig").PageListSearch;
 pub const Thread = @import("search/Thread.zig");
 

@@ -142,6 +142,14 @@ pub const SlidingWindow = struct {
     /// the window moves, the window will prune itself while maintaining
     /// the invariant that the window is always big enough to contain
     /// the needle.
+    ///
+    /// It may seem wasteful to return a full selection, since the needle
+    /// length is known it seems like we can get away with just returning
+    /// the start index. However, returning a full selection will give us
+    /// more flexibility in the future (e.g. if we want to support regex
+    /// searches or other more complex searches). It does cost us some memory,
+    /// but searches are expected to be relatively rare compared to normal
+    /// operations and can eat up some extra memory temporarily.
     pub fn next(self: *SlidingWindow) ?Selection {
         const slices = slices: {
             // If we have less data then the needle then we can't possibly match
@@ -368,10 +376,14 @@ pub const SlidingWindow = struct {
     /// Add a new node to the sliding window. This will always grow
     /// the sliding window; data isn't pruned until it is consumed
     /// via a search (via next()).
+    ///
+    /// Returns the number of bytes of content added to the sliding window.
+    /// The total bytes will be larger since this omits metadata, but it is
+    /// an accurate measure of the text content size added.
     pub fn append(
         self: *SlidingWindow,
         node: *PageList.List.Node,
-    ) Allocator.Error!void {
+    ) Allocator.Error!usize {
         // Initialize our metadata for the node.
         var meta: Meta = .{
             .node = node,
@@ -422,6 +434,7 @@ pub const SlidingWindow = struct {
         try self.meta.append(meta);
 
         self.assertIntegrity();
+        return written.len;
     }
 
     /// Only for tests!
@@ -474,7 +487,7 @@ test "SlidingWindow single append" {
     // We want to test single-page cases.
     try testing.expect(s.pages.pages.first == s.pages.pages.last);
     const node: *PageList.List.Node = s.pages.pages.first.?;
-    try w.append(node);
+    _ = try w.append(node);
 
     // We should be able to find two matches.
     {
@@ -517,7 +530,7 @@ test "SlidingWindow single append no match" {
     // We want to test single-page cases.
     try testing.expect(s.pages.pages.first == s.pages.pages.last);
     const node: *PageList.List.Node = s.pages.pages.first.?;
-    try w.append(node);
+    _ = try w.append(node);
 
     // No matches
     try testing.expect(w.next() == null);
@@ -550,8 +563,8 @@ test "SlidingWindow two pages" {
 
     // Add both pages
     const node: *PageList.List.Node = s.pages.pages.first.?;
-    try w.append(node);
-    try w.append(node.next.?);
+    _ = try w.append(node);
+    _ = try w.append(node.next.?);
 
     // Search should find two matches
     {
@@ -602,8 +615,8 @@ test "SlidingWindow two pages match across boundary" {
 
     // Add both pages
     const node: *PageList.List.Node = s.pages.pages.first.?;
-    try w.append(node);
-    try w.append(node.next.?);
+    _ = try w.append(node);
+    _ = try w.append(node.next.?);
 
     // Search should find a match
     {
@@ -647,8 +660,8 @@ test "SlidingWindow two pages no match prunes first page" {
 
     // Add both pages
     const node: *PageList.List.Node = s.pages.pages.first.?;
-    try w.append(node);
-    try w.append(node.next.?);
+    _ = try w.append(node);
+    _ = try w.append(node.next.?);
 
     // Search should find nothing
     try testing.expect(w.next() == null);
@@ -688,8 +701,8 @@ test "SlidingWindow two pages no match keeps both pages" {
 
     // Add both pages
     const node: *PageList.List.Node = s.pages.pages.first.?;
-    try w.append(node);
-    try w.append(node.next.?);
+    _ = try w.append(node);
+    _ = try w.append(node.next.?);
 
     // Search should find nothing
     try testing.expect(w.next() == null);
@@ -717,8 +730,8 @@ test "SlidingWindow single append across circular buffer boundary" {
     // our implementation changes our test will fail.
     try testing.expect(s.pages.pages.first == s.pages.pages.last);
     const node: *PageList.List.Node = s.pages.pages.first.?;
-    try w.append(node);
-    try w.append(node);
+    _ = try w.append(node);
+    _ = try w.append(node);
     {
         // No wrap around yet
         const slices = w.data.getPtrSlice(0, w.data.len());
@@ -734,7 +747,7 @@ test "SlidingWindow single append across circular buffer boundary" {
     w.testChangeNeedle("boo");
 
     // Add new page, now wraps
-    try w.append(node);
+    _ = try w.append(node);
     {
         const slices = w.data.getPtrSlice(0, w.data.len());
         try testing.expect(slices[0].len > 0);
@@ -772,8 +785,8 @@ test "SlidingWindow single append match on boundary" {
     // our implementation changes our test will fail.
     try testing.expect(s.pages.pages.first == s.pages.pages.last);
     const node: *PageList.List.Node = s.pages.pages.first.?;
-    try w.append(node);
-    try w.append(node);
+    _ = try w.append(node);
+    _ = try w.append(node);
     {
         // No wrap around yet
         const slices = w.data.getPtrSlice(0, w.data.len());
@@ -789,7 +802,7 @@ test "SlidingWindow single append match on boundary" {
     w.testChangeNeedle("boo!");
 
     // Add new page, now wraps
-    try w.append(node);
+    _ = try w.append(node);
     {
         const slices = w.data.getPtrSlice(0, w.data.len());
         try testing.expect(slices[0].len > 0);
@@ -823,7 +836,7 @@ test "SlidingWindow single append reversed" {
     // We want to test single-page cases.
     try testing.expect(s.pages.pages.first == s.pages.pages.last);
     const node: *PageList.List.Node = s.pages.pages.first.?;
-    try w.append(node);
+    _ = try w.append(node);
 
     // We should be able to find two matches.
     {
@@ -866,7 +879,7 @@ test "SlidingWindow single append no match reversed" {
     // We want to test single-page cases.
     try testing.expect(s.pages.pages.first == s.pages.pages.last);
     const node: *PageList.List.Node = s.pages.pages.first.?;
-    try w.append(node);
+    _ = try w.append(node);
 
     // No matches
     try testing.expect(w.next() == null);
@@ -899,8 +912,8 @@ test "SlidingWindow two pages reversed" {
 
     // Add both pages in reverse order
     const node: *PageList.List.Node = s.pages.pages.first.?;
-    try w.append(node.next.?);
-    try w.append(node);
+    _ = try w.append(node.next.?);
+    _ = try w.append(node);
 
     // Search should find two matches (in reverse order)
     {
@@ -951,8 +964,8 @@ test "SlidingWindow two pages match across boundary reversed" {
 
     // Add both pages in reverse order
     const node: *PageList.List.Node = s.pages.pages.first.?;
-    try w.append(node.next.?);
-    try w.append(node);
+    _ = try w.append(node.next.?);
+    _ = try w.append(node);
 
     // Search should find a match
     {
@@ -997,8 +1010,8 @@ test "SlidingWindow two pages no match prunes first page reversed" {
 
     // Add both pages in reverse order
     const node: *PageList.List.Node = s.pages.pages.first.?;
-    try w.append(node.next.?);
-    try w.append(node);
+    _ = try w.append(node.next.?);
+    _ = try w.append(node);
 
     // Search should find nothing
     try testing.expect(w.next() == null);
@@ -1038,8 +1051,8 @@ test "SlidingWindow two pages no match keeps both pages reversed" {
 
     // Add both pages in reverse order
     const node: *PageList.List.Node = s.pages.pages.first.?;
-    try w.append(node.next.?);
-    try w.append(node);
+    _ = try w.append(node.next.?);
+    _ = try w.append(node);
 
     // Search should find nothing
     try testing.expect(w.next() == null);
@@ -1067,8 +1080,8 @@ test "SlidingWindow single append across circular buffer boundary reversed" {
     // our implementation changes our test will fail.
     try testing.expect(s.pages.pages.first == s.pages.pages.last);
     const node: *PageList.List.Node = s.pages.pages.first.?;
-    try w.append(node);
-    try w.append(node);
+    _ = try w.append(node);
+    _ = try w.append(node);
     {
         // No wrap around yet
         const slices = w.data.getPtrSlice(0, w.data.len());
@@ -1085,7 +1098,7 @@ test "SlidingWindow single append across circular buffer boundary reversed" {
     w.testChangeNeedle("oob");
 
     // Add new page, now wraps
-    try w.append(node);
+    _ = try w.append(node);
     {
         const slices = w.data.getPtrSlice(0, w.data.len());
         try testing.expect(slices[0].len > 0);
@@ -1123,8 +1136,8 @@ test "SlidingWindow single append match on boundary reversed" {
     // our implementation changes our test will fail.
     try testing.expect(s.pages.pages.first == s.pages.pages.last);
     const node: *PageList.List.Node = s.pages.pages.first.?;
-    try w.append(node);
-    try w.append(node);
+    _ = try w.append(node);
+    _ = try w.append(node);
     {
         // No wrap around yet
         const slices = w.data.getPtrSlice(0, w.data.len());
@@ -1141,7 +1154,7 @@ test "SlidingWindow single append match on boundary reversed" {
     w.testChangeNeedle("!oob");
 
     // Add new page, now wraps
-    try w.append(node);
+    _ = try w.append(node);
     {
         const slices = w.data.getPtrSlice(0, w.data.len());
         try testing.expect(slices[0].len > 0);
