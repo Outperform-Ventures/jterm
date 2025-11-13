@@ -433,6 +433,7 @@ pub const LoadingImage = struct {
         ) catch |err| switch (err) {
             error.WuffsError => return error.InvalidData,
             error.OutOfMemory => return error.OutOfMemory,
+            error.Overflow => return error.InvalidData,
         };
         defer alloc.free(result.data);
 
