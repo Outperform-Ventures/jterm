@@ -133,6 +133,12 @@ class SurfaceScrollView: NSView {
                 }
             }
             .store(in: &cancellables)
+        surfaceView.$pointerStyle
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] newStyle in
+                self?.scrollView.documentCursor = newStyle.cursor
+            }
+            .store(in: &cancellables)
     }
     
     required init?(coder: NSCoder) {
