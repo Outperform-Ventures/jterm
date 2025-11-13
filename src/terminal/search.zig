@@ -2,6 +2,7 @@
 
 pub const Active = @import("search/active.zig").ActiveSearch;
 pub const PageList = @import("search/pagelist.zig").PageListSearch;
+pub const Screen = @import("search/screen.zig").ScreenSearch;
 pub const Thread = @import("search/Thread.zig");
 
 test {

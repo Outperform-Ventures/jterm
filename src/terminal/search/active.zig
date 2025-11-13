@@ -42,10 +42,10 @@ pub const ActiveSearch = struct {
     /// to perform the search later. This lets the caller hold the lock
     /// on the PageList for a minimal amount of time.
     ///
-    /// This returns the first page (in reverse order) NOT searched by
-    /// this active area. This is useful for callers that want to follow up
-    /// with populating the scrollback searcher. The scrollback searcher
-    /// should start searching from the returned page backwards.
+    /// This returns the first page (in reverse order) covered by this
+    /// search. This allows the history search to overlap and search history.
+    /// There CAN BE duplicates, and this page CAN BE mutable, so the history
+    /// search results should prune anything that's in the active area.
     ///
     /// If the return value is null it means the active area covers the entire
     /// PageList, currently.
@@ -59,8 +59,10 @@ pub const ActiveSearch = struct {
         // First up, add enough pages to cover the active area.
         var rem: usize = list.rows;
         var node_ = list.pages.last;
+        var last_node: ?*PageList.List.Node = null;
         while (node_) |node| : (node_ = node.prev) {
             _ = try self.window.append(node);
+            last_node = node;
 
             // If we reached our target amount, then this is the last
             // page that contains the active area. We go to the previous
@@ -76,18 +78,20 @@ pub const ActiveSearch = struct {
 
         // Next, add enough overlap to cover needle.len - 1 bytes (if it
         // exists) so we can cover the overlap.
-        rem = self.window.needle.len - 1;
         while (node_) |node| : (node_ = node.prev) {
+            // If the last row of this node isn't wrapped we can't overlap.
+            const row = node.data.getRow(node.data.size.rows - 1);
+            if (!row.wrap) break;
+
+            // We could be more accurate here and count bytes since the
+            // last wrap but its complicated and unlikely multiple pages
+            // wrap so this should be fine.
             const added = try self.window.append(node);
-            if (added >= rem) {
-                node_ = node.prev;
-                break;
-            }
-            rem -= added;
+            if (added >= self.window.needle.len - 1) break;
         }
 
-        // Return the first page NOT covered by the active area.
-        return node_;
+        // Return the last node we added to our window.
+        return last_node;
     }
 
     /// Find the next match for the needle in the active area. This returns

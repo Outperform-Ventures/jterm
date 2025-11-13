@@ -3858,8 +3858,9 @@ fn totalRows(self: *const PageList) usize {
     return rows;
 }
 
-/// The total number of pages in this list.
-fn totalPages(self: *const PageList) usize {
+/// The total number of pages in this list. This should only be used
+/// for tests since it is O(N) over the list of pages.
+pub fn totalPages(self: *const PageList) usize {
     var pages: usize = 0;
     var node_ = self.pages.first;
     while (node_) |node| {
