@@ -414,6 +414,20 @@ pub const SlidingWindow = struct {
         };
         assert(meta.cell_map.items.len == encoded.written().len);
 
+        // If the node we're adding isn't soft-wrapped, we add the
+        // trailing newline.
+        const row = node.data.getRow(node.data.size.rows - 1);
+        if (!row.wrap) {
+            encoded.writer.writeByte('\n') catch return error.OutOfMemory;
+            try meta.cell_map.append(
+                self.alloc,
+                meta.cell_map.getLastOrNull() orelse .{
+                    .x = 0,
+                    .y = 0,
+                },
+            );
+        }
+
         // Get our written data. If we're doing a reverse search then we
         // need to reverse all our encodings.
         const written = encoded.written();
@@ -637,6 +651,69 @@ test "SlidingWindow two pages match across boundary" {
     try testing.expectEqual(2, w.meta.len());
 }
 
+test "SlidingWindow two pages no match across boundary with newline" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var w: SlidingWindow = try .init(alloc, .forward, "hello, world");
+    defer w.deinit();
+
+    var s = try Screen.init(alloc, 80, 24, 1000);
+    defer s.deinit();
+
+    // Fill up the first page. The final bytes in the first page
+    // are "boo!"
+    const first_page_rows = s.pages.pages.first.?.data.capacity.rows;
+    for (0..first_page_rows - 1) |_| try s.testWriteString("\n");
+    for (0..s.pages.cols - 4) |_| try s.testWriteString("x");
+    try s.testWriteString("hell");
+    try testing.expect(s.pages.pages.first == s.pages.pages.last);
+    try s.testWriteString("\no, world!");
+    try testing.expect(s.pages.pages.first != s.pages.pages.last);
+
+    // Add both pages
+    const node: *PageList.List.Node = s.pages.pages.first.?;
+    _ = try w.append(node);
+    _ = try w.append(node.next.?);
+
+    // Search should NOT find a match
+    try testing.expect(w.next() == null);
+    try testing.expect(w.next() == null);
+
+    // We shouldn't prune because we don't have enough space
+    try testing.expectEqual(2, w.meta.len());
+}
+
+test "SlidingWindow two pages no match across boundary with newline reverse" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var w: SlidingWindow = try .init(alloc, .reverse, "hello, world");
+    defer w.deinit();
+
+    var s = try Screen.init(alloc, 80, 24, 1000);
+    defer s.deinit();
+
+    // Fill up the first page. The final bytes in the first page
+    // are "boo!"
+    const first_page_rows = s.pages.pages.first.?.data.capacity.rows;
+    for (0..first_page_rows - 1) |_| try s.testWriteString("\n");
+    for (0..s.pages.cols - 4) |_| try s.testWriteString("x");
+    try s.testWriteString("hell");
+    try testing.expect(s.pages.pages.first == s.pages.pages.last);
+    try s.testWriteString("\no, world!");
+    try testing.expect(s.pages.pages.first != s.pages.pages.last);
+
+    // Add both pages in reverse order
+    const node: *PageList.List.Node = s.pages.pages.first.?;
+    _ = try w.append(node.next.?);
+    _ = try w.append(node);
+
+    // Search should NOT find a match
+    try testing.expect(w.next() == null);
+    try testing.expect(w.next() == null);
+}
+
 test "SlidingWindow two pages no match prunes first page" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -778,13 +855,16 @@ test "SlidingWindow single append match on boundary" {
     defer s.deinit();
     try s.testWriteString("o!XXXXXXXXXXXXXXXXXXXbo");
 
+    // We need to surgically modify the last row to be soft-wrapped
+    try testing.expect(s.pages.pages.first == s.pages.pages.last);
+    const node: *PageList.List.Node = s.pages.pages.first.?;
+    node.data.getRow(node.data.size.rows - 1).wrap = true;
+
     // We are trying to break a circular buffer boundary so the way we
     // do this is to duplicate the data then do a failing search. This
     // will cause the first page to be pruned. The next time we append we'll
     // put it in the middle of the circ buffer. We assert this so that if
     // our implementation changes our test will fail.
-    try testing.expect(s.pages.pages.first == s.pages.pages.last);
-    const node: *PageList.List.Node = s.pages.pages.first.?;
     _ = try w.append(node);
     _ = try w.append(node);
     {
@@ -1129,13 +1209,16 @@ test "SlidingWindow single append match on boundary reversed" {
     defer s.deinit();
     try s.testWriteString("o!XXXXXXXXXXXXXXXXXXXbo");
 
+    // We need to surgically modify the last row to be soft-wrapped
+    try testing.expect(s.pages.pages.first == s.pages.pages.last);
+    const node: *PageList.List.Node = s.pages.pages.first.?;
+    node.data.getRow(node.data.size.rows - 1).wrap = true;
+
     // We are trying to break a circular buffer boundary so the way we
     // do this is to duplicate the data then do a failing search. This
     // will cause the first page to be pruned. The next time we append we'll
     // put it in the middle of the circ buffer. We assert this so that if
     // our implementation changes our test will fail.
-    try testing.expect(s.pages.pages.first == s.pages.pages.last);
-    const node: *PageList.List.Node = s.pages.pages.first.?;
     _ = try w.append(node);
     _ = try w.append(node);
     {
