@@ -371,6 +371,9 @@ fn verifyIntegrity(self: *const PageList) IntegrityError!void {
     if (comptime !build_options.slow_runtime_safety) return;
     if (self.pause_integrity_checks > 0) return;
 
+    // Our viewport pin should never be garbage
+    assert(!self.viewport_pin.garbage);
+
     // Verify that our cached total_rows matches the actual row count
     const actual_total = self.totalRows();
     if (actual_total != self.total_rows) {
@@ -528,6 +531,8 @@ pub fn reset(self: *PageList) void {
     self.total_rows = self.rows;
 
     // Update all our tracked pins to point to our first page top-left
+    // and mark them as garbage, because it got mangled in a way where
+    // semantically it really doesn't make sense.
     {
         var it = self.tracked_pins.iterator();
         while (it.next()) |entry| {
@@ -535,7 +540,11 @@ pub fn reset(self: *PageList) void {
             p.node = self.pages.first.?;
             p.x = 0;
             p.y = 0;
+            p.garbage = true;
         }
+
+        // Our viewport pin is never garbage
+        self.viewport_pin.garbage = false;
     }
 
     // Move our viewport back to the active area since everything is gone.
@@ -2428,7 +2437,9 @@ pub fn grow(self: *PageList) !?*List.Node {
             p.node = self.pages.first.?;
             p.y = 0;
             p.x = 0;
+            p.garbage = true;
         }
+        self.viewport_pin.garbage = false;
 
         // In this case we do NOT need to update page_size because
         // we're reusing an existing page so nothing has changed.
@@ -3047,13 +3058,16 @@ pub fn eraseRows(
 fn erasePage(self: *PageList, node: *List.Node) void {
     assert(node.next != null or node.prev != null);
 
-    // Update any tracked pins to move to the next page.
+    // Update any tracked pins to move to the previous or next page.
     const pin_keys = self.tracked_pins.keys();
     for (pin_keys) |p| {
         if (p.node != node) continue;
-        p.node = node.next orelse node.prev orelse unreachable;
+        p.node = node.prev orelse node.next orelse unreachable;
         p.y = 0;
         p.x = 0;
+
+        // This doesn't get marked garbage because the tracked pin
+        // movement is sensical.
     }
 
     // Remove the page from the linked list
@@ -3844,8 +3858,9 @@ fn totalRows(self: *const PageList) usize {
     return rows;
 }
 
-/// The total number of pages in this list.
-fn totalPages(self: *const PageList) usize {
+/// The total number of pages in this list. This should only be used
+/// for tests since it is O(N) over the list of pages.
+pub fn totalPages(self: *const PageList) usize {
     var pages: usize = 0;
     var node_ = self.pages.first;
     while (node_) |node| {
@@ -3902,6 +3917,13 @@ pub const Pin = struct {
     node: *List.Node,
     y: size.CellCountInt = 0,
     x: size.CellCountInt = 0,
+
+    /// This is flipped to true for tracked pins that were tracking
+    /// a page that got pruned for any reason and where the tracked pin
+    /// couldn't be moved to a sensical location. Users of the tracked
+    /// pin could use this data and make their own determination of
+    /// semantics.
+    garbage: bool = false,
 
     pub inline fn rowAndCell(self: Pin) struct {
         row: *pagepkg.Row,
@@ -5757,6 +5779,7 @@ test "PageList grow prune scrollback" {
     try testing.expect(p.node == s.pages.first.?);
     try testing.expect(p.x == 0);
     try testing.expect(p.y == 0);
+    try testing.expect(p.garbage);
 
     // Verify the viewport offset cache was invalidated. After pruning,
     // the offset should have changed because we removed rows from
@@ -10639,6 +10662,29 @@ test "PageList reset across two pages" {
     try testing.expect(s.viewport == .active);
     try testing.expect(s.pages.first != null);
     try testing.expectEqual(@as(usize, s.rows), s.totalRows());
+}
+
+test "PageList reset moves tracked pins and marks them as garbage" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 80, 24, null);
+    defer s.deinit();
+
+    // Create a tracked pin into the active area
+    const p = try s.trackPin(s.pin(.{ .active = .{
+        .x = 42,
+        .y = 12,
+    } }).?);
+    defer s.untrackPin(p);
+
+    s.reset();
+
+    // Our added pin should now be garbage
+    try testing.expect(p.garbage);
+
+    // Viewport pin should not be garbage because it makes sense.
+    try testing.expect(!s.viewport_pin.garbage);
 }
 
 test "PageList clears history" {

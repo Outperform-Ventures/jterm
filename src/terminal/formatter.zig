@@ -849,7 +849,7 @@ pub const PageFormatter = struct {
     /// Initializes a page formatter. Other options can be set directly on the
     /// struct after initialization and before calling `format()`.
     pub fn init(page: *const Page, opts: Options) PageFormatter {
-        return PageFormatter{
+        return .{
             .page = page,
             .opts = opts,
             .start_x = 0,
