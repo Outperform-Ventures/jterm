@@ -509,7 +509,10 @@ test "shape emoji width long" {
     defer testdata.deinit();
 
     // Make a screen and add a long emoji sequence to it.
-    var screen = try terminal.Screen.init(alloc, 30, 3, 0);
+    var screen = try terminal.Screen.init(
+        alloc,
+        .{ .cols = 30, .rows = 3 },
+    );
     defer screen.deinit();
 
     var page = screen.pages.pages.first.?.data;
@@ -628,7 +631,10 @@ test "shape with empty cells in between" {
     defer testdata.deinit();
 
     // Make a screen with some data
-    var screen = try terminal.Screen.init(alloc, 30, 3, 0);
+    var screen = try terminal.Screen.init(
+        alloc,
+        .{ .cols = 30, .rows = 3 },
+    );
     defer screen.deinit();
     try screen.testWriteString("A");
     screen.cursorRight(5);
@@ -666,7 +672,10 @@ test "shape Chinese characters" {
     buf_idx += try std.unicode.utf8Encode('a', buf[buf_idx..]);
 
     // Make a screen with some data
-    var screen = try terminal.Screen.init(alloc, 30, 3, 0);
+    var screen = try terminal.Screen.init(
+        alloc,
+        .{ .cols = 30, .rows = 3 },
+    );
     defer screen.deinit();
     try screen.testWriteString(buf[0..buf_idx]);
 
@@ -997,7 +1006,10 @@ test "shape cursor boundary and colored emoji" {
     defer testdata.deinit();
 
     // Make a screen with some data
-    var screen = try terminal.Screen.init(alloc, 3, 10, 0);
+    var screen = try terminal.Screen.init(
+        alloc,
+        .{ .cols = 3, .rows = 10 },
+    );
     defer screen.deinit();
     try screen.testWriteString("👍🏼");
 
@@ -1112,7 +1124,10 @@ test "shape cell attribute change" {
 
     // Bold vs regular should split
     {
-        var screen = try terminal.Screen.init(alloc, 3, 10, 0);
+        var screen = try terminal.Screen.init(
+            alloc,
+            .{ .cols = 3, .rows = 10 },
+        );
         defer screen.deinit();
         try screen.testWriteString(">");
         try screen.setAttribute(.{ .bold = {} });
@@ -1134,7 +1149,10 @@ test "shape cell attribute change" {
 
     // Changing fg color should split
     {
-        var screen = try terminal.Screen.init(alloc, 3, 10, 0);
+        var screen = try terminal.Screen.init(
+            alloc,
+            .{ .cols = 3, .rows = 10 },
+        );
         defer screen.deinit();
         try screen.setAttribute(.{ .direct_color_fg = .{ .r = 1, .g = 2, .b = 3 } });
         try screen.testWriteString(">");
@@ -1157,7 +1175,10 @@ test "shape cell attribute change" {
 
     // Changing bg color should not split
     {
-        var screen = try terminal.Screen.init(alloc, 3, 10, 0);
+        var screen = try terminal.Screen.init(
+            alloc,
+            .{ .cols = 3, .rows = 10 },
+        );
         defer screen.deinit();
         try screen.setAttribute(.{ .direct_color_bg = .{ .r = 1, .g = 2, .b = 3 } });
         try screen.testWriteString(">");
@@ -1180,7 +1201,10 @@ test "shape cell attribute change" {
 
     // Same bg color should not split
     {
-        var screen = try terminal.Screen.init(alloc, 3, 10, 0);
+        var screen = try terminal.Screen.init(
+            alloc,
+            .{ .cols = 3, .rows = 10 },
+        );
         defer screen.deinit();
         try screen.setAttribute(.{ .direct_color_bg = .{ .r = 1, .g = 2, .b = 3 } });
         try screen.testWriteString(">");
