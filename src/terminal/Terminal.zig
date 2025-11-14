@@ -2614,7 +2614,10 @@ pub fn switchScreen(self: *Terminal, key: ScreenSet.Key) !?*Screen {
 
                 // Inherit our Kitty image storage limit from the primary
                 // screen if we have to initialize.
-                .kitty_image_storage_limit = primary.kitty_images.total_limit,
+                .kitty_image_storage_limit = if (comptime build_options.kitty_graphics)
+                    primary.kitty_images.total_limit
+                else
+                    0,
             },
         );
     };
