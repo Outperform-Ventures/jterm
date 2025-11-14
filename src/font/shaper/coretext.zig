@@ -392,6 +392,12 @@ pub const Shaper = struct {
         self.cell_buf.clearRetainingCapacity();
         try self.cell_buf.ensureTotalCapacity(self.alloc, line.getGlyphCount());
 
+        // CoreText, despite our insistence with an enforced embedding level,
+        // may sometimes output runs that are non-monotonic. In order to fix
+        // this, we check the run status for each run and if any aren't ltr
+        // we set this to true, which indicates that we must sort our buffer.
+        var non_ltr: bool = false;
+
         // CoreText may generate multiple runs even though our input to
         // CoreText is already split into runs by our own run iterator.
         // The runs as far as I can tell are always sequential to each
@@ -400,6 +406,9 @@ pub const Shaper = struct {
         const runs = line.getGlyphRuns();
         for (0..runs.getCount()) |i| {
             const ctrun = runs.getValueAtIndex(macos.text.Run, i);
+
+            const status = ctrun.getStatus();
+            if (status.non_monotonic or status.right_to_left) non_ltr = true;
 
             // Get our glyphs and positions
             const glyphs = ctrun.getGlyphsPtr() orelse try ctrun.getGlyphs(alloc);
@@ -439,6 +448,25 @@ pub const Shaper = struct {
                 cell_offset.x += advance.width;
                 cell_offset.y += advance.height;
             }
+        }
+
+        // If our buffer contains some non-ltr sections we need to sort it :/
+        if (non_ltr) {
+            // This is EXCEPTIONALLY rare. Only happens for languages with
+            // complex shaping which we don't even really support properly
+            // right now, so are very unlikely to be used heavily by users
+            // of Ghostty.
+            @branchHint(.cold);
+            std.mem.sort(
+                font.shape.Cell,
+                self.cell_buf.items,
+                {},
+                struct {
+                    fn lt(_: void, a: font.shape.Cell, b: font.shape.Cell) bool {
+                        return a.x < b.x;
+                    }
+                }.lt,
+            );
         }
 
         return self.cell_buf.items;
