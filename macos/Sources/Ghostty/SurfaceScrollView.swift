@@ -32,7 +32,7 @@ class SurfaceScrollView: NSView {
         scrollView = NSScrollView()
         scrollView.hasVerticalScroller = false
         scrollView.hasHorizontalScroller = false
-        scrollView.autohidesScrollers = true
+        scrollView.autohidesScrollers = false
         scrollView.usesPredominantAxisScrolling = true
         // hide default background to show blur effect properly
         scrollView.drawsBackground = false
@@ -176,6 +176,7 @@ class SurfaceScrollView: NSView {
     private func synchronizeAppearance() {
         let scrollbarConfig = surfaceView.derivedConfig.scrollbar
         scrollView.hasVerticalScroller = scrollbarConfig != .never
+        scrollView.verticalScroller?.controlSize = .small
     }
     
     /// Positions the surface view to fill the currently visible rectangle.
@@ -195,7 +196,7 @@ class SurfaceScrollView: NSView {
         // Only update the pty if we have a valid (non-zero) content size. The content size
         // can be zero when this is added early to a view, or to an invisible hierarchy.
         // Practically, this happened in the quick terminal.
-        let width = surfaceContentWidth()
+        let width = scrollView.contentSize.width
         let height = surfaceView.frame.height
         if width > 0 && height > 0 {
             surfaceView.sizeDidChange(CGSize(width: width, height: height))
@@ -331,30 +332,6 @@ class SurfaceScrollView: NSView {
     }
 
     // MARK: Calculations
-
-    /// Calculate the content width reported to the core surface
-    ///
-    /// If we have a legacy scrollbar and its not visible, then we account for that
-    /// in advance, because legacy scrollbars change our contentSize and force reflow
-    /// of our terminal which is not desirable.
-    /// See: https://github.com/ghostty-org/ghostty/discussions/9254
-    private func surfaceContentWidth() -> CGFloat {
-        let contentWidth = scrollView.contentSize.width
-        if scrollView.hasVerticalScroller {
-            let style =
-                scrollView.verticalScroller?.scrollerStyle
-                ?? NSScroller.preferredScrollerStyle
-            // We only subtract the scrollbar width if it's hidden or not present,
-            // otherwise its width is already accounted for in contentSize.
-            if style == .legacy && (scrollView.verticalScroller?.isHidden ?? true) {
-                let scrollerWidth =
-                    scrollView.verticalScroller?.frame.width
-                    ?? NSScroller.scrollerWidth(for: .regular, scrollerStyle: .legacy)
-                return max(0, contentWidth - scrollerWidth)
-            }
-        }
-        return contentWidth
-    }
 
     /// Calculate the appropriate document view height given a scrollbar state
     private func documentHeight() -> CGFloat {
