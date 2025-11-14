@@ -257,7 +257,7 @@ pub fn init(self: *Termio, alloc: Allocator, opts: termio.Options) !void {
     }
 
     // Set our default cursor style
-    term.screen.cursor.cursor_style = opts.config.cursor_style;
+    term.screens.active.cursor.cursor_style = opts.config.cursor_style;
 
     // Setup our terminal size in pixels for certain requests.
     term.width_px = term.cols * opts.size.cell.width;
@@ -579,17 +579,17 @@ pub fn clearScreen(self: *Termio, td: *ThreadData, history: bool) !void {
         if (self.terminal.screens.active_key == .alternate) return;
 
         // Clear our selection
-        self.terminal.screen.clearSelection();
+        self.terminal.screens.active.clearSelection();
 
         // Clear our scrollback
         if (history) self.terminal.eraseDisplay(.scrollback, false);
 
         // If we're not at a prompt, we just delete above the cursor.
         if (!self.terminal.cursorIsAtPrompt()) {
-            if (self.terminal.screen.cursor.y > 0) {
-                self.terminal.screen.eraseRows(
+            if (self.terminal.screens.active.cursor.y > 0) {
+                self.terminal.screens.active.eraseRows(
                     .{ .active = .{ .y = 0 } },
-                    .{ .active = .{ .y = self.terminal.screen.cursor.y - 1 } },
+                    .{ .active = .{ .y = self.terminal.screens.active.cursor.y - 1 } },
                 );
             }
 
@@ -599,8 +599,8 @@ pub fn clearScreen(self: *Termio, td: *ThreadData, history: bool) !void {
             // graphics that are placed baove the cursor or if it deletes
             // all of them. We delete all of them for now but if this behavior
             // isn't fully correct we should fix this later.
-            self.terminal.screen.kitty_images.delete(
-                self.terminal.screen.alloc,
+            self.terminal.screens.active.kitty_images.delete(
+                self.terminal.screens.active.alloc,
                 &self.terminal,
                 .{ .all = true },
             );
@@ -633,7 +633,7 @@ pub fn jumpToPrompt(self: *Termio, delta: isize) !void {
     {
         self.renderer_state.mutex.lock();
         defer self.renderer_state.mutex.unlock();
-        self.terminal.screen.scroll(.{ .delta_prompt = delta });
+        self.terminal.screens.active.scroll(.{ .delta_prompt = delta });
     }
 
     try self.renderer_wakeup.notify();
