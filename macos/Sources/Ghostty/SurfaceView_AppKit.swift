@@ -73,7 +73,7 @@ extension Ghostty {
         @Published var surfaceSize: ghostty_surface_size_s? = nil
 
         // Whether the pointer should be visible or not
-        @Published private(set) var pointerStyle: BackportPointerStyle = .default
+        @Published private(set) var pointerStyle: CursorStyle = .horizontalText
 
         /// The configuration derived from the Ghostty config so we don't need to rely on references.
         @Published private(set) var derivedConfig: DerivedConfig
@@ -477,16 +477,16 @@ extension Ghostty {
                 pointerStyle = .resizeLeftRight
 
             case GHOSTTY_MOUSE_SHAPE_VERTICAL_TEXT:
-                pointerStyle = .default
+                pointerStyle = .verticalText
 
-            // These are not yet supported. We should support them by constructing a
-            // PointerStyle from an NSCursor.
             case GHOSTTY_MOUSE_SHAPE_CONTEXT_MENU:
-                fallthrough
+                pointerStyle = .contextMenu
+
             case GHOSTTY_MOUSE_SHAPE_CROSSHAIR:
-                fallthrough
+                pointerStyle = .crosshair
+
             case GHOSTTY_MOUSE_SHAPE_NOT_ALLOWED:
-                pointerStyle = .default
+                pointerStyle = .operationNotAllowed
 
             default:
                 // We ignore unknown shapes.
