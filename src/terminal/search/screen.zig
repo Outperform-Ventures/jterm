@@ -122,28 +122,12 @@ pub const ScreenSearch = struct {
     /// Returns all matches as an owned slice (caller must free).
     /// The matches are ordered from most recent to oldest (e.g. bottom
     /// of the screen to top of the screen).
-    ///
-    /// This handles pruning overlapping results between active area
-    /// and the history area so you should use this instead of accessing
-    /// the result slices directly.
     pub fn matches(
         self: *ScreenSearch,
         alloc: Allocator,
     ) Allocator.Error![]Selection {
         const active_results = self.active_results.items;
-        const history_results: []const Selection = if (self.history) |*h| history_results: {
-            // We prune all the history results that start in our first
-            // history page because the active area will overlap and
-            // get that.
-            for (self.history_results.items, 0..) |sel, i| {
-                if (sel.start().node != h.start_pin.node) {
-                    break :history_results self.history_results.items[i..];
-                }
-            }
-
-            break :history_results &.{};
-        } else &.{};
-
+        const history_results = self.history_results.items;
         const results = try alloc.alloc(
             Selection,
             active_results.len + history_results.len,
@@ -252,7 +236,7 @@ pub const ScreenSearch = struct {
     }
 
     fn tickHistory(self: *ScreenSearch) Allocator.Error!void {
-        const history: *PageListSearch = if (self.history) |*h| &h.searcher else {
+        const history: *HistorySearch = if (self.history) |*h| h else {
             // No history to search, we're done.
             self.state = .complete;
             return;
@@ -261,7 +245,11 @@ pub const ScreenSearch = struct {
         // Try to consume all the loaded matches in one go, because
         // the search is generally fast for loaded data.
         const alloc = self.allocator();
-        while (history.next()) |sel| {
+        while (history.searcher.next()) |sel| {
+            // Ignore selections that are found within the starting
+            // node since those are covered by the active area search.
+            if (sel.start().node == history.start_pin.node) continue;
+
             // Same note as tickActive for error handling.
             try self.history_results.append(alloc, sel);
         }
@@ -332,12 +320,6 @@ pub const ScreenSearch = struct {
                 break :history;
             }
 
-            // We had prior history with a valid pin and our current
-            // starting history node doesn't match our previous. So there is
-            // a small delta (usually small) that we need to search and update
-            // our history results.
-            const old_node = history.start_pin.node;
-
             // Do a forward search from our prior node to this one. We
             // collect all the results into a new list. We ASSUME that
             // reloadActive is being called frequently enough that there isn't
@@ -362,10 +344,13 @@ pub const ScreenSearch = struct {
                 self.history_results.items.len,
             );
             errdefer results.deinit(alloc);
-            while (window.next()) |sel| try results.append(
-                alloc,
-                sel,
-            );
+            while (window.next()) |sel| {
+                if (sel.start().node == history_node) continue;
+                try results.append(
+                    alloc,
+                    sel,
+                );
+            }
 
             // If we have no matches then there is nothing to change
             // in our history (fast path)
@@ -374,12 +359,7 @@ pub const ScreenSearch = struct {
             // Matches! Reverse our list then append all the remaining
             // history items that didn't start on our original node.
             std.mem.reverse(Selection, results.items);
-            for (self.history_results.items, 0..) |sel, i| {
-                if (sel.start().node != old_node) {
-                    try results.appendSlice(alloc, self.history_results.items[i..]);
-                    break;
-                }
-            }
+            try results.appendSlice(alloc, self.history_results.items);
             self.history_results.deinit(alloc);
             self.history_results = results;
         }
