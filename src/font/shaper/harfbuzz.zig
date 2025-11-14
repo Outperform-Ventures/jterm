@@ -207,7 +207,7 @@ test "run iterator" {
 
     {
         // Make a screen with some data
-        var screen = try terminal.Screen.init(alloc, 5, 3, 0);
+        var screen = try terminal.Screen.init(alloc, .{ .cols = 5, .rows = 3, .max_scrollback = 0 });
         defer screen.deinit();
         try screen.testWriteString("ABCD");
 
@@ -225,7 +225,7 @@ test "run iterator" {
 
     // Spaces should be part of a run
     {
-        var screen = try terminal.Screen.init(alloc, 10, 3, 0);
+        var screen = try terminal.Screen.init(alloc, .{ .cols = 10, .rows = 3, .max_scrollback = 0 });
         defer screen.deinit();
         try screen.testWriteString("ABCD   EFG");
 
@@ -242,7 +242,7 @@ test "run iterator" {
 
     {
         // Make a screen with some data
-        var screen = try terminal.Screen.init(alloc, 5, 3, 0);
+        var screen = try terminal.Screen.init(alloc, .{ .cols = 5, .rows = 3, .max_scrollback = 0 });
         defer screen.deinit();
         try screen.testWriteString("A😃D");
 
@@ -273,7 +273,7 @@ test "run iterator: empty cells with background set" {
 
     {
         // Make a screen with some data
-        var screen = try terminal.Screen.init(alloc, 5, 3, 0);
+        var screen = try terminal.Screen.init(alloc, .{ .cols = 5, .rows = 3, .max_scrollback = 0 });
         defer screen.deinit();
         try screen.setAttribute(.{ .direct_color_bg = .{ .r = 0xFF, .g = 0, .b = 0 } });
         try screen.testWriteString("A");
@@ -327,7 +327,7 @@ test "shape" {
     buf_idx += try std.unicode.utf8Encode(0x1F3FD, buf[buf_idx..]); // Medium skin tone
 
     // Make a screen with some data
-    var screen = try terminal.Screen.init(alloc, 10, 3, 0);
+    var screen = try terminal.Screen.init(alloc, .{ .cols = 10, .rows = 3, .max_scrollback = 0 });
     defer screen.deinit();
     try screen.testWriteString(buf[0..buf_idx]);
 
@@ -355,7 +355,7 @@ test "shape inconsolata ligs" {
     defer testdata.deinit();
 
     {
-        var screen = try terminal.Screen.init(alloc, 5, 3, 0);
+        var screen = try terminal.Screen.init(alloc, .{ .cols = 5, .rows = 3, .max_scrollback = 0 });
         defer screen.deinit();
         try screen.testWriteString(">=");
 
@@ -378,7 +378,7 @@ test "shape inconsolata ligs" {
     }
 
     {
-        var screen = try terminal.Screen.init(alloc, 5, 3, 0);
+        var screen = try terminal.Screen.init(alloc, .{ .cols = 5, .rows = 3, .max_scrollback = 0 });
         defer screen.deinit();
         try screen.testWriteString("===");
 
@@ -409,7 +409,7 @@ test "shape monaspace ligs" {
     defer testdata.deinit();
 
     {
-        var screen = try terminal.Screen.init(alloc, 5, 3, 0);
+        var screen = try terminal.Screen.init(alloc, .{ .cols = 5, .rows = 3, .max_scrollback = 0 });
         defer screen.deinit();
         try screen.testWriteString("===");
 
@@ -443,7 +443,7 @@ test "shape arabic forced LTR" {
     var testdata = try testShaperWithFont(alloc, .arabic);
     defer testdata.deinit();
 
-    var screen = try terminal.Screen.init(alloc, 120, 30, 0);
+    var screen = try terminal.Screen.init(alloc, .{ .cols = 120, .rows = 30, .max_scrollback = 0 });
     defer screen.deinit();
     try screen.testWriteString(@embedFile("testdata/arabic.txt"));
 
@@ -478,7 +478,7 @@ test "shape emoji width" {
     defer testdata.deinit();
 
     {
-        var screen = try terminal.Screen.init(alloc, 5, 3, 0);
+        var screen = try terminal.Screen.init(alloc, .{ .cols = 5, .rows = 3, .max_scrollback = 0 });
         defer screen.deinit();
         try screen.testWriteString("👍");
 
@@ -563,7 +563,7 @@ test "shape variation selector VS15" {
     buf_idx += try std.unicode.utf8Encode(0xFE0E, buf[buf_idx..]); // ZWJ to force text
 
     // Make a screen with some data
-    var screen = try terminal.Screen.init(alloc, 10, 3, 0);
+    var screen = try terminal.Screen.init(alloc, .{ .cols = 10, .rows = 3, .max_scrollback = 0 });
     defer screen.deinit();
     try screen.testWriteString(buf[0..buf_idx]);
 
@@ -598,7 +598,7 @@ test "shape variation selector VS16" {
     buf_idx += try std.unicode.utf8Encode(0xFE0F, buf[buf_idx..]); // ZWJ to force color
 
     // Make a screen with some data
-    var screen = try terminal.Screen.init(alloc, 10, 3, 0);
+    var screen = try terminal.Screen.init(alloc, .{ .cols = 10, .rows = 3, .max_scrollback = 0 });
     defer screen.deinit();
     try screen.testWriteString(buf[0..buf_idx]);
 
@@ -704,7 +704,7 @@ test "shape box glyphs" {
     buf_idx += try std.unicode.utf8Encode(0x2501, buf[buf_idx..]); //
 
     // Make a screen with some data
-    var screen = try terminal.Screen.init(alloc, 10, 3, 0);
+    var screen = try terminal.Screen.init(alloc, .{ .cols = 10, .rows = 3, .max_scrollback = 0 });
     defer screen.deinit();
     try screen.testWriteString(buf[0..buf_idx]);
 
@@ -737,7 +737,7 @@ test "shape selection boundary" {
     defer testdata.deinit();
 
     // Make a screen with some data
-    var screen = try terminal.Screen.init(alloc, 10, 3, 0);
+    var screen = try terminal.Screen.init(alloc, .{ .cols = 10, .rows = 3, .max_scrollback = 0 });
     defer screen.deinit();
     try screen.testWriteString("a1b2c3d4e5");
 
@@ -860,7 +860,7 @@ test "shape cursor boundary" {
     defer testdata.deinit();
 
     // Make a screen with some data
-    var screen = try terminal.Screen.init(alloc, 10, 3, 0);
+    var screen = try terminal.Screen.init(alloc, .{ .cols = 10, .rows = 3, .max_scrollback = 0 });
     defer screen.deinit();
     try screen.testWriteString("a1b2c3d4e5");
 
@@ -1092,7 +1092,7 @@ test "shape cell attribute change" {
 
     // Plain >= should shape into 1 run
     {
-        var screen = try terminal.Screen.init(alloc, 10, 3, 0);
+        var screen = try terminal.Screen.init(alloc, .{ .cols = 10, .rows = 3, .max_scrollback = 0 });
         defer screen.deinit();
         try screen.testWriteString(">=");
 

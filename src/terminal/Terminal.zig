@@ -39,7 +39,7 @@ const log = std.log.scoped(.terminal);
 const TABSTOP_INTERVAL = 8;
 
 /// Screen type is an enum that tracks whether a screen is primary or alternate.
-pub const ScreenType = enum {
+pub const ScreenType = enum(u1) {
     primary,
     alternate,
 };
@@ -225,8 +225,8 @@ pub fn init(
         .cols = cols,
         .rows = rows,
         .active_screen = .primary,
-        .screen = try .init(alloc, cols, rows, opts.max_scrollback),
-        .secondary_screen = try .init(alloc, cols, rows, 0),
+        .screen = try .init(alloc, .{ .cols = cols, .rows = rows, .max_scrollback = opts.max_scrollback }),
+        .secondary_screen = try .init(alloc, .{ .cols = cols, .rows = rows, .max_scrollback = 0 }),
         .tabstops = try .init(alloc, cols, TABSTOP_INTERVAL),
         .scrolling_region = .{
             .top = 0,

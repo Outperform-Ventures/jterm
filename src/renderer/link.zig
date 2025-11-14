@@ -398,7 +398,7 @@ test "matchset" {
     const alloc = testing.allocator;
 
     // Initialize our screen
-    var s = try Screen.init(alloc, 5, 5, 0);
+    var s = try Screen.init(alloc, .{ .cols = 5, .rows = 5, .max_scrollback = 0 });
     defer s.deinit();
     const str = "1ABCD2EFGH\n3IJKL";
     try s.testWriteString(str);
@@ -456,7 +456,7 @@ test "matchset hover links" {
     const alloc = testing.allocator;
 
     // Initialize our screen
-    var s = try Screen.init(alloc, 5, 5, 0);
+    var s = try Screen.init(alloc, .{ .cols = 5, .rows = 5, .max_scrollback = 0 });
     defer s.deinit();
     const str = "1ABCD2EFGH\n3IJKL";
     try s.testWriteString(str);
@@ -549,7 +549,7 @@ test "matchset mods no match" {
     const alloc = testing.allocator;
 
     // Initialize our screen
-    var s = try Screen.init(alloc, 5, 5, 0);
+    var s = try Screen.init(alloc, .{ .cols = 5, .rows = 5, .max_scrollback = 0 });
     defer s.deinit();
     const str = "1ABCD2EFGH\n3IJKL";
     try s.testWriteString(str);

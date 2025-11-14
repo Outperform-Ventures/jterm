@@ -5696,7 +5696,7 @@ fn testMouseSelection(
         .padding = .{ .left = 5, .top = 5, .right = 5, .bottom = 5 },
         .screen = .{ .width = 110, .height = 110 },
     };
-    var screen = try terminal.Screen.init(std.testing.allocator, 10, 5, 0);
+    var screen = try terminal.Screen.init(std.testing.allocator, .{ .cols = 10, .rows = 5, .max_scrollback = 0 });
     defer screen.deinit();
 
     // We hold both ctrl and alt for rectangular
@@ -5765,7 +5765,7 @@ fn testMouseSelectionIsNull(
         .padding = .{ .left = 5, .top = 5, .right = 5, .bottom = 5 },
         .screen = .{ .width = 110, .height = 110 },
     };
-    var screen = try terminal.Screen.init(std.testing.allocator, 10, 5, 0);
+    var screen = try terminal.Screen.init(std.testing.allocator, .{ .cols = 10, .rows = 5, .max_scrollback = 0 });
     defer screen.deinit();
 
     // We hold both ctrl and alt for rectangular
