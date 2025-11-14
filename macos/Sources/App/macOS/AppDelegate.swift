@@ -110,7 +110,7 @@ class AppDelegate: NSObject,
     }
 
     /// Tracks the windows that we hid for toggleVisibility.
-    private var hiddenState: ToggleVisibilityState? = nil
+    private(set) var hiddenState: ToggleVisibilityState? = nil
 
     /// The observer for the app appearance.
     private var appearanceObserver: NSKeyValueObservation? = nil
@@ -278,6 +278,11 @@ class AppDelegate: NSObject,
                 NSApp.arrangeInFront(nil)
             }
         }
+    }
+
+    func applicationDidHide(_ notification: Notification) {
+        // Keep track of our hidden state to restore properly
+        self.hiddenState = .init()
     }
 
     func applicationDidBecomeActive(_ notification: Notification) {
@@ -1084,8 +1089,6 @@ class AppDelegate: NSObject,
             guard let keyWindow = NSApp.keyWindow,
                   !keyWindow.styleMask.contains(.fullScreen) else { return }
 
-            // Keep track of our hidden state to restore properly
-            self.hiddenState = .init()
             NSApp.hide(nil)
             return
         }
@@ -1134,11 +1137,11 @@ class AppDelegate: NSObject,
         }
     }
 
-    private struct ToggleVisibilityState {
+    struct ToggleVisibilityState {
         let hiddenWindows: [Weak<NSWindow>]
         let keyWindow: Weak<NSWindow>?
 
-        init() {
+        fileprivate init() {
             // We need to know the key window so that we can bring focus back to the
             // right window if it was hidden.
             self.keyWindow = if let keyWindow = NSApp.keyWindow {

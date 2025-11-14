@@ -513,6 +513,10 @@ class QuickTerminalController: BaseTerminalController {
         if !window.isOnActiveSpace {
             self.previousApp = nil
             window.orderOut(self)
+            // If our application is hidden previously, we hide it again
+            if (NSApp.delegate as? AppDelegate)?.hiddenState != nil {
+                NSApp.hide(nil)
+            }
             return
         }
 
@@ -549,6 +553,10 @@ class QuickTerminalController: BaseTerminalController {
             // This causes the window to be removed from the screen list and macOS
             // handles what should be focused next.
             window.orderOut(self)
+            // If our application is hidden previously, we hide it again
+            if (NSApp.delegate as? AppDelegate)?.hiddenState != nil {
+                NSApp.hide(nil)
+            }
         })
     }
 
