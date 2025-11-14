@@ -391,7 +391,7 @@ test "simple search" {
     defer s.deinit();
     try s.nextSlice("Fizz\r\nBuzz\r\nFizz\r\nBang");
 
-    var search: ScreenSearch = try .init(alloc, &t.screen, "Fizz");
+    var search: ScreenSearch = try .init(alloc, t.screen, "Fizz");
     defer search.deinit();
     try search.searchAll();
     try testing.expectEqual(2, search.active_results.items.len);
@@ -444,7 +444,7 @@ test "simple search with history" {
     for (0..list.rows) |_| try s.nextSlice("\r\n");
     try s.nextSlice("hello.");
 
-    var search: ScreenSearch = try .init(alloc, &t.screen, "Fizz");
+    var search: ScreenSearch = try .init(alloc, t.screen, "Fizz");
     defer search.deinit();
     try search.searchAll();
     try testing.expectEqual(0, search.active_results.items.len);
@@ -482,7 +482,7 @@ test "reload active with history change" {
     try s.nextSlice("Fizz\r\n");
 
     // Start up our search which will populate our initial active area.
-    var search: ScreenSearch = try .init(alloc, &t.screen, "Fizz");
+    var search: ScreenSearch = try .init(alloc, t.screen, "Fizz");
     defer search.deinit();
     try search.searchAll();
     {
@@ -562,7 +562,7 @@ test "active change contents" {
     defer s.deinit();
     try s.nextSlice("Fuzz\r\nBuzz\r\nFizz\r\nBang");
 
-    var search: ScreenSearch = try .init(alloc, &t.screen, "Fizz");
+    var search: ScreenSearch = try .init(alloc, t.screen, "Fizz");
     defer search.deinit();
     try search.searchAll();
     try testing.expectEqual(1, search.active_results.items.len);

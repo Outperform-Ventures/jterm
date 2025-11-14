@@ -29,6 +29,7 @@ const size = @import("size.zig");
 const pagepkg = @import("page.zig");
 const style = @import("style.zig");
 const Screen = @import("Screen.zig");
+const ScreenSet = @import("ScreenSet.zig");
 const Page = pagepkg.Page;
 const Cell = pagepkg.Cell;
 const Row = pagepkg.Row;
@@ -38,18 +39,17 @@ const log = std.log.scoped(.terminal);
 /// Default tabstop interval
 const TABSTOP_INTERVAL = 8;
 
-/// Screen type is an enum that tracks whether a screen is primary or alternate.
-pub const ScreenType = enum(u1) {
-    primary,
-    alternate,
-};
+/// The currently active screen. To get the type of screen this is,
+/// inspect screens.active_key instead.
+///
+/// Note: long term I'd like to get rid of this and force everyone
+/// to go through screens instead but there's SO MUCH code that relies
+/// on this property existing and it was really nasty to change all of
+/// that today.
+screen: *Screen,
 
-/// Screen is the current screen state. The "active_screen" field says what
-/// the current screen is. The backup screen is the opposite of the active
-/// screen.
-active_screen: ScreenType,
-screen: Screen,
-secondary_screen: Screen,
+/// The set of screens behind this terminal (e.g. primary vs alternate).
+screens: ScreenSet,
 
 /// Whether we're currently writing to the status line (DECSASD and DECSSDT).
 /// We don't support a status line currently so we just black hole this
@@ -221,12 +221,19 @@ pub fn init(
 ) !Terminal {
     const cols = opts.cols;
     const rows = opts.rows;
+
+    var screen_set: ScreenSet = try .init(alloc, .{
+        .cols = cols,
+        .rows = rows,
+        .max_scrollback = opts.max_scrollback,
+    });
+    errdefer screen_set.deinit(alloc);
+
     return .{
         .cols = cols,
         .rows = rows,
-        .active_screen = .primary,
-        .screen = try .init(alloc, .{ .cols = cols, .rows = rows, .max_scrollback = opts.max_scrollback }),
-        .secondary_screen = try .init(alloc, .{ .cols = cols, .rows = rows, .max_scrollback = 0 }),
+        .screen = screen_set.active,
+        .screens = screen_set,
         .tabstops = try .init(alloc, cols, TABSTOP_INTERVAL),
         .scrolling_region = .{
             .top = 0,
@@ -245,8 +252,7 @@ pub fn init(
 
 pub fn deinit(self: *Terminal, alloc: Allocator) void {
     self.tabstops.deinit(alloc);
-    self.screen.deinit();
-    self.secondary_screen.deinit();
+    self.screens.deinit(alloc);
     self.pwd.deinit(alloc);
     self.* = undefined;
 }
@@ -266,7 +272,7 @@ pub fn vtHandler(self: *Terminal) ReadonlyHandler {
 
 /// The general allocator we should use for this terminal.
 fn gpa(self: *Terminal) Allocator {
-    return self.screen.alloc;
+    return self.screens.active.alloc;
 }
 
 /// Print UTF-8 encoded string to the terminal.
@@ -1074,7 +1080,7 @@ pub fn markSemanticPrompt(self: *Terminal, p: SemanticPrompt) void {
 /// If the shell integration doesn't exist, this will always return false.
 pub fn cursorIsAtPrompt(self: *Terminal) bool {
     // If we're on the secondary screen, we're never at a prompt.
-    if (self.active_screen == .alternate) return false;
+    if (self.screens.active_key == .alternate) return false;
 
     // Reverse through the active
     const start_x, const start_y = .{ self.screen.cursor.x, self.screen.cursor.y };
@@ -2202,7 +2208,7 @@ pub fn eraseDisplay(
             // at a prompt scrolls the screen contents prior to clearing.
             // Most shells send `ESC [ H ESC [ 2 J` so we can't just check
             // our current cursor position. See #905
-            if (self.active_screen == .primary) at_prompt: {
+            if (self.screens.active_key == .primary) at_prompt: {
                 // Go from the bottom of the active up and see if we're
                 // at a prompt.
                 const active_br = self.screen.pages.getBottomRight(
@@ -2531,25 +2537,22 @@ pub fn resize(
         self.tabstops = try .init(alloc, cols, 8);
     }
 
-    // If we're making the screen smaller, dealloc the unused items.
-    if (self.active_screen == .primary) {
-        if (self.flags.shell_redraws_prompt) {
-            self.screen.clearPrompt();
-        }
-
-        if (self.modes.get(.wraparound)) {
-            try self.screen.resize(cols, rows);
-        } else {
-            try self.screen.resizeWithoutReflow(cols, rows);
-        }
-        try self.secondary_screen.resizeWithoutReflow(cols, rows);
+    // Resize primary screen, which supports reflow
+    const primary = self.screens.get(.primary).?;
+    if (self.screens.active_key == .primary and
+        self.flags.shell_redraws_prompt)
+    {
+        primary.clearPrompt();
+    }
+    if (self.modes.get(.wraparound)) {
+        try primary.resize(cols, rows);
     } else {
-        try self.screen.resizeWithoutReflow(cols, rows);
-        if (self.modes.get(.wraparound)) {
-            try self.secondary_screen.resize(cols, rows);
-        } else {
-            try self.secondary_screen.resizeWithoutReflow(cols, rows);
-        }
+        try primary.resizeWithoutReflow(cols, rows);
+    }
+
+    // Alternate screen, if it exists, doesn't reflow
+    if (self.screens.get(.alternate)) |alt| {
+        try alt.resizeWithoutReflow(cols, rows);
     }
 
     // Whenever we resize we just mark it as a screen clear
@@ -2581,14 +2584,6 @@ pub fn getPwd(self: *const Terminal) ?[]const u8 {
     return self.pwd.items;
 }
 
-/// Get the screen pointer for the given type.
-pub fn getScreen(self: *Terminal, t: ScreenType) *Screen {
-    return if (self.active_screen == t)
-        &self.screen
-    else
-        &self.secondary_screen;
-}
-
 /// Switch to the given screen type (alternate or primary).
 ///
 /// This does NOT handle behaviors such as clearing the screen,
@@ -2604,40 +2599,60 @@ pub fn getScreen(self: *Terminal, t: ScreenType) *Screen {
 /// more than two screens in the future if needed. There isn't
 /// currently a spec for this, but it is something I think might
 /// be useful in the future.
-pub fn switchScreen(self: *Terminal, t: ScreenType) ?*Screen {
+pub fn switchScreen(self: *Terminal, key: ScreenSet.Key) !?*Screen {
     // If we're already on the requested screen we do nothing.
-    if (self.active_screen == t) return null;
+    if (self.screens.active_key == key) return null;
+    const old = self.screens.active;
 
     // We always end hyperlink state when switching screens.
     // We need to do this on the original screen.
-    self.screen.endHyperlink();
+    old.endHyperlink();
 
-    // Switch the screens
-    const old = self.screen;
-    self.screen = self.secondary_screen;
-    self.secondary_screen = old;
-    self.active_screen = t;
+    // Switch the screens/
+    const new = self.screens.get(key) orelse new: {
+        const primary = self.screens.get(.primary).?;
+        break :new try self.screens.getInit(
+            old.alloc,
+            key,
+            .{
+                .cols = self.cols,
+                .rows = self.rows,
+                .max_scrollback = switch (key) {
+                    .primary => primary.pages.explicit_max_size,
+                    .alternate => 0,
+                },
+
+                // Inherit our Kitty image storage limit from the primary
+                // screen if we have to initialize.
+                .kitty_image_storage_limit = primary.kitty_images.total_limit,
+            },
+        );
+    };
 
     // The new screen should not have any hyperlinks set
-    assert(self.screen.cursor.hyperlink_id == 0);
+    assert(new.cursor.hyperlink_id == 0);
 
     // Bring our charset state with us
-    self.screen.charset = old.charset;
+    new.charset = old.charset;
 
     // Clear our selection
-    self.screen.clearSelection();
+    new.clearSelection();
 
     if (comptime build_options.kitty_graphics) {
         // Mark kitty images as dirty so they redraw. Without this set
         // the images will remain where they were (the dirty bit on
         // the screen only tracks the terminal grid, not the images).
-        self.screen.kitty_images.dirty = true;
+        new.kitty_images.dirty = true;
     }
 
     // Mark our terminal as dirty to redraw the grid.
     self.flags.dirty.clear = true;
 
-    return &self.secondary_screen;
+    // Finalize the switch
+    self.screens.switchTo(key);
+    self.screen = new;
+
+    return old;
 }
 
 /// Switch screen via a mode switch (e.g. mode 47, 1047, 1049).
@@ -2653,7 +2668,7 @@ pub fn switchScreenMode(
     self: *Terminal,
     mode: SwitchScreenMode,
     enabled: bool,
-) void {
+) !void {
     // The behavior in this function is completely based on reading
     // the xterm source, specifically "charproc.c" for
     // `srm_ALTBUF`, `srm_OPT_ALTBUF`, and `srm_OPT_ALTBUF_CURSOR`.
@@ -2665,7 +2680,7 @@ pub fn switchScreenMode(
 
         // If we're disabling 1047 and we're on alt screen then
         // we clear the screen.
-        .@"1047" => if (!enabled and self.active_screen == .alternate) {
+        .@"1047" => if (!enabled and self.screens.active_key == .alternate) {
             self.eraseDisplay(.complete, false);
         },
 
@@ -2675,8 +2690,8 @@ pub fn switchScreenMode(
     }
 
     // Switch screens first to whatever we're going to.
-    const to: ScreenType = if (enabled) .alternate else .primary;
-    const old_ = self.switchScreen(to);
+    const to: ScreenSet.Key = if (enabled) .alternate else .primary;
+    const old_ = try self.switchScreen(to);
 
     switch (mode) {
         // For these modes, we need to copy the cursor. We only copy
@@ -2697,7 +2712,7 @@ pub fn switchScreenMode(
         // Mode 1049 restores cursor on the primary screen when
         // we disable it.
         .@"1049" => if (enabled) {
-            assert(self.active_screen == .alternate);
+            assert(self.screens.active_key == .alternate);
             self.eraseDisplay(.complete, false);
 
             // When we enter alt screen with 1049, we always copy the
@@ -2714,7 +2729,7 @@ pub fn switchScreenMode(
                 };
             }
         } else {
-            assert(self.active_screen == .primary);
+            assert(self.screens.active_key == .primary);
             self.restoreCursor() catch |err| {
                 log.warn(
                     "restore cursor on switch screen failed to={} err={}",
@@ -2765,17 +2780,16 @@ pub fn plainStringUnwrapped(self: *Terminal, alloc: Allocator) ![]const u8 {
 /// this will reuse the existing memory. In the latter case, memory may
 /// be wasted (since its unused) but it isn't leaked.
 pub fn fullReset(self: *Terminal) void {
-    // Reset our screens
-    self.screen.reset();
-    self.secondary_screen.reset();
-
     // Ensure we're back on primary screen
-    if (self.active_screen != .primary) {
-        const old = self.screen;
-        self.screen = self.secondary_screen;
-        self.secondary_screen = old;
-        self.active_screen = .primary;
-    }
+    self.screens.switchTo(.primary);
+    self.screens.remove(
+        self.screens.active.alloc,
+        .alternate,
+    );
+    self.screen = self.screens.active;
+
+    // Reset our screens
+    self.screens.active.reset();
 
     // Rest our basic state
     self.modes.reset();
@@ -10757,7 +10771,7 @@ test "Terminal: cursorIsAtPrompt alternate screen" {
     try testing.expect(t.cursorIsAtPrompt());
 
     // Secondary screen is never a prompt
-    t.switchScreenMode(.@"1049", true);
+    try t.switchScreenMode(.@"1049", true);
     try testing.expect(!t.cursorIsAtPrompt());
     t.markSemanticPrompt(.prompt);
     try testing.expect(!t.cursorIsAtPrompt());
@@ -10841,7 +10855,7 @@ test "Terminal: fullReset clears alt screen kitty keyboard state" {
     var t = try init(testing.allocator, .{ .cols = 10, .rows = 10 });
     defer t.deinit(testing.allocator);
 
-    t.switchScreenMode(.@"1049", true);
+    try t.switchScreenMode(.@"1049", true);
     t.screen.kitty_keyboard.push(.{
         .disambiguate = true,
         .report_events = false,
@@ -10849,10 +10863,10 @@ test "Terminal: fullReset clears alt screen kitty keyboard state" {
         .report_all = true,
         .report_associated = true,
     });
-    t.switchScreenMode(.@"1049", false);
+    try t.switchScreenMode(.@"1049", false);
 
     t.fullReset();
-    try testing.expectEqual(0, t.secondary_screen.kitty_keyboard.current().int());
+    try testing.expect(t.screens.get(.alternate) == null);
 }
 
 test "Terminal: fullReset default modes" {
@@ -11164,8 +11178,8 @@ test "Terminal: mode 47 alt screen plain" {
     try t.printString("1A");
 
     // Go to alt screen with mode 47
-    t.switchScreenMode(.@"47", true);
-    try testing.expectEqual(ScreenType.alternate, t.active_screen);
+    try t.switchScreenMode(.@"47", true);
+    try testing.expectEqual(.alternate, t.screens.active_key);
 
     // Screen should be empty
     {
@@ -11184,8 +11198,8 @@ test "Terminal: mode 47 alt screen plain" {
     }
 
     // Go back to primary
-    t.switchScreenMode(.@"47", false);
-    try testing.expectEqual(ScreenType.primary, t.active_screen);
+    try t.switchScreenMode(.@"47", false);
+    try testing.expectEqual(.primary, t.screens.active_key);
 
     // Primary screen should still have the original content
     {
@@ -11195,8 +11209,8 @@ test "Terminal: mode 47 alt screen plain" {
     }
 
     // Go back to alt screen with mode 47
-    t.switchScreenMode(.@"47", true);
-    try testing.expectEqual(ScreenType.alternate, t.active_screen);
+    try t.switchScreenMode(.@"47", true);
+    try testing.expectEqual(.alternate, t.screens.active_key);
 
     // Screen should retain content
     {
@@ -11215,8 +11229,8 @@ test "Terminal: mode 47 copies cursor both directions" {
     try t.setAttribute(.{ .direct_color_fg = .{ .r = 0xFF, .g = 0, .b = 0x7F } });
 
     // Go to alt screen with mode 47
-    t.switchScreenMode(.@"47", true);
-    try testing.expectEqual(ScreenType.alternate, t.active_screen);
+    try t.switchScreenMode(.@"47", true);
+    try testing.expectEqual(.alternate, t.screens.active_key);
 
     // Verify that our style is set
     {
@@ -11230,8 +11244,8 @@ test "Terminal: mode 47 copies cursor both directions" {
     try t.setAttribute(.{ .direct_color_fg = .{ .r = 0, .g = 0xFF, .b = 0 } });
 
     // Go back to primary
-    t.switchScreenMode(.@"47", false);
-    try testing.expectEqual(ScreenType.primary, t.active_screen);
+    try t.switchScreenMode(.@"47", false);
+    try testing.expectEqual(.primary, t.screens.active_key);
 
     // Verify that our style is still set
     {
@@ -11251,8 +11265,8 @@ test "Terminal: mode 1047 alt screen plain" {
     try t.printString("1A");
 
     // Go to alt screen with mode 47
-    t.switchScreenMode(.@"1047", true);
-    try testing.expectEqual(ScreenType.alternate, t.active_screen);
+    try t.switchScreenMode(.@"1047", true);
+    try testing.expectEqual(.alternate, t.screens.active_key);
 
     // Screen should be empty
     {
@@ -11271,8 +11285,8 @@ test "Terminal: mode 1047 alt screen plain" {
     }
 
     // Go back to primary
-    t.switchScreenMode(.@"1047", false);
-    try testing.expectEqual(ScreenType.primary, t.active_screen);
+    try t.switchScreenMode(.@"1047", false);
+    try testing.expectEqual(.primary, t.screens.active_key);
 
     // Primary screen should still have the original content
     {
@@ -11282,8 +11296,8 @@ test "Terminal: mode 1047 alt screen plain" {
     }
 
     // Go back to alt screen with mode 1047
-    t.switchScreenMode(.@"1047", true);
-    try testing.expectEqual(ScreenType.alternate, t.active_screen);
+    try t.switchScreenMode(.@"1047", true);
+    try testing.expectEqual(.alternate, t.screens.active_key);
 
     // Screen should be empty
     {
@@ -11302,8 +11316,8 @@ test "Terminal: mode 1047 copies cursor both directions" {
     try t.setAttribute(.{ .direct_color_fg = .{ .r = 0xFF, .g = 0, .b = 0x7F } });
 
     // Go to alt screen with mode 47
-    t.switchScreenMode(.@"1047", true);
-    try testing.expectEqual(ScreenType.alternate, t.active_screen);
+    try t.switchScreenMode(.@"1047", true);
+    try testing.expectEqual(.alternate, t.screens.active_key);
 
     // Verify that our style is set
     {
@@ -11317,8 +11331,8 @@ test "Terminal: mode 1047 copies cursor both directions" {
     try t.setAttribute(.{ .direct_color_fg = .{ .r = 0, .g = 0xFF, .b = 0 } });
 
     // Go back to primary
-    t.switchScreenMode(.@"1047", false);
-    try testing.expectEqual(ScreenType.primary, t.active_screen);
+    try t.switchScreenMode(.@"1047", false);
+    try testing.expectEqual(.primary, t.screens.active_key);
 
     // Verify that our style is still set
     {
@@ -11338,8 +11352,8 @@ test "Terminal: mode 1049 alt screen plain" {
     try t.printString("1A");
 
     // Go to alt screen with mode 47
-    t.switchScreenMode(.@"1049", true);
-    try testing.expectEqual(ScreenType.alternate, t.active_screen);
+    try t.switchScreenMode(.@"1049", true);
+    try testing.expectEqual(.alternate, t.screens.active_key);
 
     // Screen should be empty
     {
@@ -11358,8 +11372,8 @@ test "Terminal: mode 1049 alt screen plain" {
     }
 
     // Go back to primary
-    t.switchScreenMode(.@"1049", false);
-    try testing.expectEqual(ScreenType.primary, t.active_screen);
+    try t.switchScreenMode(.@"1049", false);
+    try testing.expectEqual(.primary, t.screens.active_key);
 
     // Primary screen should still have the original content
     {
@@ -11377,8 +11391,8 @@ test "Terminal: mode 1049 alt screen plain" {
     }
 
     // Go back to alt screen with mode 1049
-    t.switchScreenMode(.@"1049", true);
-    try testing.expectEqual(ScreenType.alternate, t.active_screen);
+    try t.switchScreenMode(.@"1049", true);
+    try testing.expectEqual(.alternate, t.screens.active_key);
 
     // Screen should be empty
     {

@@ -304,7 +304,7 @@ fn renderScreenWindow(self: *Inspector) void {
     )) return;
 
     const t = self.surface.renderer_state.terminal;
-    const screen = &t.screen;
+    const screen: *terminal.Screen = t.screen;
 
     {
         _ = cimgui.c.igBeginTable(
@@ -324,7 +324,7 @@ fn renderScreenWindow(self: *Inspector) void {
             }
             {
                 _ = cimgui.c.igTableSetColumnIndex(1);
-                cimgui.c.igText("%s", @tagName(t.active_screen).ptr);
+                cimgui.c.igText("%s", @tagName(t.screens.active_key).ptr);
             }
         }
     }

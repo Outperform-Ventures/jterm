@@ -186,7 +186,7 @@ const Mouse = struct {
     /// The point at which the left mouse click happened. This is in screen
     /// coordinates so that scrolling preserves the location.
     left_click_pin: ?*terminal.Pin = null,
-    left_click_screen: terminal.ScreenType = .primary,
+    left_click_screen: terminal.ScreenSet.Key = .primary,
 
     /// The starting xpos/ypos of the left click. Note that if scrolling occurs,
     /// these will point to different "cells", but the xpos/ypos will stay
@@ -1065,7 +1065,7 @@ fn selectionScrollTick(self: *Surface) !void {
 
     // If our screen changed while this is happening, we stop our
     // selection scroll.
-    if (self.mouse.left_click_screen != t.active_screen) {
+    if (self.mouse.left_click_screen != t.screens.active_key) {
         self.io.queueMessage(
             .{ .selection_scroll = false },
             .locked,
@@ -1703,7 +1703,7 @@ pub fn dumpTextLocked(
         // If our bottom right pin is before the viewport, then we can't
         // possibly have this text be within the viewport.
         const vp_tl_pin = self.io.terminal.screen.pages.getTopLeft(.viewport);
-        const br_pin = sel.bottomRight(&self.io.terminal.screen);
+        const br_pin = sel.bottomRight(self.io.terminal.screen);
         if (br_pin.before(vp_tl_pin)) break :viewport null;
 
         // If our top-left pin is after the viewport, then we can't possibly
@@ -1714,7 +1714,7 @@ pub fn dumpTextLocked(
             log.warn("viewport bottom-right pin not found, bug?", .{});
             break :viewport null;
         };
-        const tl_pin = sel.topLeft(&self.io.terminal.screen);
+        const tl_pin = sel.topLeft(self.io.terminal.screen);
         if (vp_br_pin.before(tl_pin)) break :viewport null;
 
         // We established that our top-left somewhere before the viewport
@@ -1984,7 +1984,7 @@ fn copySelectionToClipboards(
     var contents: std.ArrayList(apprt.ClipboardContent) = .empty;
     switch (format) {
         .plain => {
-            var formatter: ScreenFormatter = .init(&self.io.terminal.screen, opts);
+            var formatter: ScreenFormatter = .init(self.io.terminal.screen, opts);
             formatter.content = .{ .selection = sel };
             try formatter.format(&aw.writer);
             try contents.append(alloc, .{
@@ -1994,7 +1994,7 @@ fn copySelectionToClipboards(
         },
 
         .vt => {
-            var formatter: ScreenFormatter = .init(&self.io.terminal.screen, opts: {
+            var formatter: ScreenFormatter = .init(self.io.terminal.screen, opts: {
                 var copy = opts;
                 copy.emit = .vt;
                 break :opts copy;
@@ -2011,7 +2011,7 @@ fn copySelectionToClipboards(
         },
 
         .html => {
-            var formatter: ScreenFormatter = .init(&self.io.terminal.screen, opts: {
+            var formatter: ScreenFormatter = .init(self.io.terminal.screen, opts: {
                 var copy = opts;
                 copy.emit = .html;
                 break :opts copy;
@@ -2029,7 +2029,7 @@ fn copySelectionToClipboards(
 
         .mixed => {
             // First, generate plain text with codepoint mappings applied
-            var formatter: ScreenFormatter = .init(&self.io.terminal.screen, opts);
+            var formatter: ScreenFormatter = .init(self.io.terminal.screen, opts);
             formatter.content = .{ .selection = sel };
             try formatter.format(&aw.writer);
             try contents.append(alloc, .{
@@ -2039,7 +2039,7 @@ fn copySelectionToClipboards(
 
             assert(aw.written().len == 0);
             // Second, generate HTML without codepoint mappings
-            formatter = .init(&self.io.terminal.screen, opts: {
+            formatter = .init(self.io.terminal.screen, opts: {
                 var copy = opts;
                 copy.emit = .html;
 
@@ -3098,7 +3098,7 @@ pub fn scrollCallback(
         // we convert to cursor keys. This only happens if we're:
         // (1) alt screen (2) no explicit mouse reporting and (3) alt
         // scroll mode enabled.
-        if (self.io.terminal.active_screen == .alternate and
+        if (self.io.terminal.screens.active_key == .alternate and
             self.io.terminal.flags.mouse_event == .none and
             self.io.terminal.modes.get(.mouse_alternate_scroll))
         {
@@ -3506,7 +3506,7 @@ pub fn mouseButtonCallback(
         {
             const pos = try self.rt_surface.getCursorPos();
             const point = self.posToViewport(pos.x, pos.y);
-            const screen = &self.renderer_state.terminal.screen;
+            const screen: *terminal.Screen = self.renderer_state.terminal.screen;
             const p = screen.pages.pin(.{ .viewport = point }) orelse {
                 log.warn("failed to get pin for clicked point", .{});
                 return false;
@@ -3681,7 +3681,7 @@ pub fn mouseButtonCallback(
         self.renderer_state.mutex.lock();
         defer self.renderer_state.mutex.unlock();
         const t: *terminal.Terminal = self.renderer_state.terminal;
-        const screen = &self.renderer_state.terminal.screen;
+        const screen: *terminal.Screen = self.renderer_state.terminal.screen;
 
         const pos = try self.rt_surface.getCursorPos();
         const pin = pin: {
@@ -3717,14 +3717,15 @@ pub fn mouseButtonCallback(
         }
 
         if (self.mouse.left_click_pin) |prev| {
-            const pin_screen = t.getScreen(self.mouse.left_click_screen);
-            pin_screen.pages.untrackPin(prev);
+            if (t.screens.get(self.mouse.left_click_screen)) |pin_screen| {
+                pin_screen.pages.untrackPin(prev);
+            }
             self.mouse.left_click_pin = null;
         }
 
         // Store it
         self.mouse.left_click_pin = pin;
-        self.mouse.left_click_screen = t.active_screen;
+        self.mouse.left_click_screen = t.screens.active_key;
         self.mouse.left_click_xpos = pos.x;
         self.mouse.left_click_ypos = pos.y;
 
@@ -3808,7 +3809,7 @@ pub fn mouseButtonCallback(
         defer self.renderer_state.mutex.unlock();
 
         // Get our viewport pin
-        const screen = &self.renderer_state.terminal.screen;
+        const screen: *terminal.Screen = self.renderer_state.terminal.screen;
         const pin = pin: {
             const pos = try self.rt_surface.getCursorPos();
             const pt_viewport = self.posToViewport(pos.x, pos.y);
@@ -3911,7 +3912,7 @@ fn clickMoveCursor(self: *Surface, to: terminal.Pin) !void {
     // Click to move cursor only works on the primary screen where prompts
     // exist. This means that alt screen multiplexers like tmux will not
     // support this feature. It is just too messy.
-    if (t.active_screen != .primary) return;
+    if (t.screens.active_key != .primary) return;
 
     // This flag is only set if we've seen at least one semantic prompt
     // OSC sequence. If we've never seen that sequence, we can't possibly
@@ -3964,7 +3965,7 @@ fn linkAtPos(
     terminal.Selection,
 } {
     // Convert our cursor position to a screen point.
-    const screen = &self.renderer_state.terminal.screen;
+    const screen: *terminal.Screen = self.renderer_state.terminal.screen;
     const mouse_pin: terminal.Pin = mouse_pin: {
         const point = self.posToViewport(pos.x, pos.y);
         const pin = screen.pages.pin(.{ .viewport = point }) orelse {
@@ -4237,7 +4238,7 @@ pub fn cursorPosCallback(
         insp.mouse.last_xpos = pos.x;
         insp.mouse.last_ypos = pos.y;
 
-        const screen = &self.renderer_state.terminal.screen;
+        const screen: *terminal.Screen = self.renderer_state.terminal.screen;
         insp.mouse.last_point = screen.pages.pin(.{ .viewport = .{
             .x = pos_vp.x,
             .y = pos_vp.y,
@@ -4303,7 +4304,7 @@ pub fn cursorPosCallback(
         // invalidate our pin or mouse state because if the screen switches
         // back then we can continue our selection.
         const t: *terminal.Terminal = self.renderer_state.terminal;
-        if (self.mouse.left_click_screen != t.active_screen) break :select;
+        if (self.mouse.left_click_screen != t.screens.active_key) break :select;
 
         // All roads lead to requiring a re-render at this point.
         try self.queueRender();
@@ -4328,7 +4329,7 @@ pub fn cursorPosCallback(
         }
 
         // Convert to points
-        const screen = &t.screen;
+        const screen: *terminal.Screen = t.screen;
         const pin = screen.pages.pin(.{
             .viewport = .{
                 .x = pos_vp.x,
@@ -4357,7 +4358,7 @@ fn dragLeftClickDouble(
     self: *Surface,
     drag_pin: terminal.Pin,
 ) !void {
-    const screen = &self.io.terminal.screen;
+    const screen: *terminal.Screen = self.io.terminal.screen;
     const click_pin = self.mouse.left_click_pin.?.*;
 
     // Get the word closest to our starting click.
@@ -4397,7 +4398,7 @@ fn dragLeftClickTriple(
     self: *Surface,
     drag_pin: terminal.Pin,
 ) !void {
-    const screen = &self.io.terminal.screen;
+    const screen: *terminal.Screen = self.io.terminal.screen;
     const click_pin = self.mouse.left_click_pin.?.*;
 
     // Get the line selection under our current drag point. If there isn't a
@@ -4930,7 +4931,7 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             {
                 self.renderer_state.mutex.lock();
                 defer self.renderer_state.mutex.unlock();
-                if (self.io.terminal.active_screen == .alternate) return false;
+                if (self.io.terminal.screens.active_key == .alternate) return false;
             }
 
             self.io.queueMessage(.{
@@ -4966,7 +4967,7 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
                 self.renderer_state.mutex.lock();
                 defer self.renderer_state.mutex.unlock();
                 const sel = self.io.terminal.screen.selection orelse return false;
-                const tl = sel.topLeft(&self.io.terminal.screen);
+                const tl = sel.topLeft(self.io.terminal.screen);
                 self.io.terminal.screen.scroll(.{ .pin = tl });
             }
 
@@ -5220,7 +5221,7 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             self.renderer_state.mutex.lock();
             defer self.renderer_state.mutex.unlock();
 
-            const screen = &self.io.terminal.screen;
+            const screen: *terminal.Screen = self.io.terminal.screen;
             const sel = if (screen.selection) |*sel| sel else {
                 // If we don't have a selection we do not perform this
                 // action, allowing the keybind to fall through to the
@@ -5340,7 +5341,7 @@ fn writeScreenFile(
             .history => history: {
                 // We do not support this for alternate screens
                 // because they don't have scrollback anyways.
-                if (self.io.terminal.active_screen == .alternate) {
+                if (self.io.terminal.screens.active_key == .alternate) {
                     break :history null;
                 }
 
@@ -5371,7 +5372,7 @@ fn writeScreenFile(
         };
 
         const ScreenFormatter = terminal.formatter.ScreenFormatter;
-        var formatter: ScreenFormatter = .init(&self.io.terminal.screen, .{
+        var formatter: ScreenFormatter = .init(self.io.terminal.screen, .{
             .emit = switch (write_screen.emit) {
                 .plain => .plain,
                 .vt => .vt,
@@ -5384,7 +5385,7 @@ fn writeScreenFile(
             .palette = &self.io.terminal.colors.palette.current,
         });
         formatter.content = .{ .selection = sel.ordered(
-            &self.io.terminal.screen,
+            self.io.terminal.screen,
             .forward,
         ) };
         try formatter.format(buf_writer);

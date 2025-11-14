@@ -252,7 +252,7 @@ fn display(
         result.placement_id,
         p,
     ) catch |err| {
-        p.deinit(&terminal.screen);
+        p.deinit(terminal.screen);
         encodeError(&result, err);
         return result;
     };

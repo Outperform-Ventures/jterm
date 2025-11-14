@@ -233,9 +233,9 @@ pub const Handler = struct {
                 self.terminal.scrolling_region.right = self.terminal.cols - 1;
             },
 
-            .alt_screen_legacy => self.terminal.switchScreenMode(.@"47", enabled),
-            .alt_screen => self.terminal.switchScreenMode(.@"1047", enabled),
-            .alt_screen_save_cursor_clear_enter => self.terminal.switchScreenMode(.@"1049", enabled),
+            .alt_screen_legacy => try self.terminal.switchScreenMode(.@"47", enabled),
+            .alt_screen => try self.terminal.switchScreenMode(.@"1047", enabled),
+            .alt_screen_save_cursor_clear_enter => try self.terminal.switchScreenMode(.@"1049", enabled),
 
             .save_cursor => if (enabled) {
                 self.terminal.saveCursor();
@@ -527,18 +527,18 @@ test "alt screen" {
 
     // Write to primary screen
     try s.nextSlice("Primary");
-    try testing.expectEqual(Terminal.ScreenType.primary, t.active_screen);
+    try testing.expectEqual(.primary, t.screens.active_key);
 
     // Switch to alt screen
     try s.nextSlice("\x1B[?1049h");
-    try testing.expectEqual(Terminal.ScreenType.alternate, t.active_screen);
+    try testing.expectEqual(.alternate, t.screens.active_key);
 
     // Write to alt screen
     try s.nextSlice("Alt");
 
     // Switch back to primary
     try s.nextSlice("\x1B[?1049l");
-    try testing.expectEqual(Terminal.ScreenType.primary, t.active_screen);
+    try testing.expectEqual(.primary, t.screens.active_key);
 
     const str = try t.plainString(testing.allocator);
     defer testing.allocator.free(str);

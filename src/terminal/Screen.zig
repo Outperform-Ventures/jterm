@@ -178,7 +178,14 @@ pub const CharsetState = struct {
 pub const Options = struct {
     cols: size.CellCountInt,
     rows: size.CellCountInt,
+
+    /// The maximum size of scrollback in bytes. Zero means unlimited. Any
+    /// other value will be clamped to support a minimum of the active area.
     max_scrollback: usize = 0,
+
+    /// The total storage limit for Kitty images in bytes for this
+    /// screen. Kitty image storage is per-screen.
+    kitty_image_storage_limit: usize = 320 * 1000 * 1000, // 320MB
 
     /// A simple, default terminal. If you rely on specific dimensions or
     /// scrollback (or lack of) then do not use this directly. This is just
@@ -215,7 +222,7 @@ pub fn init(
     errdefer pages.untrackPin(page_pin);
     const page_rac = page_pin.rowAndCell();
 
-    return .{
+    var result: Screen = .{
         .alloc = alloc,
         .pages = pages,
         .no_scrollback = opts.max_scrollback == 0,
@@ -227,6 +234,18 @@ pub fn init(
             .page_cell = page_rac.cell,
         },
     };
+
+    if (comptime build_options.kitty_graphics) {
+        // This can't fail because the storage is always empty at this point
+        // and the only fail-able case is that we have to evict images.
+        result.kitty_images.setLimit(
+            alloc,
+            &result,
+            opts.kitty_image_storage_limit,
+        ) catch unreachable;
+    }
+
+    return result;
 }
 
 pub fn deinit(self: *Screen) void {

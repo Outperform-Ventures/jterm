@@ -583,15 +583,15 @@ pub const StreamHandler = struct {
             },
 
             .alt_screen_legacy => {
-                self.terminal.switchScreenMode(.@"47", enabled);
+                try self.terminal.switchScreenMode(.@"47", enabled);
             },
 
             .alt_screen => {
-                self.terminal.switchScreenMode(.@"1047", enabled);
+                try self.terminal.switchScreenMode(.@"1047", enabled);
             },
 
             .alt_screen_save_cursor_clear_enter => {
-                self.terminal.switchScreenMode(.@"1049", enabled);
+                try self.terminal.switchScreenMode(.@"1049", enabled);
             },
 
             // Mode 1048 is xterm's conditional save cursor depending

@@ -331,7 +331,7 @@ pub const TerminalFormatter = struct {
             }
         }
 
-        var screen_formatter: ScreenFormatter = .init(&self.terminal.screen, self.opts);
+        var screen_formatter: ScreenFormatter = .init(self.terminal.screen, self.opts);
         screen_formatter.content = self.content;
         screen_formatter.extra = self.extra.screen;
         screen_formatter.pin_map = self.pin_map;
@@ -4231,7 +4231,7 @@ test "Screen plain single line" {
     var pin_map: std.ArrayList(Pin) = .empty;
     defer pin_map.deinit(alloc);
 
-    var formatter: ScreenFormatter = .init(&t.screen, .plain);
+    var formatter: ScreenFormatter = .init(t.screen, .plain);
     formatter.pin_map = .{ .alloc = alloc, .map = &pin_map };
 
     try formatter.format(&builder.writer);
@@ -4268,7 +4268,7 @@ test "Screen plain multiline" {
     var pin_map: std.ArrayList(Pin) = .empty;
     defer pin_map.deinit(alloc);
 
-    var formatter: ScreenFormatter = .init(&t.screen, .plain);
+    var formatter: ScreenFormatter = .init(t.screen, .plain);
     formatter.pin_map = .{ .alloc = alloc, .map = &pin_map };
 
     try formatter.format(&builder.writer);
@@ -4316,7 +4316,7 @@ test "Screen plain with selection" {
     var pin_map: std.ArrayList(Pin) = .empty;
     defer pin_map.deinit(alloc);
 
-    var formatter: ScreenFormatter = .init(&t.screen, .plain);
+    var formatter: ScreenFormatter = .init(t.screen, .plain);
     formatter.content = .{ .selection = .init(
         t.screen.pages.pin(.{ .active = .{ .x = 0, .y = 1 } }).?,
         t.screen.pages.pin(.{ .active = .{ .x = 4, .y = 1 } }).?,
@@ -4361,7 +4361,7 @@ test "Screen vt with cursor position" {
     var pin_map: std.ArrayList(Pin) = .empty;
     defer pin_map.deinit(alloc);
 
-    var formatter: ScreenFormatter = .init(&t.screen, .vt);
+    var formatter: ScreenFormatter = .init(t.screen, .vt);
     formatter.extra.cursor = true;
     formatter.pin_map = .{ .alloc = alloc, .map = &pin_map };
 
@@ -4420,7 +4420,7 @@ test "Screen vt with style" {
     var pin_map: std.ArrayList(Pin) = .empty;
     defer pin_map.deinit(alloc);
 
-    var formatter: ScreenFormatter = .init(&t.screen, .vt);
+    var formatter: ScreenFormatter = .init(t.screen, .vt);
     formatter.extra.style = true;
     formatter.pin_map = .{ .alloc = alloc, .map = &pin_map };
 
@@ -4472,7 +4472,7 @@ test "Screen vt with hyperlink" {
     var pin_map: std.ArrayList(Pin) = .empty;
     defer pin_map.deinit(alloc);
 
-    var formatter: ScreenFormatter = .init(&t.screen, .vt);
+    var formatter: ScreenFormatter = .init(t.screen, .vt);
     formatter.extra.hyperlink = true;
     formatter.pin_map = .{ .alloc = alloc, .map = &pin_map };
 
@@ -4532,7 +4532,7 @@ test "Screen vt with protection" {
     var pin_map: std.ArrayList(Pin) = .empty;
     defer pin_map.deinit(alloc);
 
-    var formatter: ScreenFormatter = .init(&t.screen, .vt);
+    var formatter: ScreenFormatter = .init(t.screen, .vt);
     formatter.extra.protection = true;
     formatter.pin_map = .{ .alloc = alloc, .map = &pin_map };
 
@@ -4584,7 +4584,7 @@ test "Screen vt with kitty keyboard" {
     var pin_map: std.ArrayList(Pin) = .empty;
     defer pin_map.deinit(alloc);
 
-    var formatter: ScreenFormatter = .init(&t.screen, .vt);
+    var formatter: ScreenFormatter = .init(t.screen, .vt);
     formatter.extra.kitty_keyboard = true;
     formatter.pin_map = .{ .alloc = alloc, .map = &pin_map };
 
@@ -4638,7 +4638,7 @@ test "Screen vt with charsets" {
     var pin_map: std.ArrayList(Pin) = .empty;
     defer pin_map.deinit(alloc);
 
-    var formatter: ScreenFormatter = .init(&t.screen, .vt);
+    var formatter: ScreenFormatter = .init(t.screen, .vt);
     formatter.extra.charsets = true;
     formatter.pin_map = .{ .alloc = alloc, .map = &pin_map };
 

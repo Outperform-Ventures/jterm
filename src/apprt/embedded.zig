@@ -1578,7 +1578,7 @@ pub const CAPI = struct {
         defer surface.core_surface.renderer_state.mutex.unlock();
 
         const core_sel = sel.core(
-            &surface.core_surface.renderer_state.terminal.screen,
+            surface.core_surface.renderer_state.terminal.screen,
         ) orelse return false;
 
         return readTextLocked(surface, core_sel, result);
@@ -2137,7 +2137,7 @@ pub const CAPI = struct {
 
             // Get our word selection
             const sel = sel: {
-                const screen = &surface.renderer_state.terminal.screen;
+                const screen: *terminal.Screen = surface.renderer_state.terminal.screen;
                 const pos = try ptr.getCursorPos();
                 const pt_viewport = surface.posToViewport(pos.x, pos.y);
                 const pin = screen.pages.pin(.{

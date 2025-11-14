@@ -246,16 +246,15 @@ pub fn init(self: *Termio, alloc: Allocator, opts: termio.Options) !void {
     errdefer term.deinit(alloc);
 
     // Set the image size limits
-    try term.screen.kitty_images.setLimit(
-        alloc,
-        &term.screen,
-        opts.config.image_storage_limit,
-    );
-    try term.secondary_screen.kitty_images.setLimit(
-        alloc,
-        &term.secondary_screen,
-        opts.config.image_storage_limit,
-    );
+    var it = term.screens.all.iterator();
+    while (it.next()) |entry| {
+        const screen: *terminalpkg.Screen = entry.value.*;
+        try screen.kitty_images.setLimit(
+            alloc,
+            screen,
+            opts.config.image_storage_limit,
+        );
+    }
 
     // Set our default cursor style
     term.screen.cursor.cursor_style = opts.config.cursor_style;
@@ -451,16 +450,15 @@ pub fn changeConfig(self: *Termio, td: *ThreadData, config: *DerivedConfig) !voi
     };
 
     // Set the image size limits
-    try self.terminal.screen.kitty_images.setLimit(
-        self.alloc,
-        &self.terminal.screen,
-        config.image_storage_limit,
-    );
-    try self.terminal.secondary_screen.kitty_images.setLimit(
-        self.alloc,
-        &self.terminal.secondary_screen,
-        config.image_storage_limit,
-    );
+    var it = self.terminal.screens.all.iterator();
+    while (it.next()) |entry| {
+        const screen: *terminalpkg.Screen = entry.value.*;
+        try screen.kitty_images.setLimit(
+            self.alloc,
+            screen,
+            config.image_storage_limit,
+        );
+    }
 }
 
 /// Resize the terminal.
@@ -578,7 +576,7 @@ pub fn clearScreen(self: *Termio, td: *ThreadData, history: bool) !void {
         // emulator-level screen clear, this messes up the running programs
         // knowledge of where the cursor is and causes rendering issues. So,
         // for alt screen, we do nothing.
-        if (self.terminal.active_screen == .alternate) return;
+        if (self.terminal.screens.active_key == .alternate) return;
 
         // Clear our selection
         self.terminal.screen.clearSelection();

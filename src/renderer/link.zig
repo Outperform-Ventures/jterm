@@ -609,7 +609,7 @@ test "matchset osc8" {
     // Initialize our terminal
     var t = try Terminal.init(alloc, .{ .cols = 10, .rows = 10 });
     defer t.deinit(alloc);
-    const s = &t.screen;
+    const s: *terminal.Screen = t.screen;
 
     try t.printString("ABC");
     try t.screen.startHyperlink("http://example.com", null);
@@ -624,7 +624,7 @@ test "matchset osc8" {
     {
         var match = try set.matchSet(
             alloc,
-            &t.screen,
+            t.screen,
             .{ .x = 2, .y = 0 },
             inputpkg.ctrlOrSuper(.{}),
         );
@@ -635,7 +635,7 @@ test "matchset osc8" {
     // Match over link
     var match = try set.matchSet(
         alloc,
-        &t.screen,
+        t.screen,
         .{ .x = 3, .y = 0 },
         inputpkg.ctrlOrSuper(.{}),
     );
