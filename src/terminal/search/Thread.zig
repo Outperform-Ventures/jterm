@@ -15,7 +15,11 @@ const Allocator = std.mem.Allocator;
 const xev = @import("../../global.zig").xev;
 const internal_os = @import("../../os/main.zig");
 const BlockingQueue = @import("../../datastruct/main.zig").BlockingQueue;
+const Screen = @import("../Screen.zig");
+const ScreenSet = @import("../ScreenSet.zig");
 const Terminal = @import("../Terminal.zig");
+
+const ScreenSearch = @import("screen.zig").ScreenSearch;
 
 const log = std.log.scoped(.search_thread);
 
@@ -37,6 +41,10 @@ wakeup_c: xev.Completion = .{},
 /// This can be used to stop the thread on the next loop iteration.
 stop: xev.Async,
 stop_c: xev.Completion = .{},
+
+/// Search state. Starts as null and is populated when a search is
+/// started (a needle is given).
+search: ?Search = null,
 
 /// The options used to initialize this thread.
 opts: Options,
@@ -79,6 +87,8 @@ pub fn deinit(self: *Thread) void {
     self.loop.deinit();
     // Nothing can possibly access the mailbox anymore, destroy it.
     self.mailbox.destroy(self.alloc);
+
+    if (self.search) |*s| s.deinit();
 }
 
 /// The main entrypoint for the thread.
@@ -118,14 +128,104 @@ fn threadMain_(self: *Thread) !void {
     // Run
     log.debug("starting search thread", .{});
     defer log.debug("starting search thread shutdown", .{});
-    _ = try self.loop.run(.until_done);
+
+    // Unlike some of our other threads, we interleave search work
+    // with our xev loop so that we can try to make forward search progress
+    // while also listening for messages.
+    while (true) {
+        // If our loop is canceled then we drain our messages and quit.
+        if (self.loop.stopped()) {
+            while (self.mailbox.pop()) |message| {
+                log.debug("mailbox message ignored during shutdown={}", .{message});
+            }
+
+            return;
+        }
+
+        const s: *Search = if (self.search) |*s| s else {
+            // If we're not actively searching, we can block the loop
+            // until it does some work.
+            try self.loop.run(.once);
+            continue;
+        };
+
+        if (s.isComplete()) {
+            // If our search is complete, there's no more work to do, we
+            // can block until we have an xev action.
+            try self.loop.run(.once);
+            continue;
+        }
+
+        // Tick the search. This will trigger any event callbacks, lock
+        // for data loading, etc.
+        try s.tick(self);
+
+        // We have an active search, so we only want to process messages
+        // we have but otherwise return immediately so we can continue the
+        // search.
+        try self.loop.run(.no_wait);
+    }
 }
 
 /// Drain the mailbox.
 fn drainMailbox(self: *Thread) !void {
     while (self.mailbox.pop()) |message| {
         log.debug("mailbox message={}", .{message});
+        switch (message) {
+            .change_needle => |v| try self.changeNeedle(v),
+        }
     }
+}
+
+/// Change the search term to the given value.
+fn changeNeedle(self: *Thread, needle: []const u8) !void {
+    log.debug("changing search needle to '{s}'", .{needle});
+
+    // Stop the previous search
+    if (self.search) |*s| {
+        s.deinit();
+        self.search = null;
+    }
+
+    // No needle means stop the search.
+    if (needle.len == 0) return;
+
+    // Our new search state
+    var search: Search = .empty;
+    errdefer search.deinit();
+
+    // We need to grab the terminal lock to setup our search state.
+    self.opts.mutex.lock();
+    defer self.opts.mutex.unlock();
+    const t: *Terminal = self.opts.terminal;
+
+    // Go through all our screens, setup our search state.
+    //
+    // NOTE(mitchellh): Maybe we should only initialize the screen we're
+    // currently looking at (the active screen) and then let our screen
+    // reconciliation timer add the others later in order to minimize
+    // startup latency.
+    var it = t.screens.all.iterator();
+    while (it.next()) |entry| {
+        var screen_search: ScreenSearch = ScreenSearch.init(
+            self.alloc,
+            entry.value.*,
+            needle,
+        ) catch |err| switch (err) {
+            error.OutOfMemory => {
+                // We can ignore this (although OOM probably means the whole
+                // ship is sinking). Our reconciliation timer will try again
+                // later.
+                log.warn("error initializing screen search key={} err={}", .{ entry.key, err });
+                continue;
+            },
+        };
+        errdefer screen_search.deinit();
+        search.screens.put(entry.key, screen_search);
+    }
+
+    // Our search state is setup
+    self.search = search;
 }
 
 fn wakeupCallback(
@@ -166,6 +266,13 @@ pub const Options = struct {
 
     /// The terminal data to search.
     terminal: *Terminal,
+
+    /// The callback for events from the search thread along with optional
+    /// userdata. This can be null if you don't want to receive events,
+    /// which could be useful for a one-time search (although, odd, you
+    /// should use our search structures directly then).
+    event_cb: ?*const fn (event: Event, userdata: ?*anyopaque) void = null,
+    event_userdata: ?*anyopaque = null,
 };
 
 /// The type used for sending messages to the thread.
@@ -179,11 +286,56 @@ pub const Message = union(enum) {
     change_needle: []const u8,
 };
 
+/// Events that can be emitted from the search thread. The caller
+/// chooses to handle these as they see fit.
+pub const Event = union(enum) {
+    /// Nothing yet. :)
+    todo,
+};
+
+/// Search state.
+const Search = struct {
+    /// The searchers for all the screens.
+    screens: std.EnumMap(ScreenSet.Key, ScreenSearch),
+
+    pub const empty: Search = .{
+        .screens = .init(.{}),
+    };
+
+    pub fn deinit(self: *Search) void {
+        var it = self.screens.iterator();
+        while (it.next()) |entry| entry.value.deinit();
+    }
+
+    /// Returns true if all searches on all screens are complete.
+    pub fn isComplete(self: *Search) bool {
+        var it = self.screens.iterator();
+        while (it.next()) |entry| {
+            switch (entry.value.state) {
+                .complete => {},
+                else => return false,
+            }
+        }
+
+        return true;
+    }
+
+    pub fn tick(self: *Search, thread: *Thread) !void {
+        // TODO
+        _ = self;
+        _ = thread;
+    }
+};
+
 test {
     const alloc = testing.allocator;
     var mutex: std.Thread.Mutex = .{};
-    var t: Terminal = try .init(alloc, .{ .cols = 10, .rows = 2 });
+    var t: Terminal = try .init(alloc, .{ .cols = 20, .rows = 2 });
     defer t.deinit(alloc);
+
+    var stream = t.vtStream();
+    defer stream.deinit();
+    try stream.nextSlice("Hello, world");
 
     var thread: Thread = try .init(alloc, .{
         .mutex = &mutex,
@@ -196,6 +348,14 @@ test {
         threadMain,
         .{&thread},
     );
+
+    // Start our search
+    _ = thread.mailbox.push(
+        .{ .change_needle = "world" },
+        .forever,
+    );
+    try thread.wakeup.notify();
+
     try thread.stop.notify();
     os_thread.join();
 }
