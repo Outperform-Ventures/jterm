@@ -161,25 +161,19 @@ fn threadMain_(self: *Thread) !void {
         // for data loading, etc.
         switch (s.tick()) {
             // We're complete now when we were not before. Notify!
-            .complete => if (self.opts.event_cb) |cb| {
-                cb(.complete, self.opts.event_userdata);
-            },
+            .complete => {},
 
             // Forward progress was made.
             .progress => {},
 
             // All searches are blocked. Let's grab the lock and feed data.
             .blocked => {
-                try s.feed(self.opts.mutex, self.opts.terminal);
-
-                // Feeding can result in completion if there is no more
-                // data to feed. If we transitioned to complete, notify!
-                if (self.opts.event_cb) |cb| {
-                    if (s.isComplete()) cb(
-                        .complete,
-                        self.opts.event_userdata,
-                    );
-                }
+                self.opts.mutex.lock();
+                defer self.opts.mutex.unlock();
+                try s.feed(
+                    self.alloc,
+                    self.opts.terminal,
+                );
             },
         }
 
@@ -187,6 +181,13 @@ fn threadMain_(self: *Thread) !void {
         if (self.opts.event_cb) |cb| {
             s.notify(
                 cb,
+                self.opts.event_userdata,
+            );
+
+            // If our forward progress resulted in us becoming complete,
+            // then notify our callback.
+            if (s.isComplete()) cb(
+                .complete,
                 self.opts.event_userdata,
             );
         }
@@ -221,42 +222,11 @@ fn changeNeedle(self: *Thread, needle: []const u8) !void {
     // No needle means stop the search.
     if (needle.len == 0) return;
 
-    // Our new search state
-    var search: Search = .empty;
-    errdefer search.deinit();
-
     // We need to grab the terminal lock to setup our search state.
     self.opts.mutex.lock();
     defer self.opts.mutex.unlock();
     const t: *Terminal = self.opts.terminal;
-
-    // Go through all our screens, setup our search state.
-    //
-    // NOTE(mitchellh): Maybe we should only initialize the screen we're
-    // currently looking at (the active screen) and then let our screen
-    // reconciliation timer add the others later in order to minimize
-    // startup latency.
-    var it = t.screens.all.iterator();
-    while (it.next()) |entry| {
-        var screen_search: ScreenSearch = ScreenSearch.init(
-            self.alloc,
-            entry.value.*,
-            needle,
-        ) catch |err| switch (err) {
-            error.OutOfMemory => {
-                // We can ignore this (although OOM probably means the whole
-                // ship is sinking). Our reconciliation timer will try again
-                // later.
-                log.warn("error initializing screen search key={} err={}", .{ entry.key, err });
-                continue;
-            },
-        };
-        errdefer screen_search.deinit();
-        search.screens.put(entry.key, screen_search);
-    }
-
-    // Our search state is setup
-    self.search = search;
+    self.search = try .init(self.alloc, needle, t);
 }
 
 fn wakeupCallback(
@@ -340,11 +310,27 @@ const Search = struct {
     /// The last total matches reported.
     last_total: ?usize,
 
-    pub const empty: Search = .{
-        .screens = .init(.{}),
-        .last_active_screen = .primary,
-        .last_total = null,
-    };
+    pub fn init(
+        alloc: Allocator,
+        needle: []const u8,
+        t: *Terminal,
+    ) Allocator.Error!Search {
+        // We only initialize the primary screen for now. Our reconciler
+        // via feed will handle setting up our other screens. We just need
+        // to setup at least one here so that we can store our needle.
+        var screen_search: ScreenSearch = try .init(
+            alloc,
+            t.screens.get(.primary).?,
+            needle,
+        );
+        errdefer screen_search.deinit();
+
+        return .{
+            .screens = .init(.{ .primary = screen_search }),
+            .last_active_screen = .primary,
+            .last_total = null,
+        };
+    }
 
     pub fn deinit(self: *Search) void {
         var it = self.screens.iterator();
@@ -412,14 +398,61 @@ const Search = struct {
 
     /// Grab the mutex and update any state that requires it, such as
     /// feeding additional data to the searches or updating the active screen.
-    pub fn feed(self: *Search, mutex: *Mutex, t: *Terminal) !void {
-        mutex.lock();
-        defer mutex.unlock();
-
+    pub fn feed(
+        self: *Search,
+        alloc: Allocator,
+        t: *Terminal,
+    ) !void {
         // Update our active screen
         if (t.screens.active_key != self.last_active_screen) {
             self.last_active_screen = t.screens.active_key;
             self.last_total = null; // force notification
+        }
+
+        // Reconcile our screens with the terminal screens. Remove
+        // searchers for screens that no longer exist and add searchers
+        // for screens that do exist but we don't have yet.
+        {
+            // Remove screens we have that no longer exist or changed.
+            var it = self.screens.iterator();
+            while (it.next()) |entry| {
+                const remove: bool = remove: {
+                    // If the screen doesn't exist at all, remove it.
+                    const actual = t.screens.all.get(entry.key) orelse break :remove true;
+
+                    // If the screen pointer changed, remove it, the screen
+                    // was totally reinitialized.
+                    break :remove actual != entry.value.screen;
+                };
+
+                if (remove) {
+                    entry.value.deinit();
+                    _ = self.screens.remove(entry.key);
+                }
+            }
+        }
+        {
+            // Add screens that exist but we don't have yet.
+            var it = t.screens.all.iterator();
+            while (it.next()) |entry| {
+                if (self.screens.contains(entry.key)) continue;
+                self.screens.put(entry.key, ScreenSearch.init(
+                    alloc,
+                    entry.value.*,
+                    self.screens.get(.primary).?.needle(),
+                ) catch |err| switch (err) {
+                    error.OutOfMemory => {
+                        // OOM is probably going to sink the entire ship but
+                        // we can just ignore it and wait on the next
+                        // reconciliation to try again.
+                        log.warn(
+                            "error initializing screen search for key={} err={}",
+                            .{ entry.key, err },
+                        );
+                        continue;
+                    },
+                });
+            }
         }
 
         // Feed data

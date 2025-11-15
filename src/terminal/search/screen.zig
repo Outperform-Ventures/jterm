@@ -98,11 +98,11 @@ pub const ScreenSearch = struct {
     pub fn init(
         alloc: Allocator,
         screen: *Screen,
-        needle: []const u8,
+        needle_unowned: []const u8,
     ) Allocator.Error!ScreenSearch {
         var result: ScreenSearch = .{
             .screen = screen,
-            .active = try .init(alloc, needle),
+            .active = try .init(alloc, needle_unowned),
             .history = null,
             .state = .active,
             .active_results = .empty,
@@ -126,6 +126,12 @@ pub const ScreenSearch = struct {
 
     fn allocator(self: *ScreenSearch) Allocator {
         return self.active.window.alloc;
+    }
+
+    /// The needle that this search is using.
+    pub fn needle(self: *const ScreenSearch) []const u8 {
+        assert(self.active.window.direction == .forward);
+        return self.active.window.needle;
     }
 
     /// Returns the total number of matches found so far.
@@ -310,12 +316,9 @@ pub const ScreenSearch = struct {
                 // No history search yet, but we now have history. So let's
                 // initialize.
 
-                // Our usage of needle below depends on this
-                assert(self.active.window.direction == .forward);
-
                 var search: PageListSearch = try .init(
                     self.allocator(),
-                    self.active.window.needle,
+                    self.needle(),
                     list,
                     history_node,
                 );
@@ -347,7 +350,7 @@ pub const ScreenSearch = struct {
             var window: SlidingWindow = try .init(
                 alloc,
                 .forward,
-                self.active.window.needle,
+                self.needle(),
             );
             defer window.deinit();
             while (true) {
