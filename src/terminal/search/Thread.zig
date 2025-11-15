@@ -28,6 +28,13 @@ const ViewportSearch = @import("viewport.zig").ViewportSearch;
 
 const log = std.log.scoped(.search_thread);
 
+// TODO: Some stuff that could be improved:
+// - pause the refresh timer when the terminal isn't focused
+// - we probably want to know our progress through the search
+//   for viewport matches so we can show n/total UI.
+// - notifications should be coalesced to avoid spamming a massive
+//   amount of events if the terminal is changing rapidly.
+
 /// The interval at which we refresh the terminal state to check if
 /// there are any changes that require us to re-search. This should be
 /// balanced to be fast enough to be responsive but not so fast that
