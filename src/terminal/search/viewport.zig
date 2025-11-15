@@ -28,12 +28,12 @@ pub const ViewportSearch = struct {
 
     pub fn init(
         alloc: Allocator,
-        needle: []const u8,
+        needle_unowned: []const u8,
     ) Allocator.Error!ViewportSearch {
         // We just do a forward search since the viewport is usually
         // pretty small so search results are instant anyways. This avoids
         // a small amount of work to reverse things.
-        var window: SlidingWindow = try .init(alloc, .forward, needle);
+        var window: SlidingWindow = try .init(alloc, .forward, needle_unowned);
         errdefer window.deinit();
         return .{ .window = window, .fingerprint = null };
     }
@@ -41,6 +41,20 @@ pub const ViewportSearch = struct {
     pub fn deinit(self: *ViewportSearch) void {
         if (self.fingerprint) |*fp| fp.deinit(self.window.alloc);
         self.window.deinit();
+    }
+
+    /// Reset our fingerprint and results so that the next update will
+    /// always re-search.
+    pub fn reset(self: *ViewportSearch) void {
+        if (self.fingerprint) |*fp| fp.deinit(self.window.alloc);
+        self.fingerprint = null;
+        self.window.clearAndRetainCapacity();
+    }
+
+    /// The needle that this search is using.
+    pub fn needle(self: *const ViewportSearch) []const u8 {
+        assert(self.window.direction == .forward);
+        return self.window.needle;
     }
 
     /// Update the sliding window to reflect the current viewport. This

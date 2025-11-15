@@ -16,11 +16,15 @@ const Mutex = std.Thread.Mutex;
 const xev = @import("../../global.zig").xev;
 const internal_os = @import("../../os/main.zig");
 const BlockingQueue = @import("../../datastruct/main.zig").BlockingQueue;
+const point = @import("../point.zig");
+const PageList = @import("../PageList.zig");
 const Screen = @import("../Screen.zig");
 const ScreenSet = @import("../ScreenSet.zig");
+const Selection = @import("../Selection.zig");
 const Terminal = @import("../Terminal.zig");
 
 const ScreenSearch = @import("screen.zig").ScreenSearch;
+const ViewportSearch = @import("viewport.zig").ViewportSearch;
 
 const log = std.log.scoped(.search_thread);
 
@@ -150,6 +154,17 @@ fn threadMain_(self: *Thread) !void {
             continue;
         };
 
+        // If we have an active search, we always send any pending
+        // notifications. Even if the search is complete, there may be
+        // notifications to send.
+        if (self.opts.event_cb) |cb| {
+            s.notify(
+                self.alloc,
+                cb,
+                self.opts.event_userdata,
+            );
+        }
+
         if (s.isComplete()) {
             // If our search is complete, there's no more work to do, we
             // can block until we have an xev action.
@@ -170,31 +185,25 @@ fn threadMain_(self: *Thread) !void {
             .blocked => {
                 self.opts.mutex.lock();
                 defer self.opts.mutex.unlock();
-                try s.feed(
-                    self.alloc,
-                    self.opts.terminal,
-                );
+                s.feed(self.alloc, self.opts.terminal);
             },
         }
 
-        // Publish any notifications about search state changes.
-        if (self.opts.event_cb) |cb| {
-            s.notify(
-                cb,
-                self.opts.event_userdata,
-            );
-
-            // If our forward progress resulted in us becoming complete,
-            // then notify our callback.
-            if (s.isComplete()) cb(
-                .complete,
-                self.opts.event_userdata,
-            );
+        // Ticking can complete our search.
+        if (s.isComplete()) {
+            if (self.opts.event_cb) |cb| {
+                cb(
+                    .complete,
+                    self.opts.event_userdata,
+                );
+            }
         }
 
         // We have an active search, so we only want to process messages
         // we have but otherwise return immediately so we can continue the
-        // search.
+        // search. If the above completed the search, we still want to
+        // go around the loop as quickly as possible to send notifications,
+        // and then we'll block on the loop next time.
         try self.loop.run(.no_wait);
     }
 }
@@ -222,11 +231,13 @@ fn changeNeedle(self: *Thread, needle: []const u8) !void {
     // No needle means stop the search.
     if (needle.len == 0) return;
 
-    // We need to grab the terminal lock to setup our search state.
+    // Setup our search state.
+    self.search = try .init(self.alloc, needle);
+
+    // We need to grab the terminal lock and do an initial feed.
     self.opts.mutex.lock();
     defer self.opts.mutex.unlock();
-    const t: *Terminal = self.opts.terminal;
-    self.search = try .init(self.alloc, needle, t);
+    self.search.?.feed(self.alloc, self.opts.terminal);
 }
 
 fn wakeupCallback(
@@ -297,10 +308,17 @@ pub const Event = union(enum) {
 
     /// Total matches on the current active screen have changed.
     total_matches: usize,
+
+    /// Matches in the viewport have changed. The memory is owned by the
+    /// search thread and is only valid during the callback.
+    viewport_matches: []const Selection,
 };
 
 /// Search state.
 const Search = struct {
+    /// Active viewport search for the active screen.
+    viewport: ViewportSearch,
+
     /// The searchers for all the screens.
     screens: std.EnumMap(ScreenSet.Key, ScreenSearch),
 
@@ -310,29 +328,27 @@ const Search = struct {
     /// The last total matches reported.
     last_total: ?usize,
 
+    /// The last viewport matches we found.
+    stale_viewport_matches: bool,
+
     pub fn init(
         alloc: Allocator,
         needle: []const u8,
-        t: *Terminal,
     ) Allocator.Error!Search {
-        // We only initialize the primary screen for now. Our reconciler
-        // via feed will handle setting up our other screens. We just need
-        // to setup at least one here so that we can store our needle.
-        var screen_search: ScreenSearch = try .init(
-            alloc,
-            t.screens.get(.primary).?,
-            needle,
-        );
-        errdefer screen_search.deinit();
+        var vp: ViewportSearch = try .init(alloc, needle);
+        errdefer vp.deinit();
 
         return .{
-            .screens = .init(.{ .primary = screen_search }),
+            .viewport = vp,
+            .screens = .init(.{}),
             .last_active_screen = .primary,
             .last_total = null,
+            .stale_viewport_matches = true,
         };
     }
 
     pub fn deinit(self: *Search) void {
+        self.viewport.deinit();
         var it = self.screens.iterator();
         while (it.next()) |entry| entry.value.deinit();
     }
@@ -402,7 +418,7 @@ const Search = struct {
         self: *Search,
         alloc: Allocator,
         t: *Terminal,
-    ) !void {
+    ) void {
         // Update our active screen
         if (t.screens.active_key != self.last_active_screen) {
             self.last_active_screen = t.screens.active_key;
@@ -439,7 +455,7 @@ const Search = struct {
                 self.screens.put(entry.key, ScreenSearch.init(
                     alloc,
                     entry.value.*,
-                    self.screens.get(.primary).?.needle(),
+                    self.viewport.needle(),
                 ) catch |err| switch (err) {
                     error.OutOfMemory => {
                         // OOM is probably going to sink the entire ship but
@@ -455,11 +471,26 @@ const Search = struct {
             }
         }
 
+        // Check our viewport for changes.
+        if (self.viewport.update(&t.screens.active.pages)) |updated| {
+            if (updated) self.stale_viewport_matches = true;
+        } else |err| switch (err) {
+            error.OutOfMemory => log.warn(
+                "error updating viewport search err={}",
+                .{err},
+            ),
+        }
+
         // Feed data
         var it = self.screens.iterator();
         while (it.next()) |entry| {
             if (entry.value.state.needsFeed()) {
-                try entry.value.feed();
+                entry.value.feed() catch |err| switch (err) {
+                    error.OutOfMemory => log.warn(
+                        "error feeding screen search key={} err={}",
+                        .{ entry.key, err },
+                    ),
+                };
             }
         }
     }
@@ -469,14 +500,48 @@ const Search = struct {
     /// This doesn't require any locking as it only reads internal state.
     pub fn notify(
         self: *Search,
+        alloc: Allocator,
         cb: EventCallback,
         ud: ?*anyopaque,
     ) void {
         const screen_search = self.screens.get(self.last_active_screen) orelse return;
+
+        // Check our total match data
         const total = screen_search.matchesLen();
         if (total != self.last_total) {
             self.last_total = total;
             cb(.{ .total_matches = total }, ud);
+        }
+
+        // Check our viewport matches. If they're stale, we do the
+        // viewport search now. We do this as part of notify and not
+        // tick because the viewport search is very fast and doesn't
+        // require ticked progress or feeds.
+        if (self.stale_viewport_matches) viewport: {
+            // We always make stale as false. Even if we fail below
+            // we require a re-feed to re-search the viewport. The feed
+            // process will make it stale again.
+            self.stale_viewport_matches = false;
+
+            var results: std.ArrayList(Selection) = .empty;
+            defer results.deinit(alloc);
+            while (self.viewport.next()) |sel| {
+                results.append(alloc, sel) catch |err| switch (err) {
+                    error.OutOfMemory => {
+                        log.warn(
+                            "error collecting viewport matches err={}",
+                            .{err},
+                        );
+
+                        // Reset the viewport so we force an update on the
+                        // next feed.
+                        self.viewport.reset();
+                        break :viewport;
+                    },
+                };
+            }
+
+            cb(.{ .viewport_matches = results.items }, ud);
         }
     }
 };
@@ -486,12 +551,20 @@ test {
         const Self = @This();
         reset: std.Thread.ResetEvent = .{},
         total: usize = 0,
+        viewport: []const Selection = &.{},
 
         fn callback(event: Event, userdata: ?*anyopaque) void {
             const ud: *Self = @ptrCast(@alignCast(userdata.?));
             switch (event) {
                 .complete => ud.reset.set(),
                 .total_matches => |v| ud.total = v,
+                .viewport_matches => |v| {
+                    testing.allocator.free(ud.viewport);
+                    ud.viewport = testing.allocator.dupe(
+                        Selection,
+                        v,
+                    ) catch unreachable;
+                },
             }
         }
     };
@@ -506,6 +579,7 @@ test {
     try stream.nextSlice("Hello, world");
 
     var ud: UserData = .{};
+    defer alloc.free(ud.viewport);
     var thread: Thread = try .init(alloc, .{
         .mutex = &mutex,
         .terminal = &t,
@@ -534,5 +608,18 @@ test {
     try thread.stop.notify();
     os_thread.join();
 
+    // 1 total matches
     try testing.expectEqual(1, ud.total);
+    try testing.expectEqual(1, ud.viewport.len);
+    {
+        const sel = ud.viewport[0];
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 7,
+            .y = 0,
+        } }, t.screens.active.pages.pointFromPin(.screen, sel.start()).?);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 11,
+            .y = 0,
+        } }, t.screens.active.pages.pointFromPin(.screen, sel.end()).?);
+    }
 }
