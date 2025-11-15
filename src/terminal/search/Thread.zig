@@ -28,6 +28,12 @@ const ViewportSearch = @import("viewport.zig").ViewportSearch;
 
 const log = std.log.scoped(.search_thread);
 
+/// The interval at which we refresh the terminal state to check if
+/// there are any changes that require us to re-search. This should be
+/// balanced to be fast enough to be responsive but not so fast that
+/// we hold the terminal lock too often.
+const REFRESH_INTERVAL = 24; // 40 FPS
+
 /// Allocator used for some state
 alloc: std.mem.Allocator,
 
@@ -46,6 +52,13 @@ wakeup_c: xev.Completion = .{},
 /// This can be used to stop the thread on the next loop iteration.
 stop: xev.Async,
 stop_c: xev.Completion = .{},
+
+/// The timer used for refreshing the terminal state to determine if
+/// we have a stale active area, viewport, screen change, etc. This is
+/// CPU intensive so we stop doing this under certain conditions.
+refresh: xev.Timer,
+refresh_c: xev.Completion = .{},
+refresh_active: bool = false,
 
 /// Search state. Starts as null and is populated when a search is
 /// started (a needle is given).
@@ -74,12 +87,17 @@ pub fn init(alloc: Allocator, opts: Options) !Thread {
     var stop_h = try xev.Async.init();
     errdefer stop_h.deinit();
 
+    // Refresh timer, see comments.
+    var refresh_h = try xev.Timer.init();
+    errdefer refresh_h.deinit();
+
     return .{
         .alloc = alloc,
         .mailbox = mailbox,
         .loop = loop,
         .wakeup = wakeup_h,
         .stop = stop_h,
+        .refresh = refresh_h,
         .opts = opts,
     };
 }
@@ -87,6 +105,7 @@ pub fn init(alloc: Allocator, opts: Options) !Thread {
 /// Clean up the thread. This is only safe to call once the thread
 /// completes executing; the caller must join prior to this.
 pub fn deinit(self: *Thread) void {
+    self.refresh.deinit();
     self.wakeup.deinit();
     self.stop.deinit();
     self.loop.deinit();
@@ -129,6 +148,9 @@ fn threadMain_(self: *Thread) !void {
 
     // Send an initial wakeup so we drain our mailbox immediately.
     try self.wakeup.notify();
+
+    // Start the refresh timer
+    self.startRefreshTimer();
 
     // Run
     log.debug("starting search thread", .{});
@@ -192,6 +214,13 @@ fn threadMain_(self: *Thread) !void {
         // Ticking can complete our search.
         if (s.isComplete()) {
             if (self.opts.event_cb) |cb| {
+                // Send all pending notifications before we send complete.
+                s.notify(
+                    self.alloc,
+                    cb,
+                    self.opts.event_userdata,
+                );
+
                 cb(
                     .complete,
                     self.opts.event_userdata,
@@ -240,6 +269,30 @@ fn changeNeedle(self: *Thread, needle: []const u8) !void {
     self.search.?.feed(self.alloc, self.opts.terminal);
 }
 
+fn startRefreshTimer(self: *Thread) void {
+    // Set our active state so it knows we're running. We set this before
+    // even checking the active state in case we have a pending shutdown.
+    self.refresh_active = true;
+
+    // If our timer is already active, then we don't have to do anything.
+    if (self.refresh_c.state() == .active) return;
+
+    // Start the timer which loops
+    self.refresh.run(
+        &self.loop,
+        &self.refresh_c,
+        REFRESH_INTERVAL,
+        Thread,
+        self,
+        refreshCallback,
+    );
+}
+
+fn stopRefreshTimer(self: *Thread) void {
+    // This will stop the refresh on the next iteration.
+    self.refresh_active = false;
+}
+
 fn wakeupCallback(
     self_: ?*Thread,
     _: *xev.Loop,
@@ -269,6 +322,39 @@ fn stopCallback(
 ) xev.CallbackAction {
     _ = r catch unreachable;
     self_.?.loop.stop();
+    return .disarm;
+}
+
+fn refreshCallback(
+    self_: ?*Thread,
+    _: *xev.Loop,
+    _: *xev.Completion,
+    r: xev.Timer.RunError!void,
+) xev.CallbackAction {
+    _ = r catch unreachable;
+    const self: *Thread = self_ orelse {
+        // This shouldn't happen so we log it.
+        log.warn("refresh callback fired without data set", .{});
+        return .disarm;
+    };
+
+    // Run our feed if we have a search active.
+    if (self.search) |*s| {
+        self.opts.mutex.lock();
+        defer self.opts.mutex.unlock();
+        s.feed(self.alloc, self.opts.terminal);
+    }
+
+    // Only continue if we're still active
+    if (self.refresh_active) self.refresh.run(
+        &self.loop,
+        &self.refresh_c,
+        REFRESH_INTERVAL,
+        Thread,
+        self,
+        refreshCallback,
+    );
+
     return .disarm;
 }
 
