@@ -78,6 +78,20 @@ pub const ScreenSearch = struct {
 
         /// Search is complete given the current terminal state.
         complete,
+
+        pub fn isComplete(self: State) bool {
+            return switch (self) {
+                .complete => true,
+                else => false,
+            };
+        }
+
+        pub fn needsFeed(self: State) bool {
+            return switch (self) {
+                .history_feed => true,
+                else => false,
+            };
+        }
     };
 
     // Initialize a screen search for the given screen and needle.
@@ -114,10 +128,10 @@ pub const ScreenSearch = struct {
         return self.active.window.alloc;
     }
 
-    pub const TickError = Allocator.Error || error{
-        FeedRequired,
-        SearchComplete,
-    };
+    /// Returns the total number of matches found so far.
+    pub fn matchesLen(self: *const ScreenSearch) usize {
+        return self.active_results.items.len + self.history_results.items.len;
+    }
 
     /// Returns all matches as an owned slice (caller must free).
     /// The matches are ordered from most recent to oldest (e.g. bottom
@@ -166,6 +180,11 @@ pub const ScreenSearch = struct {
             };
         }
     }
+
+    pub const TickError = Allocator.Error || error{
+        FeedRequired,
+        SearchComplete,
+    };
 
     /// Make incremental progress on the search without accessing any
     /// screen state (so no lock is required).

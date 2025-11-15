@@ -12,6 +12,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
+const Mutex = std.Thread.Mutex;
 const xev = @import("../../global.zig").xev;
 const internal_os = @import("../../os/main.zig");
 const BlockingQueue = @import("../../datastruct/main.zig").BlockingQueue;
@@ -158,7 +159,37 @@ fn threadMain_(self: *Thread) !void {
 
         // Tick the search. This will trigger any event callbacks, lock
         // for data loading, etc.
-        try s.tick(self);
+        switch (s.tick()) {
+            // We're complete now when we were not before. Notify!
+            .complete => if (self.opts.event_cb) |cb| {
+                cb(.complete, self.opts.event_userdata);
+            },
+
+            // Forward progress was made.
+            .progress => {},
+
+            // All searches are blocked. Let's grab the lock and feed data.
+            .blocked => {
+                try s.feed(self.opts.mutex, self.opts.terminal);
+
+                // Feeding can result in completion if there is no more
+                // data to feed. If we transitioned to complete, notify!
+                if (self.opts.event_cb) |cb| {
+                    if (s.isComplete()) cb(
+                        .complete,
+                        self.opts.event_userdata,
+                    );
+                }
+            },
+        }
+
+        // Publish any notifications about search state changes.
+        if (self.opts.event_cb) |cb| {
+            s.notify(
+                cb,
+                self.opts.event_userdata,
+            );
+        }
 
         // We have an active search, so we only want to process messages
         // we have but otherwise return immediately so we can continue the
@@ -262,7 +293,7 @@ fn stopCallback(
 
 pub const Options = struct {
     /// Mutex that must be held while reading/writing the terminal.
-    mutex: *std.Thread.Mutex,
+    mutex: *Mutex,
 
     /// The terminal data to search.
     terminal: *Terminal,
@@ -271,9 +302,11 @@ pub const Options = struct {
     /// userdata. This can be null if you don't want to receive events,
     /// which could be useful for a one-time search (although, odd, you
     /// should use our search structures directly then).
-    event_cb: ?*const fn (event: Event, userdata: ?*anyopaque) void = null,
+    event_cb: ?EventCallback = null,
     event_userdata: ?*anyopaque = null,
 };
+
+pub const EventCallback = *const fn (event: Event, userdata: ?*anyopaque) void;
 
 /// The type used for sending messages to the thread.
 pub const Mailbox = BlockingQueue(Message, 64);
@@ -289,8 +322,11 @@ pub const Message = union(enum) {
 /// Events that can be emitted from the search thread. The caller
 /// chooses to handle these as they see fit.
 pub const Event = union(enum) {
-    /// Nothing yet. :)
-    todo,
+    /// Search is complete for the given needle on all screens.
+    complete,
+
+    /// Total matches on the current active screen have changed.
+    total_matches: usize,
 };
 
 /// Search state.
@@ -298,8 +334,16 @@ const Search = struct {
     /// The searchers for all the screens.
     screens: std.EnumMap(ScreenSet.Key, ScreenSearch),
 
+    /// The last active screen
+    last_active_screen: ScreenSet.Key,
+
+    /// The last total matches reported.
+    last_total: ?usize,
+
     pub const empty: Search = .{
         .screens = .init(.{}),
+        .last_active_screen = .primary,
+        .last_total = null,
     };
 
     pub fn deinit(self: *Search) void {
@@ -311,23 +355,114 @@ const Search = struct {
     pub fn isComplete(self: *Search) bool {
         var it = self.screens.iterator();
         while (it.next()) |entry| {
-            switch (entry.value.state) {
-                .complete => {},
-                else => return false,
-            }
+            if (!entry.value.state.isComplete()) return false;
         }
 
         return true;
     }
 
-    pub fn tick(self: *Search, thread: *Thread) !void {
-        // TODO
-        _ = self;
-        _ = thread;
+    pub const Tick = enum {
+        /// All searches are complete.
+        complete,
+
+        /// Progress was made on at least one screen.
+        progress,
+
+        /// All incomplete searches are blocked on feed.
+        blocked,
+    };
+
+    /// Tick the search forward as much as possible without acquiring
+    /// the big lock. Returns the overall tick progress.
+    pub fn tick(self: *Search) Tick {
+        var result: Tick = .complete;
+        var it = self.screens.iterator();
+        while (it.next()) |entry| {
+            if (entry.value.tick()) {
+                result = .progress;
+            } else |err| switch (err) {
+                // Ignore... nothing we can do.
+                error.OutOfMemory => log.warn(
+                    "error ticking screen search key={} err={}",
+                    .{ entry.key, err },
+                ),
+
+                // Ignore, good for us. State remains whatever it is.
+                error.SearchComplete => {},
+
+                // Ignore, too, progressed
+                error.FeedRequired => switch (result) {
+                    // If we think we're complete, we're not because we're
+                    // blocked now (nothing made progress).
+                    .complete => result = .blocked,
+
+                    // If we made some progress, we remain in progress
+                    // since blocked means no progress at all.
+                    .progress => {},
+
+                    // If we're blocked already then we remain blocked.
+                    .blocked => {},
+                },
+            }
+        }
+
+        // log.debug("tick result={}", .{result});
+        return result;
+    }
+
+    /// Grab the mutex and update any state that requires it, such as
+    /// feeding additional data to the searches or updating the active screen.
+    pub fn feed(self: *Search, mutex: *Mutex, t: *Terminal) !void {
+        mutex.lock();
+        defer mutex.unlock();
+
+        // Update our active screen
+        if (t.screens.active_key != self.last_active_screen) {
+            self.last_active_screen = t.screens.active_key;
+            self.last_total = null; // force notification
+        }
+
+        // Feed data
+        var it = self.screens.iterator();
+        while (it.next()) |entry| {
+            if (entry.value.state.needsFeed()) {
+                try entry.value.feed();
+            }
+        }
+    }
+
+    /// Notify about any changes to the search state.
+    ///
+    /// This doesn't require any locking as it only reads internal state.
+    pub fn notify(
+        self: *Search,
+        cb: EventCallback,
+        ud: ?*anyopaque,
+    ) void {
+        const screen_search = self.screens.get(self.last_active_screen) orelse return;
+        const total = screen_search.matchesLen();
+        if (total != self.last_total) {
+            self.last_total = total;
+            cb(.{ .total_matches = total }, ud);
+        }
     }
 };
 
 test {
+    const UserData = struct {
+        const Self = @This();
+        reset: std.Thread.ResetEvent = .{},
+        total: usize = 0,
+
+        fn callback(event: Event, userdata: ?*anyopaque) void {
+            const ud: *Self = @ptrCast(@alignCast(userdata.?));
+            switch (event) {
+                .complete => ud.reset.set(),
+                .total_matches => |v| ud.total = v,
+            }
+        }
+    };
+
     const alloc = testing.allocator;
     var mutex: std.Thread.Mutex = .{};
     var t: Terminal = try .init(alloc, .{ .cols = 20, .rows = 2 });
@@ -337,9 +472,12 @@ test {
     defer stream.deinit();
     try stream.nextSlice("Hello, world");
 
+    var ud: UserData = .{};
     var thread: Thread = try .init(alloc, .{
         .mutex = &mutex,
         .terminal = &t,
+        .event_cb = &UserData.callback,
+        .event_userdata = &ud,
     });
     defer thread.deinit();
 
@@ -356,6 +494,12 @@ test {
     );
     try thread.wakeup.notify();
 
+    // Wait for completion
+    try ud.reset.timedWait(100 * std.time.ns_per_ms);
+
+    // Stop the thread
     try thread.stop.notify();
     os_thread.join();
+
+    try testing.expectEqual(1, ud.total);
 }
