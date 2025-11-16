@@ -131,7 +131,7 @@ pub const Set = struct {
         // then we use an alternate matching technique that iterates forward
         // and backward until it finds boundaries.
         if (link.id == .implicit) {
-            const uri = link.uri.offset.ptr(page.memory)[0..link.uri.len];
+            const uri = link.uri.slice(page.memory);
             return try self.matchSetFromOSC8Implicit(
                 alloc,
                 matches,
@@ -232,7 +232,7 @@ pub const Set = struct {
             if (link.id != .implicit) break;
 
             // If this link has a different URI then we found a boundary
-            const cell_uri = link.uri.offset.ptr(page.memory)[0..link.uri.len];
+            const cell_uri = link.uri.slice(page.memory);
             if (!std.mem.eql(u8, uri, cell_uri)) break;
 
             sel.startPtr().* = cell_pin;
@@ -258,7 +258,7 @@ pub const Set = struct {
             if (link.id != .implicit) break;
 
             // If this link has a different URI then we found a boundary
-            const cell_uri = link.uri.offset.ptr(page.memory)[0..link.uri.len];
+            const cell_uri = link.uri.slice(page.memory);
             if (!std.mem.eql(u8, uri, cell_uri)) break;
 
             sel.endPtr().* = cell_pin;

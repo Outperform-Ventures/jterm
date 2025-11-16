@@ -392,6 +392,12 @@ pub const Shaper = struct {
         self.cell_buf.clearRetainingCapacity();
         try self.cell_buf.ensureTotalCapacity(self.alloc, line.getGlyphCount());
 
+        // CoreText, despite our insistence with an enforced embedding level,
+        // may sometimes output runs that are non-monotonic. In order to fix
+        // this, we check the run status for each run and if any aren't ltr
+        // we set this to true, which indicates that we must sort our buffer.
+        var non_ltr: bool = false;
+
         // CoreText may generate multiple runs even though our input to
         // CoreText is already split into runs by our own run iterator.
         // The runs as far as I can tell are always sequential to each
@@ -400,6 +406,9 @@ pub const Shaper = struct {
         const runs = line.getGlyphRuns();
         for (0..runs.getCount()) |i| {
             const ctrun = runs.getValueAtIndex(macos.text.Run, i);
+
+            const status = ctrun.getStatus();
+            if (status.non_monotonic or status.right_to_left) non_ltr = true;
 
             // Get our glyphs and positions
             const glyphs = ctrun.getGlyphsPtr() orelse try ctrun.getGlyphs(alloc);
@@ -439,6 +448,25 @@ pub const Shaper = struct {
                 cell_offset.x += advance.width;
                 cell_offset.y += advance.height;
             }
+        }
+
+        // If our buffer contains some non-ltr sections we need to sort it :/
+        if (non_ltr) {
+            // This is EXCEPTIONALLY rare. Only happens for languages with
+            // complex shaping which we don't even really support properly
+            // right now, so are very unlikely to be used heavily by users
+            // of Ghostty.
+            @branchHint(.cold);
+            std.mem.sort(
+                font.shape.Cell,
+                self.cell_buf.items,
+                {},
+                struct {
+                    fn lt(_: void, a: font.shape.Cell, b: font.shape.Cell) bool {
+                        return a.x < b.x;
+                    }
+                }.lt,
+            );
         }
 
         return self.cell_buf.items;
@@ -1174,6 +1202,51 @@ test "shape Chinese characters" {
     try testing.expectEqual(@as(usize, 1), count);
 }
 
+// This test exists because the string it uses causes CoreText to output a
+// non-monotonic run, which we need to handle by sorting the resulting buffer.
+test "shape Devanagari string" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    // We need a font that supports devanagari for this to work, if we can't
+    // find Arial Unicode MS, which is a system font on macOS, we just skip
+    // the test.
+    var testdata = testShaperWithDiscoveredFont(
+        alloc,
+        "Arial Unicode MS",
+    ) catch return error.SkipZigTest;
+    defer testdata.deinit();
+
+    // Make a screen with some data
+    var screen = try terminal.Screen.init(alloc, .{ .cols = 30, .rows = 3, .max_scrollback = 0 });
+    defer screen.deinit();
+    try screen.testWriteString("अपार्टमेंट");
+
+    // Get our run iterator
+    var shaper = &testdata.shaper;
+    var it = shaper.runIterator(.{
+        .grid = testdata.grid,
+        .screen = &screen,
+        .row = screen.pages.pin(.{ .screen = .{ .y = 0 } }).?,
+    });
+
+    const run = try it.next(alloc);
+    try testing.expect(run != null);
+    const cells = try shaper.shape(run.?);
+
+    try testing.expectEqual(@as(usize, 8), cells.len);
+    try testing.expectEqual(@as(u16, 0), cells[0].x);
+    try testing.expectEqual(@as(u16, 1), cells[1].x);
+    try testing.expectEqual(@as(u16, 2), cells[2].x);
+    try testing.expectEqual(@as(u16, 3), cells[3].x);
+    try testing.expectEqual(@as(u16, 4), cells[4].x);
+    try testing.expectEqual(@as(u16, 5), cells[5].x);
+    try testing.expectEqual(@as(u16, 5), cells[6].x);
+    try testing.expectEqual(@as(u16, 6), cells[7].x);
+
+    try testing.expect(try it.next(alloc) == null);
+}
+
 test "shape box glyphs" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -1853,6 +1926,53 @@ fn testShaperWithFont(alloc: Allocator, font_req: TestFont) !TestShaper {
         // Some of our tests rely on dlig being enabled by default
         .features = &.{"dlig"},
     });
+    errdefer shaper.deinit();
+
+    return TestShaper{
+        .alloc = alloc,
+        .shaper = shaper,
+        .grid = grid_ptr,
+        .lib = lib,
+    };
+}
+
+/// Return a fully initialized shaper by discovering a named font on the system.
+fn testShaperWithDiscoveredFont(alloc: Allocator, font_req: [:0]const u8) !TestShaper {
+    var lib = try Library.init(alloc);
+    errdefer lib.deinit();
+
+    var c = Collection.init();
+    c.load_options = .{ .library = lib };
+
+    // Discover and add our font to the collection.
+    {
+        var disco = font.Discover.init();
+        defer disco.deinit();
+        var disco_it = try disco.discover(alloc, .{
+            .family = font_req,
+            .size = 12,
+            .monospace = false,
+        });
+        defer disco_it.deinit();
+        var face: font.DeferredFace = (try disco_it.next()).?;
+        errdefer face.deinit();
+        _ = try c.add(
+            alloc,
+            try face.load(lib, .{ .size = .{ .points = 12 } }),
+            .{
+                .style = .regular,
+                .fallback = false,
+                .size_adjustment = .none,
+            },
+        );
+    }
+
+    const grid_ptr = try alloc.create(SharedGrid);
+    errdefer alloc.destroy(grid_ptr);
+    grid_ptr.* = try .init(alloc, .{ .collection = c });
+    errdefer grid_ptr.*.deinit(alloc);
+
+    var shaper = try Shaper.init(alloc, .{});
     errdefer shaper.deinit();
 
     return TestShaper{

@@ -1198,7 +1198,7 @@ pub const Page = struct {
         };
         errdefer self.string_alloc.free(
             self.memory,
-            page_uri.offset.ptr(self.memory)[0..page_uri.len],
+            page_uri.slice(self.memory),
         );
 
         // Allocate an ID for our page memory if we have to.
@@ -1228,7 +1228,7 @@ pub const Page = struct {
             .implicit => {},
             .explicit => |slice| self.string_alloc.free(
                 self.memory,
-                slice.offset.ptr(self.memory)[0..slice.len],
+                slice.slice(self.memory),
             ),
         };
 
@@ -1421,7 +1421,7 @@ pub const Page = struct {
         // most graphemes to fit within our chunk size.
         const cps = try self.grapheme_alloc.alloc(u21, self.memory, slice.len + 1);
         errdefer self.grapheme_alloc.free(self.memory, cps);
-        const old_cps = slice.offset.ptr(self.memory)[0..slice.len];
+        const old_cps = slice.slice(self.memory);
         fastmem.copy(u21, cps[0..old_cps.len], old_cps);
         cps[slice.len] = cp;
         slice.* = .{
@@ -1440,7 +1440,7 @@ pub const Page = struct {
         const cell_offset = getOffset(Cell, self.memory, cell);
         const map = self.grapheme_map.map(self.memory);
         const slice = map.get(cell_offset) orelse return null;
-        return slice.offset.ptr(self.memory)[0..slice.len];
+        return slice.slice(self.memory);
     }
 
     /// Move the graphemes from one cell to another. This can't fail
@@ -1475,7 +1475,7 @@ pub const Page = struct {
         const entry = map.getEntry(cell_offset).?;
 
         // Free our grapheme data
-        const cps = entry.value_ptr.offset.ptr(self.memory)[0..entry.value_ptr.len];
+        const cps = entry.value_ptr.slice(self.memory);
         self.grapheme_alloc.free(self.memory, cps);
 
         // Remove the entry

@@ -33,7 +33,8 @@ pub const Client = struct {
         idle,
 
         /// We experienced unexpected input and are in a broken state
-        /// so we cannot continue processing.
+        /// so we cannot continue processing. When this state is set,
+        /// the buffer has been deinited and must not be accessed.
         broken,
 
         /// Inside an active notification (started with '%').
@@ -44,11 +45,21 @@ pub const Client = struct {
     };
 
     pub fn deinit(self: *Client) void {
+        // If we're in a broken state, we already deinited
+        // the buffer, so we don't need to do anything.
+        if (self.state == .broken) return;
+
         self.buffer.deinit();
     }
 
     // Handle a byte of input.
     pub fn put(self: *Client, byte: u8) !?Notification {
+        // If we're in a broken state, just do nothing.
+        //
+        // We have to do this check here before we check the buffer, because if
+        // we're in a broken state then we'd have already deinited the buffer.
+        if (self.state == .broken) return null;
+
         if (self.buffer.written().len >= self.max_bytes) {
             self.broken();
             return error.OutOfMemory;

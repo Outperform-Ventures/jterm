@@ -28,6 +28,11 @@ pub fn Offset(comptime T: type) type {
         pub const Slice = struct {
             offset: Self = .{},
             len: usize = 0,
+
+            /// Returns a slice for the data, properly typed.
+            pub inline fn slice(self: Slice, base: anytype) []T {
+                return self.offset.ptr(base)[0..self.len];
+            }
         };
 
         /// Returns a pointer to the start of the data, properly typed.

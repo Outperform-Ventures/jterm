@@ -4103,7 +4103,7 @@ fn osc8URI(self: *Surface, pin: terminal.Pin) ?[]const u8 {
     const cell = pin.rowAndCell().cell;
     const link_id = page.lookupHyperlink(cell) orelse return null;
     const entry = page.hyperlink_set.get(page.memory, link_id);
-    return entry.uri.offset.ptr(page.memory)[0..entry.uri.len];
+    return entry.uri.slice(page.memory);
 }
 
 pub fn mousePressureCallback(
