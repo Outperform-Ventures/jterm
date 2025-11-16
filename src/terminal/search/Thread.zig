@@ -218,23 +218,6 @@ fn threadMain_(self: *Thread) !void {
             },
         }
 
-        // Ticking can complete our search.
-        if (s.isComplete()) {
-            if (self.opts.event_cb) |cb| {
-                // Send all pending notifications before we send complete.
-                s.notify(
-                    self.alloc,
-                    cb,
-                    self.opts.event_userdata,
-                );
-
-                cb(
-                    .complete,
-                    self.opts.event_userdata,
-                );
-            }
-        }
-
         // We have an active search, so we only want to process messages
         // we have but otherwise return immediately so we can continue the
         // search. If the above completed the search, we still want to
@@ -421,6 +404,9 @@ const Search = struct {
     /// The last total matches reported.
     last_total: ?usize,
 
+    /// True if we sent the complete notification yet.
+    last_complete: bool,
+
     /// The last viewport matches we found.
     stale_viewport_matches: bool,
 
@@ -436,6 +422,7 @@ const Search = struct {
             .screens = .init(.{}),
             .last_active_screen = .primary,
             .last_total = null,
+            .last_complete = false,
             .stale_viewport_matches = true,
         };
     }
@@ -635,6 +622,12 @@ const Search = struct {
             }
 
             cb(.{ .viewport_matches = results.items }, ud);
+        }
+
+        // Send our complete notification if we just completed.
+        if (!self.last_complete and self.isComplete()) {
+            self.last_complete = true;
+            cb(.complete, ud);
         }
     }
 };
