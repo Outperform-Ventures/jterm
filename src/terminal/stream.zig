@@ -660,6 +660,11 @@ pub fn Stream(comptime Handler: type) type {
         /// This function is abstracted this way to handle the case where
         /// the decoder emits a 0x1B after rejecting an ill-formed sequence.
         inline fn handleCodepoint(self: *Self, c: u21) !void {
+            // We need to increase the eval branch limit because a lot of
+            // tests end up running almost completely at comptime due to
+            // a chain of inline functions.
+            @setEvalBranchQuota(100_000);
+
             if (c <= 0xF) {
                 try self.execute(@intCast(c));
                 return;
@@ -777,6 +782,18 @@ pub fn Stream(comptime Handler: type) type {
         }
 
         pub inline fn execute(self: *Self, c: u8) !void {
+            // If the character is > 0x7F, it's a C1 (8-bit) control,
+            // which is strictly equivalent to `ESC` plus `c - 0x40`.
+            if (c > 0x7F) {
+                @branchHint(.unlikely);
+                log.info("executing C1 0x{x} as ESC {c}", .{ c, c - 0x40 });
+                try self.escDispatch(.{
+                    .intermediates = &.{},
+                    .final = c - 0x40,
+                });
+                return;
+            }
+
             const c0: ansi.C0 = @enumFromInt(c);
             if (comptime debug) log.info("execute: {f}", .{c0});
             switch (c0) {
