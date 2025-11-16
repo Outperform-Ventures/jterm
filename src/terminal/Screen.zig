@@ -756,6 +756,11 @@ pub fn cursorDownScroll(self: *Screen) !void {
             var dirty = page.dirtyBitSet();
             dirty.set(0);
         } else {
+            // The call to `eraseRow` will move the tracked cursor pin up by one
+            // row, but we don't actually want that, so we keep the old pin and
+            // put it back after calling `eraseRow`.
+            const old_pin = self.cursor.page_pin.*;
+
             // eraseRow will shift everything below it up.
             try self.pages.eraseRow(.{ .active = .{} });
 
@@ -763,26 +768,15 @@ pub fn cursorDownScroll(self: *Screen) !void {
             // because eraseRow will mark all the rotated rows as dirty
             // in the entire page.
 
-            // We need to move our cursor down one because eraseRows will
-            // preserve our pin directly and we're erasing one row.
-            const page_pin = self.cursor.page_pin.down(1).?;
-            self.cursorChangePin(page_pin);
-            const page_rac = page_pin.rowAndCell();
+            // We don't use `cursorChangePin` here because we aren't
+            // actually changing the pin, we're keeping it the same.
+            self.cursor.page_pin.* = old_pin;
+
+            // We do, however, need to refresh the cached page row
+            // and cell, because `eraseRow` will have moved the row.
+            const page_rac = self.cursor.page_pin.rowAndCell();
             self.cursor.page_row = page_rac.row;
             self.cursor.page_cell = page_rac.cell;
-
-            // The above may clear our cursor so we need to update that
-            // again. If this fails (highly unlikely) we just reset
-            // the cursor.
-            self.manualStyleUpdate() catch |err| {
-                // This failure should not happen because manualStyleUpdate
-                // handles page splitting, overflow, and more. This should only
-                // happen if we're out of RAM. In this case, we'll just degrade
-                // gracefully back to the default style.
-                log.err("failed to update style on cursor scroll err={}", .{err});
-                self.cursor.style = .{};
-                self.cursor.style_id = 0;
-            };
         }
     } else {
         const old_pin = self.cursor.page_pin.*;
