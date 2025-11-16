@@ -1050,9 +1050,9 @@ pub fn cursorCopy(self: *Screen, other: Cursor, opts: struct {
         const other_page = &other.page_pin.node.data;
         const other_link = other_page.hyperlink_set.get(other_page.memory, other.hyperlink_id);
 
-        const uri = other_link.uri.offset.ptr(other_page.memory)[0..other_link.uri.len];
+        const uri = other_link.uri.slice(other_page.memory);
         const id_ = switch (other_link.id) {
-            .explicit => |id| id.offset.ptr(other_page.memory)[0..id.len],
+            .explicit => |id| id.slice(other_page.memory),
             .implicit => null,
         };
 
