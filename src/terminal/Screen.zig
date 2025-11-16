@@ -2146,7 +2146,13 @@ pub fn cursorSetHyperlink(self: *Screen) !void {
             );
 
             // Retry
-            return try self.cursorSetHyperlink();
+            //
+            // We check that the cursor hyperlink hasn't been destroyed
+            // by the capacity adjustment first though- since despite the
+            // terrible code above, that can still apparently happen ._.
+            if (self.cursor.hyperlink_id > 0) {
+                return try self.cursorSetHyperlink();
+            }
         },
     }
 }
