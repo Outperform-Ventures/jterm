@@ -1328,9 +1328,44 @@ fn reportColorScheme(self: *Surface, force: bool) void {
 }
 
 fn searchCallback(event: terminal.search.Thread.Event, ud: ?*anyopaque) void {
+    // IMPORTANT: This function is run on the SEARCH THREAD! It is NOT SAFE
+    // to access anything other than values that never change on the surface.
+    // The surface is guaranteed to be valid for the lifetime of the search
+    // thread.
     const self: *Surface = @ptrCast(@alignCast(ud.?));
-    _ = self;
-    _ = event;
+    self.searchCallback_(event) catch |err| {
+        log.warn("error in search callback err={}", .{err});
+    };
+}
+
+fn searchCallback_(
+    self: *Surface,
+    event: terminal.search.Thread.Event,
+) !void {
+    switch (event) {
+        .viewport_matches => |matches_unowned| {
+            var arena: ArenaAllocator = .init(self.alloc);
+            errdefer arena.deinit();
+            const alloc = arena.allocator();
+
+            const matches = try alloc.dupe(terminal.highlight.Flattened, matches_unowned);
+            for (matches) |*m| m.* = try m.clone(alloc);
+
+            _ = self.renderer_thread.mailbox.push(
+                .{ .search_viewport_matches = .{
+                    .arena = arena,
+                    .matches = matches,
+                } },
+                .forever,
+            );
+            try self.renderer_thread.wakeup.notify();
+        },
+
+        // Unhandled, so far.
+        .total_matches,
+        .complete,
+        => {},
+    }
 }
 
 /// Call this when modifiers change. This is safe to call even if modifiers
