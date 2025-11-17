@@ -1,0 +1,262 @@
+const std = @import("std");
+const assert = std.debug.assert;
+const Allocator = std.mem.Allocator;
+const ArenaAllocator = std.heap.ArenaAllocator;
+const size = @import("size.zig");
+const page = @import("page.zig");
+const Screen = @import("Screen.zig");
+const ScreenSet = @import("ScreenSet.zig");
+const Style = @import("style.zig").Style;
+const Terminal = @import("Terminal.zig");
+
+// Developer note: this is in src/terminal and not src/renderer because
+// the goal is that this remains generic to multiple renderers. This can
+// aid specifically with libghostty-vt with converting terminal state to
+// a renderable form.
+
+/// Contains the state required to render the screen, including optimizing
+/// for repeated render calls and only rendering dirty regions.
+///
+/// Previously, our renderer would use `clone` to clone the screen within
+/// the viewport to perform rendering. This worked well enough that we kept
+/// it all the way up through the Ghostty 1.2.x series, but the clone time
+/// was repeatedly a bottleneck blocking IO.
+///
+/// Rather than a generic clone that tries to clone all screen state per call
+/// (within a region), a stateful approach that optimizes for only what a
+/// renderer needs to do makes more sense.
+pub const RenderState = struct {
+    /// The current screen dimensions. It is possible that these don't match
+    /// the renderer's current dimensions in grid cells because resizing
+    /// can happen asynchronously. For example, for Metal, our NSView resizes
+    /// at a different time than when our internal terminal state resizes.
+    /// This can lead to a one or two frame mismatch a renderer needs to
+    /// handle.
+    ///
+    /// The viewport is always exactly equal to the active area size so this
+    /// is also the viewport size.
+    rows: size.CellCountInt,
+    cols: size.CellCountInt,
+
+    /// The viewport is at the bottom of the terminal, viewing the active
+    /// area and scrolling with new output.
+    viewport_is_bottom: bool,
+
+    /// The rows (y=0 is top) of the viewport.
+    row_data: std.ArrayList(Row),
+
+    /// The screen type that this state represents. This is used primarily
+    /// to detect changes.
+    screen: ScreenSet.Key,
+
+    /// Initial state.
+    pub const empty: RenderState = .{
+        .rows = 0,
+        .cols = 0,
+        .viewport_is_bottom = false,
+        .row_data = .empty,
+        .screen = .primary,
+    };
+
+    /// A row within the viewport.
+    pub const Row = struct {
+        /// Arena used for any heap allocations for this row,
+        arena: ArenaAllocator.State,
+
+        /// The cells in this row, always `cols`` length.
+        cells: std.MultiArrayList(Cell),
+    };
+
+    pub const Cell = struct {
+        content: union(enum) {
+            empty,
+            single: u21,
+            slice: []const u21,
+        },
+        wide: page.Cell.Wide,
+        style: Style,
+    };
+
+    pub fn deinit(self: *RenderState, alloc: Allocator) void {
+        for (self.row_data.items) |row| {
+            var arena: ArenaAllocator = row.arena.promote(alloc);
+            arena.deinit();
+        }
+        self.row_data.deinit(alloc);
+    }
+
+    /// Update the render state to the latest terminal state.
+    ///
+    /// This will reset the terminal dirty state since it is consumed
+    /// by this render state update.
+    pub fn update(
+        self: *RenderState,
+        alloc: Allocator,
+        t: *Terminal,
+    ) Allocator.Error!void {
+        const full_rebuild: bool = rebuild: {
+            // If our screen key changed, we need to do a full rebuild
+            // because our render state is viewport-specific.
+            if (t.screens.active_key != self.screen) break :rebuild true;
+
+            // If our terminal is dirty at all, we do a full rebuild. These
+            // dirty values are full-terminal dirty values.
+            {
+                const Int = @typeInfo(Terminal.Dirty).@"struct".backing_integer.?;
+                const v: Int = @bitCast(t.flags.dirty);
+                if (v > 0) break :rebuild true;
+            }
+
+            // If our screen is dirty at all, we do a full rebuild. This is
+            // a full screen dirty tracker.
+            {
+                const Int = @typeInfo(Screen.Dirty).@"struct".backing_integer.?;
+                const v: Int = @bitCast(t.screens.active.dirty);
+                if (v > 0) break :rebuild true;
+            }
+
+            break :rebuild false;
+        };
+
+        // Full rebuild resets our state completely.
+        if (full_rebuild) {
+            self.* = .empty;
+            self.screen = t.screens.active_key;
+        }
+
+        const s: *Screen = t.screens.active;
+
+        // Always set our cheap fields, its more expensive to compare
+        self.rows = s.pages.rows;
+        self.cols = s.pages.cols;
+        self.viewport_is_bottom = s.viewportIsBottom();
+
+        // Ensure our row length is exactly our height, freeing or allocating
+        // data as necessary.
+        if (self.row_data.items.len <= self.rows) {
+            @branchHint(.likely);
+            try self.row_data.ensureTotalCapacity(alloc, self.rows);
+            for (self.row_data.items.len..self.rows) |_| {
+                self.row_data.appendAssumeCapacity(.{
+                    .arena = .{},
+                    .cells = .empty,
+                });
+            }
+        } else {
+            for (self.row_data.items[self.rows..]) |row| {
+                var arena: ArenaAllocator = row.arena.promote(alloc);
+                arena.deinit();
+            }
+            self.row_data.shrinkRetainingCapacity(self.rows);
+        }
+
+        // Go through and setup our rows.
+        var row_it = s.pages.rowIterator(
+            .left_up,
+            .{ .viewport = .{} },
+            null,
+        );
+        var y: size.CellCountInt = 0;
+        while (row_it.next()) |row_pin| : (y = y + 1) {
+            // If the row isn't dirty then we assume it is unchanged.
+            if (!full_rebuild and !row_pin.isDirty()) continue;
+
+            // If we have an existing row, reuse it. Guaranteed to exist
+            // because we setup our row data above.
+            const row: *Row = &self.row_data.items[y];
+
+            // Promote our arena. State is copied by value so we need to
+            // restore it on all exit paths so we don't leak memory.
+            var arena = row.arena.promote(alloc);
+            defer row.arena = arena.state;
+            const arena_alloc = arena.allocator();
+
+            // Reset our cells if we're rebuilding this row.
+            if (row.cells.len > 0) {
+                _ = arena.reset(.retain_capacity);
+                row.cells = .empty;
+            }
+
+            // Get all our cells in the page.
+            const p: *page.Page = &row_pin.node.data;
+            const page_rac = row_pin.rowAndCell();
+            const page_cells: []const page.Cell = p.getCells(page_rac.row);
+            assert(page_cells.len == self.cols);
+
+            try row.cells.ensureTotalCapacity(arena_alloc, self.cols);
+            for (page_cells) |*page_cell| {
+                // Append assuming its a single-codepoint, styled cell
+                // (most common by far).
+                row.cells.appendAssumeCapacity(.{
+                    .content = .{ .single = page_cell.content.codepoint },
+                    .wide = page_cell.wide,
+                    .style = p.styles.get(p.memory, page_cell.style_id).*,
+                });
+
+                // Switch on our content tag to handle less likely cases.
+                switch (page_cell.content_tag) {
+                    .codepoint => {
+                        @branchHint(.likely);
+                    },
+
+                    // If we have a multi-codepoint grapheme, look it up and
+                    // set our content type.
+                    .codepoint_grapheme => grapheme: {
+                        @branchHint(.unlikely);
+
+                        const extra = p.lookupGrapheme(page_cell) orelse break :grapheme;
+                        var cps = try arena_alloc.alloc(u21, extra.len + 1);
+                        cps[0] = page_cell.content.codepoint;
+                        @memcpy(cps[1..], extra);
+
+                        const idx = row.cells.len - 1;
+                        var content = row.cells.items(.content);
+                        content[idx] = .{ .slice = cps };
+                    },
+
+                    .bg_color_rgb => {
+                        @branchHint(.unlikely);
+
+                        const idx = row.cells.len - 1;
+                        var content = row.cells.items(.style);
+                        content[idx] = .{ .bg_color = .{ .rgb = .{
+                            .r = page_cell.content.color_rgb.r,
+                            .g = page_cell.content.color_rgb.g,
+                            .b = page_cell.content.color_rgb.b,
+                        } } };
+                    },
+
+                    .bg_color_palette => {
+                        @branchHint(.unlikely);
+
+                        const idx = row.cells.len - 1;
+                        var content = row.cells.items(.style);
+                        content[idx] = .{ .bg_color = .{
+                            .palette = page_cell.content.color_palette,
+                        } };
+                    },
+                }
+            }
+        }
+        assert(y == self.rows);
+
+        // Clear our dirty flags
+        t.flags.dirty = .{};
+        s.dirty = .{};
+    }
+};
+
+test {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var t = try Terminal.init(alloc, .{
+        .cols = 80,
+        .rows = 24,
+    });
+    defer t.deinit(alloc);
+
+    var state: RenderState = .empty;
+    defer state.deinit(alloc);
+    try state.update(alloc, &t);
+}
