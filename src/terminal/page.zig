@@ -2233,6 +2233,84 @@ test "Page clone" {
     }
 }
 
+test "Page clone graphemes" {
+    var page = try Page.init(.{
+        .cols = 10,
+        .rows = 10,
+        .styles = 8,
+    });
+    defer page.deinit();
+
+    // Append some graphemes
+    {
+        const rac = page.getRowAndCell(0, 0);
+        rac.cell.* = .init(0x09);
+        try page.appendGrapheme(rac.row, rac.cell, 0x0A);
+        try page.appendGrapheme(rac.row, rac.cell, 0x0B);
+    }
+
+    // Clone it
+    var page2 = try page.clone();
+    defer page2.deinit();
+    {
+        const rac = page2.getRowAndCell(0, 0);
+        try testing.expect(rac.row.grapheme);
+        try testing.expect(rac.cell.hasGrapheme());
+        try testing.expectEqualSlices(u21, &.{ 0x0A, 0x0B }, page2.lookupGrapheme(rac.cell).?);
+    }
+}
+
+test "Page clone styles" {
+    var page = try Page.init(.{
+        .cols = 10,
+        .rows = 10,
+        .styles = 8,
+    });
+    defer page.deinit();
+
+    // Write with some styles
+    {
+        const id = try page.styles.add(page.memory, .{ .flags = .{
+            .bold = true,
+        } });
+
+        for (0..page.size.cols) |x| {
+            const rac = page.getRowAndCell(x, 0);
+            rac.row.styled = true;
+            rac.cell.* = .{
+                .content_tag = .codepoint,
+                .content = .{ .codepoint = @intCast(x + 1) },
+                .style_id = id,
+            };
+            page.styles.use(page.memory, id);
+        }
+    }
+
+    // Clone it
+    var page2 = try page.clone();
+    defer page2.deinit();
+    {
+        const id: u16 = style: {
+            const rac = page2.getRowAndCell(0, 0);
+            break :style rac.cell.style_id;
+        };
+
+        for (0..page.size.cols) |x| {
+            const rac = page.getRowAndCell(x, 0);
+            try testing.expect(rac.row.styled);
+            try testing.expectEqual(id, rac.cell.style_id);
+        }
+
+        const style = page.styles.get(
+            page.memory,
+            id,
+        );
+        try testing.expect((Style{ .flags = .{
+            .bold = true,
+        } }).eql(style.*));
+    }
+}
+
 test "Page cloneFrom" {
     var page = try Page.init(.{
         .cols = 10,
