@@ -4,7 +4,7 @@ const Binding = @This();
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const assert = std.debug.assert;
+const assert = @import("../quirks.zig").inlineAssert;
 const build_config = @import("../build_config.zig");
 const uucode = @import("uucode");
 const EntryFormatter = @import("../config/formatter.zig").EntryFormatter;

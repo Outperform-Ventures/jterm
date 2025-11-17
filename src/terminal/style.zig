@@ -1,5 +1,5 @@
 const std = @import("std");
-const assert = std.debug.assert;
+const assert = @import("../quirks.zig").inlineAssert;
 const configpkg = @import("../config.zig");
 const color = @import("color.zig");
 const sgr = @import("sgr.zig");

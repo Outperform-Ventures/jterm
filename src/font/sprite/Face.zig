@@ -14,7 +14,7 @@ const Face = @This();
 
 const std = @import("std");
 const builtin = @import("builtin");
-const assert = std.debug.assert;
+const assert = @import("../../quirks.zig").inlineAssert;
 const Allocator = std.mem.Allocator;
 const wuffs = @import("wuffs");
 const z2d = @import("z2d");

@@ -1,7 +1,7 @@
 const colorpkg = @This();
 
 const std = @import("std");
-const assert = std.debug.assert;
+const assert = @import("../quirks.zig").inlineAssert;
 const x11_color = @import("x11_color.zig");
 
 /// The default palette.
