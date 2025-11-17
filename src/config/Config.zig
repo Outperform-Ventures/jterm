@@ -5203,6 +5203,7 @@ pub const ColorList = struct {
     ) Allocator.Error!Self {
         return .{
             .colors = try self.colors.clone(alloc),
+            .colors_c = try self.colors_c.clone(alloc),
         };
     }
 
@@ -5280,6 +5281,26 @@ pub const ColorList = struct {
         try p.parseCLI(alloc, "black,white");
         try p.formatEntry(formatterpkg.entryFormatter("a", &buf.writer));
         try std.testing.expectEqualSlices(u8, "a = #000000,#ffffff\n", buf.written());
+    }
+
+    test "clone" {
+        const testing = std.testing;
+        var arena = ArenaAllocator.init(testing.allocator);
+        defer arena.deinit();
+        const alloc = arena.allocator();
+
+        var source: Self = .{};
+        try source.parseCLI(alloc, "#ff0000,#00ff00,#0000ff");
+
+        const cloned = try source.clone(alloc);
+
+        try testing.expect(source.equal(cloned));
+        try testing.expectEqual(source.colors_c.items.len, cloned.colors_c.items.len);
+        for (source.colors_c.items, cloned.colors_c.items) |src_c, clone_c| {
+            try testing.expectEqual(src_c.r, clone_c.r);
+            try testing.expectEqual(src_c.g, clone_c.g);
+            try testing.expectEqual(src_c.b, clone_c.b);
+        }
     }
 };
 
