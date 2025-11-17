@@ -1772,10 +1772,6 @@ pub fn setAttribute(self: *Screen, attr: sgr.Attribute) !void {
             self.cursor.style.flags.underline = v;
         },
 
-        .reset_underline => {
-            self.cursor.style.flags.underline = .none;
-        },
-
         .underline_color => |rgb| {
             self.cursor.style.underline_color = .{ .rgb = .{
                 .r = rgb.r,
