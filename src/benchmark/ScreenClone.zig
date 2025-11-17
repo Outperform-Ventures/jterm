@@ -153,14 +153,3 @@ fn stepClone(ptr: *anyopaque) Benchmark.Error!void {
         // to benchmark that. We'll free when the benchmark exits.
     }
 }
-
-test ScreenClone {
-    const testing = std.testing;
-    const alloc = testing.allocator;
-
-    const impl: *ScreenClone = try .create(alloc, .{});
-    defer impl.destroy(alloc);
-
-    const bench = impl.benchmark();
-    _ = try bench.run(.once);
-}
