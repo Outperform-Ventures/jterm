@@ -85,13 +85,15 @@ pub const RenderState = struct {
     };
 
     pub const Cell = struct {
-        content: union(enum) {
+        content: Content,
+        wide: page.Cell.Wide,
+        style: Style,
+
+        pub const Content = union(enum) {
             empty,
             single: u21,
             slice: []const u21,
-        },
-        wide: page.Cell.Wide,
-        style: Style,
+        };
     };
 
     pub fn deinit(self: *RenderState, alloc: Allocator) void {
@@ -210,8 +212,9 @@ pub const RenderState = struct {
             for (page_cells) |*page_cell| {
                 // Append assuming its a single-codepoint, styled cell
                 // (most common by far).
+                const idx = cells.len;
                 cells.appendAssumeCapacity(.{
-                    .content = .{ .single = page_cell.content.codepoint },
+                    .content = .empty, // Filled in below
                     .wide = page_cell.wide,
                     .style = if (page_cell.style_id > 0) p.styles.get(
                         p.memory,
@@ -223,6 +226,23 @@ pub const RenderState = struct {
                 switch (page_cell.content_tag) {
                     .codepoint => {
                         @branchHint(.likely);
+
+                        // It is possible for our codepoint to be zero. If
+                        // that is the case, we set the codepoint to empty.
+                        const cp = page_cell.content.codepoint;
+                        var content = cells.items(.content);
+                        content[idx] = if (cp == 0) zero: {
+                            // Spacers are meaningful and not actually empty
+                            // so we only set empty for truly empty cells.
+                            if (page_cell.wide == .narrow) {
+                                @branchHint(.likely);
+                                break :zero .empty;
+                            }
+
+                            break :zero .{ .single = ' ' };
+                        } else .{
+                            .single = cp,
+                        };
                     },
 
                     // If we have a multi-codepoint grapheme, look it up and
@@ -235,7 +255,6 @@ pub const RenderState = struct {
                         cps[0] = page_cell.content.codepoint;
                         @memcpy(cps[1..], extra);
 
-                        const idx = cells.len - 1;
                         var content = cells.items(.content);
                         content[idx] = .{ .slice = cps };
                     },
@@ -243,7 +262,6 @@ pub const RenderState = struct {
                     .bg_color_rgb => {
                         @branchHint(.unlikely);
 
-                        const idx = cells.len - 1;
                         var content = cells.items(.style);
                         content[idx] = .{ .bg_color = .{ .rgb = .{
                             .r = page_cell.content.color_rgb.r,
@@ -255,7 +273,6 @@ pub const RenderState = struct {
                     .bg_color_palette => {
                         @branchHint(.unlikely);
 
-                        const idx = cells.len - 1;
                         var content = cells.items(.style);
                         content[idx] = .{ .bg_color = .{
                             .palette = page_cell.content.color_palette,
