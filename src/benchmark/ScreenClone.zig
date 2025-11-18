@@ -45,6 +45,9 @@ pub const Mode = enum {
 
     /// Full clone
     clone,
+
+    /// RenderState rather than a screen clone.
+    render,
 };
 
 pub fn create(
@@ -75,6 +78,7 @@ pub fn benchmark(self: *ScreenClone) Benchmark {
         .stepFn = switch (self.opts.mode) {
             .noop => stepNoop,
             .clone => stepClone,
+            .render => stepRender,
         },
         .setupFn = setup,
         .teardownFn = teardown,
@@ -148,6 +152,25 @@ fn stepClone(ptr: *anyopaque) Benchmark.Error!void {
             return error.BenchmarkFailed;
         };
         std.mem.doNotOptimizeAway(copy);
+
+        // Note: we purposely do not free memory because we don't want
+        // to benchmark that. We'll free when the benchmark exits.
+    }
+}
+
+fn stepRender(ptr: *anyopaque) Benchmark.Error!void {
+    const self: *ScreenClone = @ptrCast(@alignCast(ptr));
+
+    // We loop because its so fast that a single benchmark run doesn't
+    // properly capture our speeds.
+    const alloc = self.terminal.screens.active.alloc;
+    for (0..1000) |_| {
+        var state: terminalpkg.RenderState = .empty;
+        state.update(alloc, &self.terminal) catch |err| {
+            log.warn("error cloning screen err={}", .{err});
+            return error.BenchmarkFailed;
+        };
+        std.mem.doNotOptimizeAway(state);
 
         // Note: we purposely do not free memory because we don't want
         // to benchmark that. We'll free when the benchmark exits.
