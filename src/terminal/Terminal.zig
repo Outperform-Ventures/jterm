@@ -1672,6 +1672,9 @@ pub fn insertLines(self: *Terminal, count: usize) void {
                     dst_row.* = src_row.*;
                     src_row.* = dst;
 
+                    // Make sure the row is marked as dirty though.
+                    dst_row.dirty = true;
+
                     // Ensure what we did didn't corrupt the page
                     cur_p.node.data.assertIntegrity();
                 } else {
@@ -1866,6 +1869,9 @@ pub fn deleteLines(self: *Terminal, count: usize) void {
                     const dst = dst_row.*;
                     dst_row.* = src_row.*;
                     src_row.* = dst;
+
+                    // Make sure the row is marked as dirty though.
+                    dst_row.dirty = true;
 
                     // Ensure what we did didn't corrupt the page
                     cur_p.node.data.assertIntegrity();

@@ -1191,12 +1191,13 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 {
                     var it = state.terminal.screens.active.pages.pageIterator(
                         .right_down,
-                        .{ .screen = .{} },
+                        .{ .viewport = .{} },
                         null,
                     );
                     while (it.next()) |chunk| {
-                        var dirty_set = chunk.node.data.dirtyBitSet();
-                        dirty_set.unsetAll();
+                        for (chunk.rows()) |*row| {
+                            row.dirty = false;
+                        }
                     }
                 }
 

@@ -2683,10 +2683,9 @@ pub fn eraseRow(
     // If we have a pinned viewport, we need to adjust for active area.
     self.fixupViewport(1);
 
-    {
-        // Set all the rows as dirty in this page
-        var dirty = node.data.dirtyBitSet();
-        dirty.setRangeValue(.{ .start = pn.y, .end = node.data.size.rows }, true);
+    // Set all the rows as dirty in this page, starting at the erased row.
+    for (rows[pn.y..node.data.size.rows]) |*row| {
+        row.dirty = true;
     }
 
     // We iterate through all of the following pages in order to move their
@@ -2721,8 +2720,9 @@ pub fn eraseRow(
         fastmem.rotateOnce(Row, rows[0..node.data.size.rows]);
 
         // Set all the rows as dirty
-        var dirty = node.data.dirtyBitSet();
-        dirty.setRangeValue(.{ .start = 0, .end = node.data.size.rows }, true);
+        for (rows[0..node.data.size.rows]) |*row| {
+            row.dirty = true;
+        }
 
         // Our tracked pins for this page need to be updated.
         // If the pin is in row 0 that means the corresponding row has
@@ -2774,8 +2774,9 @@ pub fn eraseRowBounded(
         fastmem.rotateOnce(Row, rows[pn.y..][0 .. limit + 1]);
 
         // Set all the rows as dirty
-        var dirty = node.data.dirtyBitSet();
-        dirty.setRangeValue(.{ .start = pn.y, .end = pn.y + limit }, true);
+        for (rows[pn.y..][0..limit]) |*row| {
+            row.dirty = true;
+        }
 
         // If our viewport is a pin and our pin is within the erased
         // region we need to maybe shift our cache up. We do this here instead
@@ -2813,9 +2814,8 @@ pub fn eraseRowBounded(
     fastmem.rotateOnce(Row, rows[pn.y..node.data.size.rows]);
 
     // All the rows in the page are dirty below the erased row.
-    {
-        var dirty = node.data.dirtyBitSet();
-        dirty.setRangeValue(.{ .start = pn.y, .end = node.data.size.rows }, true);
+    for (rows[pn.y..node.data.size.rows]) |*row| {
+        row.dirty = true;
     }
 
     // We need to keep track of how many rows we've shifted so that we can
@@ -2872,8 +2872,9 @@ pub fn eraseRowBounded(
             fastmem.rotateOnce(Row, rows[0 .. shifted_limit + 1]);
 
             // Set all the rows as dirty
-            var dirty = node.data.dirtyBitSet();
-            dirty.setRangeValue(.{ .start = 0, .end = shifted_limit }, true);
+            for (rows[0..shifted_limit]) |*row| {
+                row.dirty = true;
+            }
 
             // See the other places we do something similar in this function
             // for a detailed explanation.
@@ -2904,8 +2905,9 @@ pub fn eraseRowBounded(
         fastmem.rotateOnce(Row, rows[0..node.data.size.rows]);
 
         // Set all the rows as dirty
-        var dirty = node.data.dirtyBitSet();
-        dirty.setRangeValue(.{ .start = 0, .end = node.data.size.rows }, true);
+        for (rows[0..node.data.size.rows]) |*row| {
+            row.dirty = true;
+        }
 
         // Account for the rows shifted in this node.
         shifted += node.data.size.rows;
@@ -2993,6 +2995,9 @@ pub fn eraseRows(
             const old_dst = dst.*;
             dst.* = src.*;
             src.* = old_dst;
+
+            // Mark the moved row as dirty.
+            dst.dirty = true;
         }
 
         // Clear our remaining cells that we didn't shift or swapped
@@ -3022,10 +3027,6 @@ pub fn eraseRows(
         // Our new size is the amount we scrolled
         chunk.node.data.size.rows = @intCast(scroll_amount);
         erased += chunk.end;
-
-        // Set all the rows as dirty
-        var dirty = chunk.node.data.dirtyBitSet();
-        dirty.setRangeValue(.{ .start = 0, .end = chunk.node.data.size.rows }, true);
     }
 
     // Update our total row count
@@ -3881,10 +3882,10 @@ fn growRows(self: *PageList, n: usize) !void {
 /// traverses the entire list of pages. This is used for testing/debugging.
 pub fn clearDirty(self: *PageList) void {
     var page = self.pages.first;
-    while (page) |p| {
-        var set = p.data.dirtyBitSet();
-        set.unsetAll();
-        page = p.next;
+    while (page) |p| : (page = p.next) {
+        for (p.data.rows.ptr(p.data.memory)[0..p.data.size.rows]) |*row| {
+            row.dirty = false;
+        }
     }
 }
 
@@ -3965,13 +3966,12 @@ pub const Pin = struct {
 
     /// Check if this pin is dirty.
     pub inline fn isDirty(self: Pin) bool {
-        return self.node.data.isRowDirty(self.y);
+        return self.rowAndCell().row.dirty;
     }
 
     /// Mark this pin location as dirty.
     pub inline fn markDirty(self: Pin) void {
-        var set = self.node.data.dirtyBitSet();
-        set.set(self.y);
+        self.rowAndCell().row.dirty = true;
     }
 
     /// Returns true if the row of this pin should never have its background
@@ -4375,7 +4375,7 @@ const Cell = struct {
     /// This is not very performant this is primarily used for assertions
     /// and testing.
     pub fn isDirty(self: Cell) bool {
-        return self.node.data.isRowDirty(self.row_idx);
+        return self.row.dirty;
     }
 
     /// Get the cell style.

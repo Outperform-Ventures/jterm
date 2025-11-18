@@ -786,9 +786,7 @@ pub fn cursorDownScroll(self: *Screen) !void {
                 self.cursor.page_row,
                 page.getCells(self.cursor.page_row),
             );
-
-            var dirty = page.dirtyBitSet();
-            dirty.set(0);
+            self.cursorMarkDirty();
         } else {
             // The call to `eraseRow` will move the tracked cursor pin up by one
             // row, but we don't actually want that, so we keep the old pin and
@@ -880,7 +878,7 @@ pub fn cursorScrollAbove(self: *Screen) !void {
     // the cursor always changes page rows inside this function, and
     // when that happens it can mean the text in the old row needs to
     // be re-shaped because the cursor splits runs to break ligatures.
-    self.cursor.page_pin.markDirty();
+    self.cursorMarkDirty();
 
     // If the cursor is on the bottom of the screen, its faster to use
     // our specialized function for that case.
@@ -926,8 +924,9 @@ pub fn cursorScrollAbove(self: *Screen) !void {
             fastmem.rotateOnceR(Row, rows[pin.y..page.size.rows]);
 
             // Mark all our rotated rows as dirty.
-            var dirty = page.dirtyBitSet();
-            dirty.setRangeValue(.{ .start = pin.y, .end = page.size.rows }, true);
+            for (rows[pin.y..page.size.rows]) |*row| {
+                row.dirty = true;
+            }
 
             // Setup our cursor caches after the rotation so it points to the
             // correct data
@@ -993,8 +992,9 @@ fn cursorScrollAboveRotate(self: *Screen) !void {
         );
 
         // All rows we rotated are dirty
-        var dirty = cur_page.dirtyBitSet();
-        dirty.setRangeValue(.{ .start = 0, .end = cur_page.size.rows }, true);
+        for (cur_rows[0..cur_page.size.rows]) |*row| {
+            row.dirty = true;
+        }
     }
 
     // Our current is our cursor page, we need to rotate down from
@@ -1010,11 +1010,9 @@ fn cursorScrollAboveRotate(self: *Screen) !void {
     );
 
     // Set all the rows we rotated and cleared dirty
-    var dirty = cur_page.dirtyBitSet();
-    dirty.setRangeValue(
-        .{ .start = self.cursor.page_pin.y, .end = cur_page.size.rows },
-        true,
-    );
+    for (cur_rows[self.cursor.page_pin.y..cur_page.size.rows]) |*row| {
+        row.dirty = true;
+    }
 
     // Setup cursor cache data after all the rotations so our
     // row is valid.
@@ -1105,7 +1103,7 @@ inline fn cursorChangePin(self: *Screen, new: Pin) void {
     // we must mark the old and new page dirty. We do this as long
     // as the pins are not equal
     if (!self.cursor.page_pin.eql(new)) {
-        self.cursor.page_pin.markDirty();
+        self.cursorMarkDirty();
         new.markDirty();
     }
 
@@ -1175,7 +1173,7 @@ inline fn cursorChangePin(self: *Screen, new: Pin) void {
 /// Mark the cursor position as dirty.
 /// TODO: test
 pub inline fn cursorMarkDirty(self: *Screen) void {
-    self.cursor.page_pin.markDirty();
+    self.cursor.page_row.dirty = true;
 }
 
 /// Reset the cursor row's soft-wrap state and the cursor's pending wrap.
@@ -1303,10 +1301,6 @@ pub fn clearRows(
 
     var it = self.pages.pageIterator(.right_down, tl, bl);
     while (it.next()) |chunk| {
-        // Mark everything in this chunk as dirty
-        var dirty = chunk.node.data.dirtyBitSet();
-        dirty.setRangeValue(.{ .start = chunk.start, .end = chunk.end }, true);
-
         for (chunk.rows()) |*row| {
             const cells_offset = row.cells;
             const cells_multi: [*]Cell = row.cells.ptr(chunk.node.data.memory);
@@ -1322,6 +1316,8 @@ pub fn clearRows(
                 self.clearCells(&chunk.node.data, row, cells);
                 row.* = .{ .cells = cells_offset };
             }
+
+            row.dirty = true;
         }
     }
 }
