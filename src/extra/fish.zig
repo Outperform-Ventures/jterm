@@ -194,13 +194,13 @@ fn getDescription(comptime help: []const u8) []const u8 {
 }
 
 test "getDescription" {
+    const testing = std.testing;
+
     const input = "First sentence with \"quotes\"\nand newlines. Second sentence.";
     const expected = "First sentence with \\\"quotes\\\" and newlines.";
-    const result = comptime getDescription(input);
 
     comptime {
-        if (!std.mem.eql(u8, result, expected)) {
-            @compileError("getDescription test failed: expected '" ++ expected ++ "' but got '" ++ result ++ "'");
-        }
+        const result = getDescription(input);
+        try testing.expectEqualStrings(expected, result);
     }
 }
