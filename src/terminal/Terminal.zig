@@ -293,7 +293,10 @@ pub fn print(self: *Terminal, c: u21) !void {
     // log.debug("print={x} y={} x={}", .{ c, self.screens.active.cursor.y, self.screens.active.cursor.x });
 
     // If we're not on the main display, do nothing for now
-    if (self.status_display != .main) return;
+    if (self.status_display != .main) {
+        @branchHint(.cold);
+        return;
+    }
 
     // After doing any printing, wrapping, scrolling, etc. we want to ensure
     // that our screen remains in a consistent state.
@@ -313,6 +316,7 @@ pub fn print(self: *Terminal, c: u21) !void {
         self.modes.get(.grapheme_cluster) and
         self.screens.active.cursor.x > 0)
     grapheme: {
+        @branchHint(.unlikely);
         // We need the previous cell to determine if we're at a grapheme
         // break or not. If we are NOT, then we are still combining the
         // same grapheme. Otherwise, we can stay in this cell.
@@ -478,6 +482,7 @@ pub fn print(self: *Terminal, c: u21) !void {
 
     // Attach zero-width characters to our cell as grapheme data.
     if (width == 0) {
+        @branchHint(.unlikely);
         // If we have grapheme clustering enabled, we don't blindly attach
         // any zero width character to our cells and we instead just ignore
         // it.
@@ -535,6 +540,7 @@ pub fn print(self: *Terminal, c: u21) !void {
     switch (width) {
         // Single cell is very easy: just write in the cell
         1 => {
+            @branchHint(.likely);
             self.screens.active.cursorMarkDirty();
             @call(.always_inline, printCell, .{ self, c, .narrow });
         },
@@ -602,10 +608,14 @@ fn printCell(
             self.screens.active.charset.single_shift = null;
             break :blk key_once;
         } else self.screens.active.charset.gl;
+
         const set = self.screens.active.charset.charsets.get(key);
 
         // UTF-8 or ASCII is used as-is
-        if (set == .utf8 or set == .ascii) break :c unmapped_c;
+        if (set == .utf8 or set == .ascii) {
+            @branchHint(.likely);
+            break :c unmapped_c;
+        }
 
         // If we're outside of ASCII range this is an invalid value in
         // this table so we just return space.
@@ -718,6 +728,7 @@ fn printCell(
     // row so that the renderer can lookup rows with these much faster.
     if (comptime build_options.kitty_graphics) {
         if (c == kitty.graphics.unicode.placeholder) {
+            @branchHint(.unlikely);
             self.screens.active.cursor.page_row.kitty_virtual_placeholder = true;
         }
     }
@@ -727,6 +738,7 @@ fn printCell(
     // overwriting the same hyperlink.
     if (self.screens.active.cursor.hyperlink_id > 0) {
         self.screens.active.cursorSetHyperlink() catch |err| {
+            @branchHint(.unlikely);
             log.warn("error reallocating for more hyperlink space, ignoring hyperlink err={}", .{err});
             assert(!cell.hyperlink);
         };

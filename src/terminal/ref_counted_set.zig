@@ -256,6 +256,7 @@ pub fn RefCountedSet(
             // we may end up with a PSL of `len` which would exceed the bounds.
             // In such a case, we claim to be out of memory.
             if (self.psl_stats[self.psl_stats.len - 1] > 0) {
+                @branchHint(.cold);
                 return AddError.OutOfMemory;
             }
 
@@ -308,6 +309,7 @@ pub fn RefCountedSet(
                 if (items[id].meta.ref == 0) {
                     // See comment in `addContext` for details.
                     if (self.psl_stats[self.psl_stats.len - 1] > 0) {
+                        @branchHint(.cold);
                         return AddError.OutOfMemory;
                     }
 

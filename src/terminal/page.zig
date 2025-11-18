@@ -1896,7 +1896,7 @@ pub const Cell = packed struct(u64) {
         return cell;
     }
 
-    pub fn isZero(self: Cell) bool {
+    pub inline fn isZero(self: Cell) bool {
         return @as(u64, @bitCast(self)) == 0;
     }
 
@@ -1906,7 +1906,7 @@ pub const Cell = packed struct(u64) {
     ///   - Cell text is blank
     ///   - Cell is styled but only with a background color and no text
     ///   - Cell has a unicode placeholder for Kitty graphics protocol
-    pub fn hasText(self: Cell) bool {
+    pub inline fn hasText(self: Cell) bool {
         return switch (self.content_tag) {
             .codepoint,
             .codepoint_grapheme,
@@ -1918,7 +1918,7 @@ pub const Cell = packed struct(u64) {
         };
     }
 
-    pub fn codepoint(self: Cell) u21 {
+    pub inline fn codepoint(self: Cell) u21 {
         return switch (self.content_tag) {
             .codepoint,
             .codepoint_grapheme,
@@ -1931,14 +1931,14 @@ pub const Cell = packed struct(u64) {
     }
 
     /// The width in grid cells that this cell takes up.
-    pub fn gridWidth(self: Cell) u2 {
+    pub inline fn gridWidth(self: Cell) u2 {
         return switch (self.wide) {
             .narrow, .spacer_head, .spacer_tail => 1,
             .wide => 2,
         };
     }
 
-    pub fn hasStyling(self: Cell) bool {
+    pub inline fn hasStyling(self: Cell) bool {
         return self.style_id != stylepkg.default_id;
     }
 
@@ -1957,12 +1957,12 @@ pub const Cell = packed struct(u64) {
         };
     }
 
-    pub fn hasGrapheme(self: Cell) bool {
+    pub inline fn hasGrapheme(self: Cell) bool {
         return self.content_tag == .codepoint_grapheme;
     }
 
     /// Returns true if the set of cells has text in it.
-    pub fn hasTextAny(cells: []const Cell) bool {
+    pub inline fn hasTextAny(cells: []const Cell) bool {
         for (cells) |cell| {
             if (cell.hasText()) return true;
         }

@@ -312,6 +312,7 @@ pub fn next(self: *Parser, c: u8) [3]?Action {
 
 pub inline fn collect(self: *Parser, c: u8) void {
     if (self.intermediates_idx >= MAX_INTERMEDIATE) {
+        @branchHint(.cold);
         log.warn("invalid intermediates count", .{});
         return;
     }
@@ -386,6 +387,7 @@ inline fn doAction(self: *Parser, action: TransitionAction, c: u8) ?Action {
 
             // We only allow colon or mixed separators for the 'm' command.
             if (c != 'm' and self.params_sep.count() > 0) {
+                @branchHint(.cold);
                 log.warn(
                     "CSI colon or mixed separators only allowed for 'm' command, got: {f}",
                     .{result},
