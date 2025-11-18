@@ -1195,6 +1195,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                         null,
                     );
                     while (it.next()) |chunk| {
+                        chunk.node.data.dirty = false;
                         for (chunk.rows()) |*row| {
                             row.dirty = false;
                         }

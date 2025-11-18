@@ -923,10 +923,11 @@ pub fn cursorScrollAbove(self: *Screen) !void {
             var rows = page.rows.ptr(page.memory.ptr);
             fastmem.rotateOnceR(Row, rows[pin.y..page.size.rows]);
 
-            // Mark all our rotated rows as dirty.
-            for (rows[pin.y..page.size.rows]) |*row| {
-                row.dirty = true;
-            }
+            // Mark the whole page as dirty.
+            //
+            // Technically we only need to mark from the cursor row to the
+            // end but this is a hot function, so we want to minimize work.
+            page.dirty = true;
 
             // Setup our cursor caches after the rotation so it points to the
             // correct data
@@ -991,10 +992,8 @@ fn cursorScrollAboveRotate(self: *Screen) !void {
             &prev_rows[prev_page.size.rows - 1],
         );
 
-        // All rows we rotated are dirty
-        for (cur_rows[0..cur_page.size.rows]) |*row| {
-            row.dirty = true;
-        }
+        // Mark dirty on the page, since we are dirtying all rows with this.
+        cur_page.dirty = true;
     }
 
     // Our current is our cursor page, we need to rotate down from
@@ -1009,10 +1008,11 @@ fn cursorScrollAboveRotate(self: *Screen) !void {
         cur_page.getCells(&cur_rows[self.cursor.page_pin.y]),
     );
 
-    // Set all the rows we rotated and cleared dirty
-    for (cur_rows[self.cursor.page_pin.y..cur_page.size.rows]) |*row| {
-        row.dirty = true;
-    }
+    // Mark the whole page as dirty.
+    //
+    // Technically we only need to mark from the cursor row to the
+    // end but this is a hot function, so we want to minimize work.
+    cur_page.dirty = true;
 
     // Setup cursor cache data after all the rotations so our
     // row is valid.

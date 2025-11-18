@@ -658,6 +658,8 @@ pub fn clone(
             chunk.end,
         );
 
+        node.data.dirty = chunk.node.data.dirty;
+
         page_list.append(node);
 
         total_rows += node.data.size.rows;
@@ -2683,10 +2685,11 @@ pub fn eraseRow(
     // If we have a pinned viewport, we need to adjust for active area.
     self.fixupViewport(1);
 
-    // Set all the rows as dirty in this page, starting at the erased row.
-    for (rows[pn.y..node.data.size.rows]) |*row| {
-        row.dirty = true;
-    }
+    // Mark the whole page as dirty.
+    //
+    // Technically we only need to mark rows from the erased row to the end
+    // of the page as dirty, but that's slower and this is a hot function.
+    node.data.dirty = true;
 
     // We iterate through all of the following pages in order to move their
     // rows up by 1 as well.
@@ -2719,10 +2722,8 @@ pub fn eraseRow(
 
         fastmem.rotateOnce(Row, rows[0..node.data.size.rows]);
 
-        // Set all the rows as dirty
-        for (rows[0..node.data.size.rows]) |*row| {
-            row.dirty = true;
-        }
+        // Mark the whole page as dirty.
+        node.data.dirty = true;
 
         // Our tracked pins for this page need to be updated.
         // If the pin is in row 0 that means the corresponding row has
@@ -2773,10 +2774,11 @@ pub fn eraseRowBounded(
         node.data.clearCells(&rows[pn.y], 0, node.data.size.cols);
         fastmem.rotateOnce(Row, rows[pn.y..][0 .. limit + 1]);
 
-        // Set all the rows as dirty
-        for (rows[pn.y..][0..limit]) |*row| {
-            row.dirty = true;
-        }
+        // Mark the whole page as dirty.
+        //
+        // Technically we only need to mark from the erased row to the
+        // limit but this is a hot function, so we want to minimize work.
+        node.data.dirty = true;
 
         // If our viewport is a pin and our pin is within the erased
         // region we need to maybe shift our cache up. We do this here instead
@@ -2813,10 +2815,11 @@ pub fn eraseRowBounded(
 
     fastmem.rotateOnce(Row, rows[pn.y..node.data.size.rows]);
 
-    // All the rows in the page are dirty below the erased row.
-    for (rows[pn.y..node.data.size.rows]) |*row| {
-        row.dirty = true;
-    }
+    // Mark the whole page as dirty.
+    //
+    // Technically we only need to mark rows from the erased row to the end
+    // of the page as dirty, but that's slower and this is a hot function.
+    node.data.dirty = true;
 
     // We need to keep track of how many rows we've shifted so that we can
     // determine at what point we need to do a partial shift on subsequent
@@ -2871,10 +2874,11 @@ pub fn eraseRowBounded(
             node.data.clearCells(&rows[0], 0, node.data.size.cols);
             fastmem.rotateOnce(Row, rows[0 .. shifted_limit + 1]);
 
-            // Set all the rows as dirty
-            for (rows[0..shifted_limit]) |*row| {
-                row.dirty = true;
-            }
+            // Mark the whole page as dirty.
+            //
+            // Technically we only need to mark from the erased row to the
+            // limit but this is a hot function, so we want to minimize work.
+            node.data.dirty = true;
 
             // See the other places we do something similar in this function
             // for a detailed explanation.
@@ -2904,10 +2908,8 @@ pub fn eraseRowBounded(
 
         fastmem.rotateOnce(Row, rows[0..node.data.size.rows]);
 
-        // Set all the rows as dirty
-        for (rows[0..node.data.size.rows]) |*row| {
-            row.dirty = true;
-        }
+        // Mark the whole page as dirty.
+        node.data.dirty = true;
 
         // Account for the rows shifted in this node.
         shifted += node.data.size.rows;
@@ -3883,6 +3885,7 @@ fn growRows(self: *PageList, n: usize) !void {
 pub fn clearDirty(self: *PageList) void {
     var page = self.pages.first;
     while (page) |p| : (page = p.next) {
+        p.data.dirty = false;
         for (p.data.rows.ptr(p.data.memory)[0..p.data.size.rows]) |*row| {
             row.dirty = false;
         }
@@ -3966,7 +3969,7 @@ pub const Pin = struct {
 
     /// Check if this pin is dirty.
     pub inline fn isDirty(self: Pin) bool {
-        return self.rowAndCell().row.dirty;
+        return self.node.data.dirty or self.rowAndCell().row.dirty;
     }
 
     /// Mark this pin location as dirty.
@@ -4375,7 +4378,7 @@ const Cell = struct {
     /// This is not very performant this is primarily used for assertions
     /// and testing.
     pub fn isDirty(self: Cell) bool {
-        return self.row.dirty;
+        return self.node.data.dirty or self.row.dirty;
     }
 
     /// Get the cell style.
@@ -6802,11 +6805,9 @@ test "PageList eraseRowBounded less than full row" {
     try testing.expectEqual(s.rows, s.totalRows());
 
     // The erased rows should be dirty
-    try testing.expect(!s.isDirty(.{ .active = .{ .x = 0, .y = 4 } }));
     try testing.expect(s.isDirty(.{ .active = .{ .x = 0, .y = 5 } }));
     try testing.expect(s.isDirty(.{ .active = .{ .x = 0, .y = 6 } }));
     try testing.expect(s.isDirty(.{ .active = .{ .x = 0, .y = 7 } }));
-    try testing.expect(!s.isDirty(.{ .active = .{ .x = 0, .y = 8 } }));
 
     try testing.expectEqual(s.pages.first.?, p_top.node);
     try testing.expectEqual(@as(usize, 4), p_top.y);
@@ -6840,7 +6841,6 @@ test "PageList eraseRowBounded with pin at top" {
     try testing.expect(s.isDirty(.{ .active = .{ .x = 0, .y = 0 } }));
     try testing.expect(s.isDirty(.{ .active = .{ .x = 0, .y = 1 } }));
     try testing.expect(s.isDirty(.{ .active = .{ .x = 0, .y = 2 } }));
-    try testing.expect(!s.isDirty(.{ .active = .{ .x = 0, .y = 3 } }));
 
     try testing.expectEqual(s.pages.first.?, p_top.node);
     try testing.expectEqual(@as(usize, 0), p_top.y);
@@ -6865,7 +6865,6 @@ test "PageList eraseRowBounded full rows single page" {
     try testing.expectEqual(s.rows, s.totalRows());
 
     // The erased rows should be dirty
-    try testing.expect(!s.isDirty(.{ .active = .{ .x = 0, .y = 4 } }));
     for (5..10) |y| try testing.expect(s.isDirty(.{ .active = .{
         .x = 0,
         .y = @intCast(y),
@@ -6931,7 +6930,6 @@ test "PageList eraseRowBounded full rows two pages" {
     try s.eraseRowBounded(.{ .active = .{ .y = 4 } }, 4);
 
     // The erased rows should be dirty
-    try testing.expect(!s.isDirty(.{ .active = .{ .x = 0, .y = 3 } }));
     for (4..8) |y| try testing.expect(s.isDirty(.{ .active = .{
         .x = 0,
         .y = @intCast(y),

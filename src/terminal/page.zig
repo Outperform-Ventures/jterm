@@ -108,6 +108,15 @@ pub const Page = struct {
     /// first column, all cells in that row are laid out in column order.
     cells: Offset(Cell),
 
+    /// Set to true when an operation is performed that dirties all rows in
+    /// the page. See `Row.dirty` for more information on dirty tracking.
+    ///
+    /// NOTE: A value of false does NOT indicate that
+    ///       the page has no dirty rows in it, only
+    ///       that no full-page-dirtying operations
+    ///       have occurred since it was last cleared.
+    dirty: bool,
+
     /// The string allocator for this page used for shared utf-8 encoded
     /// strings. Liveness of strings and memory management is deferred to
     /// the individual use case.
@@ -228,6 +237,7 @@ pub const Page = struct {
             ),
             .size = .{ .cols = cap.cols, .rows = cap.rows },
             .capacity = cap,
+            .dirty = false,
         };
     }
 
@@ -1462,6 +1472,7 @@ pub const Page = struct {
 
     /// Returns true if this page is dirty at all.
     pub inline fn isDirty(self: *const Page) bool {
+        if (self.dirty) return true;
         for (self.rows.ptr(self.memory)[0..self.size.rows]) |row| {
             if (row.dirty) return true;
         }
