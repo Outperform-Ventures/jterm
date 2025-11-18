@@ -515,14 +515,11 @@ pub fn RefCountedSet(
                     return null;
                 }
 
-                // We don't bother checking dead items.
-                if (item.meta.ref == 0) {
-                    continue;
-                }
-
                 // If the item is a part of the same probe sequence,
-                // we check if it matches the value we're looking for.
+                // we make sure it's not dead and then check to see
+                // if it matches the value we're looking for.
                 if (item.meta.psl == i and
+                    item.meta.ref > 0 and
                     ctx.eql(value, item.value))
                 {
                     return id;
@@ -594,6 +591,11 @@ pub fn RefCountedSet(
                 // unless its ID is greater than the one we're
                 // given (i.e. prefer smaller IDs).
                 if (item.meta.ref == 0) {
+                    // Dead items aren't super common relative
+                    // to other places to insert/swap the held
+                    // item in to the set.
+                    @branchHint(.unlikely);
+
                     if (comptime @hasDecl(Context, "deleted")) {
                         // Inform the context struct that we're
                         // deleting the dead item's value for good.
