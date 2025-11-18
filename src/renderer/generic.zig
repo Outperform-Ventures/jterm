@@ -207,6 +207,9 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
         /// Our shader pipelines.
         shaders: Shaders,
 
+        /// The render state we update per loop.
+        terminal_state: terminal.RenderState = .empty,
+
         /// Swap chain which maintains multiple copies of the state needed to
         /// render a frame, so that we can start building the next frame while
         /// the previous frame is still being processed on the GPU.
@@ -738,6 +741,8 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
         }
 
         pub fn deinit(self: *Self) void {
+            self.terminal_state.deinit(self.alloc);
+
             self.swap_chain.deinit();
 
             if (DisplayLink != void) {
@@ -1095,6 +1100,9 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     log.debug("synchronized output started, skipping render", .{});
                     return;
                 }
+
+                // Update our terminal state
+                try self.terminal_state.update(self.alloc, state.terminal);
 
                 // Get our scrollbar out of the terminal. We synchronize
                 // the scrollbar read with frame data updates because this
@@ -2308,6 +2316,86 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     uniforms.current_cursor_color = cursor_color;
                     uniforms.cursor_change_time = uniforms.time;
                 }
+            }
+        }
+
+        fn rebuildCells2(
+            self: *Self,
+        ) !void {
+            const state: *terminal.RenderState = &self.terminal_state;
+
+            self.draw_mutex.lock();
+            defer self.draw_mutex.unlock();
+
+            // Handle the case that our grid size doesn't match the terminal
+            // state grid size. It's possible our backing views for renderers
+            // have a mismatch temporarily since view resize is handled async
+            // to terminal state resize and is mostly dependent on GUI
+            // frameworks.
+            const grid_size_diff =
+                self.cells.size.rows != state.rows or
+                self.cells.size.columns != state.cols;
+            if (grid_size_diff) {
+                var new_size = self.cells.size;
+                new_size.rows = state.rows;
+                new_size.columns = state.cols;
+                try self.cells.resize(self.alloc, new_size);
+
+                // Update our uniforms accordingly, otherwise
+                // our background cells will be out of place.
+                self.uniforms.grid_size = .{ new_size.columns, new_size.rows };
+            }
+
+            // Redraw means we are redrawing the full grid, regardless of
+            // individual row dirtiness.
+            const redraw = state.redraw or grid_size_diff;
+
+            if (redraw) {
+                // If we are doing a full rebuild, then we clear the entire
+                // cell buffer.
+                self.cells.reset();
+
+                // We also reset our padding extension depending on the
+                // screen type
+                switch (self.config.padding_color) {
+                    .background => {},
+
+                    // For extension, assume we are extending in all directions.
+                    // For "extend" this may be disabled due to heuristics below.
+                    .extend, .@"extend-always" => {
+                        self.uniforms.padding_extend = .{
+                            .up = true,
+                            .down = true,
+                            .left = true,
+                            .right = true,
+                        };
+                    },
+                }
+            }
+
+            // Go through all the rows and rebuild as necessary. If we have
+            // a size mismatch on the state and our grid we just fill what
+            // we can from the BOTTOM of the viewport.
+            const start_idx = state.rows - @min(
+                state.rows,
+                self.cells.size.rows,
+            );
+            const row_data = state.row_data.slice();
+            for (
+                0..,
+                row_data.items(.cells)[start_idx..],
+                row_data.items(.dirty)[start_idx..],
+            ) |y, *cell, dirty| {
+                if (!redraw) {
+                    // Only rebuild if we are doing a full rebuild or
+                    // this row is dirty.
+                    if (!dirty) continue;
+
+                    // Clear the cells if the row is dirty
+                    self.cells.clear(y);
+                }
+
+                _ = cell;
             }
         }
 
