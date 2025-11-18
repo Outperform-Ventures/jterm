@@ -197,7 +197,12 @@ pub const Parser = struct {
         }
 
         const slice = self.params[self.idx..self.params.len];
-        const colon = self.params_sep.isSet(self.idx);
+        // Call inlined for performance reasons.
+        const colon = @call(
+            .always_inline,
+            SepList.isSet,
+            .{ self.params_sep, self.idx },
+        );
         self.idx += 1;
 
         // Our last one will have an idx be the last value.
@@ -485,10 +490,13 @@ pub const Parser = struct {
     /// Returns true if the present position has a colon separator.
     /// This always returns false for the last value since it has no
     /// separator.
-    fn isColon(self: *Parser) bool {
-        // The `- 1` here is because the last value has no separator.
-        if (self.idx >= self.params.len - 1) return false;
-        return self.params_sep.isSet(self.idx);
+    inline fn isColon(self: *Parser) bool {
+        // Call inlined for performance reasons.
+        return @call(
+            .always_inline,
+            SepList.isSet,
+            .{ self.params_sep, self.idx },
+        );
     }
 
     fn countColon(self: *Parser) usize {
@@ -514,7 +522,9 @@ fn testParse(params: []const u16) Attribute {
 }
 
 fn testParseColon(params: []const u16) Attribute {
-    var p: Parser = .{ .params = params, .params_sep = .initFull() };
+    var p: Parser = .{ .params = params };
+    // Mark all parameters except the last as having a colon after.
+    for (0..params.len - 1) |i| p.params_sep.set(i);
     return p.next().?;
 }
 
