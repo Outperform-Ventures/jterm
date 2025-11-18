@@ -43,7 +43,12 @@ pub const RenderState = struct {
     viewport_is_bottom: bool,
 
     /// The rows (y=0 is top) of the viewport.
-    row_data: std.ArrayList(Row),
+    ///
+    /// This is a MultiArrayList because only the update cares about
+    /// the allocators. Callers care about all the other properties, and
+    /// this better optimizes cache locality for read access for those
+    /// use cases.
+    row_data: std.MultiArrayList(Row),
 
     /// The screen type that this state represents. This is used primarily
     /// to detect changes.
@@ -63,7 +68,7 @@ pub const RenderState = struct {
         /// Arena used for any heap allocations for this row,
         arena: ArenaAllocator.State,
 
-        /// The cells in this row, always `cols`` length.
+        /// The cells in this row, always `cols` length.
         cells: std.MultiArrayList(Cell),
     };
 
@@ -78,8 +83,8 @@ pub const RenderState = struct {
     };
 
     pub fn deinit(self: *RenderState, alloc: Allocator) void {
-        for (self.row_data.items) |row| {
-            var arena: ArenaAllocator = row.arena.promote(alloc);
+        for (self.row_data.items(.arena)) |state| {
+            var arena: ArenaAllocator = state.promote(alloc);
             arena.deinit();
         }
         self.row_data.deinit(alloc);
@@ -133,22 +138,28 @@ pub const RenderState = struct {
 
         // Ensure our row length is exactly our height, freeing or allocating
         // data as necessary.
-        if (self.row_data.items.len <= self.rows) {
+        if (self.row_data.len <= self.rows) {
             @branchHint(.likely);
             try self.row_data.ensureTotalCapacity(alloc, self.rows);
-            for (self.row_data.items.len..self.rows) |_| {
+            for (self.row_data.len..self.rows) |_| {
                 self.row_data.appendAssumeCapacity(.{
                     .arena = .{},
                     .cells = .empty,
                 });
             }
         } else {
-            for (self.row_data.items[self.rows..]) |row| {
-                var arena: ArenaAllocator = row.arena.promote(alloc);
+            const arenas = self.row_data.items(.arena);
+            for (arenas[self.rows..]) |state| {
+                var arena: ArenaAllocator = state.promote(alloc);
                 arena.deinit();
             }
             self.row_data.shrinkRetainingCapacity(self.rows);
         }
+
+        // Break down our row data
+        const row_data = self.row_data.slice();
+        const row_arenas = row_data.items(.arena);
+        const row_cells = row_data.items(.cells);
 
         // Go through and setup our rows.
         var row_it = s.pages.rowIterator(
@@ -161,20 +172,16 @@ pub const RenderState = struct {
             // If the row isn't dirty then we assume it is unchanged.
             if (!full_rebuild and !row_pin.isDirty()) continue;
 
-            // If we have an existing row, reuse it. Guaranteed to exist
-            // because we setup our row data above.
-            const row: *Row = &self.row_data.items[y];
-
             // Promote our arena. State is copied by value so we need to
             // restore it on all exit paths so we don't leak memory.
-            var arena = row.arena.promote(alloc);
-            defer row.arena = arena.state;
+            var arena = row_arenas[y].promote(alloc);
+            defer row_arenas[y] = arena.state;
             const arena_alloc = arena.allocator();
 
             // Reset our cells if we're rebuilding this row.
-            if (row.cells.len > 0) {
+            if (row_cells[y].len > 0) {
                 _ = arena.reset(.retain_capacity);
-                row.cells = .empty;
+                row_cells[y] = .empty;
             }
 
             // Get all our cells in the page.
@@ -183,11 +190,12 @@ pub const RenderState = struct {
             const page_cells: []const page.Cell = p.getCells(page_rac.row);
             assert(page_cells.len == self.cols);
 
-            try row.cells.ensureTotalCapacity(arena_alloc, self.cols);
+            const cells: *std.MultiArrayList(Cell) = &row_cells[y];
+            try cells.ensureTotalCapacity(arena_alloc, self.cols);
             for (page_cells) |*page_cell| {
                 // Append assuming its a single-codepoint, styled cell
                 // (most common by far).
-                row.cells.appendAssumeCapacity(.{
+                cells.appendAssumeCapacity(.{
                     .content = .{ .single = page_cell.content.codepoint },
                     .wide = page_cell.wide,
                     .style = p.styles.get(p.memory, page_cell.style_id).*,
@@ -209,16 +217,16 @@ pub const RenderState = struct {
                         cps[0] = page_cell.content.codepoint;
                         @memcpy(cps[1..], extra);
 
-                        const idx = row.cells.len - 1;
-                        var content = row.cells.items(.content);
+                        const idx = cells.len - 1;
+                        var content = cells.items(.content);
                         content[idx] = .{ .slice = cps };
                     },
 
                     .bg_color_rgb => {
                         @branchHint(.unlikely);
 
-                        const idx = row.cells.len - 1;
-                        var content = row.cells.items(.style);
+                        const idx = cells.len - 1;
+                        var content = cells.items(.style);
                         content[idx] = .{ .bg_color = .{ .rgb = .{
                             .r = page_cell.content.color_rgb.r,
                             .g = page_cell.content.color_rgb.g,
@@ -229,8 +237,8 @@ pub const RenderState = struct {
                     .bg_color_palette => {
                         @branchHint(.unlikely);
 
-                        const idx = row.cells.len - 1;
-                        var content = row.cells.items(.style);
+                        const idx = cells.len - 1;
+                        var content = cells.items(.style);
                         content[idx] = .{ .bg_color = .{
                             .palette = page_cell.content.color_palette,
                         } };
