@@ -161,7 +161,7 @@ pub const SavedCursor = struct {
 /// State required for all charset operations.
 pub const CharsetState = struct {
     /// The list of graphical charsets by slot
-    charsets: CharsetArray = .initFill(charsets.Charset.utf8),
+    charsets: CharsetArray = .{},
 
     /// GL is the slot to use when using a 7-bit printable char (up to 127)
     /// GR used for 8-bit printable chars.
@@ -172,7 +172,41 @@ pub const CharsetState = struct {
     single_shift: ?charsets.Slots = null,
 
     /// An array to map a charset slot to a lookup table.
-    const CharsetArray = std.EnumArray(charsets.Slots, charsets.Charset);
+    ///
+    /// We use this bespoke struct instead of `std.EnumArray` because
+    /// accessing these slots is very performance critical since it's
+    /// done for every single print. This benchmarks faster.
+    const CharsetArray = struct {
+        g0: charsets.Charset = .utf8,
+        g1: charsets.Charset = .utf8,
+        g2: charsets.Charset = .utf8,
+        g3: charsets.Charset = .utf8,
+
+        pub inline fn get(
+            self: *const CharsetArray,
+            slot: charsets.Slots,
+        ) charsets.Charset {
+            return switch (slot) {
+                .G0 => self.g0,
+                .G1 => self.g1,
+                .G2 => self.g2,
+                .G3 => self.g3,
+            };
+        }
+
+        pub inline fn set(
+            self: *CharsetArray,
+            slot: charsets.Slots,
+            charset: charsets.Charset,
+        ) void {
+            switch (slot) {
+                .G0 => self.g0 = charset,
+                .G1 => self.g1 = charset,
+                .G2 => self.g2 = charset,
+                .G3 => self.g3 = charset,
+            }
+        }
+    };
 };
 
 pub const Options = struct {
