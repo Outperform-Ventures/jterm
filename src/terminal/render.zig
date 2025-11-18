@@ -50,6 +50,12 @@ pub const RenderState = struct {
     /// use cases.
     row_data: std.MultiArrayList(Row),
 
+    /// This is set to true if the terminal state has changed in a way
+    /// that the renderer should do a full redraw of the grid. The renderer
+    /// should se this to false when it has done so. `update` will only
+    /// ever tick this to true.
+    redraw: bool,
+
     /// The screen type that this state represents. This is used primarily
     /// to detect changes.
     screen: ScreenSet.Key,
@@ -60,6 +66,7 @@ pub const RenderState = struct {
         .cols = 0,
         .viewport_is_bottom = false,
         .row_data = .empty,
+        .redraw = false,
         .screen = .primary,
     };
 
@@ -104,17 +111,17 @@ pub const RenderState = struct {
         alloc: Allocator,
         t: *Terminal,
     ) Allocator.Error!void {
-        const full_rebuild: bool = rebuild: {
+        self.redraw = redraw: {
             // If our screen key changed, we need to do a full rebuild
             // because our render state is viewport-specific.
-            if (t.screens.active_key != self.screen) break :rebuild true;
+            if (t.screens.active_key != self.screen) break :redraw true;
 
             // If our terminal is dirty at all, we do a full rebuild. These
             // dirty values are full-terminal dirty values.
             {
                 const Int = @typeInfo(Terminal.Dirty).@"struct".backing_integer.?;
                 const v: Int = @bitCast(t.flags.dirty);
-                if (v > 0) break :rebuild true;
+                if (v > 0) break :redraw true;
             }
 
             // If our screen is dirty at all, we do a full rebuild. This is
@@ -122,14 +129,14 @@ pub const RenderState = struct {
             {
                 const Int = @typeInfo(Screen.Dirty).@"struct".backing_integer.?;
                 const v: Int = @bitCast(t.screens.active.dirty);
-                if (v > 0) break :rebuild true;
+                if (v > 0) break :redraw true;
             }
 
-            break :rebuild false;
+            break :redraw false;
         };
 
-        // Full rebuild resets our state completely.
-        if (full_rebuild) {
+        // Full redraw resets our state completely.
+        if (self.redraw) {
             self.* = .empty;
             self.screen = t.screens.active_key;
         }
@@ -177,7 +184,7 @@ pub const RenderState = struct {
         var y: size.CellCountInt = 0;
         while (row_it.next()) |row_pin| : (y = y + 1) {
             // If the row isn't dirty then we assume it is unchanged.
-            if (!full_rebuild and !row_pin.isDirty()) continue;
+            if (!self.redraw and !row_pin.isDirty()) continue;
 
             // Promote our arena. State is copied by value so we need to
             // restore it on all exit paths so we don't leak memory.
