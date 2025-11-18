@@ -198,7 +198,10 @@ pub const RenderState = struct {
                 cells.appendAssumeCapacity(.{
                     .content = .{ .single = page_cell.content.codepoint },
                     .wide = page_cell.wide,
-                    .style = p.styles.get(p.memory, page_cell.style_id).*,
+                    .style = if (page_cell.style_id > 0) p.styles.get(
+                        p.memory,
+                        page_cell.style_id,
+                    ).* else .{},
                 });
 
                 // Switch on our content tag to handle less likely cases.
@@ -263,6 +266,9 @@ test {
         .rows = 24,
     });
     defer t.deinit(alloc);
+
+    // This fills the screen up
+    try t.decaln();
 
     var state: RenderState = .empty;
     defer state.deinit(alloc);
