@@ -549,9 +549,12 @@ pub fn RefCountedSet(
         }
 
         /// Insert the given value into the hash table with the given ID.
-        /// asserts that the value is not already present in the table.
+        ///
+        /// If runtime safety is enabled, asserts that
+        /// the value is not already present in the table.
         fn insert(self: *Self, base: anytype, value: T, new_id: Id, ctx: Context) Id {
-            assert(self.lookupContext(base, value, ctx) == null);
+            if (comptime std.debug.runtime_safety)
+                assert(self.lookupContext(base, value, ctx) == null);
 
             const table = self.table.ptr(base);
             const items = self.items.ptr(base);
