@@ -161,11 +161,22 @@ fn stepClone(ptr: *anyopaque) Benchmark.Error!void {
 fn stepRender(ptr: *anyopaque) Benchmark.Error!void {
     const self: *ScreenClone = @ptrCast(@alignCast(ptr));
 
+    // We do this once out of the loop because a significant slowdown
+    // on the first run is allocation. After that first run, even with
+    // a full rebuild, it is much faster. Let's ignore that first run
+    // slowdown.
+    const alloc = self.terminal.screens.active.alloc;
+    var state: terminalpkg.RenderState = .empty;
+    state.update(alloc, &self.terminal) catch |err| {
+        log.warn("error cloning screen err={}", .{err});
+        return error.BenchmarkFailed;
+    };
+
     // We loop because its so fast that a single benchmark run doesn't
     // properly capture our speeds.
-    const alloc = self.terminal.screens.active.alloc;
     for (0..1000) |_| {
-        var state: terminalpkg.RenderState = .empty;
+        // Forces a full rebuild because it thinks our screen changed
+        state.screen = .alternate;
         state.update(alloc, &self.terminal) catch |err| {
             log.warn("error cloning screen err={}", .{err});
             return error.BenchmarkFailed;

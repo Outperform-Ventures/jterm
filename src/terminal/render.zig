@@ -72,7 +72,11 @@ pub const RenderState = struct {
 
     /// A row within the viewport.
     pub const Row = struct {
-        /// Arena used for any heap allocations for this row,
+        /// Arena used for any heap allocations for cell contents
+        /// in this row. Importantly, this is NOT used for the MultiArrayList
+        /// itself. We do this on purpose so that we can easily clear rows,
+        /// but retain cached MultiArrayList capacities since grid sizes don't
+        /// change often.
         arena: ArenaAllocator.State,
 
         /// The cells in this row. Guaranteed to be `cols` length.
@@ -97,9 +101,13 @@ pub const RenderState = struct {
     };
 
     pub fn deinit(self: *RenderState, alloc: Allocator) void {
-        for (self.row_data.items(.arena)) |state| {
+        for (
+            self.row_data.items(.arena),
+            self.row_data.items(.cells),
+        ) |state, *cells| {
             var arena: ArenaAllocator = state.promote(alloc);
             arena.deinit();
+            cells.deinit(alloc);
         }
         self.row_data.deinit(alloc);
     }
@@ -147,9 +155,11 @@ pub const RenderState = struct {
 
         // Full redraw resets our state completely.
         if (redraw) {
-            self.* = .empty;
             self.screen = t.screens.active_key;
             self.redraw = true;
+
+            // Note: we don't clear any row_data here because our rebuild
+            // below is going to do that for us.
         }
 
         // Always set our cheap fields, its more expensive to compare
@@ -158,24 +168,31 @@ pub const RenderState = struct {
         self.viewport_is_bottom = s.viewportIsBottom();
 
         // Ensure our row length is exactly our height, freeing or allocating
-        // data as necessary.
-        if (self.row_data.len <= self.rows) {
-            @branchHint(.likely);
-            try self.row_data.ensureTotalCapacity(alloc, self.rows);
-            for (self.row_data.len..self.rows) |_| {
-                self.row_data.appendAssumeCapacity(.{
-                    .arena = .{},
-                    .cells = .empty,
-                    .dirty = true,
-                });
+        // data as necessary. In most cases we'll have a perfectly matching
+        // size.
+        if (self.row_data.len != self.rows) {
+            @branchHint(.unlikely);
+
+            if (self.row_data.len < self.rows) {
+                try self.row_data.ensureTotalCapacity(alloc, self.rows);
+                for (self.row_data.len..self.rows) |_| {
+                    self.row_data.appendAssumeCapacity(.{
+                        .arena = .{},
+                        .cells = .empty,
+                        .dirty = true,
+                    });
+                }
+            } else {
+                for (
+                    self.row_data.items(.arena)[self.rows..],
+                    self.row_data.items(.cells)[self.rows..],
+                ) |state, *cell| {
+                    var arena: ArenaAllocator = state.promote(alloc);
+                    arena.deinit();
+                    cell.deinit(alloc);
+                }
+                self.row_data.shrinkRetainingCapacity(self.rows);
             }
-        } else {
-            const arenas = self.row_data.items(.arena);
-            for (arenas[self.rows..]) |state| {
-                var arena: ArenaAllocator = state.promote(alloc);
-                arena.deinit();
-            }
-            self.row_data.shrinkRetainingCapacity(self.rows);
         }
 
         // Break down our row data
@@ -204,7 +221,7 @@ pub const RenderState = struct {
             // Reset our cells if we're rebuilding this row.
             if (row_cells[y].len > 0) {
                 _ = arena.reset(.retain_capacity);
-                row_cells[y] = .empty;
+                row_cells[y].clearRetainingCapacity();
             }
             row_dirties[y] = true;
 
@@ -214,8 +231,16 @@ pub const RenderState = struct {
             const page_cells: []const page.Cell = p.getCells(page_rac.row);
             assert(page_cells.len == self.cols);
 
+            // Note: our cells MultiArrayList uses our general allocator.
+            // We do this on purpose because as rows become dirty, we do
+            // not want to reallocate space for cells (which are large). This
+            // was a source of huge slowdown.
+            //
+            // Our per-row arena is only used for temporary allocations
+            // pertaining to cells directly (e.g. graphemes, hyperlinks).
             const cells: *std.MultiArrayList(Cell) = &row_cells[y];
-            try cells.ensureTotalCapacity(arena_alloc, self.cols);
+            try cells.ensureTotalCapacity(alloc, self.cols);
+
             for (page_cells) |*page_cell| {
                 // Append assuming its a single-codepoint, styled cell
                 // (most common by far).
