@@ -70,6 +70,11 @@ pub const RenderState = struct {
 
         /// The cells in this row, always `cols` length.
         cells: std.MultiArrayList(Cell),
+
+        /// A dirty flag that can be used by the renderer to track
+        /// its own draw state. `update` will mark this true whenever
+        /// this row is changed, too.
+        dirty: bool,
     };
 
     pub const Cell = struct {
@@ -145,6 +150,7 @@ pub const RenderState = struct {
                 self.row_data.appendAssumeCapacity(.{
                     .arena = .{},
                     .cells = .empty,
+                    .dirty = true,
                 });
             }
         } else {
@@ -160,6 +166,7 @@ pub const RenderState = struct {
         const row_data = self.row_data.slice();
         const row_arenas = row_data.items(.arena);
         const row_cells = row_data.items(.cells);
+        const row_dirties = row_data.items(.dirty);
 
         // Go through and setup our rows.
         var row_it = s.pages.rowIterator(
@@ -183,6 +190,7 @@ pub const RenderState = struct {
                 _ = arena.reset(.retain_capacity);
                 row_cells[y] = .empty;
             }
+            row_dirties[y] = true;
 
             // Get all our cells in the page.
             const p: *page.Page = &row_pin.node.data;
