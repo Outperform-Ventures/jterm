@@ -208,7 +208,7 @@ pub const RenderState = struct {
 
         // Go through and setup our rows.
         var row_it = s.pages.rowIterator(
-            .left_up,
+            .right_down,
             .{ .viewport = .{} },
             null,
         );
@@ -313,7 +313,7 @@ pub const RenderState = struct {
     }
 };
 
-test {
+test "styled" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
@@ -358,4 +358,104 @@ test "basic text" {
     try testing.expectEqual(10, cells[0].len);
     try testing.expectEqual(10, cells[1].len);
     try testing.expectEqual(10, cells[2].len);
+
+    // Row zero should contain our text
+    try testing.expectEqual('A', cells[0].get(0).raw.codepoint());
+    try testing.expectEqual('B', cells[0].get(1).raw.codepoint());
+    try testing.expectEqual('C', cells[0].get(2).raw.codepoint());
+    try testing.expectEqual('D', cells[0].get(3).raw.codepoint());
+    try testing.expectEqual(0, cells[0].get(4).raw.codepoint());
+}
+
+test "styled text" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var t = try Terminal.init(alloc, .{
+        .cols = 10,
+        .rows = 3,
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+    try s.nextSlice("\x1b[1mA"); // Bold
+    try s.nextSlice("\x1b[0;3mB"); // Italic
+    try s.nextSlice("\x1b[0;4mC"); // Underline
+
+    var state: RenderState = .empty;
+    defer state.deinit(alloc);
+    try state.update(alloc, &t);
+
+    // Verify we have the right number of rows
+    const row_data = state.row_data.slice();
+    try testing.expectEqual(3, row_data.len);
+
+    // All rows should have cols cells
+    const cells = row_data.items(.cells);
+    try testing.expectEqual(10, cells[0].len);
+    try testing.expectEqual(10, cells[1].len);
+    try testing.expectEqual(10, cells[2].len);
+
+    // Row zero should contain our text
+    {
+        const cell = cells[0].get(0);
+        try testing.expectEqual('A', cell.raw.codepoint());
+        try testing.expect(cell.style.flags.bold);
+    }
+    {
+        const cell = cells[0].get(1);
+        try testing.expectEqual('B', cell.raw.codepoint());
+        try testing.expect(!cell.style.flags.bold);
+        try testing.expect(cell.style.flags.italic);
+    }
+    try testing.expectEqual('C', cells[0].get(2).raw.codepoint());
+    try testing.expectEqual(0, cells[0].get(3).raw.codepoint());
+}
+
+test "grapheme" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var t = try Terminal.init(alloc, .{
+        .cols = 10,
+        .rows = 3,
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+    try s.nextSlice("A");
+    try s.nextSlice("👨‍"); // this has a ZWJ
+
+    var state: RenderState = .empty;
+    defer state.deinit(alloc);
+    try state.update(alloc, &t);
+
+    // Verify we have the right number of rows
+    const row_data = state.row_data.slice();
+    try testing.expectEqual(3, row_data.len);
+
+    // All rows should have cols cells
+    const cells = row_data.items(.cells);
+    try testing.expectEqual(10, cells[0].len);
+    try testing.expectEqual(10, cells[1].len);
+    try testing.expectEqual(10, cells[2].len);
+
+    // Row zero should contain our text
+    {
+        const cell = cells[0].get(0);
+        try testing.expectEqual('A', cell.raw.codepoint());
+    }
+    {
+        const cell = cells[0].get(1);
+        try testing.expectEqual(0x1F468, cell.raw.codepoint());
+        try testing.expectEqual(.wide, cell.raw.wide);
+        try testing.expectEqualSlices(u21, &.{0x200D}, cell.grapheme);
+    }
+    {
+        const cell = cells[0].get(2);
+        try testing.expectEqual(0, cell.raw.codepoint());
+        try testing.expectEqual(.spacer_tail, cell.raw.wide);
+    }
 }
