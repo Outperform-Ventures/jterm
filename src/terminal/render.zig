@@ -2,6 +2,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
+const fastmem = @import("../fastmem.zig");
 const size = @import("size.zig");
 const page = @import("page.zig");
 const Screen = @import("Screen.zig");
@@ -89,15 +90,19 @@ pub const RenderState = struct {
     };
 
     pub const Cell = struct {
-        content: Content,
-        wide: page.Cell.Wide,
-        style: Style,
+        /// Always set, this is the raw copied cell data from page.Cell.
+        /// The managed memory (hyperlinks, graphames, etc.) is NOT safe
+        /// to access from here. It is duplicated into the other fields if
+        /// it exists.
+        raw: page.Cell,
 
-        pub const Content = union(enum) {
-            empty,
-            single: u21,
-            slice: []const u21,
-        };
+        /// Grapheme data for the cell. This is undefined unless the
+        /// raw cell's content_tag is `codepoint_grapheme`.
+        grapheme: []const u21,
+
+        /// The style data for the cell. This is undefined unless
+        /// the style_id is non-default on raw.
+        style: Style,
     };
 
     pub fn deinit(self: *RenderState, alloc: Allocator) void {
@@ -216,7 +221,6 @@ pub const RenderState = struct {
             // restore it on all exit paths so we don't leak memory.
             var arena = row_arenas[y].promote(alloc);
             defer row_arenas[y] = arena.state;
-            const arena_alloc = arena.allocator();
 
             // Reset our cells if we're rebuilding this row.
             if (row_cells[y].len > 0) {
@@ -239,63 +243,53 @@ pub const RenderState = struct {
             // Our per-row arena is only used for temporary allocations
             // pertaining to cells directly (e.g. graphemes, hyperlinks).
             const cells: *std.MultiArrayList(Cell) = &row_cells[y];
-            try cells.ensureTotalCapacity(alloc, self.cols);
+            try cells.resize(alloc, self.cols);
 
-            for (page_cells) |*page_cell| {
+            // We always copy our raw cell data. In the case we have no
+            // managed memory, we can skip setting any other fields.
+            //
+            // This is an important optimization. For plain-text screens
+            // this ends up being something around 300% faster based on
+            // the `screen-clone` benchmark.
+            const cells_slice = cells.slice();
+            fastmem.copy(
+                page.Cell,
+                cells_slice.items(.raw),
+                page_cells,
+            );
+            if (!page_rac.row.managedMemory()) continue;
+
+            const arena_alloc = arena.allocator();
+            const cells_grapheme = cells_slice.items(.grapheme);
+            const cells_style = cells_slice.items(.style);
+            for (page_cells, 0..) |*page_cell, x| {
                 // Append assuming its a single-codepoint, styled cell
                 // (most common by far).
-                const idx = cells.len;
-                cells.appendAssumeCapacity(.{
-                    .content = .empty, // Filled in below
-                    .wide = page_cell.wide,
-                    .style = if (page_cell.style_id > 0) p.styles.get(
-                        p.memory,
-                        page_cell.style_id,
-                    ).* else .{},
-                });
+                if (page_cell.style_id > 0) cells_style[x] = p.styles.get(
+                    p.memory,
+                    page_cell.style_id,
+                ).*;
 
                 // Switch on our content tag to handle less likely cases.
                 switch (page_cell.content_tag) {
                     .codepoint => {
                         @branchHint(.likely);
-
-                        // It is possible for our codepoint to be zero. If
-                        // that is the case, we set the codepoint to empty.
-                        const cp = page_cell.content.codepoint;
-                        var content = cells.items(.content);
-                        content[idx] = if (cp == 0) zero: {
-                            // Spacers are meaningful and not actually empty
-                            // so we only set empty for truly empty cells.
-                            if (page_cell.wide == .narrow) {
-                                @branchHint(.likely);
-                                break :zero .empty;
-                            }
-
-                            break :zero .{ .single = ' ' };
-                        } else .{
-                            .single = cp,
-                        };
+                        // Primary codepoint goes into `raw` field.
                     },
 
                     // If we have a multi-codepoint grapheme, look it up and
                     // set our content type.
-                    .codepoint_grapheme => grapheme: {
+                    .codepoint_grapheme => {
                         @branchHint(.unlikely);
-
-                        const extra = p.lookupGrapheme(page_cell) orelse break :grapheme;
-                        var cps = try arena_alloc.alloc(u21, extra.len + 1);
-                        cps[0] = page_cell.content.codepoint;
-                        @memcpy(cps[1..], extra);
-
-                        var content = cells.items(.content);
-                        content[idx] = .{ .slice = cps };
+                        cells_grapheme[x] = try arena_alloc.dupe(
+                            u21,
+                            p.lookupGrapheme(page_cell) orelse &.{},
+                        );
                     },
 
                     .bg_color_rgb => {
                         @branchHint(.unlikely);
-
-                        var content = cells.items(.style);
-                        content[idx] = .{ .bg_color = .{ .rgb = .{
+                        cells_style[x] = .{ .bg_color = .{ .rgb = .{
                             .r = page_cell.content.color_rgb.r,
                             .g = page_cell.content.color_rgb.g,
                             .b = page_cell.content.color_rgb.b,
@@ -304,9 +298,7 @@ pub const RenderState = struct {
 
                     .bg_color_palette => {
                         @branchHint(.unlikely);
-
-                        var content = cells.items(.style);
-                        content[idx] = .{ .bg_color = .{
+                        cells_style[x] = .{ .bg_color = .{
                             .palette = page_cell.content.color_palette,
                         } };
                     },

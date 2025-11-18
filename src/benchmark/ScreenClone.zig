@@ -91,6 +91,13 @@ fn setup(ptr: *anyopaque) Benchmark.Error!void {
     // Always reset our terminal state
     self.terminal.fullReset();
 
+    // Force a style on every single row, which
+    var s = self.terminal.vtStream();
+    defer s.deinit();
+    s.nextSlice("\x1b[48;2;20;40;60m") catch unreachable;
+    for (0..self.terminal.rows - 1) |_| s.nextSlice("hello\r\n") catch unreachable;
+    s.nextSlice("hello") catch unreachable;
+
     // Setup our terminal state
     const data_f: std.fs.File = (options.dataFile(
         self.opts.data,
