@@ -100,4 +100,5 @@ directories are represented in `Nu` by `$nu.vendor-autoload-dirs`. For more deta
 > [!NOTE]
 >
 > Ghostty only prepends to `XDG_DATA_DIRS` in the case where the `ssh-*` features are enabled.
-> There is no shell integration for the other currently supported features.
+> Nushell supports most features out of the box, so other shell integration features are not
+> necessary.
