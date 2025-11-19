@@ -3,6 +3,7 @@ const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
 const fastmem = @import("../fastmem.zig");
+const color = @import("color.zig");
 const point = @import("point.zig");
 const size = @import("size.zig");
 const page = @import("page.zig");
@@ -14,6 +15,8 @@ const Terminal = @import("Terminal.zig");
 
 // TODO:
 // - tests for cursor state
+// - tests for dirty state
+// - tests for colors
 
 // Developer note: this is in src/terminal and not src/renderer because
 // the goal is that this remains generic to multiple renderers. This can
@@ -48,6 +51,9 @@ pub const RenderState = struct {
     /// area and scrolling with new output.
     viewport_is_bottom: bool,
 
+    /// The color state for the terminal.
+    colors: Colors,
+
     /// Cursor state within the viewport.
     cursor: Cursor,
 
@@ -79,6 +85,12 @@ pub const RenderState = struct {
         .rows = 0,
         .cols = 0,
         .viewport_is_bottom = false,
+        .colors = .{
+            .background = .{},
+            .foreground = .{},
+            .cursor = null,
+            .palette = color.default,
+        },
         .cursor = .{
             .active = .{ .x = 0, .y = 0 },
             .viewport = null,
@@ -88,6 +100,17 @@ pub const RenderState = struct {
         .row_data = .empty,
         .redraw = false,
         .screen = .primary,
+    };
+
+    /// The color state for the terminal.
+    ///
+    /// The background/foreground will be reversed if the terminal reverse
+    /// color mode is on! You do not need to handle that manually!
+    pub const Colors = struct {
+        background: color.RGB,
+        foreground: color.RGB,
+        cursor: ?color.RGB,
+        palette: color.Palette,
     };
 
     pub const Cursor = struct {
@@ -235,6 +258,17 @@ pub const RenderState = struct {
         // probably cache this by comparing the cursor pin and viewport pin
         // but may not be worth it.
         self.cursor.viewport = null;
+
+        // Colors.
+        self.colors.cursor = t.colors.cursor.get();
+        self.colors.palette = t.colors.palette.current;
+        if (t.modes.get(.reverse_colors)) {
+            self.colors.background = t.colors.foreground.get().?;
+            self.colors.foreground = t.colors.background.get().?;
+        } else {
+            self.colors.background = t.colors.background.get().?;
+            self.colors.foreground = t.colors.foreground.get().?;
+        }
 
         // Ensure our row length is exactly our height, freeing or allocating
         // data as necessary. In most cases we'll have a perfectly matching

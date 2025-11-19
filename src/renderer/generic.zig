@@ -1062,18 +1062,14 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
         ) !void {
             // Data we extract out of the critical area.
             const Critical = struct {
-                bg: terminal.color.RGB,
-                fg: terminal.color.RGB,
                 mouse: renderer.State.Mouse,
                 preedit: ?renderer.State.Preedit,
-                cursor_color: ?terminal.color.RGB,
                 cursor_style: ?renderer.CursorStyle,
-                color_palette: terminal.color.Palette,
                 scrollbar: terminal.Scrollbar,
             };
 
             // Update all our data as tightly as possible within the mutex.
-            var critical: Critical = critical: {
+            const critical: Critical = critical: {
                 // const start = try std.time.Instant.now();
                 // const start_micro = std.time.microTimestamp();
                 // defer {
@@ -1099,17 +1095,6 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 // can be expensive) and also makes it so we don't need another
                 // cross-thread mailbox message within the IO path.
                 const scrollbar = state.terminal.screens.active.pages.scrollbar();
-
-                // Get our bg/fg, swap them if reversed.
-                const RGB = terminal.color.RGB;
-                const bg: RGB, const fg: RGB = colors: {
-                    const bg = state.terminal.colors.background.get().?;
-                    const fg = state.terminal.colors.foreground.get().?;
-                    break :colors if (state.terminal.modes.get(.reverse_colors))
-                        .{ fg, bg }
-                    else
-                        .{ bg, fg };
-                };
 
                 // Whether to draw our cursor or not.
                 const cursor_style = if (state.terminal.flags.password_input)
@@ -1143,13 +1128,9 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 }
 
                 break :critical .{
-                    .bg = bg,
-                    .fg = fg,
                     .mouse = state.mouse,
                     .preedit = preedit,
-                    .cursor_color = state.terminal.colors.cursor.get(),
                     .cursor_style = cursor_style,
-                    .color_palette = state.terminal.colors.palette.current,
                     .scrollbar = scrollbar,
                 };
             };
@@ -1161,10 +1142,6 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             try self.rebuildCells(
                 critical.preedit,
                 critical.cursor_style,
-                &critical.color_palette,
-                critical.bg,
-                critical.fg,
-                critical.cursor_color,
             );
 
             // Notify our shaper we're done for the frame. For some shapers,
@@ -1186,9 +1163,9 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
                 // Update our background color
                 self.uniforms.bg_color = .{
-                    critical.bg.r,
-                    critical.bg.g,
-                    critical.bg.b,
+                    self.terminal_state.colors.background.r,
+                    self.terminal_state.colors.background.g,
+                    self.terminal_state.colors.background.b,
                     @intFromFloat(@round(self.config.background_opacity * 255.0)),
                 };
             }
@@ -2248,10 +2225,6 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             self: *Self,
             preedit: ?renderer.State.Preedit,
             cursor_style_: ?renderer.CursorStyle,
-            color_palette: *const terminal.color.Palette,
-            background: terminal.color.RGB,
-            foreground: terminal.color.RGB,
-            terminal_cursor_color: ?terminal.color.RGB,
         ) !void {
             const state: *terminal.RenderState = &self.terminal_state;
             defer state.redraw = false;
@@ -2515,11 +2488,11 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     // configuration, inversions, selections, etc.
                     const bg_style = style.bg(
                         cell,
-                        color_palette,
+                        &state.colors.palette,
                     );
                     const fg_style = style.fg(.{
-                        .default = foreground,
-                        .palette = color_palette,
+                        .default = state.colors.foreground,
+                        .palette = &state.colors.palette,
                         .bold = self.config.bold_color,
                     });
 
@@ -2538,7 +2511,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
                             // If no configuration, then our selection background
                             // is our foreground color.
-                            break :bg foreground;
+                            break :bg state.colors.foreground;
                         }
 
                         // Not selected
@@ -2560,7 +2533,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     const fg = fg: {
                         // Our happy-path non-selection background color
                         // is our style or our configured defaults.
-                        const final_bg = bg_style orelse background;
+                        const final_bg = bg_style orelse state.colors.background;
 
                         // Whether we need to use the bg color as our fg color:
                         // - Cell is selected, inverted, and set to cell-foreground
@@ -2576,7 +2549,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                                 };
                             }
 
-                            break :fg background;
+                            break :fg state.colors.background;
                         }
 
                         break :fg if (style.flags.inverse)
@@ -2590,7 +2563,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
                     // Set the cell's background color.
                     {
-                        const rgb = bg orelse background;
+                        const rgb = bg orelse state.colors.background;
 
                         // Determine our background alpha. If we have transparency configured
                         // then this is dynamic depending on some situations. This is all
@@ -2658,7 +2631,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                         @intCast(x),
                         @intCast(y),
                         underline,
-                        style.underlineColor(color_palette) orelse fg,
+                        style.underlineColor(&state.colors.palette) orelse fg,
                         alpha,
                     ) catch |err| {
                         log.warn(
@@ -2779,7 +2752,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 const style = cursor_style_ orelse break :cursor;
                 const cursor_color = cursor_color: {
                     // If an explicit cursor color was set by OSC 12, use that.
-                    if (terminal_cursor_color) |v| break :cursor_color v;
+                    if (state.colors.cursor) |v| break :cursor_color v;
 
                     // Use our configured color if specified
                     if (self.config.cursor_color) |v| switch (v) {
@@ -2789,14 +2762,14 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                         => |_, tag| {
                             const sty: terminal.Style = state.cursor.style;
                             const fg_style = sty.fg(.{
-                                .default = foreground,
-                                .palette = color_palette,
+                                .default = state.colors.foreground,
+                                .palette = &state.colors.palette,
                                 .bold = self.config.bold_color,
                             });
                             const bg_style = sty.bg(
                                 &state.cursor.cell,
-                                color_palette,
-                            ) orelse background;
+                                &state.colors.palette,
+                            ) orelse state.colors.background;
 
                             break :cursor_color switch (tag) {
                                 .color => unreachable,
@@ -2806,7 +2779,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                         },
                     };
 
-                    break :cursor_color foreground;
+                    break :cursor_color state.colors.foreground;
                 };
 
                 self.addCursor(
@@ -2847,14 +2820,14 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
                         const sty = state.cursor.style;
                         const fg_style = sty.fg(.{
-                            .default = foreground,
-                            .palette = color_palette,
+                            .default = state.colors.foreground,
+                            .palette = &state.colors.palette,
                             .bold = self.config.bold_color,
                         });
                         const bg_style = sty.bg(
                             &state.cursor.cell,
-                            color_palette,
-                        ) orelse background;
+                            &state.colors.palette,
+                        ) orelse state.colors.background;
 
                         break :blk switch (txt) {
                             // If the cell is reversed, use the opposite cell color instead.
@@ -2862,7 +2835,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                             .@"cell-background" => if (sty.flags.inverse) fg_style else bg_style,
                             else => unreachable,
                         };
-                    } else background;
+                    } else state.colors.background;
 
                     self.uniforms.cursor_color = .{
                         uniform_color.r,
@@ -2881,8 +2854,8 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     self.addPreeditCell(
                         cp,
                         .{ .x = x, .y = range.y },
-                        background,
-                        foreground,
+                        state.colors.background,
+                        state.colors.foreground,
                     ) catch |err| {
                         log.warn("error building preedit cell, will be invalid x={} y={}, err={}", .{
                             x,
