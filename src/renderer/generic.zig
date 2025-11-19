@@ -15,6 +15,7 @@ const cellpkg = @import("cell.zig");
 const noMinContrast = cellpkg.noMinContrast;
 const constraintWidth = cellpkg.constraintWidth;
 const isCovering = cellpkg.isCovering;
+const rowNeverExtendBg = @import("row.zig").neverExtendBg;
 const imagepkg = @import("image.zig");
 const Image = imagepkg.Image;
 const ImageMap = imagepkg.ImageMap;
@@ -2312,6 +2313,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
             // Get our row data from our state
             const row_data = state.row_data.slice();
+            const row_raws = row_data.items(.raw);
             const row_cells = row_data.items(.cells);
             const row_dirty = row_data.items(.dirty);
             const row_selection = row_data.items(.selection);
@@ -2326,10 +2328,11 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             );
             for (
                 0..,
+                row_raws[0..row_len],
                 row_cells[0..row_len],
                 row_dirty[0..row_len],
                 row_selection[0..row_len],
-            ) |y_usize, *cells, *dirty, selection| {
+            ) |y_usize, row, *cells, *dirty, selection| {
                 const y: terminal.size.CellCountInt = @intCast(y_usize);
 
                 if (!rebuild) {
@@ -2343,32 +2346,43 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 // Unmark the dirty state in our render state.
                 dirty.* = false;
 
-                // TODO: renderstate
+                // If our viewport is wider than our cell contents buffer,
+                // we still only process cells up to the width of the buffer.
+                const cells_slice = cells.slice();
+                const cells_len = @min(cells_slice.len, self.cells.size.columns);
+                const cells_raw = cells_slice.items(.raw);
+                const cells_style = cells_slice.items(.style);
+
                 // On primary screen, we still apply vertical padding
                 // extension under certain conditions we feel are safe.
                 //
                 // This helps make some scenarios look better while
                 // avoiding scenarios we know do NOT look good.
-                // switch (self.config.padding_color) {
-                //     // These already have the correct values set above.
-                //     .background, .@"extend-always" => {},
-                //
-                //     // Apply heuristics for padding extension.
-                //     .extend => if (y == 0) {
-                //         self.uniforms.padding_extend.up = !row.neverExtendBg(
-                //             color_palette,
-                //             background,
-                //         );
-                //     } else if (y == self.cells.size.rows - 1) {
-                //         self.uniforms.padding_extend.down = !row.neverExtendBg(
-                //             color_palette,
-                //             background,
-                //         );
-                //     },
-                // }
+                switch (self.config.padding_color) {
+                    // These already have the correct values set above.
+                    .background, .@"extend-always" => {},
+
+                    // Apply heuristics for padding extension.
+                    .extend => if (y == 0) {
+                        self.uniforms.padding_extend.up = !rowNeverExtendBg(
+                            row,
+                            cells_raw,
+                            cells_style,
+                            &state.colors.palette,
+                            state.colors.background,
+                        );
+                    } else if (y == self.cells.size.rows - 1) {
+                        self.uniforms.padding_extend.down = !rowNeverExtendBg(
+                            row,
+                            cells_raw,
+                            cells_style,
+                            &state.colors.palette,
+                            state.colors.background,
+                        );
+                    },
+                }
 
                 // Iterator of runs for shaping.
-                const cells_slice = cells.slice();
                 var run_iter_opts: font.shape.RunOptions = .{
                     .grid = self.font_grid,
                     .cells = cells_slice,
@@ -2393,11 +2407,6 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 var shaper_cells: ?[]const font.shape.Cell = null;
                 var shaper_cells_i: usize = 0;
 
-                // If our viewport is wider than our cell contents buffer,
-                // we still only process cells up to the width of the buffer.
-                const cells_len = @min(cells_slice.len, self.cells.size.columns);
-                const cells_raw = cells_slice.items(.raw);
-                const cells_style = cells_slice.items(.style);
                 for (
                     0..,
                     cells_raw[0..cells_len],
