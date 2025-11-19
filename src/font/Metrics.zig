@@ -223,12 +223,34 @@ pub const FaceMetrics = struct {
 ///
 /// For any nullable options that are not provided, estimates will be used.
 pub fn calc(face: FaceMetrics) Metrics {
-    // We use the ceiling of the provided cell width and height to ensure
-    // that the cell is large enough for the provided size, since we cast
-    // it to an integer later.
+    // These are the unrounded advance width and line height values,
+    // which are retained separately from the rounded cell width and
+    // height values (below), for calculations that need to know how
+    // much error there is between the design dimensions of the font
+    // and the pixel dimensions of our cells.
     const face_width = face.cell_width;
     const face_height = face.lineHeight();
-    const cell_width = @ceil(face_width);
+
+    // The cell width and height values need to be integers since they
+    // represent pixel dimensions of the grid cells in the terminal.
+    //
+    // We use @round for the cell width to limit the difference from
+    // the "true" width value to no more than 0.5px. This is a better
+    // approximation of the authorial intent of the font than ceiling
+    // would be, and makes the apparent spacing match better between
+    // low and high DPI displays.
+    //
+    // This does mean that it's possible for a glyph to overflow the
+    // edge of the cell by a pixel if it has no side bearings, but in
+    // reality such glyphs are generally meant to connect to adjacent
+    // glyphs in some way so it's not really an issue.
+    //
+    // TODO: Reconsider cell height, should it also be rounded?
+    //       We use @ceil because that's what we used initially,
+    //       with the idea that it makes sure there's enough room
+    //       for glyphs that use the entire line height, but it
+    //       does create the same high/low DPI disparity issue...
+    const cell_width = @round(face_width);
     const cell_height = @ceil(face_height);
 
     // We split our line gap in two parts, and put half of it on the top
