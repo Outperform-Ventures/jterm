@@ -1,3 +1,4 @@
+const std = @import("std");
 const builtin = @import("builtin");
 const options = @import("main.zig").options;
 const run = @import("shaper/run.zig");
@@ -71,6 +72,12 @@ pub const RunOptions = struct {
     /// The font state for the terminal screen. This is mutable because
     /// cached values may be updated during shaping.
     grid: *SharedGrid,
+
+    /// The cells for the row to shape.
+    cells: std.MultiArrayList(terminal.RenderState.Cell).Slice = .empty,
+
+    /// The x boundaries of the selection in this row.
+    selection2: ?[2]u16 = null,
 
     /// The terminal screen to shape.
     screen: *const terminal.Screen,
