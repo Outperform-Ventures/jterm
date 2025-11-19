@@ -24,7 +24,7 @@ pub const Charset = LibEnum(
 /// The table for the given charset. This returns a pointer to a
 /// slice that is guaranteed to be 255 chars that can be used to map
 /// ASCII to the given charset.
-pub fn table(set: Charset) []const u16 {
+pub inline fn table(set: Charset) []const u16 {
     return switch (set) {
         .british => &british,
         .dec_special => &dec_special,
