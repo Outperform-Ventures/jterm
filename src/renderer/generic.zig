@@ -20,7 +20,7 @@ const Image = imagepkg.Image;
 const ImageMap = imagepkg.ImageMap;
 const ImagePlacementList = std.ArrayListUnmanaged(imagepkg.Placement);
 const shadertoy = @import("shadertoy.zig");
-const assert = std.debug.assert;
+const assert = @import("../quirks.zig").inlineAssert;
 const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
 const Terminal = terminal.Terminal;
@@ -1190,12 +1190,14 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 {
                     var it = state.terminal.screens.active.pages.pageIterator(
                         .right_down,
-                        .{ .screen = .{} },
+                        .{ .viewport = .{} },
                         null,
                     );
                     while (it.next()) |chunk| {
-                        var dirty_set = chunk.node.data.dirtyBitSet();
-                        dirty_set.unsetAll();
+                        chunk.node.data.dirty = false;
+                        for (chunk.rows()) |*row| {
+                            row.dirty = false;
+                        }
                     }
                 }
 
