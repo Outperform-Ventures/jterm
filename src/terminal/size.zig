@@ -123,7 +123,7 @@ pub const OffsetBuf = struct {
 
 /// Get the offset for a given type from some base pointer to the
 /// actual pointer to the type.
-pub fn getOffset(
+pub inline fn getOffset(
     comptime T: type,
     base: anytype,
     ptr: *const T,
@@ -134,7 +134,7 @@ pub fn getOffset(
     return .{ .offset = @intCast(offset) };
 }
 
-fn intFromBase(base: anytype) usize {
+inline fn intFromBase(base: anytype) usize {
     const T = @TypeOf(base);
     return switch (@typeInfo(T)) {
         .pointer => |v| switch (v.size) {
