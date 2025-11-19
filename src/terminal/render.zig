@@ -3,12 +3,16 @@ const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
 const fastmem = @import("../fastmem.zig");
+const point = @import("point.zig");
 const size = @import("size.zig");
 const page = @import("page.zig");
 const Screen = @import("Screen.zig");
 const ScreenSet = @import("ScreenSet.zig");
 const Style = @import("style.zig").Style;
 const Terminal = @import("Terminal.zig");
+
+// TODO:
+// - tests for cursor state
 
 // Developer note: this is in src/terminal and not src/renderer because
 // the goal is that this remains generic to multiple renderers. This can
@@ -43,6 +47,9 @@ pub const RenderState = struct {
     /// area and scrolling with new output.
     viewport_is_bottom: bool,
 
+    /// Cursor state within the viewport.
+    cursor: Cursor,
+
     /// The rows (y=0 is top) of the viewport. Guaranteed to be `rows` length.
     ///
     /// This is a MultiArrayList because only the update cares about
@@ -66,9 +73,31 @@ pub const RenderState = struct {
         .rows = 0,
         .cols = 0,
         .viewport_is_bottom = false,
+        .cursor = .{
+            .active = .{ .x = 0, .y = 0 },
+            .viewport = null,
+            .cell = .{},
+            .style = undefined,
+        },
         .row_data = .empty,
         .redraw = false,
         .screen = .primary,
+    };
+
+    pub const Cursor = struct {
+        /// The x/y position of the cursor within the active area.
+        active: point.Coordinate,
+
+        /// The x/y position of the cursor within the viewport. This
+        /// may be null if the cursor is not visible within the viewport.
+        viewport: ?point.Coordinate,
+
+        /// The cell data for the cursor position. Managed memory is not
+        /// safe to access from this.
+        cell: page.Cell,
+
+        /// The style, always valid even if the cell is default style.
+        style: Style,
     };
 
     /// A row within the viewport.
@@ -174,6 +203,14 @@ pub const RenderState = struct {
         self.rows = s.pages.rows;
         self.cols = s.pages.cols;
         self.viewport_is_bottom = s.viewportIsBottom();
+        self.cursor.active = .{ .x = s.cursor.x, .y = s.cursor.y };
+        self.cursor.cell = s.cursor.page_cell.*;
+        self.cursor.style = s.cursor.page_pin.style(s.cursor.page_cell);
+
+        // Always reset the cursor viewport position. In the future we can
+        // probably cache this by comparing the cursor pin and viewport pin
+        // but may not be worth it.
+        self.cursor.viewport = null;
 
         // Ensure our row length is exactly our height, freeing or allocating
         // data as necessary. In most cases we'll have a perfectly matching
@@ -226,6 +263,18 @@ pub const RenderState = struct {
         );
         var y: size.CellCountInt = 0;
         while (row_it.next()) |row_pin| : (y = y + 1) {
+            // Find our cursor if we haven't found it yet. We do this even
+            // if the row is not dirty because the cursor is unrelated.
+            if (self.cursor.viewport == null and
+                row_pin.node == s.cursor.page_pin.node and
+                row_pin.y == s.cursor.page_pin.y)
+            {
+                self.cursor.viewport = .{
+                    .y = y,
+                    .x = s.cursor.x,
+                };
+            }
+
             // If the row isn't dirty then we assume it is unchanged.
             if (!redraw and !row_pin.isDirty()) continue;
 
