@@ -6,6 +6,7 @@ const fastmem = @import("../fastmem.zig");
 const point = @import("point.zig");
 const size = @import("size.zig");
 const page = @import("page.zig");
+const Pin = @import("PageList.zig").Pin;
 const Screen = @import("Screen.zig");
 const ScreenSet = @import("ScreenSet.zig");
 const Style = @import("style.zig").Style;
@@ -68,6 +69,11 @@ pub const RenderState = struct {
     /// to detect changes.
     screen: ScreenSet.Key,
 
+    /// The last viewport pin used to generate this state. This is NOT
+    /// a tracked pin and is generally NOT safe to read other than the direct
+    /// values for comparison.
+    viewport_pin: ?Pin = null,
+
     /// Initial state.
     pub const empty: RenderState = .{
         .rows = 0,
@@ -90,7 +96,7 @@ pub const RenderState = struct {
 
         /// The x/y position of the cursor within the viewport. This
         /// may be null if the cursor is not visible within the viewport.
-        viewport: ?point.Coordinate,
+        viewport: ?Viewport,
 
         /// The cell data for the cursor position. Managed memory is not
         /// safe to access from this.
@@ -98,6 +104,17 @@ pub const RenderState = struct {
 
         /// The style, always valid even if the cell is default style.
         style: Style,
+
+        pub const Viewport = struct {
+            /// The x/y position of the cursor within the viewport.
+            x: size.CellCountInt,
+            y: size.CellCountInt,
+
+            /// Whether the cursor is part of a wide character and
+            /// on the tail of it. If so, some renderers may use this
+            /// to move the cursor back one.
+            wide_tail: bool,
+        };
     };
 
     /// A row within the viewport.
@@ -118,7 +135,7 @@ pub const RenderState = struct {
         dirty: bool,
 
         /// The x range of the selection within this row.
-        selection: [2]size.CellCountInt,
+        selection: ?[2]size.CellCountInt,
     };
 
     pub const Cell = struct {
@@ -159,6 +176,7 @@ pub const RenderState = struct {
         t: *Terminal,
     ) Allocator.Error!void {
         const s: *Screen = t.screens.active;
+        const viewport_pin = s.pages.getTopLeft(.viewport);
         const redraw = redraw: {
             // If our screen key changed, we need to do a full rebuild
             // because our render state is viewport-specific.
@@ -187,6 +205,11 @@ pub const RenderState = struct {
                 break :redraw true;
             }
 
+            // If our viewport pin changed, we do a full rebuild.
+            if (self.viewport_pin) |old| {
+                if (!old.eql(viewport_pin)) break :redraw true;
+            }
+
             break :redraw false;
         };
 
@@ -203,6 +226,7 @@ pub const RenderState = struct {
         self.rows = s.pages.rows;
         self.cols = s.pages.cols;
         self.viewport_is_bottom = s.viewportIsBottom();
+        self.viewport_pin = viewport_pin;
         self.cursor.active = .{ .x = s.cursor.x, .y = s.cursor.y };
         self.cursor.cell = s.cursor.page_cell.*;
         self.cursor.style = s.cursor.page_pin.style(s.cursor.page_cell);
@@ -232,7 +256,7 @@ pub const RenderState = struct {
                         .arena = .{},
                         .cells = .empty,
                         .dirty = true,
-                        .selection = .{ 0, 0 },
+                        .selection = null,
                     });
                 }
             } else {
@@ -272,11 +296,22 @@ pub const RenderState = struct {
                 self.cursor.viewport = .{
                     .y = y,
                     .x = s.cursor.x,
+
+                    // Future: we should use our own state here to look this
+                    // up rather than calling this.
+                    .wide_tail = if (s.cursor.x > 0)
+                        s.cursorCellLeft(1).wide == .wide
+                    else
+                        false,
                 };
             }
 
             // If the row isn't dirty then we assume it is unchanged.
-            if (!redraw and !row_pin.isDirty()) continue;
+            var dirty_set = row_pin.node.data.dirtyBitSet();
+            if (!redraw and !dirty_set.isSet(row_pin.y)) continue;
+
+            // Clear the dirty flag on the row
+            dirty_set.unset(row_pin.y);
 
             // Promote our arena. State is copied by value so we need to
             // restore it on all exit paths so we don't leak memory.
