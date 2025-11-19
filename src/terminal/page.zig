@@ -760,12 +760,6 @@ pub const Page = struct {
                 }
 
                 if (src_cell.hasGrapheme()) {
-                    // To prevent integrity checks flipping. This will
-                    // get fixed up when we check the style id below.
-                    if (build_options.slow_runtime_safety) {
-                        dst_cell.style_id = stylepkg.default_id;
-                    }
-
                     // Copy the grapheme codepoints
                     const cps = other.lookupGrapheme(src_cell).?;
 
