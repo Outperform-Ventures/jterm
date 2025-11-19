@@ -326,6 +326,10 @@ pub const RenderState = struct {
         const row_cells = row_data.items(.cells);
         const row_dirties = row_data.items(.dirty);
 
+        // Track the last page that we know was dirty. This lets us
+        // more quickly do the full-page dirty check.
+        var last_dirty_page: ?*page.Page = null;
+
         // Go through and setup our rows.
         var row_it = s.pages.rowIterator(
             .right_down,
@@ -353,12 +357,34 @@ pub const RenderState = struct {
                 };
             }
 
-            // If the row isn't dirty then we assume it is unchanged.
-            var dirty_set = row_pin.node.data.dirtyBitSet();
-            if (!redraw and !dirty_set.isSet(row_pin.y)) continue;
+            // Get all our cells in the page.
+            const p: *page.Page = &row_pin.node.data;
+            const page_rac = row_pin.rowAndCell();
 
-            // Clear the dirty flag on the row
-            dirty_set.unset(row_pin.y);
+            dirty: {
+                // If we're redrawing then we're definitely dirty.
+                if (redraw) break :dirty;
+
+                // If our page is the same as last time then its dirty.
+                if (p == last_dirty_page) break :dirty;
+                if (p.dirty) {
+                    // If this page is dirty then clear the dirty flag
+                    // of the last page and then store this one. This benchmarks
+                    // faster than iterating pages again later.
+                    if (last_dirty_page) |last_p| last_p.dirty = false;
+                    last_dirty_page = p;
+                }
+
+                // If our row is dirty then we're dirty.
+                if (page_rac.row.dirty) break :dirty;
+
+                // Not dirty!
+                continue;
+            }
+
+            // Clear our row dirty, we'll clear our page dirty later.
+            // We can't clear it now because we have more rows to go through.
+            page_rac.row.dirty = false;
 
             // Promote our arena. State is copied by value so we need to
             // restore it on all exit paths so we don't leak memory.
@@ -373,8 +399,6 @@ pub const RenderState = struct {
             row_dirties[y] = true;
 
             // Get all our cells in the page.
-            const p: *page.Page = &row_pin.node.data;
-            const page_rac = row_pin.rowAndCell();
             const page_cells: []const page.Cell = p.getCells(page_rac.row);
             assert(page_cells.len == self.cols);
 
@@ -470,6 +494,9 @@ pub const RenderState = struct {
 
             _ = sel;
         }
+
+        // Finalize our final dirty page
+        if (last_dirty_page) |last_p| last_p.dirty = false;
 
         // Clear our dirty flags
         t.flags.dirty = .{};
