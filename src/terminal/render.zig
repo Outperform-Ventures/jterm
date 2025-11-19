@@ -87,6 +87,9 @@ pub const RenderState = struct {
         /// its own draw state. `update` will mark this true whenever
         /// this row is changed, too.
         dirty: bool,
+
+        /// The x range of the selection within this row.
+        selection: [2]size.CellCountInt,
     };
 
     pub const Cell = struct {
@@ -179,18 +182,27 @@ pub const RenderState = struct {
             @branchHint(.unlikely);
 
             if (self.row_data.len < self.rows) {
-                try self.row_data.ensureTotalCapacity(alloc, self.rows);
-                for (self.row_data.len..self.rows) |_| {
-                    self.row_data.appendAssumeCapacity(.{
+                // Resize our rows to the desired length, marking any added
+                // values undefined.
+                const old_len = self.row_data.len;
+                try self.row_data.resize(alloc, self.rows);
+
+                // Initialize all our values. Its faster to use slice() + set()
+                // because appendAssumeCapacity does this multiple times.
+                var row_data = self.row_data.slice();
+                for (old_len..self.rows) |y| {
+                    row_data.set(y, .{
                         .arena = .{},
                         .cells = .empty,
                         .dirty = true,
+                        .selection = .{ 0, 0 },
                     });
                 }
             } else {
+                const row_data = self.row_data.slice();
                 for (
-                    self.row_data.items(.arena)[self.rows..],
-                    self.row_data.items(.cells)[self.rows..],
+                    row_data.items(.arena)[self.rows..],
+                    row_data.items(.cells)[self.rows..],
                 ) |state, *cell| {
                     var arena: ArenaAllocator = state.promote(alloc);
                     arena.deinit();
@@ -306,6 +318,24 @@ pub const RenderState = struct {
             }
         }
         assert(y == self.rows);
+
+        // If our screen has a selection, then mark the rows with the
+        // selection.
+        if (s.selection) |*sel| {
+            @branchHint(.unlikely);
+
+            // TODO:
+            // - Mark the rows with selections
+            // - Cache the selection (untracked) so we can avoid redoing
+            // this expensive work every frame.
+
+            // We need to determine if our selection is within the viewport.
+            // The viewport is generally very small so the efficient way to
+            // do this is to traverse the viewport pages and check for the
+            // matching selection pages.
+
+            _ = sel;
+        }
 
         // Clear our dirty flags
         t.flags.dirty = .{};

@@ -1801,7 +1801,7 @@ pub const Row = packed struct(u64) {
     /// Returns true if this row has any managed memory outside of the
     /// row structure (graphemes, styles, etc.)
     pub inline fn managedMemory(self: Row) bool {
-        // Ordered on purpose for likelyhood.
+        // Ordered on purpose for likelihood.
         return self.styled or self.hyperlink or self.grapheme;
     }
 };
