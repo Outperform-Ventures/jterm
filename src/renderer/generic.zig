@@ -1084,8 +1084,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 // const start_micro = std.time.microTimestamp();
                 // defer {
                 //     const end = std.time.Instant.now() catch unreachable;
-                //     // "[updateFrame critical time] <START us>\t<TIME_TAKEN us>"
-                //     std.log.err("[updateFrame critical time] {}\t{}", .{start_micro, end.since(start) / std.time.ns_per_us});
+                //     std.log.err("[updateFrame critical time] start={}\tduration={} us", .{ start_micro, end.since(start) / std.time.ns_per_us });
                 // }
 
                 state.mutex.lock();
