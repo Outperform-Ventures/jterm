@@ -149,6 +149,9 @@ pub const RenderState = struct {
         /// change often.
         arena: ArenaAllocator.State,
 
+        /// Raw row data.
+        raw: page.Row,
+
         /// The cells in this row. Guaranteed to be `cols` length.
         cells: std.MultiArrayList(Cell),
 
@@ -262,12 +265,20 @@ pub const RenderState = struct {
         // Colors.
         self.colors.cursor = t.colors.cursor.get();
         self.colors.palette = t.colors.palette.current;
-        if (t.modes.get(.reverse_colors)) {
-            self.colors.background = t.colors.foreground.get().?;
-            self.colors.foreground = t.colors.background.get().?;
-        } else {
-            self.colors.background = t.colors.background.get().?;
-            self.colors.foreground = t.colors.foreground.get().?;
+        bg_fg: {
+            // Background/foreground can be unset initially which would
+            // depend on "default" background/foreground. The expected use
+            // case of Terminal is that the caller set their own configured
+            // defaults on load so this doesn't happen.
+            const bg = t.colors.background.get() orelse break :bg_fg;
+            const fg = t.colors.foreground.get() orelse break :bg_fg;
+            if (t.modes.get(.reverse_colors)) {
+                self.colors.background = fg;
+                self.colors.foreground = bg;
+            } else {
+                self.colors.background = bg;
+                self.colors.foreground = fg;
+            }
         }
 
         // Ensure our row length is exactly our height, freeing or allocating
@@ -288,6 +299,7 @@ pub const RenderState = struct {
                 for (old_len..self.rows) |y| {
                     row_data.set(y, .{
                         .arena = .{},
+                        .raw = undefined,
                         .cells = .empty,
                         .dirty = true,
                         .selection = null,
@@ -310,6 +322,7 @@ pub const RenderState = struct {
         // Break down our row data
         const row_data = self.row_data.slice();
         const row_arenas = row_data.items(.arena);
+        const row_raws = row_data.items(.raw);
         const row_cells = row_data.items(.cells);
         const row_dirties = row_data.items(.dirty);
 
@@ -364,6 +377,9 @@ pub const RenderState = struct {
             const page_rac = row_pin.rowAndCell();
             const page_cells: []const page.Cell = p.getCells(page_rac.row);
             assert(page_cells.len == self.cols);
+
+            // Copy our raw row data
+            row_raws[y] = page_rac.row.*;
 
             // Note: our cells MultiArrayList uses our general allocator.
             // We do this on purpose because as rows become dirty, we do
