@@ -1058,7 +1058,7 @@ pub const Page = struct {
         if (row.grapheme) {
             for (cells) |*cell| {
                 if (cell.hasGrapheme())
-                    self.clearGrapheme(cell);
+                    @call(.always_inline, clearGrapheme, .{ self, cell });
             }
 
             // If we have no left/right scroll region we can be sure
@@ -1074,7 +1074,7 @@ pub const Page = struct {
         if (row.hyperlink) {
             for (cells) |*cell| {
                 if (cell.hyperlink)
-                    self.clearHyperlink(cell);
+                    @call(.always_inline, clearHyperlink, .{ self, cell });
             }
 
             // If we have no left/right scroll region we can be sure
@@ -1132,7 +1132,7 @@ pub const Page = struct {
     /// In order to update the hyperlink flag on the row, call
     /// `updateRowHyperlinkFlag` after you finish clearing any
     /// hyperlinks in the row.
-    pub inline fn clearHyperlink(self: *Page, cell: *Cell) void {
+    pub fn clearHyperlink(self: *Page, cell: *Cell) void {
         defer self.assertIntegrity();
 
         // Get our ID
@@ -1468,7 +1468,7 @@ pub const Page = struct {
     /// In order to update the grapheme flag on the row, call
     /// `updateRowGraphemeFlag` after you finish clearing any
     /// graphemes in the row.
-    pub inline fn clearGrapheme(self: *Page, cell: *Cell) void {
+    pub fn clearGrapheme(self: *Page, cell: *Cell) void {
         defer self.assertIntegrity();
         if (build_options.slow_runtime_safety) assert(cell.hasGrapheme());
 
