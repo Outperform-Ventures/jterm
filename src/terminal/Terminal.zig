@@ -683,10 +683,9 @@ fn printCell(
 
     // If the prior value had graphemes, clear those
     if (cell.hasGrapheme()) {
-        self.screens.active.cursor.page_pin.node.data.clearGrapheme(
-            self.screens.active.cursor.page_row,
-            cell,
-        );
+        const page = &self.screens.active.cursor.page_pin.node.data;
+        page.clearGrapheme(cell);
+        page.updateRowGraphemeFlag(self.screens.active.cursor.page_row);
     }
 
     // We don't need to update the style refs unless the
@@ -745,7 +744,8 @@ fn printCell(
     } else if (had_hyperlink) {
         // If the previous cell had a hyperlink then we need to clear it.
         var page = &self.screens.active.cursor.page_pin.node.data;
-        page.clearHyperlink(self.screens.active.cursor.page_row, cell);
+        page.clearHyperlink(cell);
+        page.updateRowHyperlinkFlag(self.screens.active.cursor.page_row);
     }
 }
 
@@ -1474,7 +1474,8 @@ fn rowWillBeShifted(
     if (left_cell.wide == .spacer_tail) {
         const wide_cell: *Cell = &cells[self.scrolling_region.left - 1];
         if (wide_cell.hasGrapheme()) {
-            page.clearGrapheme(row, wide_cell);
+            page.clearGrapheme(wide_cell);
+            page.updateRowGraphemeFlag(row);
         }
         wide_cell.content.codepoint = 0;
         wide_cell.wide = .narrow;
@@ -1484,7 +1485,8 @@ fn rowWillBeShifted(
     if (right_cell.wide == .wide) {
         const tail_cell: *Cell = &cells[self.scrolling_region.right + 1];
         if (right_cell.hasGrapheme()) {
-            page.clearGrapheme(row, right_cell);
+            page.clearGrapheme(right_cell);
+            page.updateRowGraphemeFlag(row);
         }
         right_cell.content.codepoint = 0;
         right_cell.wide = .narrow;

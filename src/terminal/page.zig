@@ -1059,26 +1059,54 @@ pub const Page = struct {
 
         const cells = row.cells.ptr(self.memory)[left..end];
 
+        // If we have managed memory (styles, graphemes, or hyperlinks)
+        // in this row then we go cell by cell and clear them if present.
         if (row.grapheme) {
             for (cells) |*cell| {
-                if (cell.hasGrapheme()) self.clearGrapheme(row, cell);
+                if (cell.hasGrapheme())
+                    self.clearGrapheme(cell);
+            }
+
+            // If we have no left/right scroll region we can be sure
+            // that we've cleared all the graphemes, so we clear the
+            // flag, otherwise we use the update function to update.
+            if (cells.len == self.size.cols) {
+                row.grapheme = false;
+            } else {
+                self.updateRowGraphemeFlag(row);
             }
         }
 
         if (row.hyperlink) {
             for (cells) |*cell| {
-                if (cell.hyperlink) self.clearHyperlink(row, cell);
+                if (cell.hyperlink)
+                    self.clearHyperlink(cell);
+            }
+
+            // If we have no left/right scroll region we can be sure
+            // that we've cleared all the hyperlinks, so we clear the
+            // flag, otherwise we use the update function to update.
+            if (cells.len == self.size.cols) {
+                row.hyperlink = false;
+            } else {
+                self.updateRowHyperlinkFlag(row);
             }
         }
 
         if (row.styled) {
             for (cells) |*cell| {
-                if (cell.style_id == stylepkg.default_id) continue;
-
-                self.styles.release(self.memory, cell.style_id);
+                if (cell.hasStyling())
+                    self.styles.release(self.memory, cell.style_id);
             }
 
-            if (cells.len == self.size.cols) row.styled = false;
+            // If we have no left/right scroll region we can be sure
+            // that we've cleared all the styles, so we clear the
+            // flag, otherwise we use the update function to update.
+            if (cells.len == self.size.cols) {
+                row.styled = false;
+            } else {
+                self.updateRowStyledFlag(row);
+            }
         }
 
         if (comptime build_options.kitty_graphics) {
@@ -1106,7 +1134,11 @@ pub const Page = struct {
     }
 
     /// Clear the hyperlink from the given cell.
-    pub inline fn clearHyperlink(self: *Page, row: *Row, cell: *Cell) void {
+    ///
+    /// In order to update the hyperlink flag on the row, call
+    /// `updateRowHyperlinkFlag` after you finish clearing any
+    /// hyperlinks in the row.
+    pub inline fn clearHyperlink(self: *Page, cell: *Cell) void {
         defer self.assertIntegrity();
 
         // Get our ID
@@ -1118,9 +1150,13 @@ pub const Page = struct {
         self.hyperlink_set.release(self.memory, entry.value_ptr.*);
         map.removeByPtr(entry.key_ptr);
         cell.hyperlink = false;
+    }
 
-        // Mark that we no longer have hyperlinks, also search the row
-        // to make sure its state is correct.
+    /// Checks if the row contains any hyperlinks and sets
+    /// the hyperlink flag to false if none are found.
+    ///
+    /// Call after removing hyperlinks in a row.
+    pub inline fn updateRowHyperlinkFlag(self: *Page, row: *Row) void {
         const cells = row.cells.ptr(self.memory)[0..self.size.cols];
         for (cells) |c| if (c.hyperlink) return;
         row.hyperlink = false;
@@ -1434,7 +1470,11 @@ pub const Page = struct {
     }
 
     /// Clear the graphemes for a given cell.
-    pub inline fn clearGrapheme(self: *Page, row: *Row, cell: *Cell) void {
+    ///
+    /// In order to update the grapheme flag on the row, call
+    /// `updateRowGraphemeFlag` after you finish clearing any
+    /// graphemes in the row.
+    pub inline fn clearGrapheme(self: *Page, cell: *Cell) void {
         defer self.assertIntegrity();
         if (build_options.slow_runtime_safety) assert(cell.hasGrapheme());
 
@@ -1450,9 +1490,15 @@ pub const Page = struct {
         // Remove the entry
         map.removeByPtr(entry.key_ptr);
 
-        // Mark that we no longer have graphemes, also search the row
-        // to make sure its state is correct.
+        // Mark that we no longer have graphemes by changing the content tag.
         cell.content_tag = .codepoint;
+    }
+
+    /// Checks if the row contains any graphemes and sets
+    /// the grapheme flag to false if none are found.
+    ///
+    /// Call after removing graphemes in a row.
+    pub inline fn updateRowGraphemeFlag(self: *Page, row: *Row) void {
         const cells = row.cells.ptr(self.memory)[0..self.size.cols];
         for (cells) |c| if (c.hasGrapheme()) return;
         row.grapheme = false;
@@ -1468,6 +1514,16 @@ pub const Page = struct {
     /// size but the number of unique cells that can have grapheme data.
     pub inline fn graphemeCapacity(self: *const Page) usize {
         return self.grapheme_map.map(self.memory).capacity();
+    }
+
+    /// Checks if the row contains any styles and sets
+    /// the styled flag to false if none are found.
+    ///
+    /// Call after removing styles in a row.
+    pub inline fn updateRowStyledFlag(self: *Page, row: *Row) void {
+        const cells = row.cells.ptr(self.memory)[0..self.size.cols];
+        for (cells) |c| if (c.hasStyling()) return;
+        row.styled = false;
     }
 
     /// Returns true if this page is dirty at all.
@@ -1750,7 +1806,7 @@ pub const Row = packed struct(u64) {
 
     /// Returns true if this row has any managed memory outside of the
     /// row structure (graphemes, styles, etc.)
-    fn managedMemory(self: Row) bool {
+    inline fn managedMemory(self: Row) bool {
         return self.grapheme or self.styled or self.hyperlink;
     }
 };
@@ -2076,7 +2132,8 @@ test "Page appendGrapheme small" {
     try testing.expectEqualSlices(u21, &.{ 0x0A, 0x0B }, page.lookupGrapheme(rac.cell).?);
 
     // Clear it
-    page.clearGrapheme(rac.row, rac.cell);
+    page.clearGrapheme(rac.cell);
+    page.updateRowGraphemeFlag(rac.row);
     try testing.expect(!rac.row.grapheme);
     try testing.expect(!rac.cell.hasGrapheme());
 }
@@ -2121,7 +2178,8 @@ test "Page clearGrapheme not all cells" {
     try page.appendGrapheme(rac2.row, rac2.cell, 0x0A);
 
     // Clear it
-    page.clearGrapheme(rac.row, rac.cell);
+    page.clearGrapheme(rac.cell);
+    page.updateRowGraphemeFlag(rac.row);
     try testing.expect(rac.row.grapheme);
     try testing.expect(!rac.cell.hasGrapheme());
     try testing.expect(rac2.cell.hasGrapheme());
@@ -2385,7 +2443,8 @@ test "Page cloneFrom graphemes" {
     // Write again
     for (0..page.capacity.rows) |y| {
         const rac = page.getRowAndCell(1, y);
-        page.clearGrapheme(rac.row, rac.cell);
+        page.clearGrapheme(rac.cell);
+        page.updateRowGraphemeFlag(rac.row);
         rac.cell.* = .{
             .content_tag = .codepoint,
             .content = .{ .codepoint = 0 },

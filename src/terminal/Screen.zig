@@ -1322,8 +1322,9 @@ pub fn clearRows(
     }
 }
 
-/// Clear the cells with the blank cell. This takes care to handle
-/// cleaning up graphemes and styles.
+/// Clear the cells with the blank cell.
+///
+/// This takes care to handle cleaning up graphemes and styles.
 pub fn clearCells(
     self: *Screen,
     page: *Page,
@@ -1350,30 +1351,54 @@ pub fn clearCells(
         assert(@intFromPtr(&cells[cells.len - 1]) <= @intFromPtr(&row_cells[row_cells.len - 1]));
     }
 
-    // If this row has graphemes, then we need go through a slow path
-    // and delete the cell graphemes.
+    // If we have managed memory (styles, graphemes, or hyperlinks)
+    // in this row then we go cell by cell and clear them if present.
     if (row.grapheme) {
         for (cells) |*cell| {
-            if (cell.hasGrapheme()) page.clearGrapheme(row, cell);
+            if (cell.hasGrapheme())
+                page.clearGrapheme(cell);
+        }
+
+        // If we have no left/right scroll region we can be sure
+        // that we've cleared all the graphemes, so we clear the
+        // flag, otherwise we ask the page to update the flag.
+        if (cells.len == self.pages.cols) {
+            row.grapheme = false;
+        } else {
+            page.updateRowGraphemeFlag(row);
         }
     }
 
-    // If we have hyperlinks, we need to clear those.
     if (row.hyperlink) {
         for (cells) |*cell| {
-            if (cell.hyperlink) page.clearHyperlink(row, cell);
+            if (cell.hyperlink)
+                page.clearHyperlink(cell);
+        }
+
+        // If we have no left/right scroll region we can be sure
+        // that we've cleared all the hyperlinks, so we clear the
+        // flag, otherwise we ask the page to update the flag.
+        if (cells.len == self.pages.cols) {
+            row.hyperlink = false;
+        } else {
+            page.updateRowHyperlinkFlag(row);
         }
     }
 
     if (row.styled) {
         for (cells) |*cell| {
-            if (cell.style_id == style.default_id) continue;
-            page.styles.release(page.memory, cell.style_id);
+            if (cell.hasStyling())
+                page.styles.release(page.memory, cell.style_id);
         }
 
-        // If we have no left/right scroll region we can be sure that
-        // the row is no longer styled.
-        if (cells.len == self.pages.cols) row.styled = false;
+        // If we have no left/right scroll region we can be sure
+        // that we've cleared all the styles, so we clear the
+        // flag, otherwise we ask the page to update the flag.
+        if (cells.len == self.pages.cols) {
+            row.styled = false;
+        } else {
+            page.updateRowStyledFlag(row);
+        }
     }
 
     if (comptime build_options.kitty_graphics) {
