@@ -18,6 +18,7 @@ const Terminal = @import("Terminal.zig");
 // - tests for dirty state
 // - tests for colors
 // - tests for linkCells
+// - tests for string
 
 // Developer note: this is in src/terminal and not src/renderer because
 // the goal is that this remains generic to multiple renderers. This can
@@ -329,7 +330,7 @@ pub const RenderState = struct {
         const row_data = self.row_data.slice();
         const row_arenas = row_data.items(.arena);
         const row_pins = row_data.items(.pin);
-        const row_raws = row_data.items(.raw);
+        const row_rows = row_data.items(.raw);
         const row_cells = row_data.items(.cells);
         const row_dirties = row_data.items(.dirty);
 
@@ -416,7 +417,7 @@ pub const RenderState = struct {
             assert(page_cells.len == self.cols);
 
             // Copy our raw row data
-            row_raws[y] = page_rac.row.*;
+            row_rows[y] = page_rac.row.*;
 
             // Note: our cells MultiArrayList uses our general allocator.
             // We do this on purpose because as rows become dirty, we do
@@ -514,6 +515,65 @@ pub const RenderState = struct {
         // Clear our dirty flags
         t.flags.dirty = .{};
         s.dirty = .{};
+    }
+
+    pub const StringMap = std.ArrayListUnmanaged(point.Coordinate);
+
+    /// Convert the current render state contents to a UTF-8 encoded
+    /// string written to the given writer. This will unwrap all the wrapped
+    /// rows. This is useful for a minimal viewport search.
+    ///
+    /// NOTE: There is a limitation in that wrapped lines before/after
+    /// the the top/bottom line of the viewport are not inluded, since
+    /// the render state cuts them off.
+    pub fn string(
+        self: *const RenderState,
+        writer: *std.Io.Writer,
+        map: ?struct {
+            alloc: Allocator,
+            map: *StringMap,
+        },
+    ) (Allocator.Error || std.Io.Writer.Error)!void {
+        const row_slice = self.row_data.slice();
+        const row_rows = row_slice.items(.raw);
+        const row_cells = row_slice.items(.cells);
+
+        for (
+            0..,
+            row_rows,
+            row_cells,
+        ) |y, row, cells| {
+            const cells_slice = cells.slice();
+            for (
+                0..,
+                cells_slice.items(.raw),
+                cells_slice.items(.grapheme),
+            ) |x, cell, graphemes| {
+                var len: usize = std.unicode.utf8CodepointSequenceLength(cell.codepoint()) catch
+                    return error.WriteFailed;
+                try writer.print("{u}", .{cell.codepoint()});
+                if (cell.hasGrapheme()) {
+                    for (graphemes) |cp| {
+                        len += std.unicode.utf8CodepointSequenceLength(cp) catch
+                            return error.WriteFailed;
+                        try writer.print("{u}", .{cp});
+                    }
+                }
+
+                if (map) |m| try m.map.appendNTimes(m.alloc, .{
+                    .x = @intCast(x),
+                    .y = @intCast(y),
+                }, len);
+            }
+
+            if (!row.wrap) {
+                try writer.writeAll("\n");
+                if (map) |m| try m.map.append(m.alloc, .{
+                    .x = @intCast(cells_slice.len),
+                    .y = @intCast(y),
+                });
+            }
+        }
     }
 
     /// A set of coordinates representing cells.
