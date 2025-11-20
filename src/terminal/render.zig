@@ -524,7 +524,7 @@ pub const RenderState = struct {
     /// rows. This is useful for a minimal viewport search.
     ///
     /// NOTE: There is a limitation in that wrapped lines before/after
-    /// the the top/bottom line of the viewport are not inluded, since
+    /// the the top/bottom line of the viewport are not included, since
     /// the render state cuts them off.
     pub fn string(
         self: *const RenderState,
