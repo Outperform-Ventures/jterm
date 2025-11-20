@@ -82,46 +82,56 @@ pub fn underline_dotted(
 ) !void {
     _ = cp;
 
+    var ctx = canvas.getContext();
+    defer ctx.deinit();
+
+    const float_width: f64 = @floatFromInt(width);
+    const float_height: f64 = @floatFromInt(height);
+    const float_pos: f64 = @floatFromInt(metrics.underline_position);
+    const float_thick: f64 = @floatFromInt(metrics.underline_thickness);
+
+    // The diameter will be sqrt2 * the usual underline thickness
+    // since otherwise dotted underlines look somewhat anemic.
+    const radius = std.math.sqrt1_2 * float_thick;
+
     // We can go beyond the height of the cell a bit, but
     // we want to be sure never to exceed the height of the
     // canvas, which extends a quarter cell below the cell
     // height.
+    const padding: f64 = @floatFromInt(canvas.padding_y);
     const y = @min(
-        metrics.underline_position,
-        height +| canvas.padding_y -| metrics.underline_thickness,
+        // The center of the underline stem.
+        float_pos + 0.5 * float_thick,
+        // The lowest we can go on the canvas and not get clipped.
+        float_height + padding - @ceil(radius),
     );
 
-    const dot_width = @max(
-        // Dots should be at least as thick as the underline.
-        metrics.underline_thickness,
-        // At least as thick as a quarter of the cell, since
-        // less than that starts to look a little bit silly.
-        metrics.cell_width / 4,
-        // And failing all else, be at least 1 pixel wide.
-        1,
-    );
-    const dot_count = @max(
-        // We should try to have enough dots that the
-        // space between them is the same as their size.
-        (width / dot_width) / 2,
+    const dot_count: f64 = @max(
+        @min(
+            // We should try to have enough dots that the
+            // space between them matches their diameter.
+            @ceil(float_width / (4 * radius)),
+            // And not enough that the space between
+            // each dot is less than their radius.
+            @floor(float_width / (3 * radius)),
+            // And definitely not enough that the space
+            // between them is less than a single pixel.
+            @floor(float_width / (2 * radius + 1)),
+        ),
         // And we must have at least one dot per cell.
-        1,
+        1.0,
     );
-    const gap_width = std.math.divCeil(
-        u32,
-        width -| (dot_count * dot_width),
-        dot_count,
-    ) catch return error.MathError;
-    var i: u32 = 0;
-    while (i < dot_count) : (i += 1) {
-        const x = i * (dot_width + gap_width);
-        canvas.rect(.{
-            .x = @intCast(x),
-            .y = @intCast(y),
-            .width = @intCast(dot_width),
-            .height = @intCast(metrics.underline_thickness),
-        }, .on);
+
+    // What we essentially do is divide the cell in to
+    // dot_count areas with a dot centered in each one.
+    var x: f64 = (float_width / dot_count) / 2;
+    for (0..@as(usize, @intFromFloat(dot_count))) |_| {
+        try ctx.arc(x, y, radius, 0.0, std.math.tau);
+        try ctx.closePath();
+        x += float_width / dot_count;
     }
+
+    try ctx.fill();
 }
 
 pub fn underline_dashed(
