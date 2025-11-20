@@ -845,15 +845,20 @@ pub const CoreText = struct {
             // limitation because we may have used that to filter but we
             // don't want it anymore because it'll restrict the characters
             // available.
-            //const desc = self.list.getValueAtIndex(macos.text.FontDescriptor, self.i);
             const desc = desc: {
-                const original = self.list[self.i];
-
-                // For some reason simply copying the attributes and recreating
-                // the descriptor removes the charset restriction. This is tested.
-                const attrs = original.copyAttributes();
+                // We create a copy, overwriting the character set attribute.
+                const attrs = try macos.foundation.MutableDictionary.create(0);
                 defer attrs.release();
-                break :desc try macos.text.FontDescriptor.createWithAttributes(@ptrCast(attrs));
+
+                attrs.setValue(
+                    macos.text.FontAttribute.character_set.key(),
+                    macos.c.kCFNull,
+                );
+
+                break :desc try macos.text.FontDescriptor.createCopyWithAttributes(
+                    self.list[self.i],
+                    @ptrCast(attrs),
+                );
             };
             defer desc.release();
 
