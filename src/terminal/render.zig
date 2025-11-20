@@ -7,7 +7,7 @@ const color = @import("color.zig");
 const point = @import("point.zig");
 const size = @import("size.zig");
 const page = @import("page.zig");
-const Pin = @import("PageList.zig").Pin;
+const PageList = @import("PageList.zig");
 const Screen = @import("Screen.zig");
 const ScreenSet = @import("ScreenSet.zig");
 const Style = @import("style.zig").Style;
@@ -73,7 +73,7 @@ pub const RenderState = struct {
     /// The last viewport pin used to generate this state. This is NOT
     /// a tracked pin and is generally NOT safe to read other than the direct
     /// values for comparison.
-    viewport_pin: ?Pin = null,
+    viewport_pin: ?PageList.Pin = null,
 
     /// Initial state.
     pub const empty: RenderState = .{
@@ -146,7 +146,7 @@ pub const RenderState = struct {
 
         /// The page pin. This is not safe to read unless you can guarantee
         /// the terminal state hasn't changed since the last `update` call.
-        pin: Pin,
+        pin: PageList.Pin,
 
         /// Raw row data.
         raw: page.Row,
@@ -325,6 +325,7 @@ pub const RenderState = struct {
         const row_pins = row_data.items(.pin);
         const row_rows = row_data.items(.raw);
         const row_cells = row_data.items(.cells);
+        const row_sels = row_data.items(.selection);
         const row_dirties = row_data.items(.dirty);
 
         // Track the last page that we know was dirty. This lets us
@@ -402,6 +403,7 @@ pub const RenderState = struct {
             if (row_cells[y].len > 0) {
                 _ = arena.reset(.retain_capacity);
                 row_cells[y].clearRetainingCapacity();
+                row_sels[y] = null;
             }
             row_dirties[y] = true;
 
@@ -485,21 +487,57 @@ pub const RenderState = struct {
         assert(y == self.rows);
 
         // If our screen has a selection, then mark the rows with the
-        // selection.
+        // selection. We do this outside of the loop above because its unlikely
+        // a selection exists and because the way our selections are structured
+        // today is very inefficient.
+        //
+        // NOTE: To improve the performance of the block below, we'll need
+        // to rethink how we model selections in general.
+        //
+        // There are performance improvements that can be made here, though.
+        // For example, `containedRow` recalculates a bunch of information
+        // we can cache.
         if (s.selection) |*sel| {
             @branchHint(.unlikely);
 
+            // Go through each row and check for containment.
+
             // TODO:
-            // - Mark the rows with selections
             // - Cache the selection (untracked) so we can avoid redoing
             // this expensive work every frame.
+
+            // Grab the inefficient data we need from the selection. At
+            // least we can cache it.
+            const tl_pin = sel.topLeft(s);
+            const br_pin = sel.bottomRight(s);
+            const tl = s.pages.pointFromPin(.screen, tl_pin).?.screen;
+            const br = s.pages.pointFromPin(.screen, br_pin).?.screen;
 
             // We need to determine if our selection is within the viewport.
             // The viewport is generally very small so the efficient way to
             // do this is to traverse the viewport pages and check for the
             // matching selection pages.
-
-            _ = sel;
+            for (
+                row_pins,
+                row_sels,
+            ) |pin, *sel_bounds| {
+                const p = s.pages.pointFromPin(.screen, pin).?.screen;
+                const row_sel = sel.containedRowCached(
+                    s,
+                    tl_pin,
+                    br_pin,
+                    pin,
+                    tl,
+                    br,
+                    p,
+                ) orelse continue;
+                const start = row_sel.start();
+                const end = row_sel.end();
+                assert(start.node == end.node);
+                assert(start.x <= end.x);
+                assert(start.y == end.y);
+                sel_bounds.* = .{ start.x, end.x };
+            }
         }
 
         // Finalize our final dirty page
@@ -959,6 +997,77 @@ test "colors" {
     try testing.expectEqual(0xFF, p0.r);
     try testing.expectEqual(0xFF, p0.g);
     try testing.expectEqual(0xFF, p0.b);
+}
+
+test "selection single line" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var t: Terminal = try .init(alloc, .{
+        .cols = 10,
+        .rows = 3,
+    });
+    defer t.deinit(alloc);
+
+    const screen: *Screen = t.screens.active;
+    try screen.select(.init(
+        screen.pages.pin(.{ .active = .{ .x = 0, .y = 1 } }).?,
+        screen.pages.pin(.{ .active = .{ .x = 2, .y = 1 } }).?,
+        false,
+    ));
+
+    var state: RenderState = .empty;
+    defer state.deinit(alloc);
+    try state.update(alloc, &t);
+
+    const row_data = state.row_data.slice();
+    const sels = row_data.items(.selection);
+    try testing.expectEqual(null, sels[0]);
+    try testing.expectEqualSlices(size.CellCountInt, &.{ 0, 2 }, &sels[1].?);
+    try testing.expectEqual(null, sels[2]);
+
+    // Clear the selection
+    try screen.select(null);
+    try state.update(alloc, &t);
+    try testing.expectEqual(null, sels[0]);
+    try testing.expectEqual(null, sels[1]);
+    try testing.expectEqual(null, sels[2]);
+}
+
+test "selection multiple lines" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var t: Terminal = try .init(alloc, .{
+        .cols = 10,
+        .rows = 3,
+    });
+    defer t.deinit(alloc);
+
+    const screen: *Screen = t.screens.active;
+    try screen.select(.init(
+        screen.pages.pin(.{ .active = .{ .x = 0, .y = 1 } }).?,
+        screen.pages.pin(.{ .active = .{ .x = 2, .y = 2 } }).?,
+        false,
+    ));
+
+    var state: RenderState = .empty;
+    defer state.deinit(alloc);
+    try state.update(alloc, &t);
+
+    const row_data = state.row_data.slice();
+    const sels = row_data.items(.selection);
+    try testing.expectEqual(null, sels[0]);
+    try testing.expectEqualSlices(
+        size.CellCountInt,
+        &.{ 0, screen.pages.cols - 1 },
+        &sels[1].?,
+    );
+    try testing.expectEqualSlices(
+        size.CellCountInt,
+        &.{ 0, 2 },
+        &sels[2].?,
+    );
 }
 
 test "linkCells" {
