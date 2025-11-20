@@ -30,6 +30,7 @@ metrics: font.Metrics,
 
 pub const DrawFnError =
     Allocator.Error ||
+    z2d.Path.Error ||
     z2d.painter.FillError ||
     z2d.painter.StrokeError ||
     error{
