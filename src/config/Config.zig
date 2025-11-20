@@ -2883,6 +2883,24 @@ keybind: Keybinds = .{},
 ///    (e.g., modifier key presses, link hover events in unfocused split panes).
 ///    Check `iFocus > 0` to determine if the surface is currently focused.
 ///
+///  * `vec3 iPalette[256]` - The 256-color terminal palette.
+///
+///    RGB values for all 256 colors in the terminal palette, normalized
+///    to [0.0, 1.0]. Index 0-15 are the ANSI colors, 16-231 are the 6x6x6
+///    color cube, and 232-255 are the grayscale colors.
+///
+///  * `vec3 iBackgroundColor` - Terminal background color (RGB).
+///
+///  * `vec3 iForegroundColor` - Terminal foreground color (RGB).
+///
+///  * `vec3 iCursorColor` - Terminal cursor color (RGB).
+///
+///  * `vec3 iCursorText` - Terminal cursor text color (RGB).
+///
+///  * `vec3 iSelectionBackgroundColor` - Selection background color (RGB).
+///
+///  * `vec3 iSelectionForegroundColor` - Selection foreground color (RGB).
+///
 /// If the shader fails to compile, the shader will be ignored. Any errors
 /// related to shader compilation will not show up as configuration errors
 /// and only show up in the log, since shader compilation happens after
