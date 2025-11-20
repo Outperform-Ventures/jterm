@@ -5,6 +5,7 @@ const wuffs = @import("wuffs");
 const apprt = @import("../apprt.zig");
 const configpkg = @import("../config.zig");
 const font = @import("../font/main.zig");
+const inputpkg = @import("../input.zig");
 const os = @import("../os/main.zig");
 const terminal = @import("../terminal/main.zig");
 const renderer = @import("../renderer.zig");
@@ -1068,6 +1069,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
             // Data we extract out of the critical area.
             const Critical = struct {
+                osc8_links: terminal.RenderState.CellSet,
                 preedit: ?renderer.State.Preedit,
                 cursor_style: ?renderer.CursorStyle,
                 scrollbar: terminal.Scrollbar,
@@ -1131,7 +1133,27 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     try self.prepKittyGraphics(state.terminal);
                 }
 
+                // Get our OSC8 links we're hovering if we have a mouse.
+                // This requires terminal state because of URLs.
+                const osc8_links: terminal.RenderState.CellSet = osc8: {
+                    // If our mouse isn't hovering, we have no links.
+                    const vp = state.mouse.point orelse break :osc8 .empty;
+
+                    // If the right mods aren't pressed, then we can't match.
+                    if (!state.mouse.mods.equal(inputpkg.ctrlOrSuper(.{})))
+                        break :osc8 .empty;
+
+                    break :osc8 self.terminal_state.linkCells(
+                        arena_alloc,
+                        vp,
+                    ) catch |err| {
+                        log.warn("error searching for OSC8 links err={}", .{err});
+                        break :osc8 .empty;
+                    };
+                };
+
                 break :critical .{
+                    .osc8_links = osc8_links,
                     .preedit = preedit,
                     .cursor_style = cursor_style,
                     .scrollbar = scrollbar,
@@ -1142,6 +1164,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             try self.rebuildCells(
                 critical.preedit,
                 critical.cursor_style,
+                &critical.osc8_links,
             );
 
             // Notify our shaper we're done for the frame. For some shapers,
@@ -2225,6 +2248,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             self: *Self,
             preedit: ?renderer.State.Preedit,
             cursor_style_: ?renderer.CursorStyle,
+            osc8_links: *const terminal.RenderState.CellSet,
         ) !void {
             const state: *terminal.RenderState = &self.terminal_state;
             defer state.redraw = false;
@@ -2619,18 +2643,23 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                         continue;
                     }
 
-                    // TODO: renderstate
                     // Give links a single underline, unless they already have
                     // an underline, in which case use a double underline to
                     // distinguish them.
-                    // const underline: terminal.Attribute.Underline = if (link_match_set.contains(screen, cell_pin))
-                    //     if (style.flags.underline == .single)
-                    //         .double
-                    //     else
-                    //         .single
-                    // else
-                    //     style.flags.underline;
-                    const underline = style.flags.underline;
+                    const underline: terminal.Attribute.Underline = underline: {
+                        // TODO: renderstate regex links
+
+                        if (osc8_links.contains(.{
+                            .x = @intCast(x),
+                            .y = @intCast(y),
+                        })) {
+                            break :underline if (style.flags.underline == .single)
+                                .double
+                            else
+                                .single;
+                        }
+                        break :underline style.flags.underline;
+                    };
 
                     // We draw underlines first so that they layer underneath text.
                     // This improves readability when a colored underline is used

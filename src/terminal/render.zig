@@ -17,6 +17,7 @@ const Terminal = @import("Terminal.zig");
 // - tests for cursor state
 // - tests for dirty state
 // - tests for colors
+// - tests for linkCells
 
 // Developer note: this is in src/terminal and not src/renderer because
 // the goal is that this remains generic to multiple renderers. This can
@@ -513,6 +514,84 @@ pub const RenderState = struct {
         // Clear our dirty flags
         t.flags.dirty = .{};
         s.dirty = .{};
+    }
+
+    /// A set of coordinates representing cells.
+    pub const CellSet = std.AutoArrayHashMapUnmanaged(point.Coordinate, void);
+
+    /// Returns a map of the cells that match to an OSC8 hyperlink over the
+    /// given point in the render state.
+    ///
+    /// IMPORTANT: The terminal must not have updated since the last call to
+    /// `update`. If there is any chance the terminal has updated, the caller
+    /// must first call `update` again to refresh the render state.
+    ///
+    /// For example, you may want to hold a lock for the duration of the
+    /// update and hyperlink lookup to ensure no updates happen in between.
+    pub fn linkCells(
+        self: *const RenderState,
+        alloc: Allocator,
+        viewport_point: point.Coordinate,
+    ) Allocator.Error!CellSet {
+        var result: CellSet = .empty;
+        errdefer result.deinit(alloc);
+
+        const row_slice = self.row_data.slice();
+        const row_pins = row_slice.items(.pin);
+        const row_cells = row_slice.items(.cells);
+
+        // Grab our link ID
+        const link_page: *page.Page = &row_pins[viewport_point.y].node.data;
+        const link = link: {
+            const rac = link_page.getRowAndCell(
+                viewport_point.x,
+                viewport_point.y,
+            );
+
+            // The likely scenario is that our mouse isn't even over a link.
+            if (!rac.cell.hyperlink) {
+                @branchHint(.likely);
+                return result;
+            }
+
+            const link_id = link_page.lookupHyperlink(rac.cell) orelse
+                return result;
+            break :link link_page.hyperlink_set.get(
+                link_page.memory,
+                link_id,
+            );
+        };
+
+        for (
+            0..,
+            row_pins,
+            row_cells,
+        ) |y, pin, cells| {
+            for (0.., cells.items(.raw)) |x, cell| {
+                if (!cell.hyperlink) continue;
+
+                const other_page: *page.Page = &pin.node.data;
+                const other = link: {
+                    const rac = other_page.getRowAndCell(x, y);
+                    const link_id = other_page.lookupHyperlink(rac.cell) orelse continue;
+                    break :link other_page.hyperlink_set.get(
+                        other_page.memory,
+                        link_id,
+                    );
+                };
+
+                if (link.eql(
+                    link_page.memory,
+                    other,
+                    other_page.memory,
+                )) try result.put(alloc, .{
+                    .y = @intCast(y),
+                    .x = @intCast(x),
+                }, {});
+            }
+        }
+
+        return result;
     }
 };
 
