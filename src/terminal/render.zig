@@ -149,6 +149,10 @@ pub const RenderState = struct {
         /// change often.
         arena: ArenaAllocator.State,
 
+        /// The page pin. This is not safe to read unless you can guarantee
+        /// the terminal state hasn't changed since the last `update` call.
+        pin: Pin,
+
         /// Raw row data.
         raw: page.Row,
 
@@ -299,6 +303,7 @@ pub const RenderState = struct {
                 for (old_len..self.rows) |y| {
                     row_data.set(y, .{
                         .arena = .{},
+                        .pin = undefined,
                         .raw = undefined,
                         .cells = .empty,
                         .dirty = true,
@@ -322,6 +327,7 @@ pub const RenderState = struct {
         // Break down our row data
         const row_data = self.row_data.slice();
         const row_arenas = row_data.items(.arena);
+        const row_pins = row_data.items(.pin);
         const row_raws = row_data.items(.raw);
         const row_cells = row_data.items(.cells);
         const row_dirties = row_data.items(.dirty);
@@ -356,6 +362,12 @@ pub const RenderState = struct {
                         false,
                 };
             }
+
+            // Store our pin. We have to store these even if we're not dirty
+            // because dirty is only a renderer optimization. It doesn't
+            // apply to memory movement. This will let us remap any cell
+            // pins back to an exact entry in our RenderState.
+            row_pins[y] = row_pin;
 
             // Get all our cells in the page.
             const p: *page.Page = &row_pin.node.data;

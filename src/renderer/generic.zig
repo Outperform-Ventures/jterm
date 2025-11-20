@@ -1061,9 +1061,13 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             state: *renderer.State,
             cursor_blink_visible: bool,
         ) !void {
+            // Create an arena for all our temporary allocations while rebuilding
+            var arena = ArenaAllocator.init(self.alloc);
+            defer arena.deinit();
+            const arena_alloc = arena.allocator();
+
             // Data we extract out of the critical area.
             const Critical = struct {
-                mouse: renderer.State.Mouse,
                 preedit: ?renderer.State.Preedit,
                 cursor_style: ?renderer.CursorStyle,
                 scrollbar: terminal.Scrollbar,
@@ -1111,9 +1115,8 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 const preedit: ?renderer.State.Preedit = preedit: {
                     if (cursor_style == null) break :preedit null;
                     const p = state.preedit orelse break :preedit null;
-                    break :preedit try p.clone(self.alloc);
+                    break :preedit try p.clone(arena_alloc);
                 };
-                errdefer if (preedit) |p| p.deinit(self.alloc);
 
                 // If we have Kitty graphics data, we enter a SLOW SLOW SLOW path.
                 // We only do this if the Kitty image state is dirty meaning only if
@@ -1129,15 +1132,11 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 }
 
                 break :critical .{
-                    .mouse = state.mouse,
                     .preedit = preedit,
                     .cursor_style = cursor_style,
                     .scrollbar = scrollbar,
                 };
             };
-            defer {
-                if (critical.preedit) |p| p.deinit(self.alloc);
-            }
 
             // Build our GPU cells
             try self.rebuildCells(
