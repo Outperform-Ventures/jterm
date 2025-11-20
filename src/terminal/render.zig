@@ -13,13 +13,6 @@ const ScreenSet = @import("ScreenSet.zig");
 const Style = @import("style.zig").Style;
 const Terminal = @import("Terminal.zig");
 
-// TODO:
-// - tests for cursor state
-// - tests for dirty state
-// - tests for colors
-// - tests for linkCells
-// - tests for string
-
 // Developer note: this is in src/terminal and not src/renderer because
 // the goal is that this remains generic to multiple renderers. This can
 // aid specifically with libghostty-vt with converting terminal state to
@@ -261,7 +254,7 @@ pub const RenderState = struct {
         self.viewport_pin = viewport_pin;
         self.cursor.active = .{ .x = s.cursor.x, .y = s.cursor.y };
         self.cursor.cell = s.cursor.page_cell.*;
-        self.cursor.style = s.cursor.page_pin.style(s.cursor.page_cell);
+        self.cursor.style = s.cursor.style;
 
         // Always reset the cursor viewport position. In the future we can
         // probably cache this by comparing the cursor pin and viewport pin
@@ -522,6 +515,10 @@ pub const RenderState = struct {
     /// Convert the current render state contents to a UTF-8 encoded
     /// string written to the given writer. This will unwrap all the wrapped
     /// rows. This is useful for a minimal viewport search.
+    ///
+    /// This currently writes empty cell contents as \x00 and writes all
+    /// blank lines. This is fine for our current usage (link search) but
+    /// we can adjust this later.
     ///
     /// NOTE: There is a limitation in that wrapped lines before/after
     /// the the top/bottom line of the viewport are not included, since
@@ -800,4 +797,232 @@ test "grapheme" {
         try testing.expectEqual(0, cell.raw.codepoint());
         try testing.expectEqual(.spacer_tail, cell.raw.wide);
     }
+}
+
+test "cursor state in viewport" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var t = try Terminal.init(alloc, .{
+        .cols = 10,
+        .rows = 5,
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+    try s.nextSlice("A\x1b[H");
+
+    var state: RenderState = .empty;
+    defer state.deinit(alloc);
+
+    // Initial update
+    try state.update(alloc, &t);
+    try testing.expectEqual(0, state.cursor.active.x);
+    try testing.expectEqual(0, state.cursor.active.y);
+    try testing.expectEqual(0, state.cursor.viewport.?.x);
+    try testing.expectEqual(0, state.cursor.viewport.?.y);
+    try testing.expectEqual('A', state.cursor.cell.codepoint());
+    try testing.expect(state.cursor.style.default());
+
+    // Set a style on the cursor
+    try s.nextSlice("\x1b[1m"); // Bold
+    try state.update(alloc, &t);
+    try testing.expect(!state.cursor.style.default());
+    try testing.expect(state.cursor.style.flags.bold);
+    try s.nextSlice("\x1b[0m"); // Reset style
+
+    // Move cursor to 2,1
+    try s.nextSlice("\x1b[2;3H");
+    try state.update(alloc, &t);
+    try testing.expectEqual(2, state.cursor.active.x);
+    try testing.expectEqual(1, state.cursor.active.y);
+    try testing.expectEqual(2, state.cursor.viewport.?.x);
+    try testing.expectEqual(1, state.cursor.viewport.?.y);
+}
+
+test "cursor state out of viewport" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var t = try Terminal.init(alloc, .{
+        .cols = 10,
+        .rows = 2,
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+    try s.nextSlice("A\r\nB\r\nC\r\nD\r\n");
+
+    var state: RenderState = .empty;
+    defer state.deinit(alloc);
+
+    // Initial update
+    try state.update(alloc, &t);
+    try testing.expectEqual(0, state.cursor.active.x);
+    try testing.expectEqual(1, state.cursor.active.y);
+    try testing.expectEqual(0, state.cursor.viewport.?.x);
+    try testing.expectEqual(1, state.cursor.viewport.?.y);
+
+    // Scroll the viewport
+    try t.scrollViewport(.top);
+    try state.update(alloc, &t);
+
+    // Set a style on the cursor
+    try testing.expectEqual(0, state.cursor.active.x);
+    try testing.expectEqual(1, state.cursor.active.y);
+    try testing.expect(state.cursor.viewport == null);
+}
+
+test "dirty state" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var t = try Terminal.init(alloc, .{
+        .cols = 10,
+        .rows = 5,
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+
+    var state: RenderState = .empty;
+    defer state.deinit(alloc);
+
+    // First update should trigger redraw due to resize
+    try state.update(alloc, &t);
+    try testing.expect(state.redraw);
+
+    // Reset redraw flag and dirty rows
+    state.redraw = false;
+    {
+        const row_data = state.row_data.slice();
+        const dirty = row_data.items(.dirty);
+        @memset(dirty, false);
+    }
+
+    // Second update with no changes - no redraw, no dirty rows
+    try state.update(alloc, &t);
+    try testing.expect(!state.redraw);
+    {
+        const row_data = state.row_data.slice();
+        const dirty = row_data.items(.dirty);
+        for (dirty) |d| try testing.expect(!d);
+    }
+
+    // Write to first line
+    try s.nextSlice("A");
+    try state.update(alloc, &t);
+    try testing.expect(!state.redraw); // Should not trigger full redraw
+    {
+        const row_data = state.row_data.slice();
+        const dirty = row_data.items(.dirty);
+        try testing.expect(dirty[0]); // First row dirty
+        try testing.expect(!dirty[1]); // Second row clean
+    }
+}
+
+test "colors" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var t = try Terminal.init(alloc, .{
+        .cols = 10,
+        .rows = 5,
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+
+    var state: RenderState = .empty;
+    defer state.deinit(alloc);
+
+    // Default colors
+    try state.update(alloc, &t);
+
+    // Change cursor color
+    try s.nextSlice("\x1b]12;#FF0000\x07");
+    try state.update(alloc, &t);
+
+    const c = state.colors.cursor.?;
+    try testing.expectEqual(0xFF, c.r);
+    try testing.expectEqual(0, c.g);
+    try testing.expectEqual(0, c.b);
+
+    // Change palette color 0 to White
+    try s.nextSlice("\x1b]4;0;#FFFFFF\x07");
+    try state.update(alloc, &t);
+    const p0 = state.colors.palette[0];
+    try testing.expectEqual(0xFF, p0.r);
+    try testing.expectEqual(0xFF, p0.g);
+    try testing.expectEqual(0xFF, p0.b);
+}
+
+test "linkCells" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var t = try Terminal.init(alloc, .{
+        .cols = 10,
+        .rows = 5,
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+
+    var state: RenderState = .empty;
+    defer state.deinit(alloc);
+
+    // Create a hyperlink
+    try s.nextSlice("\x1b]8;;http://example.com\x1b\\LINK\x1b]8;;\x1b\\");
+    try state.update(alloc, &t);
+
+    // Query link at 0,0
+    var cells = try state.linkCells(alloc, .{ .x = 0, .y = 0 });
+    defer cells.deinit(alloc);
+
+    try testing.expectEqual(4, cells.count());
+    try testing.expect(cells.contains(.{ .x = 0, .y = 0 }));
+    try testing.expect(cells.contains(.{ .x = 1, .y = 0 }));
+    try testing.expect(cells.contains(.{ .x = 2, .y = 0 }));
+    try testing.expect(cells.contains(.{ .x = 3, .y = 0 }));
+
+    // Query no link
+    var cells2 = try state.linkCells(alloc, .{ .x = 4, .y = 0 });
+    defer cells2.deinit(alloc);
+    try testing.expectEqual(0, cells2.count());
+}
+
+test "string" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var t = try Terminal.init(alloc, .{
+        .cols = 5,
+        .rows = 2,
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+    try s.nextSlice("AB");
+
+    var state: RenderState = .empty;
+    defer state.deinit(alloc);
+    try state.update(alloc, &t);
+
+    var w = std.Io.Writer.Allocating.init(alloc);
+    defer w.deinit();
+
+    try state.string(&w.writer, null);
+
+    const result = try w.toOwnedSlice();
+    defer alloc.free(result);
+
+    const expected = "AB\x00\x00\x00\n\x00\x00\x00\x00\x00\n";
+    try testing.expectEqualStrings(expected, result);
 }
