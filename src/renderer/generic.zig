@@ -937,7 +937,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
         /// Mark the full screen as dirty so that we redraw everything.
         pub inline fn markDirty(self: *Self) void {
-            self.terminal_state.redraw = true;
+            self.terminal_state.dirty = .full;
         }
 
         /// Called when we get an updated display ID for our display link.
@@ -2265,7 +2265,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             links: *const terminal.RenderState.CellSet,
         ) !void {
             const state: *terminal.RenderState = &self.terminal_state;
-            defer state.redraw = false;
+            defer state.dirty = .false;
 
             self.draw_mutex.lock();
             defer self.draw_mutex.unlock();
@@ -2317,7 +2317,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 self.uniforms.grid_size = .{ new_size.columns, new_size.rows };
             }
 
-            const rebuild = state.redraw or grid_size_diff;
+            const rebuild = state.dirty == .full or grid_size_diff;
             if (rebuild) {
                 // If we are doing a full rebuild, then we clear the entire cell buffer.
                 self.cells.reset();

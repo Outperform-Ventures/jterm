@@ -60,11 +60,10 @@ pub const RenderState = struct {
     /// use cases.
     row_data: std.MultiArrayList(Row),
 
-    /// This is set to true if the terminal state has changed in a way
-    /// that the renderer should do a full redraw of the grid. The renderer
-    /// should se this to false when it has done so. `update` will only
-    /// ever tick this to true.
-    redraw: bool,
+    /// The dirty state of the render state. This is set by the update method.
+    /// The renderer/caller should set this to false when it has handled
+    /// the dirty state.
+    dirty: Dirty,
 
     /// The screen type that this state represents. This is used primarily
     /// to detect changes.
@@ -93,7 +92,7 @@ pub const RenderState = struct {
             .style = undefined,
         },
         .row_data = .empty,
-        .redraw = false,
+        .dirty = .false,
         .screen = .primary,
     };
 
@@ -179,6 +178,21 @@ pub const RenderState = struct {
         style: Style,
     };
 
+    // Dirty state
+    pub const Dirty = enum {
+        /// Not dirty at all. Can skip rendering if prior state was
+        /// already rendered.
+        false,
+
+        /// Partially dirty. Some rows changed but not all. None of the
+        /// global state changed such as colors.
+        partial,
+
+        /// Fully dirty. Global state changed or dimensions changed. All rows
+        /// should be redrawn.
+        full,
+    };
+
     pub fn deinit(self: *RenderState, alloc: Allocator) void {
         for (
             self.row_data.items(.arena),
@@ -237,15 +251,6 @@ pub const RenderState = struct {
 
             break :redraw false;
         };
-
-        // Full redraw resets our state completely.
-        if (redraw) {
-            self.screen = t.screens.active_key;
-            self.redraw = true;
-
-            // Note: we don't clear any row_data here because our rebuild
-            // below is going to do that for us.
-        }
 
         // Always set our cheap fields, its more expensive to compare
         self.rows = s.pages.rows;
@@ -339,6 +344,7 @@ pub const RenderState = struct {
             null,
         );
         var y: size.CellCountInt = 0;
+        var any_dirty: bool = false;
         while (row_it.next()) |row_pin| : (y = y + 1) {
             // Find our cursor if we haven't found it yet. We do this even
             // if the row is not dirty because the cursor is unrelated.
@@ -389,6 +395,9 @@ pub const RenderState = struct {
                 // Not dirty!
                 continue;
             }
+
+            // Set that at least one row was dirty.
+            any_dirty = true;
 
             // Clear our row dirty, we'll clear our page dirty later.
             // We can't clear it now because we have more rows to go through.
@@ -538,6 +547,18 @@ pub const RenderState = struct {
                 assert(start.y == end.y);
                 sel_bounds.* = .{ start.x, end.x };
             }
+        }
+
+        // Handle dirty state.
+        if (redraw) {
+            // Fully redraw resets some other state.
+            self.screen = t.screens.active_key;
+            self.dirty = .full;
+
+            // Note: we don't clear any row_data here because our rebuild
+            // above did this.
+        } else if (any_dirty and self.dirty == .false) {
+            self.dirty = .partial;
         }
 
         // Finalize our final dirty page
@@ -931,19 +952,19 @@ test "dirty state" {
 
     // First update should trigger redraw due to resize
     try state.update(alloc, &t);
-    try testing.expect(state.redraw);
+    try testing.expectEqual(.full, state.dirty);
 
-    // Reset redraw flag and dirty rows
-    state.redraw = false;
+    // Reset dirty flag and dirty rows
+    state.dirty = .false;
     {
         const row_data = state.row_data.slice();
         const dirty = row_data.items(.dirty);
         @memset(dirty, false);
     }
 
-    // Second update with no changes - no redraw, no dirty rows
+    // Second update with no changes - no dirty rows
     try state.update(alloc, &t);
-    try testing.expect(!state.redraw);
+    try testing.expectEqual(.false, state.dirty);
     {
         const row_data = state.row_data.slice();
         const dirty = row_data.items(.dirty);
@@ -953,7 +974,7 @@ test "dirty state" {
     // Write to first line
     try s.nextSlice("A");
     try state.update(alloc, &t);
-    try testing.expect(!state.redraw); // Should not trigger full redraw
+    try testing.expectEqual(.partial, state.dirty);
     {
         const row_data = state.row_data.slice();
         const dirty = row_data.items(.dirty);
