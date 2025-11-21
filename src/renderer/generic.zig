@@ -206,6 +206,12 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
         /// The render state we update per loop.
         terminal_state: terminal.RenderState = .empty,
 
+        /// The number of frames since the last terminal state reset.
+        /// We reset the terminal state after ~100,000 frames (about 10 to
+        /// 15 minutes at 120Hz) to prevent wasted memory buildup from
+        /// a large screen.
+        terminal_state_frame_count: usize = 0,
+
         /// Swap chain which maintains multiple copies of the state needed to
         /// render a frame, so that we can start building the next frame while
         /// the previous frame is still being processed on the GPU.
@@ -1062,6 +1068,18 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             state: *renderer.State,
             cursor_blink_visible: bool,
         ) !void {
+            // We fully deinit and reset the terminal state every so often
+            // so that a particularly large terminal state doesn't cause
+            // the renderer to hold on to retained memory.
+            //
+            // Frame count is ~12 minutes at 120Hz.
+            const max_terminal_state_frame_count = 100_000;
+            if (self.terminal_state_frame_count >= max_terminal_state_frame_count) {
+                self.terminal_state.deinit(self.alloc);
+                self.terminal_state = .empty;
+            }
+            self.terminal_state_frame_count += 1;
+
             // Create an arena for all our temporary allocations while rebuilding
             var arena = ArenaAllocator.init(self.alloc);
             defer arena.deinit();

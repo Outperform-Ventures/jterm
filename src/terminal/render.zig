@@ -30,6 +30,19 @@ const Terminal = @import("Terminal.zig");
 /// Rather than a generic clone that tries to clone all screen state per call
 /// (within a region), a stateful approach that optimizes for only what a
 /// renderer needs to do makes more sense.
+///
+/// To use this, initialize the render state to empty, then call `update`
+/// on each frame to update the state to the latest terminal state.
+///
+///     var state: RenderState = .empty;
+///     defer state.deinit(alloc);
+///     state.update(alloc, &terminal);
+///
+/// Note: the render state retains as much memory as possible between updates
+/// to prevent future allocations. If a very large frame is rendered once,
+/// the render state will retain that much memory until deinit. To avoid
+/// waste, it is recommended that the caller `deinit` and start with an
+/// empty render state every so often.
 pub const RenderState = struct {
     /// The current screen dimensions. It is possible that these don't match
     /// the renderer's current dimensions in grid cells because resizing
