@@ -8,6 +8,7 @@ const point = @import("point.zig");
 const size = @import("size.zig");
 const page = @import("page.zig");
 const PageList = @import("PageList.zig");
+const Selection = @import("Selection.zig");
 const Screen = @import("Screen.zig");
 const ScreenSet = @import("ScreenSet.zig");
 const Style = @import("style.zig").Style;
@@ -73,6 +74,10 @@ pub const RenderState = struct {
     /// a tracked pin and is generally NOT safe to read other than the direct
     /// values for comparison.
     viewport_pin: ?PageList.Pin = null,
+
+    /// The cached selection so we can avoid expensive selection calculations
+    /// if possible.
+    selection_cache: ?SelectionCache = null,
 
     /// Initial state.
     pub const empty: RenderState = .{
@@ -191,6 +196,12 @@ pub const RenderState = struct {
         /// Fully dirty. Global state changed or dimensions changed. All rows
         /// should be redrawn.
         full,
+    };
+
+    const SelectionCache = struct {
+        selection: Selection,
+        tl_pin: PageList.Pin,
+        br_pin: PageList.Pin,
     };
 
     pub fn deinit(self: *RenderState, alloc: Allocator) void {
@@ -506,21 +517,42 @@ pub const RenderState = struct {
         // There are performance improvements that can be made here, though.
         // For example, `containedRow` recalculates a bunch of information
         // we can cache.
-        if (s.selection) |*sel| {
+        if (s.selection) |*sel| selection: {
             @branchHint(.unlikely);
 
-            // Go through each row and check for containment.
+            // Populate our selection cache to avoid some expensive
+            // recalculation.
+            const cache: *const SelectionCache = cache: {
+                if (self.selection_cache) |*c| cache_check: {
+                    // If we're redrawing, we recalculate the cache just to
+                    // be safe.
+                    if (redraw) break :cache_check;
 
-            // TODO:
-            // - Cache the selection (untracked) so we can avoid redoing
-            // this expensive work every frame.
+                    // If our selection isn't equal, we aren't cached!
+                    if (!c.selection.eql(sel.*)) break :cache_check;
+
+                    // If we have no dirty rows, we can not recalculate.
+                    if (!any_dirty) break :selection;
+
+                    // We have dirty rows, we can utilize the cache.
+                    break :cache c;
+                }
+
+                // Create a new cache
+                const tl_pin = sel.topLeft(s);
+                const br_pin = sel.bottomRight(s);
+                self.selection_cache = .{
+                    .selection = .init(tl_pin, br_pin, sel.rectangle),
+                    .tl_pin = tl_pin,
+                    .br_pin = br_pin,
+                };
+                break :cache &self.selection_cache.?;
+            };
 
             // Grab the inefficient data we need from the selection. At
             // least we can cache it.
-            const tl_pin = sel.topLeft(s);
-            const br_pin = sel.bottomRight(s);
-            const tl = s.pages.pointFromPin(.screen, tl_pin).?.screen;
-            const br = s.pages.pointFromPin(.screen, br_pin).?.screen;
+            const tl = s.pages.pointFromPin(.screen, cache.tl_pin).?.screen;
+            const br = s.pages.pointFromPin(.screen, cache.br_pin).?.screen;
 
             // We need to determine if our selection is within the viewport.
             // The viewport is generally very small so the efficient way to
@@ -533,8 +565,8 @@ pub const RenderState = struct {
                 const p = s.pages.pointFromPin(.screen, pin).?.screen;
                 const row_sel = sel.containedRowCached(
                     s,
-                    tl_pin,
-                    br_pin,
+                    cache.tl_pin,
+                    cache.br_pin,
                     pin,
                     tl,
                     br,
