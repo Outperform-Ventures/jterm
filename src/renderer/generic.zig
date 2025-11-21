@@ -2414,7 +2414,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 var run_iter_opts: font.shape.RunOptions = .{
                     .grid = self.font_grid,
                     .cells = cells_slice,
-                    .selection2 = if (selection) |s| s else null,
+                    .selection = if (selection) |s| s else null,
 
                     // We want to do font shaping as long as the cursor is
                     // visible on this viewport.
@@ -2423,11 +2423,6 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                         if (vp.y != y) break :cursor_x null;
                         break :cursor_x vp.x;
                     },
-
-                    // Old stuff
-                    .screen = undefined,
-                    .row = undefined,
-                    .selection = null,
                 };
                 run_iter_opts.applyBreakConfig(self.config.font_shaping_break);
                 var run_iter = self.font_shaper.runIterator(run_iter_opts);

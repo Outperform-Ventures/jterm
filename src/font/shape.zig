@@ -77,19 +77,7 @@ pub const RunOptions = struct {
     cells: std.MultiArrayList(terminal.RenderState.Cell).Slice = .empty,
 
     /// The x boundaries of the selection in this row.
-    selection2: ?[2]u16 = null,
-
-    /// The terminal screen to shape.
-    screen: *const terminal.Screen,
-
-    /// The row within the screen to shape. This row must exist within
-    /// screen; it is not validated.
-    row: terminal.Pin,
-
-    /// The selection boundaries. This is used to break shaping on
-    /// selection boundaries. This can be disabled by setting this to
-    /// null.
-    selection: ?terminal.Selection = null,
+    selection: ?[2]u16 = null,
 
     /// The cursor position within this row. This is used to break shaping
     /// on cursor boundaries. This can be disabled by setting this to

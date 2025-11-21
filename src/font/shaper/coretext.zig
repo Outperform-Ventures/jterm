@@ -644,8 +644,6 @@ test "run iterator" {
         var it = shaper.runIterator(.{
             .grid = testdata.grid,
             .cells = state.row_data.get(0).cells.slice(),
-            .screen = undefined,
-            .row = undefined,
         });
         var count: usize = 0;
         while (try it.next(alloc)) |_| count += 1;
@@ -669,8 +667,6 @@ test "run iterator" {
         var it = shaper.runIterator(.{
             .grid = testdata.grid,
             .cells = state.row_data.get(0).cells.slice(),
-            .screen = undefined,
-            .row = undefined,
         });
         var count: usize = 0;
         while (try it.next(alloc)) |_| count += 1;
@@ -695,8 +691,6 @@ test "run iterator" {
         var it = shaper.runIterator(.{
             .grid = testdata.grid,
             .cells = state.row_data.get(0).cells.slice(),
-            .screen = undefined,
-            .row = undefined,
         });
         var count: usize = 0;
         while (try it.next(alloc)) |_| count += 1;
@@ -722,8 +716,6 @@ test "run iterator" {
         var it = shaper.runIterator(.{
             .grid = testdata.grid,
             .cells = state.row_data.get(0).cells.slice(),
-            .screen = undefined,
-            .row = undefined,
         });
         var count: usize = 0;
         while (try it.next(alloc)) |_| count += 1;
@@ -776,8 +768,6 @@ test "run iterator: empty cells with background set" {
         var it = shaper.runIterator(.{
             .grid = testdata.grid,
             .cells = state.row_data.get(0).cells.slice(),
-            .screen = undefined,
-            .row = undefined,
         });
         {
             const run = (try it.next(alloc)).?;
@@ -818,8 +808,6 @@ test "shape" {
     var it = shaper.runIterator(.{
         .grid = testdata.grid,
         .cells = state.row_data.get(0).cells.slice(),
-        .screen = undefined,
-        .row = undefined,
     });
     var count: usize = 0;
     while (try it.next(alloc)) |run| {
@@ -859,8 +847,6 @@ test "shape nerd fonts" {
     var it = shaper.runIterator(.{
         .grid = testdata.grid,
         .cells = state.row_data.get(0).cells.slice(),
-        .screen = undefined,
-        .row = undefined,
     });
     var count: usize = 0;
     while (try it.next(alloc)) |run| {
@@ -893,8 +879,6 @@ test "shape inconsolata ligs" {
         var it = shaper.runIterator(.{
             .grid = testdata.grid,
             .cells = state.row_data.get(0).cells.slice(),
-            .screen = undefined,
-            .row = undefined,
         });
         var count: usize = 0;
         while (try it.next(alloc)) |run| {
@@ -924,8 +908,6 @@ test "shape inconsolata ligs" {
         var it = shaper.runIterator(.{
             .grid = testdata.grid,
             .cells = state.row_data.get(0).cells.slice(),
-            .screen = undefined,
-            .row = undefined,
         });
         var count: usize = 0;
         while (try it.next(alloc)) |run| {
@@ -963,8 +945,6 @@ test "shape monaspace ligs" {
         var it = shaper.runIterator(.{
             .grid = testdata.grid,
             .cells = state.row_data.get(0).cells.slice(),
-            .screen = undefined,
-            .row = undefined,
         });
         var count: usize = 0;
         while (try it.next(alloc)) |run| {
@@ -1003,8 +983,6 @@ test "shape left-replaced lig in last run" {
         var it = shaper.runIterator(.{
             .grid = testdata.grid,
             .cells = state.row_data.get(0).cells.slice(),
-            .screen = undefined,
-            .row = undefined,
         });
         var count: usize = 0;
         while (try it.next(alloc)) |run| {
@@ -1043,8 +1021,6 @@ test "shape left-replaced lig in early run" {
         var it = shaper.runIterator(.{
             .grid = testdata.grid,
             .cells = state.row_data.get(0).cells.slice(),
-            .screen = undefined,
-            .row = undefined,
         });
 
         const run = (try it.next(alloc)).?;
@@ -1080,8 +1056,6 @@ test "shape U+3C9 with JB Mono" {
         var it = shaper.runIterator(.{
             .grid = testdata.grid,
             .cells = state.row_data.get(0).cells.slice(),
-            .screen = undefined,
-            .row = undefined,
         });
 
         var run_count: usize = 0;
@@ -1119,8 +1093,6 @@ test "shape emoji width" {
         var it = shaper.runIterator(.{
             .grid = testdata.grid,
             .cells = state.row_data.get(0).cells.slice(),
-            .screen = undefined,
-            .row = undefined,
         });
         var count: usize = 0;
         while (try it.next(alloc)) |run| {
@@ -1172,8 +1144,6 @@ test "shape emoji width long" {
     var it = shaper.runIterator(.{
         .grid = testdata.grid,
         .cells = state.row_data.get(1).cells.slice(),
-        .screen = undefined,
-        .row = undefined,
     });
     var count: usize = 0;
     while (try it.next(alloc)) |run| {
@@ -1214,8 +1184,6 @@ test "shape variation selector VS15" {
     var it = shaper.runIterator(.{
         .grid = testdata.grid,
         .cells = state.row_data.get(0).cells.slice(),
-        .screen = undefined,
-        .row = undefined,
     });
     var count: usize = 0;
     while (try it.next(alloc)) |run| {
@@ -1255,8 +1223,6 @@ test "shape variation selector VS16" {
     var it = shaper.runIterator(.{
         .grid = testdata.grid,
         .cells = state.row_data.get(0).cells.slice(),
-        .screen = undefined,
-        .row = undefined,
     });
     var count: usize = 0;
     while (try it.next(alloc)) |run| {
@@ -1293,8 +1259,6 @@ test "shape with empty cells in between" {
     var it = shaper.runIterator(.{
         .grid = testdata.grid,
         .cells = state.row_data.get(0).cells.slice(),
-        .screen = undefined,
-        .row = undefined,
     });
     var count: usize = 0;
     while (try it.next(alloc)) |run| {
@@ -1337,8 +1301,6 @@ test "shape Chinese characters" {
     var it = shaper.runIterator(.{
         .grid = testdata.grid,
         .cells = state.row_data.get(0).cells.slice(),
-        .screen = undefined,
-        .row = undefined,
     });
     var count: usize = 0;
     while (try it.next(alloc)) |run| {
@@ -1386,8 +1348,6 @@ test "shape Devanagari string" {
     var it = shaper.runIterator(.{
         .grid = testdata.grid,
         .cells = state.row_data.get(0).cells.slice(),
-        .screen = undefined,
-        .row = undefined,
     });
 
     const run = try it.next(alloc);
@@ -1436,8 +1396,6 @@ test "shape box glyphs" {
     var it = shaper.runIterator(.{
         .grid = testdata.grid,
         .cells = state.row_data.get(0).cells.slice(),
-        .screen = undefined,
-        .row = undefined,
     });
     var count: usize = 0;
     while (try it.next(alloc)) |run| {
@@ -1478,9 +1436,7 @@ test "shape selection boundary" {
         var it = shaper.runIterator(.{
             .grid = testdata.grid,
             .cells = state.row_data.get(0).cells.slice(),
-            .screen = undefined,
-            .row = undefined,
-            .selection2 = .{ 0, @intCast(t.cols - 1) },
+            .selection = .{ 0, @intCast(t.cols - 1) },
         });
         var count: usize = 0;
         while (try it.next(alloc)) |run| {
@@ -1497,9 +1453,7 @@ test "shape selection boundary" {
         var it = shaper.runIterator(.{
             .grid = testdata.grid,
             .cells = state.row_data.get(0).cells.slice(),
-            .screen = undefined,
-            .row = undefined,
-            .selection2 = .{ 2, @intCast(t.cols - 1) },
+            .selection = .{ 2, @intCast(t.cols - 1) },
         });
         var count: usize = 0;
         while (try it.next(alloc)) |run| {
@@ -1516,9 +1470,7 @@ test "shape selection boundary" {
         var it = shaper.runIterator(.{
             .grid = testdata.grid,
             .cells = state.row_data.get(0).cells.slice(),
-            .screen = undefined,
-            .row = undefined,
-            .selection2 = .{ 0, 3 },
+            .selection = .{ 0, 3 },
         });
         var count: usize = 0;
         while (try it.next(alloc)) |run| {
@@ -1535,9 +1487,7 @@ test "shape selection boundary" {
         var it = shaper.runIterator(.{
             .grid = testdata.grid,
             .cells = state.row_data.get(0).cells.slice(),
-            .screen = undefined,
-            .row = undefined,
-            .selection2 = .{ 1, 3 },
+            .selection = .{ 1, 3 },
         });
         var count: usize = 0;
         while (try it.next(alloc)) |run| {
@@ -1554,9 +1504,7 @@ test "shape selection boundary" {
         var it = shaper.runIterator(.{
             .grid = testdata.grid,
             .cells = state.row_data.get(0).cells.slice(),
-            .screen = undefined,
-            .row = undefined,
-            .selection2 = .{ 1, 1 },
+            .selection = .{ 1, 1 },
         });
         var count: usize = 0;
         while (try it.next(alloc)) |run| {
@@ -1593,8 +1541,6 @@ test "shape cursor boundary" {
         var it = shaper.runIterator(.{
             .grid = testdata.grid,
             .cells = state.row_data.get(0).cells.slice(),
-            .screen = undefined,
-            .row = undefined,
         });
         var count: usize = 0;
         while (try it.next(alloc)) |run| {
@@ -1612,8 +1558,6 @@ test "shape cursor boundary" {
             var it = shaper.runIterator(.{
                 .grid = testdata.grid,
                 .cells = state.row_data.get(0).cells.slice(),
-                .screen = undefined,
-                .row = undefined,
                 .cursor_x = 0,
             });
             var count: usize = 0;
@@ -1630,8 +1574,6 @@ test "shape cursor boundary" {
             var it = shaper.runIterator(.{
                 .grid = testdata.grid,
                 .cells = state.row_data.get(0).cells.slice(),
-                .screen = undefined,
-                .row = undefined,
             });
             var count: usize = 0;
             while (try it.next(alloc)) |run| {
@@ -1650,8 +1592,6 @@ test "shape cursor boundary" {
             var it = shaper.runIterator(.{
                 .grid = testdata.grid,
                 .cells = state.row_data.get(0).cells.slice(),
-                .screen = undefined,
-                .row = undefined,
                 .cursor_x = 1,
             });
             var count: usize = 0;
@@ -1668,8 +1608,6 @@ test "shape cursor boundary" {
             var it = shaper.runIterator(.{
                 .grid = testdata.grid,
                 .cells = state.row_data.get(0).cells.slice(),
-                .screen = undefined,
-                .row = undefined,
             });
             var count: usize = 0;
             while (try it.next(alloc)) |run| {
@@ -1687,8 +1625,6 @@ test "shape cursor boundary" {
             var it = shaper.runIterator(.{
                 .grid = testdata.grid,
                 .cells = state.row_data.get(0).cells.slice(),
-                .screen = undefined,
-                .row = undefined,
                 .cursor_x = 9,
             });
             var count: usize = 0;
@@ -1705,8 +1641,6 @@ test "shape cursor boundary" {
             var it = shaper.runIterator(.{
                 .grid = testdata.grid,
                 .cells = state.row_data.get(0).cells.slice(),
-                .screen = undefined,
-                .row = undefined,
             });
             var count: usize = 0;
             while (try it.next(alloc)) |run| {
@@ -1744,8 +1678,6 @@ test "shape cursor boundary and colored emoji" {
         var it = shaper.runIterator(.{
             .grid = testdata.grid,
             .cells = state.row_data.get(0).cells.slice(),
-            .screen = undefined,
-            .row = undefined,
         });
         var count: usize = 0;
         while (try it.next(alloc)) |run| {
@@ -1762,8 +1694,6 @@ test "shape cursor boundary and colored emoji" {
         var it = shaper.runIterator(.{
             .grid = testdata.grid,
             .cells = state.row_data.get(0).cells.slice(),
-            .screen = undefined,
-            .row = undefined,
             .cursor_x = 0,
         });
         var count: usize = 0;
@@ -1779,8 +1709,6 @@ test "shape cursor boundary and colored emoji" {
         var it = shaper.runIterator(.{
             .grid = testdata.grid,
             .cells = state.row_data.get(0).cells.slice(),
-            .screen = undefined,
-            .row = undefined,
         });
         var count: usize = 0;
         while (try it.next(alloc)) |run| {
@@ -1795,8 +1723,6 @@ test "shape cursor boundary and colored emoji" {
         var it = shaper.runIterator(.{
             .grid = testdata.grid,
             .cells = state.row_data.get(0).cells.slice(),
-            .screen = undefined,
-            .row = undefined,
             .cursor_x = 1,
         });
         var count: usize = 0;
@@ -1812,8 +1738,6 @@ test "shape cursor boundary and colored emoji" {
         var it = shaper.runIterator(.{
             .grid = testdata.grid,
             .cells = state.row_data.get(0).cells.slice(),
-            .screen = undefined,
-            .row = undefined,
         });
         var count: usize = 0;
         while (try it.next(alloc)) |run| {
@@ -1848,8 +1772,6 @@ test "shape cell attribute change" {
         var it = shaper.runIterator(.{
             .grid = testdata.grid,
             .cells = state.row_data.get(0).cells.slice(),
-            .screen = undefined,
-            .row = undefined,
         });
         var count: usize = 0;
         while (try it.next(alloc)) |run| {
@@ -1878,8 +1800,6 @@ test "shape cell attribute change" {
         var it = shaper.runIterator(.{
             .grid = testdata.grid,
             .cells = state.row_data.get(0).cells.slice(),
-            .screen = undefined,
-            .row = undefined,
         });
         var count: usize = 0;
         while (try it.next(alloc)) |run| {
@@ -1911,8 +1831,6 @@ test "shape cell attribute change" {
         var it = shaper.runIterator(.{
             .grid = testdata.grid,
             .cells = state.row_data.get(0).cells.slice(),
-            .screen = undefined,
-            .row = undefined,
         });
         var count: usize = 0;
         while (try it.next(alloc)) |run| {
@@ -1944,8 +1862,6 @@ test "shape cell attribute change" {
         var it = shaper.runIterator(.{
             .grid = testdata.grid,
             .cells = state.row_data.get(0).cells.slice(),
-            .screen = undefined,
-            .row = undefined,
         });
         var count: usize = 0;
         while (try it.next(alloc)) |run| {
@@ -1975,8 +1891,6 @@ test "shape cell attribute change" {
         var it = shaper.runIterator(.{
             .grid = testdata.grid,
             .cells = state.row_data.get(0).cells.slice(),
-            .screen = undefined,
-            .row = undefined,
         });
         var count: usize = 0;
         while (try it.next(alloc)) |run| {
@@ -2020,8 +1934,6 @@ test "shape high plane sprite font codepoint" {
     var it = shaper.runIterator(.{
         .grid = testdata.grid,
         .cells = state.row_data.get(0).cells.slice(),
-        .screen = undefined,
-        .row = undefined,
     });
     // We should get one run
     const run = (try it.next(alloc)).?;
