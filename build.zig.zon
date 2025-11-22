@@ -38,9 +38,8 @@
             .lazy = true,
         },
         .uucode = .{
-            // TODO: currently the use-llvm branch because its broken on self-hosted
-            .url = "https://github.com/jacobsandlund/uucode/archive/b309dfb4e25a38201d7b300b201a698e02283862.tar.gz",
-            .hash = "uucode-0.1.0-ZZjBPl_mQwDHQowHOzXwgTPhAqcFekfYpAeUfeHZNCl3",
+            .url = "https://github.com/jacobsandlund/uucode/archive/4f474cf311877701d9f09b415b1aff11df30e3b5.tar.gz",
+            .hash = "uucode-0.1.0-ZZjBPu4HTQAN0P6B0WxKHM2ugS2adGDWk3hW8i9L8ufw",
         },
         .zig_wayland = .{
             // codeberg ifreund/zig-wayland

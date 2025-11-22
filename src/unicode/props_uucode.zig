@@ -11,11 +11,6 @@ const GraphemeBoundaryClass = @import("props.zig").GraphemeBoundaryClass;
 fn graphemeBoundaryClass(cp: u21) GraphemeBoundaryClass {
     if (cp > uucode.config.max_code_point) return .invalid;
 
-    // We special-case modifier bases because we should not break
-    // if a modifier isn't next to a base.
-    if (uucode.get(.is_emoji_modifier, cp)) return .emoji_modifier;
-    if (uucode.get(.is_emoji_modifier_base, cp)) return .extended_pictographic_base;
-
     return switch (uucode.get(.grapheme_break, cp)) {
         .extended_pictographic => .extended_pictographic,
         .l => .L,
@@ -27,6 +22,8 @@ fn graphemeBoundaryClass(cp: u21) GraphemeBoundaryClass {
         .zwj => .zwj,
         .spacing_mark => .spacing_mark,
         .regional_indicator => .regional_indicator,
+        .emoji_modifier => .emoji_modifier,
+        .emoji_modifier_base => .extended_pictographic_base,
 
         .zwnj,
         .indic_conjunct_break_extend,
