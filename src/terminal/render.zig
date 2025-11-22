@@ -4,6 +4,7 @@ const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
 const fastmem = @import("../fastmem.zig");
 const color = @import("color.zig");
+const cursor = @import("cursor.zig");
 const point = @import("point.zig");
 const size = @import("size.zig");
 const page = @import("page.zig");
@@ -56,10 +57,6 @@ pub const RenderState = struct {
     rows: size.CellCountInt,
     cols: size.CellCountInt,
 
-    /// The viewport is at the bottom of the terminal, viewing the active
-    /// area and scrolling with new output.
-    viewport_is_bottom: bool,
-
     /// The color state for the terminal.
     colors: Colors,
 
@@ -96,7 +93,6 @@ pub const RenderState = struct {
     pub const empty: RenderState = .{
         .rows = 0,
         .cols = 0,
-        .viewport_is_bottom = false,
         .colors = .{
             .background = .{},
             .foreground = .{},
@@ -108,6 +104,10 @@ pub const RenderState = struct {
             .viewport = null,
             .cell = .{},
             .style = undefined,
+            .visual_style = .block,
+            .password_input = false,
+            .visible = true,
+            .blinking = false,
         },
         .row_data = .empty,
         .dirty = .false,
@@ -139,6 +139,19 @@ pub const RenderState = struct {
 
         /// The style, always valid even if the cell is default style.
         style: Style,
+
+        /// The visual style of the cursor itself, such as a block or
+        /// bar.
+        visual_style: cursor.Style,
+
+        /// True if the cursor is detected to be at a password input field.
+        password_input: bool,
+
+        /// Cursor visibility state determined by the terminal mode.
+        visible: bool,
+
+        /// Cursor blink state determined by the terminal mode.
+        blinking: bool,
 
         pub const Viewport = struct {
             /// The x/y position of the cursor within the viewport.
@@ -279,11 +292,14 @@ pub const RenderState = struct {
         // Always set our cheap fields, its more expensive to compare
         self.rows = s.pages.rows;
         self.cols = s.pages.cols;
-        self.viewport_is_bottom = s.viewportIsBottom();
         self.viewport_pin = viewport_pin;
         self.cursor.active = .{ .x = s.cursor.x, .y = s.cursor.y };
         self.cursor.cell = s.cursor.page_cell.*;
         self.cursor.style = s.cursor.style;
+        self.cursor.visual_style = s.cursor.cursor_style;
+        self.cursor.password_input = t.flags.password_input;
+        self.cursor.visible = t.modes.get(.cursor_visible);
+        self.cursor.blinking = t.modes.get(.cursor_blinking);
 
         // Always reset the cursor viewport position. In the future we can
         // probably cache this by comparing the cursor pin and viewport pin

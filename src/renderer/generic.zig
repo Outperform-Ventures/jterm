@@ -1090,7 +1090,6 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 links: terminal.RenderState.CellSet,
                 mouse: renderer.State.Mouse,
                 preedit: ?renderer.State.Preedit,
-                cursor_style: ?renderer.CursorStyle,
                 scrollbar: terminal.Scrollbar,
             };
 
@@ -1122,19 +1121,8 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 // cross-thread mailbox message within the IO path.
                 const scrollbar = state.terminal.screens.active.pages.scrollbar();
 
-                // Whether to draw our cursor or not.
-                const cursor_style = if (state.terminal.flags.password_input)
-                    .lock
-                else
-                    renderer.cursorStyle(
-                        state,
-                        self.focused,
-                        cursor_blink_visible,
-                    );
-
                 // Get our preedit state
                 const preedit: ?renderer.State.Preedit = preedit: {
-                    if (cursor_style == null) break :preedit null;
                     const p = state.preedit orelse break :preedit null;
                     break :preedit try p.clone(arena_alloc);
                 };
@@ -1175,7 +1163,6 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     .links = links,
                     .mouse = state.mouse,
                     .preedit = preedit,
-                    .cursor_style = cursor_style,
                     .scrollbar = scrollbar,
                 };
             };
@@ -1195,7 +1182,11 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             // Build our GPU cells
             try self.rebuildCells(
                 critical.preedit,
-                critical.cursor_style,
+                renderer.cursorStyle(&self.terminal_state, .{
+                    .preedit = critical.preedit != null,
+                    .focused = self.focused,
+                    .blink_visible = cursor_blink_visible,
+                }),
                 &critical.links,
             );
 
