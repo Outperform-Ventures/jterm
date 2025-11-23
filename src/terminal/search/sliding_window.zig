@@ -444,8 +444,8 @@ pub const SlidingWindow = struct {
         try self.meta.ensureUnusedCapacity(self.alloc, 1);
 
         // Append our new node to the circular buffer.
-        try self.data.appendSlice(written);
-        try self.meta.append(meta);
+        self.data.appendSliceAssumeCapacity(written);
+        self.meta.appendAssumeCapacity(meta);
 
         self.assertIntegrity();
         return written.len;
