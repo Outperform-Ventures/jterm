@@ -326,15 +326,16 @@ test "clear screen and search dirty tracking" {
     try testing.expect(try search.update(&t.screens.active.pages));
 
     {
-        const sel = search.next().?;
+        const h = search.next().?;
+        const sel = h.untracked();
         try testing.expectEqual(point.Point{ .active = .{
             .x = 0,
             .y = 1,
-        } }, t.screens.active.pages.pointFromPin(.active, sel.start()).?);
+        } }, t.screens.active.pages.pointFromPin(.active, sel.start).?);
         try testing.expectEqual(point.Point{ .active = .{
             .x = 3,
             .y = 1,
-        } }, t.screens.active.pages.pointFromPin(.active, sel.end()).?);
+        } }, t.screens.active.pages.pointFromPin(.active, sel.end).?);
     }
     try testing.expect(search.next() == null);
 }

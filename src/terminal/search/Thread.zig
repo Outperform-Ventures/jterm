@@ -163,7 +163,14 @@ fn threadMain_(self: *Thread) !void {
 
     // Run
     log.debug("starting search thread", .{});
-    defer log.debug("starting search thread shutdown", .{});
+    defer {
+        log.debug("starting search thread shutdown", .{});
+
+        // Send the quit message
+        if (self.opts.event_cb) |cb| {
+            cb(.quit, self.opts.event_userdata);
+        }
+    }
 
     // Unlike some of our other threads, we interleave search work
     // with our xev loop so that we can try to make forward search progress
@@ -247,6 +254,18 @@ fn changeNeedle(self: *Thread, needle: []const u8) !void {
     if (self.search) |*s| {
         s.deinit();
         self.search = null;
+
+        // When the search changes then we need to emit that it stopped.
+        if (self.opts.event_cb) |cb| {
+            cb(
+                .{ .total_matches = 0 },
+                self.opts.event_userdata,
+            );
+            cb(
+                .{ .viewport_matches = &.{} },
+                self.opts.event_userdata,
+            );
+        }
     }
 
     // No needle means stop the search.
@@ -381,6 +400,9 @@ pub const Message = union(enum) {
 /// Events that can be emitted from the search thread. The caller
 /// chooses to handle these as they see fit.
 pub const Event = union(enum) {
+    /// Search is quitting. The search thread is exiting.
+    quit,
+
     /// Search is complete for the given needle on all screens.
     complete,
 
@@ -668,6 +690,7 @@ test {
         fn callback(event: Event, userdata: ?*anyopaque) void {
             const ud: *Self = @ptrCast(@alignCast(userdata.?));
             switch (event) {
+                .quit => {},
                 .complete => ud.reset.set(),
                 .total_matches => |v| ud.total = v,
                 .viewport_matches => |v| {

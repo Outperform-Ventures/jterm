@@ -1342,6 +1342,8 @@ fn searchCallback_(
     self: *Surface,
     event: terminal.search.Thread.Event,
 ) !void {
+    // NOTE: This runs on the search thread.
+
     switch (event) {
         .viewport_matches => |matches_unowned| {
             var arena: ArenaAllocator = .init(self.alloc);
@@ -1355,6 +1357,18 @@ fn searchCallback_(
                 .{ .search_viewport_matches = .{
                     .arena = arena,
                     .matches = matches,
+                } },
+                .forever,
+            );
+            try self.renderer_thread.wakeup.notify();
+        },
+
+        // When we quit, tell our renderer to reset any search state.
+        .quit => {
+            _ = self.renderer_thread.mailbox.push(
+                .{ .search_viewport_matches = .{
+                    .arena = .init(self.alloc),
+                    .matches = &.{},
                 } },
                 .forever,
             );
