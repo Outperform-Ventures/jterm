@@ -1126,6 +1126,12 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 // Update our terminal state
                 try self.terminal_state.update(self.alloc, state.terminal);
 
+                // If our terminal state is dirty at all we need to redo
+                // the viewport search.
+                if (self.terminal_state.dirty != .false) {
+                    state.terminal.flags.search_viewport_dirty = true;
+                }
+
                 // Get our scrollbar out of the terminal. We synchronize
                 // the scrollbar read with frame data updates because this
                 // naturally limits the number of calls to this method (it

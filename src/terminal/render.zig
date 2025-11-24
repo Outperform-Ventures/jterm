@@ -656,15 +656,22 @@ pub const RenderState = struct {
         // of highlights is usually small, and this only happens on the
         // viewport outside of a locked area. Still, I'd love to see this
         // improved someday.
+
+        // We need to track whether any row had a match so we can mark
+        // the dirty state.
+        var any_dirty: bool = false;
+
         const row_data = self.row_data.slice();
         const row_arenas = row_data.items(.arena);
+        const row_dirties = row_data.items(.dirty);
         const row_pins = row_data.items(.pin);
         const row_highlights_slice = row_data.items(.highlights);
         for (
             row_arenas,
             row_pins,
             row_highlights_slice,
-        ) |*row_arena, row_pin, *row_highlights| {
+            row_dirties,
+        ) |*row_arena, row_pin, *row_highlights, *dirty| {
             for (hls) |hl| {
                 const chunks_slice = hl.chunks.slice();
                 const nodes = chunks_slice.items(.node);
@@ -688,9 +695,15 @@ pub const RenderState = struct {
                             if (i == nodes.len - 1) hl.bot_x else self.cols - 1,
                         },
                     );
+
+                    dirty.* = true;
+                    any_dirty = true;
                 }
             }
         }
+
+        // Mark our dirty state.
+        if (any_dirty and self.dirty == .false) self.dirty = .partial;
     }
 
     pub const StringMap = std.ArrayListUnmanaged(point.Coordinate);
