@@ -19,5 +19,4 @@ test {
 
     // Non-public APIs
     _ = @import("search/sliding_window.zig");
-    _ = @import("search/sliding_window2.zig");
 }

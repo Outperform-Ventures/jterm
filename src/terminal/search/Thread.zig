@@ -12,11 +12,13 @@ const std = @import("std");
 const builtin = @import("builtin");
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
+const ArenaAllocator = std.heap.ArenaAllocator;
 const Mutex = std.Thread.Mutex;
 const xev = @import("../../global.zig").xev;
 const internal_os = @import("../../os/main.zig");
 const BlockingQueue = @import("../../datastruct/main.zig").BlockingQueue;
 const point = @import("../point.zig");
+const FlattenedHighlight = @import("../highlight.zig").Flattened;
 const PageList = @import("../PageList.zig");
 const Screen = @import("../Screen.zig");
 const ScreenSet = @import("../ScreenSet.zig");
@@ -387,7 +389,7 @@ pub const Event = union(enum) {
 
     /// Matches in the viewport have changed. The memory is owned by the
     /// search thread and is only valid during the callback.
-    viewport_matches: []const Selection,
+    viewport_matches: []const FlattenedHighlight,
 };
 
 /// Search state.
@@ -603,10 +605,13 @@ const Search = struct {
             // process will make it stale again.
             self.stale_viewport_matches = false;
 
-            var results: std.ArrayList(Selection) = .empty;
-            defer results.deinit(alloc);
-            while (self.viewport.next()) |sel| {
-                results.append(alloc, sel) catch |err| switch (err) {
+            var arena: ArenaAllocator = .init(alloc);
+            defer arena.deinit();
+            const arena_alloc = arena.allocator();
+            var results: std.ArrayList(FlattenedHighlight) = .empty;
+            while (self.viewport.next()) |hl| {
+                const hl_cloned = hl.clone(arena_alloc) catch continue;
+                results.append(arena_alloc, hl_cloned) catch |err| switch (err) {
                     error.OutOfMemory => {
                         log.warn(
                             "error collecting viewport matches err={}",
@@ -637,7 +642,12 @@ test {
         const Self = @This();
         reset: std.Thread.ResetEvent = .{},
         total: usize = 0,
-        viewport: []const Selection = &.{},
+        viewport: []FlattenedHighlight = &.{},
+
+        fn deinit(self: *Self) void {
+            for (self.viewport) |*hl| hl.deinit(testing.allocator);
+            testing.allocator.free(self.viewport);
+        }
 
         fn callback(event: Event, userdata: ?*anyopaque) void {
             const ud: *Self = @ptrCast(@alignCast(userdata.?));
@@ -645,11 +655,16 @@ test {
                 .complete => ud.reset.set(),
                 .total_matches => |v| ud.total = v,
                 .viewport_matches => |v| {
+                    for (ud.viewport) |*hl| hl.deinit(testing.allocator);
                     testing.allocator.free(ud.viewport);
-                    ud.viewport = testing.allocator.dupe(
-                        Selection,
-                        v,
+
+                    ud.viewport = testing.allocator.alloc(
+                        FlattenedHighlight,
+                        v.len,
                     ) catch unreachable;
+                    for (ud.viewport, v) |*dst, src| {
+                        dst.* = src.clone(testing.allocator) catch unreachable;
+                    }
                 },
             }
         }
@@ -665,7 +680,7 @@ test {
     try stream.nextSlice("Hello, world");
 
     var ud: UserData = .{};
-    defer alloc.free(ud.viewport);
+    defer ud.deinit();
     var thread: Thread = try .init(alloc, .{
         .mutex = &mutex,
         .terminal = &t,
@@ -698,14 +713,14 @@ test {
     try testing.expectEqual(1, ud.total);
     try testing.expectEqual(1, ud.viewport.len);
     {
-        const sel = ud.viewport[0];
+        const sel = ud.viewport[0].untracked();
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 7,
             .y = 0,
-        } }, t.screens.active.pages.pointFromPin(.screen, sel.start()).?);
+        } }, t.screens.active.pages.pointFromPin(.screen, sel.start).?);
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 11,
             .y = 0,
-        } }, t.screens.active.pages.pointFromPin(.screen, sel.end()).?);
+        } }, t.screens.active.pages.pointFromPin(.screen, sel.end).?);
     }
 }

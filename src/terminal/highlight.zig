@@ -132,6 +132,18 @@ pub const Flattened = struct {
         };
     }
 
+    pub fn deinit(self: *Flattened, alloc: Allocator) void {
+        self.chunks.deinit(alloc);
+    }
+
+    pub fn clone(self: *const Flattened, alloc: Allocator) Allocator.Error!Flattened {
+        return .{
+            .chunks = try self.chunks.clone(alloc),
+            .top_x = self.top_x,
+            .bot_x = self.bot_x,
+        };
+    }
+
     /// Convert to an Untracked highlight.
     pub fn untracked(self: Flattened) Untracked {
         const slice = self.chunks.slice();
