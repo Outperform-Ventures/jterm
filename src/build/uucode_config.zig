@@ -23,7 +23,7 @@ fn computeWidth(
     // returning the width of a code point in a grapheme cluster but with the
     // exception to treat emoji modifiers as width 2 so they can be displayed
     // in isolation. PRs immediately to follow will take advantage of the new
-    // uucode `wcwidt_standalone` vs `wcwidth_zero_in_grapheme` split.
+    // uucode `wcwidth_standalone` vs `wcwidth_zero_in_grapheme` split.
     if (data.wcwidth_zero_in_grapheme and !data.is_emoji_modifier) {
         data.width = 0;
     } else {
