@@ -90,8 +90,7 @@ pub const tables = [_]config.Table{
             width.field("width"),
             d.field("grapheme_break"),
             is_symbol.field("is_symbol"),
-            d.field("is_emoji_vs_text"),
-            d.field("is_emoji_vs_emoji"),
+            d.field("is_emoji_vs_base"),
         },
     },
 };
