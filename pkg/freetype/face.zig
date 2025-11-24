@@ -263,24 +263,25 @@ pub const LoadFlags = packed struct {
     force_autohint: bool = false,
     crop_bitmap: bool = false,
     pedantic: bool = false,
-    ignore_global_advance_with: bool = false,
+    _padding1: u1 = 0,
+    ignore_global_advance_width: bool = false,
     no_recurse: bool = false,
     ignore_transform: bool = false,
     monochrome: bool = false,
     linear_design: bool = false,
+    sbits_only: bool = false,
     no_autohint: bool = false,
-    _padding1: u1 = 0,
     target_normal: bool = false,
     target_light: bool = false,
     target_mono: bool = false,
     target_lcd: bool = false,
-    target_lcd_v: bool = false,
     color: bool = false,
+    target_lcd_v: bool = false,
     compute_metrics: bool = false,
     bitmap_metrics_only: bool = false,
     _padding2: u1 = 0,
     no_svg: bool = false,
-    _padding3: u7 = 0,
+    _padding3: u6 = 0,
 
     test {
         // This must always be an i32 size so we can bitcast directly.
@@ -290,12 +291,19 @@ pub const LoadFlags = packed struct {
 
     test "bitcast" {
         const testing = std.testing;
+        
         const cval: i32 = c.FT_LOAD_RENDER | c.FT_LOAD_PEDANTIC | c.FT_LOAD_COLOR;
         const flags = @as(LoadFlags, @bitCast(cval));
         try testing.expect(!flags.no_hinting);
         try testing.expect(flags.render);
         try testing.expect(flags.pedantic);
         try testing.expect(flags.color);
+        
+        // Verify bit alignment (for bit 9)
+        const cval2: i32 = c.FT_LOAD_IGNORE_GLOBAL_ADVANCE_WIDTH;
+        const flags2 = @as(LoadFlags, @bitCast(cval2));
+        try testing.expect(flags2.ignore_global_advance_width);
+        try testing.expect(!flags2.no_recurse);
     }
 };
 
