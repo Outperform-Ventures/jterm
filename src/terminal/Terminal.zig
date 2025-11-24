@@ -3591,6 +3591,37 @@ test "Terminal: VS15 on already narrow emoji" {
     }
 }
 
+test "Terminal: print invalid VS15 following emoji is wide" {
+    var t = try init(testing.allocator, .{ .cols = 80, .rows = 80 });
+    defer t.deinit(testing.allocator);
+
+    // Enable grapheme clustering
+    t.modes.set(.grapheme_cluster, true);
+
+    try t.print('\u{1F9E0}'); // 🧠
+    try t.print(0xFE0E); // not valid with U+1F9E0 as base
+
+    // We should have 2 cells taken up. It is one character but "wide".
+    try testing.expectEqual(@as(usize, 0), t.screens.active.cursor.y);
+    try testing.expectEqual(@as(usize, 2), t.screens.active.cursor.x);
+
+    // Assert various properties about our screen to verify
+    // we have all expected cells.
+    {
+        const list_cell = t.screens.active.pages.getCell(.{ .screen = .{ .x = 0, .y = 0 } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(@as(u21, '\u{1F9E0}'), cell.content.codepoint);
+        try testing.expect(!cell.hasGrapheme());
+        try testing.expectEqual(Cell.Wide.wide, cell.wide);
+    }
+    {
+        const list_cell = t.screens.active.pages.getCell(.{ .screen = .{ .x = 1, .y = 0 } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(@as(u21, 0), cell.content.codepoint);
+        try testing.expectEqual(Cell.Wide.spacer_tail, cell.wide);
+    }
+}
+
 test "Terminal: print invalid VS15 in emoji ZWJ sequence" {
     var t = try init(testing.allocator, .{ .cols = 80, .rows = 80 });
     defer t.deinit(testing.allocator);
