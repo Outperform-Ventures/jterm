@@ -48,15 +48,13 @@ pub fn get(cp: u21) Properties {
     if (cp > uucode.config.max_code_point) return .{
         .width = 1,
         .grapheme_boundary_class = .invalid,
-        .emoji_vs_text = false,
-        .emoji_vs_emoji = false,
+        .emoji_vs_base = false,
     };
 
     return .{
         .width = uucode.get(.width, cp),
         .grapheme_boundary_class = graphemeBoundaryClass(cp),
-        .emoji_vs_text = uucode.get(.is_emoji_vs_text, cp),
-        .emoji_vs_emoji = uucode.get(.is_emoji_vs_emoji, cp),
+        .emoji_vs_base = uucode.get(.is_emoji_vs_base, cp),
     };
 }
 
