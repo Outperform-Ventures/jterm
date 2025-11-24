@@ -1191,6 +1191,23 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 log.warn("error searching for regex links err={}", .{err});
             };
 
+            // Clear our highlight state and update.
+            if (self.search_matches_dirty or self.terminal_state.dirty != .false) {
+                for (self.terminal_state.row_data.items(.highlights)) |*highlights| {
+                    highlights.clearRetainingCapacity();
+                }
+
+                if (self.search_matches) |m| {
+                    self.terminal_state.updateHighlightsFlattened(
+                        self.alloc,
+                        m.matches,
+                    ) catch |err| {
+                        // Not a critical error, we just won't show highlights.
+                        log.warn("error updating search highlights err={}", .{err});
+                    };
+                }
+            }
+
             // Build our GPU cells
             try self.rebuildCells(
                 critical.preedit,
@@ -2366,6 +2383,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             const row_cells = row_data.items(.cells);
             const row_dirty = row_data.items(.dirty);
             const row_selection = row_data.items(.selection);
+            const row_highlights = row_data.items(.highlights);
 
             // If our cell contents buffer is shorter than the screen viewport,
             // we render the rows that fit, starting from the bottom. If instead
@@ -2381,7 +2399,8 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 row_cells[0..row_len],
                 row_dirty[0..row_len],
                 row_selection[0..row_len],
-            ) |y_usize, row, *cells, *dirty, selection| {
+                row_highlights[0..row_len],
+            ) |y_usize, row, *cells, *dirty, selection, highlights| {
                 const y: terminal.size.CellCountInt = @intCast(y_usize);
 
                 if (!rebuild) {
@@ -2526,6 +2545,15 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
                     // True if this cell is selected
                     const selected: bool = selected: {
+                        // If we're highlighted, then we're selected. In the
+                        // future we want to use a different style for this
+                        // but this to get started.
+                        for (highlights.items) |hl| {
+                            if (x >= hl[0] and x <= hl[1]) {
+                                break :selected true;
+                            }
+                        }
+
                         const sel = selection orelse break :selected false;
                         const x_compare = if (wide == .spacer_tail)
                             x -| 1
