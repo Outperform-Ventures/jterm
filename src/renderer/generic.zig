@@ -1193,6 +1193,8 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
             // Clear our highlight state and update.
             if (self.search_matches_dirty or self.terminal_state.dirty != .false) {
+                self.search_matches_dirty = false;
+
                 for (self.terminal_state.row_data.items(.highlights)) |*highlights| {
                     highlights.clearRetainingCapacity();
                 }
