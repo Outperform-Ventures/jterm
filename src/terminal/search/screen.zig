@@ -398,8 +398,7 @@ pub const ScreenSearch = struct {
             self.selected = null;
             break :select_prev true;
         };
-        defer if (select_prev) self.select(.next) catch |err| {
-            // TODO: Change the above next to prev
+        defer if (select_prev) self.select(.prev) catch |err| {
             log.info("reload failed to reset search selection err={}", .{err});
         };
 
@@ -585,11 +584,6 @@ pub const ScreenSearch = struct {
         }
     }
 
-    pub const Select = enum {
-        /// Next selection, in reverse order (newest to oldest)
-        next,
-    };
-
     /// Return the selected match.
     ///
     /// This does not require read/write access to the underlying screen.
@@ -608,22 +602,33 @@ pub const ScreenSearch = struct {
         return null;
     }
 
+    pub const Select = enum {
+        /// Next selection, in reverse order (newest to oldest),
+        /// non-wrapping.
+        next,
+
+        /// Prev selection, in forward order (oldest to newest),
+        /// non-wrapping.
+        prev,
+    };
+
     /// Select the next or previous search result. This requires read/write
     /// access to the underlying screen, since we utilize tracked pins to
     /// ensure our selection sticks with contents changing.
     pub fn select(self: *ScreenSearch, to: Select) Allocator.Error!void {
-        switch (to) {
-            .next => try self.selectNext(),
-        }
-    }
-
-    fn selectNext(self: *ScreenSearch) Allocator.Error!void {
         // All selection requires valid pins so we prune history and
         // reload our active area immediately. This ensures all search
         // results point to valid nodes.
         try self.reloadActive();
         self.pruneHistory();
 
+        switch (to) {
+            .next => try self.selectNext(),
+            .prev => try self.selectPrev(),
+        }
+    }
+
+    fn selectNext(self: *ScreenSearch) Allocator.Error!void {
         // Get our previous match so we can change it. If we have no
         // prior match, we have the easy task of getting the first.
         var prev = if (self.selected) |*m| m else {
@@ -662,6 +667,65 @@ pub const ScreenSearch = struct {
             // No more matches. We don't wrap or reset the match currently.
             return;
         }
+        const hl: FlattenedHighlight = if (next_idx < active_len)
+            self.active_results.items[active_len - 1 - next_idx]
+        else
+            self.history_results.items[next_idx - active_len];
+
+        // Pin it so we can track any movement
+        const tracked = try hl.untracked().track(self.screen);
+        errdefer tracked.deinit(self.screen);
+
+        // Free our previous match and setup our new selection
+        prev.deinit(self.screen);
+        self.selected = .{
+            .idx = next_idx,
+            .highlight = tracked,
+        };
+    }
+
+    fn selectPrev(self: *ScreenSearch) Allocator.Error!void {
+        // Get our previous match so we can change it. If we have no
+        // prior match, we have the easy task of getting the last.
+        var prev = if (self.selected) |*m| m else {
+            // Get our highlight (oldest match)
+            const hl: FlattenedHighlight = hl: {
+                if (self.history_results.items.len > 0) {
+                    // History is in reverse order, so last item is oldest
+                    const len = self.history_results.items.len;
+                    break :hl self.history_results.items[len - 1];
+                } else if (self.active_results.items.len > 0) {
+                    // Active is in forward order, so first item is oldest
+                    break :hl self.active_results.items[0];
+                } else {
+                    // No matches at all. Can't select anything.
+                    return;
+                }
+            };
+
+            // Pin it so we can track any movement
+            const tracked = try hl.untracked().track(self.screen);
+            errdefer tracked.deinit(self.screen);
+
+            // Our selection is the last index since we just started
+            // and we store our selection.
+            const active_len = self.active_results.items.len;
+            const history_len = self.history_results.items.len;
+            self.selected = .{
+                .idx = active_len + history_len - 1,
+                .highlight = tracked,
+            };
+            return;
+        };
+
+        // Can't go below zero
+        if (prev.idx == 0) {
+            // No more matches. We don't wrap or reset the match currently.
+            return;
+        }
+
+        const next_idx = prev.idx - 1;
+        const active_len = self.active_results.items.len;
         const hl: FlattenedHighlight = if (next_idx < active_len)
             self.active_results.items[active_len - 1 - next_idx]
         else
@@ -1083,5 +1147,159 @@ test "select into history" {
             .x = 3,
             .y = 0,
         } }, t.screens.active.pages.pointFromPin(.screen, sel.end).?);
+    }
+}
+
+test "select prev" {
+    const alloc = testing.allocator;
+    var t: Terminal = try .init(alloc, .{ .cols = 10, .rows = 2 });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+    try s.nextSlice("Fizz\r\nBuzz\r\nFizz\r\nBang");
+
+    var search: ScreenSearch = try .init(alloc, t.screens.active, "Fizz");
+    defer search.deinit();
+
+    // Initially no selection
+    try testing.expect(search.selectedMatch() == null);
+
+    // Select prev (oldest first)
+    try search.searchAll();
+    try search.select(.prev);
+    {
+        const sel = search.selectedMatch().?.untracked();
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 0,
+        } }, t.screens.active.pages.pointFromPin(.screen, sel.start).?);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 3,
+            .y = 0,
+        } }, t.screens.active.pages.pointFromPin(.screen, sel.end).?);
+    }
+
+    // Prev match (towards newest)
+    try search.select(.prev);
+    {
+        const sel = search.selectedMatch().?.untracked();
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 2,
+        } }, t.screens.active.pages.pointFromPin(.screen, sel.start).?);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 3,
+            .y = 2,
+        } }, t.screens.active.pages.pointFromPin(.screen, sel.end).?);
+    }
+
+    // Prev match (no wrap, stays at newest)
+    try search.select(.prev);
+    {
+        const sel = search.selectedMatch().?.untracked();
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 2,
+        } }, t.screens.active.pages.pointFromPin(.screen, sel.start).?);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 3,
+            .y = 2,
+        } }, t.screens.active.pages.pointFromPin(.screen, sel.end).?);
+    }
+}
+
+test "select prev then next" {
+    const alloc = testing.allocator;
+    var t: Terminal = try .init(alloc, .{ .cols = 10, .rows = 2 });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+    try s.nextSlice("Fizz\r\nBuzz\r\nFizz\r\nBang");
+
+    var search: ScreenSearch = try .init(alloc, t.screens.active, "Fizz");
+    defer search.deinit();
+    try search.searchAll();
+
+    // Select next (newest first)
+    try search.select(.next);
+    {
+        const sel = search.selectedMatch().?.untracked();
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 2,
+        } }, t.screens.active.pages.pointFromPin(.screen, sel.start).?);
+    }
+
+    // Select next (older)
+    try search.select(.next);
+    {
+        const sel = search.selectedMatch().?.untracked();
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 0,
+        } }, t.screens.active.pages.pointFromPin(.screen, sel.start).?);
+    }
+
+    // Select prev (back to newer)
+    try search.select(.prev);
+    {
+        const sel = search.selectedMatch().?.untracked();
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 2,
+        } }, t.screens.active.pages.pointFromPin(.screen, sel.start).?);
+    }
+}
+
+test "select prev with history" {
+    const alloc = testing.allocator;
+    var t: Terminal = try .init(alloc, .{
+        .cols = 10,
+        .rows = 2,
+        .max_scrollback = std.math.maxInt(usize),
+    });
+    defer t.deinit(alloc);
+    const list: *PageList = &t.screens.active.pages;
+
+    var s = t.vtStream();
+    defer s.deinit();
+
+    try s.nextSlice("Fizz\r\n");
+    while (list.totalPages() < 3) try s.nextSlice("\r\n");
+    for (0..list.rows) |_| try s.nextSlice("\r\n");
+    try s.nextSlice("Fizz.");
+
+    var search: ScreenSearch = try .init(alloc, t.screens.active, "Fizz");
+    defer search.deinit();
+    try search.searchAll();
+
+    // Select prev (oldest first, should be in history)
+    try search.select(.prev);
+    {
+        const sel = search.selectedMatch().?.untracked();
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 0,
+        } }, t.screens.active.pages.pointFromPin(.screen, sel.start).?);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 3,
+            .y = 0,
+        } }, t.screens.active.pages.pointFromPin(.screen, sel.end).?);
+    }
+
+    // Select prev (towards newer, should move to active area)
+    try search.select(.prev);
+    {
+        const sel = search.selectedMatch().?.untracked();
+        try testing.expectEqual(point.Point{ .active = .{
+            .x = 0,
+            .y = 1,
+        } }, t.screens.active.pages.pointFromPin(.active, sel.start).?);
+        try testing.expectEqual(point.Point{ .active = .{
+            .x = 3,
+            .y = 1,
+        } }, t.screens.active.pages.pointFromPin(.active, sel.end).?);
     }
 }
