@@ -57,7 +57,7 @@ pub const ScreenSearch = struct {
     history_results: std.ArrayList(FlattenedHighlight),
     active_results: std.ArrayList(FlattenedHighlight),
 
-    const SelectedMatch = struct {
+    pub const SelectedMatch = struct {
         /// Index from the end of the match list (0 = most recent match)
         idx: usize,
 

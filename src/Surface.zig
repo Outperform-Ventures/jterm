@@ -1376,6 +1376,7 @@ fn searchCallback_(
         },
 
         // Unhandled, so far.
+        .selected_match,
         .total_matches,
         .complete,
         => {},

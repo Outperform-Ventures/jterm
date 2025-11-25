@@ -43,6 +43,10 @@ pub const Untracked = struct {
             self.end,
         );
     }
+
+    pub fn eql(self: Untracked, other: Untracked) bool {
+        return self.start.eql(other.start) and self.end.eql(other.end);
+    }
 };
 
 /// A tracked highlight is a highlight that stores its highlighted
