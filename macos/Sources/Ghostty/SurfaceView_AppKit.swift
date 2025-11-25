@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 import CoreText
 import UserNotifications
@@ -67,15 +68,23 @@ extension Ghostty {
         // The current search state. When non-nil, the search overlay should be shown.
         @Published var searchState: SearchState? = nil {
             didSet {
-                // If the search state becomes nil, we need to make sure we're stopping
-                // the search internally.
-                if searchState == nil {
+                if let searchState {
+                    searchNeedleCancellable = searchState.$needle.sink { [weak self] needle in
+                        guard let surface = self?.surface else { return }
+                        let action = "search:\(needle)"
+                        ghostty_surface_binding_action(surface, action, UInt(action.count))
+                    }
+                } else {
+                    searchNeedleCancellable = nil
                     guard let surface = self.surface else { return }
                     let action = "search:"
                     ghostty_surface_binding_action(surface, action, UInt(action.count))
                 }
             }
         }
+        
+        // Cancellable for search state needle changes
+        private var searchNeedleCancellable: AnyCancellable?
 
         // The time this surface last became focused. This is a ContinuousClock.Instant
         // on supported platforms.

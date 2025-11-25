@@ -391,7 +391,6 @@ extension Ghostty {
     struct SurfaceSearchOverlay: View {
         let surfaceView: SurfaceView
         @Binding var searchState: SurfaceView.SearchState?
-        @State private var searchText: String = ""
         @State private var corner: Corner = .topRight
         @State private var dragOffset: CGSize = .zero
         @State private var barSize: CGSize = .zero
@@ -402,7 +401,10 @@ extension Ghostty {
         var body: some View {
             GeometryReader { geo in
                 HStack(spacing: 8) {
-                    TextField("Search", text: $searchText)
+                    TextField("Search", text: Binding(
+                        get: { searchState?.needle ?? "" },
+                        set: { searchState?.needle = $0 }
+                    ))
                         .textFieldStyle(.plain)
                         .frame(width: 180)
                         .padding(.horizontal, 8)
@@ -436,9 +438,6 @@ extension Ghostty {
                 .cornerRadius(8)
                 .shadow(radius: 4)
                 .onAppear {
-                    if let needle = searchState?.needle {
-                        searchText = needle
-                    }
                     isSearchFieldFocused = true
                 }
                 .onReceive(NotificationCenter.default.publisher(for: .ghosttySearchFocus)) { notification in

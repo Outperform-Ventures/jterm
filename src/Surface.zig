@@ -4879,7 +4879,7 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
 
         .start_search => if (self.search == null) {
             // To save resources, we don't actually start a search here,
-            // we just notify teh apprt. The real thread will start when
+            // we just notify the apprt. The real thread will start when
             // the first needles are set.
             _ = try self.rt_app.performAction(
                 .{ .surface = self },
