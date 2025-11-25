@@ -64,6 +64,9 @@ extension Ghostty {
         // The currently active key sequence. The sequence is not active if this is empty.
         @Published var keySequence: [KeyboardShortcut] = []
 
+        // The current search state. When non-nil, the search overlay should be shown.
+        @Published var searchState: SearchState? = nil
+
         // The time this surface last became focused. This is a ContinuousClock.Instant
         // on supported platforms.
         @Published var focusInstant: ContinuousClock.Instant? = nil

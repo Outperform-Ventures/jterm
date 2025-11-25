@@ -197,10 +197,12 @@ extension Ghostty {
                     SecureInputOverlay()
                 }
                 #endif
-                
+
                 // Search overlay
-                SurfaceSearchOverlay()
-                
+                if surfaceView.searchState != nil {
+                    SurfaceSearchOverlay(searchState: $surfaceView.searchState)
+                }
+
                 // Show bell border if enabled
                 if (ghostty.config.bellFeatures.contains(.border)) {
                     BellBorderOverlay(bell: surfaceView.bell)
@@ -387,10 +389,12 @@ extension Ghostty {
 
     /// Search overlay view that displays a search bar with input field and navigation buttons.
     struct SurfaceSearchOverlay: View {
+        @Binding var searchState: SurfaceView.SearchState?
         @State private var searchText: String = ""
         @State private var corner: Corner = .topRight
         @State private var dragOffset: CGSize = .zero
         @State private var barSize: CGSize = .zero
+        @FocusState private var isSearchFieldFocused: Bool
         
         private let padding: CGFloat = 8
         
@@ -404,6 +408,7 @@ extension Ghostty {
                         .padding(.vertical, 6)
                         .background(Color.primary.opacity(0.1))
                         .cornerRadius(6)
+                        .focused($isSearchFieldFocused)
                     
                     Button(action: {}) {
                         Image(systemName: "chevron.up")
@@ -415,7 +420,9 @@ extension Ghostty {
                     }
                     .buttonStyle(.borderless)
                     
-                    Button(action: {}) {
+                    Button(action: {
+                        searchState = nil
+                    }) {
                         Image(systemName: "xmark")
                     }
                     .buttonStyle(.borderless)
@@ -424,6 +431,12 @@ extension Ghostty {
                 .background(.background)
                 .cornerRadius(8)
                 .shadow(radius: 4)
+                .onAppear {
+                    if let needle = searchState?.needle {
+                        searchText = needle
+                    }
+                    isSearchFieldFocused = true
+                }
                 .background(
                     GeometryReader { barGeo in
                         Color.clear.onAppear {
@@ -768,5 +781,17 @@ extension FocusedValues {
 
     struct FocusedGhosttySurfaceCellSize: FocusedValueKey {
         typealias Value = OSSize
+    }
+}
+
+// MARK: Search State
+
+extension Ghostty.SurfaceView {
+    class SearchState: ObservableObject {
+        @Published var needle: String = ""
+
+        init(from startSearch: Ghostty.Action.StartSearch) {
+            self.needle = startSearch.needle ?? ""
+        }
     }
 }
