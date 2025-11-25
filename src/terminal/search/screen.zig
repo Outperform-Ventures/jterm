@@ -15,6 +15,8 @@ const ActiveSearch = @import("active.zig").ActiveSearch;
 const PageListSearch = @import("pagelist.zig").PageListSearch;
 const SlidingWindow = @import("sliding_window.zig").SlidingWindow;
 
+const log = std.log.scoped(.search_screen);
+
 /// Searches for a needle within a Screen, handling active area updates,
 /// pages being pruned from the screen (e.g. scrollback limits), and more.
 ///
@@ -366,6 +368,10 @@ pub const ScreenSearch = struct {
             var hl_cloned = try hl.clone(alloc);
             errdefer hl_cloned.deinit(alloc);
             try self.history_results.append(alloc, hl_cloned);
+
+            // Since history only appends to our results in reverse order,
+            // we don't need to update any selected match state. The index
+            // and prior results are unaffected.
         }
 
         // We need to be fed more data.
@@ -380,6 +386,23 @@ pub const ScreenSearch = struct {
     ///
     /// The caller must hold the necessary locks to access the screen state.
     pub fn reloadActive(self: *ScreenSearch) Allocator.Error!void {
+        // If our selection pin became garbage it means we scrolled off
+        // the end. Clear our selection and on exit of this function,
+        // try to select the last match.
+        const select_prev: bool = select_prev: {
+            const m = if (self.selected) |*m| m else break :select_prev false;
+            if (!m.highlight.start.garbage and
+                !m.highlight.end.garbage) break :select_prev false;
+
+            m.deinit(self.screen);
+            self.selected = null;
+            break :select_prev true;
+        };
+        defer if (select_prev) self.select(.next) catch |err| {
+            // TODO: Change the above next to prev
+            log.info("reload failed to reset search selection err={}", .{err});
+        };
+
         const alloc = self.allocator();
         const list: *PageList = &self.screen.pages;
         if (try self.active.update(list)) |history_node| history: {
@@ -474,7 +497,41 @@ pub const ScreenSearch = struct {
             try results.appendSlice(alloc, self.history_results.items);
             self.history_results.deinit(alloc);
             self.history_results = results;
+
+            // If our prior selection was in the history area, update
+            // the offset.
+            if (self.selected) |*m| selected: {
+                const active_len = self.active_results.items.len;
+                if (m.idx < active_len) break :selected;
+                m.idx += results.items.len;
+
+                // Moving the idx should not change our targeted result
+                // since the history is immutable.
+                if (comptime std.debug.runtime_safety) {
+                    const hl = self.history_results.items[m.idx - active_len];
+                    assert(m.highlight.start.eql(hl.startPin()));
+                }
+            }
         }
+
+        // Figure out if we need to fixup our selection later because
+        // it was in the active area.
+        const old_active_len = self.active_results.items.len;
+        const old_selection_idx: ?usize = if (self.selected) |m| m.idx else null;
+        errdefer if (old_selection_idx != null and
+            old_selection_idx.? < old_active_len)
+        {
+            // This is the error scenario. If something fails below,
+            // our active area is probably gone, so we just go back
+            // to the first result because our selection can't be trusted.
+            if (self.selected) |*m| {
+                m.deinit(self.screen);
+                self.selected = null;
+                self.select(.next) catch |err| {
+                    log.info("reload failed to reset search selection err={}", .{err});
+                };
+            }
+        };
 
         // Reset our active search results and search again.
         for (self.active_results.items) |*hl| hl.deinit(alloc);
@@ -491,6 +548,40 @@ pub const ScreenSearch = struct {
                 defer self.state = old_state;
                 try self.tickActive();
             },
+        }
+
+        // Active area search was successful. Now we have to fixup our
+        // selection if we had one.
+        fixup: {
+            const old_idx = old_selection_idx orelse break :fixup;
+            const m = if (self.selected) |*m| m else break :fixup;
+
+            // If our old selection wasn't in the active area, then we
+            // need to fix up our offsets.
+            if (old_idx >= old_active_len) {
+                m.idx -= old_active_len;
+                m.idx += self.active_results.items.len;
+                break :fixup;
+            }
+
+            // We search for the matching highlight in the new active results.
+            for (0.., self.active_results.items) |i, hl| {
+                const untracked = hl.untracked();
+                if (m.highlight.start.eql(untracked.start) and
+                    m.highlight.end.eql(untracked.end))
+                {
+                    // Found it! Update our index.
+                    m.idx = self.active_results.items.len - 1 - i;
+                    break :fixup;
+                }
+            }
+
+            // No match, just go back to the first match.
+            m.deinit(self.screen);
+            self.selected = null;
+            self.select(.next) catch |err| {
+                log.info("reload failed to reset search selection err={}", .{err});
+            };
         }
     }
 
@@ -847,6 +938,142 @@ test "select next" {
     // Next match (no wrap)
     try search.select(.next);
     {
+        const sel = search.selectedMatch().?.untracked();
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 0,
+        } }, t.screens.active.pages.pointFromPin(.screen, sel.start).?);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 3,
+            .y = 0,
+        } }, t.screens.active.pages.pointFromPin(.screen, sel.end).?);
+    }
+}
+
+test "select in active changes contents completely" {
+    const alloc = testing.allocator;
+    var t: Terminal = try .init(alloc, .{ .cols = 10, .rows = 5 });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+    try s.nextSlice("Fizz\r\nBuzz\r\nFizz\r\nBang");
+
+    var search: ScreenSearch = try .init(alloc, t.screens.active, "Fizz");
+    defer search.deinit();
+    try search.searchAll();
+    try search.select(.next);
+    try search.select(.next);
+    {
+        // Initial selection is the first fizz
+        const sel = search.selectedMatch().?.untracked();
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 0,
+        } }, t.screens.active.pages.pointFromPin(.screen, sel.start).?);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 3,
+            .y = 0,
+        } }, t.screens.active.pages.pointFromPin(.screen, sel.end).?);
+    }
+
+    // Erase the screen, move our cursor to the top, and change contents.
+    try s.nextSlice("\x1b[2J\x1b[H"); // Clear screen and move home
+    try s.nextSlice("Fuzz\r\nFizz\r\nHello!");
+
+    try search.reloadActive();
+    {
+        // Our selection should move to the first
+        const sel = search.selectedMatch().?.untracked();
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 1,
+        } }, t.screens.active.pages.pointFromPin(.screen, sel.start).?);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 3,
+            .y = 1,
+        } }, t.screens.active.pages.pointFromPin(.screen, sel.end).?);
+    }
+
+    // Erase the screen, redraw with same contents.
+    try s.nextSlice("\x1b[2J\x1b[H"); // Clear screen and move home
+    try s.nextSlice("Fuzz\r\nFizz\r\nFizz");
+
+    try search.reloadActive();
+    {
+        // Our selection should not move to the first
+        const sel = search.selectedMatch().?.untracked();
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 1,
+        } }, t.screens.active.pages.pointFromPin(.screen, sel.start).?);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 3,
+            .y = 1,
+        } }, t.screens.active.pages.pointFromPin(.screen, sel.end).?);
+    }
+}
+
+test "select into history" {
+    const alloc = testing.allocator;
+    var t: Terminal = try .init(alloc, .{
+        .cols = 10,
+        .rows = 2,
+        .max_scrollback = std.math.maxInt(usize),
+    });
+    defer t.deinit(alloc);
+    const list: *PageList = &t.screens.active.pages;
+
+    var s = t.vtStream();
+    defer s.deinit();
+
+    try s.nextSlice("Fizz\r\n");
+    while (list.totalPages() < 3) try s.nextSlice("\r\n");
+    for (0..list.rows) |_| try s.nextSlice("\r\n");
+    try s.nextSlice("hello.");
+
+    var search: ScreenSearch = try .init(alloc, t.screens.active, "Fizz");
+    defer search.deinit();
+    try search.searchAll();
+
+    // Get all matches
+    try search.select(.next);
+    {
+        const sel = search.selectedMatch().?.untracked();
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 0,
+        } }, t.screens.active.pages.pointFromPin(.screen, sel.start).?);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 3,
+            .y = 0,
+        } }, t.screens.active.pages.pointFromPin(.screen, sel.end).?);
+    }
+
+    // Erase the screen, redraw with same contents.
+    try s.nextSlice("\x1b[2J\x1b[H"); // Clear screen and move home
+    try s.nextSlice("yo yo");
+
+    try search.reloadActive();
+    {
+        // Our selection should not move since the history is still active.
+        const sel = search.selectedMatch().?.untracked();
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 0,
+        } }, t.screens.active.pages.pointFromPin(.screen, sel.start).?);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 3,
+            .y = 0,
+        } }, t.screens.active.pages.pointFromPin(.screen, sel.end).?);
+    }
+
+    // Create some new history by adding more lines.
+    try s.nextSlice("\r\nfizz\r\nfizz\r\nfizz"); // Clear screen and move home
+    try search.reloadActive();
+    {
+        // Our selection should not move since the history is still not
+        // pruned.
         const sel = search.selectedMatch().?.untracked();
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 0,

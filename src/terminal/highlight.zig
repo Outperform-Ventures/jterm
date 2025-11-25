@@ -155,8 +155,19 @@ pub const Flattened = struct {
         };
     }
 
+    pub fn startPin(self: Flattened) Pin {
+        const slice = self.chunks.slice();
+        return .{
+            .node = slice.items(.node)[0],
+            .x = self.top_x,
+            .y = slice.items(.start)[0],
+        };
+    }
+
     /// Convert to an Untracked highlight.
     pub fn untracked(self: Flattened) Untracked {
+        // Note: we don't use startPin/endPin here because it is slightly
+        // faster to reuse the slices.
         const slice = self.chunks.slice();
         const nodes = slice.items(.node);
         const starts = slice.items(.start);
