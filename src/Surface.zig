@@ -4933,7 +4933,10 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             }
 
             _ = s.state.mailbox.push(
-                .{ .change_needle = text },
+                .{ .change_needle = try .init(
+                    self.alloc,
+                    text,
+                ) },
                 .forever,
             );
             s.state.wakeup.notify() catch {};

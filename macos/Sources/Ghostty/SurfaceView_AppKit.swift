@@ -71,6 +71,7 @@ extension Ghostty {
                 if let searchState {
                     searchNeedleCancellable = searchState.$needle.sink { [weak self] needle in
                         guard let surface = self?.surface else { return }
+                        guard needle.count > 1 else { return }
                         let action = "search:\(needle)"
                         ghostty_surface_binding_action(surface, action, UInt(action.count))
                     }

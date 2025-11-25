@@ -17,6 +17,7 @@ const Mutex = std.Thread.Mutex;
 const xev = @import("../../global.zig").xev;
 const internal_os = @import("../../os/main.zig");
 const BlockingQueue = @import("../../datastruct/main.zig").BlockingQueue;
+const MessageData = @import("../../datastruct/main.zig").MessageData;
 const point = @import("../point.zig");
 const FlattenedHighlight = @import("../highlight.zig").Flattened;
 const UntrackedHighlight = @import("../highlight.zig").Untracked;
@@ -242,7 +243,10 @@ fn drainMailbox(self: *Thread) !void {
     while (self.mailbox.pop()) |message| {
         log.debug("mailbox message={}", .{message});
         switch (message) {
-            .change_needle => |v| try self.changeNeedle(v),
+            .change_needle => |v| {
+                defer v.deinit();
+                try self.changeNeedle(v.slice());
+            },
             .select => |v| try self.select(v),
         }
     }
@@ -414,10 +418,14 @@ pub const Mailbox = BlockingQueue(Message, 64);
 
 /// The messages that can be sent to the thread.
 pub const Message = union(enum) {
+    /// Represents a write request. Magic number comes from the max size
+    /// we want this union to be.
+    pub const WriteReq = MessageData(u8, 255);
+
     /// Change the search term. If no prior search term is given this
     /// will start a search. If an existing search term is given this will
     /// stop the prior search and start a new one.
-    change_needle: []const u8,
+    change_needle: WriteReq,
 
     /// Select a search result.
     select: ScreenSearch.Select,
@@ -820,7 +828,10 @@ test {
 
     // Start our search
     _ = thread.mailbox.push(
-        .{ .change_needle = "world" },
+        .{ .change_needle = try .init(
+            alloc,
+            @as([]const u8, "world"),
+        ) },
         .forever,
     );
     try thread.wakeup.notify();
