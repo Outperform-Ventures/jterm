@@ -2782,18 +2782,34 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
             // Setup our cursor rendering information.
             cursor: {
-                // By default, we don't handle cursor inversion on the shader.
+                // Clear our cursor by default.
                 self.cells.setCursor(null, null);
                 self.uniforms.cursor_pos = .{
                     std.math.maxInt(u16),
                     std.math.maxInt(u16),
                 };
 
+                // If the cursor isn't visible on the viewport, don't show
+                // a cursor. Otherwise, get our cursor cell, because we may
+                // need it for styling.
+                const cursor_vp = state.cursor.viewport orelse break :cursor;
+                const cursor_style: terminal.Style = cursor_style: {
+                    const cells = state.row_data.items(.cells);
+                    const cell = cells[cursor_vp.y].get(cursor_vp.x);
+                    break :cursor_style if (cell.raw.hasStyling())
+                        cell.style
+                    else
+                        .{};
+                };
+
                 // If we have preedit text, we don't setup a cursor
                 if (preedit != null) break :cursor;
 
-                // Prepare the cursor cell contents.
+                // If there isn't a cursor visual style requested then
+                // we don't render a cursor.
                 const style = cursor_style_ orelse break :cursor;
+
+                // Determine the cursor color.
                 const cursor_color = cursor_color: {
                     // If an explicit cursor color was set by OSC 12, use that.
                     if (state.colors.cursor) |v| break :cursor_color v;
@@ -2801,24 +2817,30 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     // Use our configured color if specified
                     if (self.config.cursor_color) |v| switch (v) {
                         .color => |color| break :cursor_color color.toTerminalRGB(),
+
                         inline .@"cell-foreground",
                         .@"cell-background",
                         => |_, tag| {
-                            const sty: terminal.Style = state.cursor.style;
-                            const fg_style = sty.fg(.{
+                            const fg_style = cursor_style.fg(.{
                                 .default = state.colors.foreground,
                                 .palette = &state.colors.palette,
                                 .bold = self.config.bold_color,
                             });
-                            const bg_style = sty.bg(
+                            const bg_style = cursor_style.bg(
                                 &state.cursor.cell,
                                 &state.colors.palette,
                             ) orelse state.colors.background;
 
                             break :cursor_color switch (tag) {
                                 .color => unreachable,
-                                .@"cell-foreground" => if (sty.flags.inverse) bg_style else fg_style,
-                                .@"cell-background" => if (sty.flags.inverse) fg_style else bg_style,
+                                .@"cell-foreground" => if (cursor_style.flags.inverse)
+                                    bg_style
+                                else
+                                    fg_style,
+                                .@"cell-background" => if (cursor_style.flags.inverse)
+                                    fg_style
+                                else
+                                    bg_style,
                             };
                         },
                     };
@@ -2833,9 +2855,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 );
 
                 // If the cursor is visible then we set our uniforms.
-                if (style == .block) cursor_uniforms: {
-                    const cursor_vp = state.cursor.viewport orelse
-                        break :cursor_uniforms;
+                if (style == .block) {
                     const wide = state.cursor.cell.wide;
 
                     self.uniforms.cursor_pos = .{
@@ -2862,21 +2882,26 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                             break :blk txt.color.toTerminalRGB();
                         }
 
-                        const sty = state.cursor.style;
-                        const fg_style = sty.fg(.{
+                        const fg_style = cursor_style.fg(.{
                             .default = state.colors.foreground,
                             .palette = &state.colors.palette,
                             .bold = self.config.bold_color,
                         });
-                        const bg_style = sty.bg(
+                        const bg_style = cursor_style.bg(
                             &state.cursor.cell,
                             &state.colors.palette,
                         ) orelse state.colors.background;
 
                         break :blk switch (txt) {
                             // If the cell is reversed, use the opposite cell color instead.
-                            .@"cell-foreground" => if (sty.flags.inverse) bg_style else fg_style,
-                            .@"cell-background" => if (sty.flags.inverse) fg_style else bg_style,
+                            .@"cell-foreground" => if (cursor_style.flags.inverse)
+                                bg_style
+                            else
+                                fg_style,
+                            .@"cell-background" => if (cursor_style.flags.inverse)
+                                fg_style
+                            else
+                                bg_style,
                             else => unreachable,
                         };
                     } else state.colors.background;
