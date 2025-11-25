@@ -198,6 +198,9 @@ extension Ghostty {
                 }
                 #endif
                 
+                // Search overlay
+                SurfaceSearchOverlay()
+                
                 // Show bell border if enabled
                 if (ghostty.config.bellFeatures.contains(.border)) {
                     BellBorderOverlay(bell: surfaceView.bell)
@@ -382,6 +385,115 @@ extension Ghostty {
         }
     }
 
+    /// Search overlay view that displays a search bar with input field and navigation buttons.
+    struct SurfaceSearchOverlay: View {
+        @State private var searchText: String = ""
+        @State private var corner: Corner = .topRight
+        @State private var dragOffset: CGSize = .zero
+        @State private var barSize: CGSize = .zero
+        
+        private let padding: CGFloat = 8
+        
+        var body: some View {
+            GeometryReader { geo in
+                HStack(spacing: 8) {
+                    TextField("Search", text: $searchText)
+                        .textFieldStyle(.plain)
+                        .frame(width: 180)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 6)
+                        .background(Color.primary.opacity(0.1))
+                        .cornerRadius(6)
+                    
+                    Button(action: {}) {
+                        Image(systemName: "chevron.up")
+                    }
+                    .buttonStyle(.borderless)
+                    
+                    Button(action: {}) {
+                        Image(systemName: "chevron.down")
+                    }
+                    .buttonStyle(.borderless)
+                    
+                    Button(action: {}) {
+                        Image(systemName: "xmark")
+                    }
+                    .buttonStyle(.borderless)
+                }
+                .padding(8)
+                .background(.background)
+                .cornerRadius(8)
+                .shadow(radius: 4)
+                .background(
+                    GeometryReader { barGeo in
+                        Color.clear.onAppear {
+                            barSize = barGeo.size
+                        }
+                    }
+                )
+                .padding(padding)
+                .offset(dragOffset)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: corner.alignment)
+                .gesture(
+                    DragGesture()
+                        .onChanged { value in
+                            dragOffset = value.translation
+                        }
+                        .onEnded { value in
+                            let centerPos = centerPosition(for: corner, in: geo.size, barSize: barSize)
+                            let newCenter = CGPoint(
+                                x: centerPos.x + value.translation.width,
+                                y: centerPos.y + value.translation.height
+                            )
+                            corner = closestCorner(to: newCenter, in: geo.size)
+                            dragOffset = .zero
+                        }
+                )
+                .animation(.easeOut(duration: 0.2), value: corner)
+            }
+        }
+        
+        enum Corner {
+            case topLeft, topRight, bottomLeft, bottomRight
+            
+            var alignment: Alignment {
+                switch self {
+                case .topLeft: return .topLeading
+                case .topRight: return .topTrailing
+                case .bottomLeft: return .bottomLeading
+                case .bottomRight: return .bottomTrailing
+                }
+            }
+        }
+        
+        private func centerPosition(for corner: Corner, in containerSize: CGSize, barSize: CGSize) -> CGPoint {
+            let halfWidth = barSize.width / 2 + padding
+            let halfHeight = barSize.height / 2 + padding
+            
+            switch corner {
+            case .topLeft:
+                return CGPoint(x: halfWidth, y: halfHeight)
+            case .topRight:
+                return CGPoint(x: containerSize.width - halfWidth, y: halfHeight)
+            case .bottomLeft:
+                return CGPoint(x: halfWidth, y: containerSize.height - halfHeight)
+            case .bottomRight:
+                return CGPoint(x: containerSize.width - halfWidth, y: containerSize.height - halfHeight)
+            }
+        }
+        
+        private func closestCorner(to point: CGPoint, in containerSize: CGSize) -> Corner {
+            let midX = containerSize.width / 2
+            let midY = containerSize.height / 2
+            
+            if point.x < midX {
+                return point.y < midY ? .topLeft : .bottomLeft
+            } else {
+                return point.y < midY ? .topRight : .bottomRight
+            }
+        }
+    }
+    
     /// A surface is terminology in Ghostty for a terminal surface, or a place where a terminal is actually drawn
     /// and interacted with. The word "surface" is used because a surface may represent a window, a tab,
     /// a split, a small preview pane, etc. It is ANYTHING that has a terminal drawn to it.
