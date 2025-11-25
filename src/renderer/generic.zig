@@ -1217,8 +1217,21 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             if (self.search_matches_dirty or self.terminal_state.dirty != .false) {
                 self.search_matches_dirty = false;
 
-                for (self.terminal_state.row_data.items(.highlights)) |*highlights| {
-                    highlights.clearRetainingCapacity();
+                // Clear the prior highlights
+                const row_data = self.terminal_state.row_data.slice();
+                var any_dirty: bool = false;
+                for (
+                    row_data.items(.highlights),
+                    row_data.items(.dirty),
+                ) |*highlights, *dirty| {
+                    if (highlights.items.len > 0) {
+                        highlights.clearRetainingCapacity();
+                        dirty.* = true;
+                        any_dirty = true;
+                    }
+                }
+                if (any_dirty and self.terminal_state.dirty == .false) {
+                    self.terminal_state.dirty = .partial;
                 }
 
                 // NOTE: The order below matters. Highlights added earlier
@@ -1228,7 +1241,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     self.terminal_state.updateHighlightsFlattened(
                         self.alloc,
                         @intFromEnum(HighlightTag.search_match_selected),
-                        (&m.match)[0..1],
+                        &.{m.match},
                     ) catch |err| {
                         // Not a critical error, we just won't show highlights.
                         log.warn("error updating search selected highlight err={}", .{err});

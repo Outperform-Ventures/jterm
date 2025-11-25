@@ -1392,6 +1392,10 @@ fn searchCallback_(
         // When we quit, tell our renderer to reset any search state.
         .quit => {
             _ = self.renderer_thread.mailbox.push(
+                .{ .search_selected_match = null },
+                .forever,
+            );
+            _ = self.renderer_thread.mailbox.push(
                 .{ .search_viewport_matches = .{
                     .arena = .init(self.alloc),
                     .matches = &.{},
