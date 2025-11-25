@@ -416,12 +416,20 @@ extension Ghostty {
                             Ghostty.moveFocus(to: surfaceView)
                         }
                     
-                    Button(action: {}) {
+                    Button(action: {
+                        guard let surface = surfaceView.surface else { return }
+                        let action = "navigate_search:next"
+                        ghostty_surface_binding_action(surface, action, UInt(action.count))
+                    }) {
                         Image(systemName: "chevron.up")
                     }
                     .buttonStyle(.borderless)
                     
-                    Button(action: {}) {
+                    Button(action: {
+                        guard let surface = surfaceView.surface else { return }
+                        let action = "navigate_search:previous"
+                        ghostty_surface_binding_action(surface, action, UInt(action.count))
+                    }) {
                         Image(systemName: "chevron.down")
                     }
                     .buttonStyle(.borderless)
