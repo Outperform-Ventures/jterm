@@ -279,6 +279,9 @@ fn changeNeedle(self: *Thread, needle: []const u8) !void {
 
     // Stop the previous search
     if (self.search) |*s| {
+        // If our search is unchanged, do nothing.
+        if (std.ascii.eqlIgnoreCase(s.viewport.needle(), needle)) return;
+
         s.deinit();
         self.search = null;
 
