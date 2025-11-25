@@ -537,6 +537,8 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             foreground: terminal.color.RGB,
             selection_background: ?configpkg.Config.TerminalColor,
             selection_foreground: ?configpkg.Config.TerminalColor,
+            search_background: configpkg.Config.TerminalColor,
+            search_foreground: configpkg.Config.TerminalColor,
             bold_color: ?configpkg.BoldColor,
             faint_opacity: u8,
             min_contrast: f32,
@@ -608,6 +610,8 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
                     .selection_background = config.@"selection-background",
                     .selection_foreground = config.@"selection-foreground",
+                    .search_background = config.@"search-background",
+                    .search_foreground = config.@"search-foreground",
 
                     .custom_shaders = custom_shaders,
                     .bg_image = bg_image,
@@ -2552,24 +2556,30 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                         .{};
 
                     // True if this cell is selected
-                    const selected: bool = selected: {
+                    const selected: enum {
+                        false,
+                        selection,
+                        search,
+                    } = selected: {
                         // If we're highlighted, then we're selected. In the
                         // future we want to use a different style for this
                         // but this to get started.
                         for (highlights.items) |hl| {
                             if (x >= hl[0] and x <= hl[1]) {
-                                break :selected true;
+                                break :selected .search;
                             }
                         }
 
-                        const sel = selection orelse break :selected false;
+                        const sel = selection orelse break :selected .false;
                         const x_compare = if (wide == .spacer_tail)
                             x -| 1
                         else
                             x;
 
-                        break :selected x_compare >= sel[0] and
-                            x_compare <= sel[1];
+                        if (x_compare >= sel[0] and
+                            x_compare <= sel[1]) break :selected .selection;
+
+                        break :selected .false;
                     };
 
                     // The `_style` suffixed values are the colors based on
@@ -2586,25 +2596,26 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     });
 
                     // The final background color for the cell.
-                    const bg = bg: {
-                        if (selected) {
-                            // If we have an explicit selection background color
-                            // specified int he config, use that
-                            if (self.config.selection_background) |v| {
-                                break :bg switch (v) {
-                                    .color => |color| color.toTerminalRGB(),
-                                    .@"cell-foreground" => if (style.flags.inverse) bg_style else fg_style,
-                                    .@"cell-background" => if (style.flags.inverse) fg_style else bg_style,
-                                };
-                            }
+                    const bg = switch (selected) {
+                        // If we have an explicit selection background color
+                        // specified in the config, use that.
+                        //
+                        // If no configuration, then our selection background
+                        // is our foreground color.
+                        .selection => if (self.config.selection_background) |v| switch (v) {
+                            .color => |color| color.toTerminalRGB(),
+                            .@"cell-foreground" => if (style.flags.inverse) bg_style else fg_style,
+                            .@"cell-background" => if (style.flags.inverse) fg_style else bg_style,
+                        } else state.colors.foreground,
 
-                            // If no configuration, then our selection background
-                            // is our foreground color.
-                            break :bg state.colors.foreground;
-                        }
+                        .search => switch (self.config.search_background) {
+                            .color => |color| color.toTerminalRGB(),
+                            .@"cell-foreground" => if (style.flags.inverse) bg_style else fg_style,
+                            .@"cell-background" => if (style.flags.inverse) fg_style else bg_style,
+                        },
 
                         // Not selected
-                        break :bg if (style.flags.inverse != isCovering(cell.codepoint()))
+                        .false => if (style.flags.inverse != isCovering(cell.codepoint()))
                             // Two cases cause us to invert (use the fg color as the bg)
                             // - The "inverse" style flag.
                             // - A "covering" glyph; we use fg for bg in that
@@ -2616,7 +2627,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                             fg_style
                         else
                             // Otherwise they cancel out.
-                            bg_style;
+                            bg_style,
                     };
 
                     const fg = fg: {
@@ -2628,23 +2639,24 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                         // - Cell is selected, inverted, and set to cell-foreground
                         // - Cell is selected, not inverted, and set to cell-background
                         // - Cell is inverted and not selected
-                        if (selected) {
-                            // Use the selection foreground if set
-                            if (self.config.selection_foreground) |v| {
-                                break :fg switch (v) {
-                                    .color => |color| color.toTerminalRGB(),
-                                    .@"cell-foreground" => if (style.flags.inverse) final_bg else fg_style,
-                                    .@"cell-background" => if (style.flags.inverse) fg_style else final_bg,
-                                };
-                            }
+                        break :fg switch (selected) {
+                            .selection => if (self.config.selection_foreground) |v| switch (v) {
+                                .color => |color| color.toTerminalRGB(),
+                                .@"cell-foreground" => if (style.flags.inverse) final_bg else fg_style,
+                                .@"cell-background" => if (style.flags.inverse) fg_style else final_bg,
+                            } else state.colors.background,
 
-                            break :fg state.colors.background;
-                        }
+                            .search => switch (self.config.search_foreground) {
+                                .color => |color| color.toTerminalRGB(),
+                                .@"cell-foreground" => if (style.flags.inverse) final_bg else fg_style,
+                                .@"cell-background" => if (style.flags.inverse) fg_style else final_bg,
+                            },
 
-                        break :fg if (style.flags.inverse)
-                            final_bg
-                        else
-                            fg_style;
+                            .false => if (style.flags.inverse)
+                                final_bg
+                            else
+                                fg_style,
+                        };
                     };
 
                     // Foreground alpha for this cell.
@@ -2662,7 +2674,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                             const default: u8 = 255;
 
                             // Cells that are selected should be fully opaque.
-                            if (selected) break :bg_alpha default;
+                            if (selected != .false) break :bg_alpha default;
 
                             // Cells that are reversed should be fully opaque.
                             if (style.flags.inverse) break :bg_alpha default;
