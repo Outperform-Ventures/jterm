@@ -441,6 +441,10 @@ extension Ghostty {
                     }
                     isSearchFieldFocused = true
                 }
+                .onReceive(NotificationCenter.default.publisher(for: .ghosttySearchFocus)) { notification in
+                    guard notification.object as? SurfaceView === surfaceView else { return }
+                    isSearchFieldFocused = true
+                }
                 .background(
                     GeometryReader { barGeo in
                         Color.clear.onAppear {

@@ -1662,7 +1662,11 @@ extension Ghostty {
 
                 let startSearch = Ghostty.Action.StartSearch(c: v)
                 DispatchQueue.main.async {
-                    surfaceView.searchState = Ghostty.SurfaceView.SearchState(from: startSearch)
+                    if surfaceView.searchState != nil {
+                        NotificationCenter.default.post(name: .ghosttySearchFocus, object: surfaceView)
+                    } else {
+                        surfaceView.searchState = Ghostty.SurfaceView.SearchState(from: startSearch)
+                    }
                 }
 
             default:
