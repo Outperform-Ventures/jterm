@@ -257,7 +257,16 @@ fn select(self: *Thread, sel: ScreenSearch.Select) !void {
 
     // The selection will trigger a selection change notification
     // if it did change.
-    try screen_search.select(sel);
+    if (try screen_search.select(sel)) scroll: {
+        if (screen_search.selected) |m| {
+            // Selection changed, let's scroll the viewport to see it
+            // since we have the lock anyways.
+            const screen = self.opts.terminal.screens.get(
+                s.last_screen.key,
+            ) orelse break :scroll;
+            screen.scroll(.{ .pin = m.highlight.start.* });
+        }
+    }
 }
 
 /// Change the search term to the given value.

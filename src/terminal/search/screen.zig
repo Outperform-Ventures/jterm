@@ -398,8 +398,10 @@ pub const ScreenSearch = struct {
             self.selected = null;
             break :select_prev true;
         };
-        defer if (select_prev) self.select(.prev) catch |err| {
-            log.info("reload failed to reset search selection err={}", .{err});
+        defer if (select_prev) {
+            _ = self.select(.prev) catch |err| {
+                log.info("reload failed to reset search selection err={}", .{err});
+            };
         };
 
         const alloc = self.allocator();
@@ -526,7 +528,7 @@ pub const ScreenSearch = struct {
             if (self.selected) |*m| {
                 m.deinit(self.screen);
                 self.selected = null;
-                self.select(.next) catch |err| {
+                _ = self.select(.next) catch |err| {
                     log.info("reload failed to reset search selection err={}", .{err});
                 };
             }
@@ -578,7 +580,7 @@ pub const ScreenSearch = struct {
             // No match, just go back to the first match.
             m.deinit(self.screen);
             self.selected = null;
-            self.select(.next) catch |err| {
+            _ = self.select(.next) catch |err| {
                 log.info("reload failed to reset search selection err={}", .{err});
             };
         }
@@ -615,20 +617,20 @@ pub const ScreenSearch = struct {
     /// Select the next or previous search result. This requires read/write
     /// access to the underlying screen, since we utilize tracked pins to
     /// ensure our selection sticks with contents changing.
-    pub fn select(self: *ScreenSearch, to: Select) Allocator.Error!void {
+    pub fn select(self: *ScreenSearch, to: Select) Allocator.Error!bool {
         // All selection requires valid pins so we prune history and
         // reload our active area immediately. This ensures all search
         // results point to valid nodes.
         try self.reloadActive();
         self.pruneHistory();
 
-        switch (to) {
+        return switch (to) {
             .next => try self.selectNext(),
             .prev => try self.selectPrev(),
-        }
+        };
     }
 
-    fn selectNext(self: *ScreenSearch) Allocator.Error!void {
+    fn selectNext(self: *ScreenSearch) Allocator.Error!bool {
         // Get our previous match so we can change it. If we have no
         // prior match, we have the easy task of getting the first.
         var prev = if (self.selected) |*m| m else {
@@ -643,7 +645,7 @@ pub const ScreenSearch = struct {
                     break :hl self.history_results.items[0];
                 } else {
                     // No matches at all. Can't select anything.
-                    return;
+                    return false;
                 }
             };
 
@@ -657,7 +659,7 @@ pub const ScreenSearch = struct {
                 .idx = 0,
                 .highlight = tracked,
             };
-            return;
+            return true;
         };
 
         const next_idx = prev.idx + 1;
@@ -665,7 +667,7 @@ pub const ScreenSearch = struct {
         const history_len = self.history_results.items.len;
         if (next_idx >= active_len + history_len) {
             // No more matches. We don't wrap or reset the match currently.
-            return;
+            return false;
         }
         const hl: FlattenedHighlight = if (next_idx < active_len)
             self.active_results.items[active_len - 1 - next_idx]
@@ -682,9 +684,11 @@ pub const ScreenSearch = struct {
             .idx = next_idx,
             .highlight = tracked,
         };
+
+        return true;
     }
 
-    fn selectPrev(self: *ScreenSearch) Allocator.Error!void {
+    fn selectPrev(self: *ScreenSearch) Allocator.Error!bool {
         // Get our previous match so we can change it. If we have no
         // prior match, we have the easy task of getting the last.
         var prev = if (self.selected) |*m| m else {
@@ -699,7 +703,7 @@ pub const ScreenSearch = struct {
                     break :hl self.active_results.items[0];
                 } else {
                     // No matches at all. Can't select anything.
-                    return;
+                    return false;
                 }
             };
 
@@ -715,13 +719,13 @@ pub const ScreenSearch = struct {
                 .idx = active_len + history_len - 1,
                 .highlight = tracked,
             };
-            return;
+            return true;
         };
 
         // Can't go below zero
         if (prev.idx == 0) {
             // No more matches. We don't wrap or reset the match currently.
-            return;
+            return false;
         }
 
         const next_idx = prev.idx - 1;
@@ -741,6 +745,8 @@ pub const ScreenSearch = struct {
             .idx = next_idx,
             .highlight = tracked,
         };
+
+        return true;
     }
 };
 
@@ -972,7 +978,7 @@ test "select next" {
 
     // Select our next match (first)
     try search.searchAll();
-    try search.select(.next);
+    _ = try search.select(.next);
     {
         const sel = search.selectedMatch().?.untracked();
         try testing.expectEqual(point.Point{ .screen = .{
@@ -986,7 +992,7 @@ test "select next" {
     }
 
     // Next match
-    try search.select(.next);
+    _ = try search.select(.next);
     {
         const sel = search.selectedMatch().?.untracked();
         try testing.expectEqual(point.Point{ .screen = .{
@@ -1000,7 +1006,7 @@ test "select next" {
     }
 
     // Next match (no wrap)
-    try search.select(.next);
+    _ = try search.select(.next);
     {
         const sel = search.selectedMatch().?.untracked();
         try testing.expectEqual(point.Point{ .screen = .{
@@ -1026,8 +1032,8 @@ test "select in active changes contents completely" {
     var search: ScreenSearch = try .init(alloc, t.screens.active, "Fizz");
     defer search.deinit();
     try search.searchAll();
-    try search.select(.next);
-    try search.select(.next);
+    _ = try search.select(.next);
+    _ = try search.select(.next);
     {
         // Initial selection is the first fizz
         const sel = search.selectedMatch().?.untracked();
@@ -1101,7 +1107,7 @@ test "select into history" {
     try search.searchAll();
 
     // Get all matches
-    try search.select(.next);
+    _ = try search.select(.next);
     {
         const sel = search.selectedMatch().?.untracked();
         try testing.expectEqual(point.Point{ .screen = .{
@@ -1167,7 +1173,7 @@ test "select prev" {
 
     // Select prev (oldest first)
     try search.searchAll();
-    try search.select(.prev);
+    _ = try search.select(.prev);
     {
         const sel = search.selectedMatch().?.untracked();
         try testing.expectEqual(point.Point{ .screen = .{
@@ -1181,7 +1187,7 @@ test "select prev" {
     }
 
     // Prev match (towards newest)
-    try search.select(.prev);
+    _ = try search.select(.prev);
     {
         const sel = search.selectedMatch().?.untracked();
         try testing.expectEqual(point.Point{ .screen = .{
@@ -1195,7 +1201,7 @@ test "select prev" {
     }
 
     // Prev match (no wrap, stays at newest)
-    try search.select(.prev);
+    _ = try search.select(.prev);
     {
         const sel = search.selectedMatch().?.untracked();
         try testing.expectEqual(point.Point{ .screen = .{
@@ -1223,7 +1229,7 @@ test "select prev then next" {
     try search.searchAll();
 
     // Select next (newest first)
-    try search.select(.next);
+    _ = try search.select(.next);
     {
         const sel = search.selectedMatch().?.untracked();
         try testing.expectEqual(point.Point{ .screen = .{
@@ -1233,7 +1239,7 @@ test "select prev then next" {
     }
 
     // Select next (older)
-    try search.select(.next);
+    _ = try search.select(.next);
     {
         const sel = search.selectedMatch().?.untracked();
         try testing.expectEqual(point.Point{ .screen = .{
@@ -1243,7 +1249,7 @@ test "select prev then next" {
     }
 
     // Select prev (back to newer)
-    try search.select(.prev);
+    _ = try search.select(.prev);
     {
         const sel = search.selectedMatch().?.untracked();
         try testing.expectEqual(point.Point{ .screen = .{
@@ -1276,7 +1282,7 @@ test "select prev with history" {
     try search.searchAll();
 
     // Select prev (oldest first, should be in history)
-    try search.select(.prev);
+    _ = try search.select(.prev);
     {
         const sel = search.selectedMatch().?.untracked();
         try testing.expectEqual(point.Point{ .screen = .{
@@ -1290,7 +1296,7 @@ test "select prev with history" {
     }
 
     // Select prev (towards newer, should move to active area)
-    try search.select(.prev);
+    _ = try search.select(.prev);
     {
         const sel = search.selectedMatch().?.untracked();
         try testing.expectEqual(point.Point{ .active = .{
