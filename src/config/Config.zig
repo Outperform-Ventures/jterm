@@ -6403,6 +6403,14 @@ pub const Keybinds = struct {
                 .{ .jump_to_prompt = 1 },
             );
 
+            // Search
+            try self.set.putFlags(
+                alloc,
+                .{ .key = .{ .unicode = 'f' }, .mods = .{ .super = true } },
+                .start_search,
+                .{ .performable = true },
+            );
+
             // Inspector, matching Chromium
             try self.set.put(
                 alloc,
