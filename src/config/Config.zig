@@ -6410,6 +6410,12 @@ pub const Keybinds = struct {
                 .start_search,
                 .{ .performable = true },
             );
+            try self.set.putFlags(
+                alloc,
+                .{ .key = .{ .physical = .escape } },
+                .{ .search = "" },
+                .{ .performable = true },
+            );
 
             // Inspector, matching Chromium
             try self.set.put(

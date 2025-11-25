@@ -304,6 +304,9 @@ pub const Action = union(Key) {
     /// Start the search overlay with an optional initial needle.
     start_search: StartSearch,
 
+    /// End the search overlay, clearing the search state and hiding it.
+    end_search,
+
     /// Sync with: ghostty_action_tag_e
     pub const Key = enum(c_int) {
         quit,
@@ -362,6 +365,7 @@ pub const Action = union(Key) {
         show_on_screen_keyboard,
         command_finished,
         start_search,
+        end_search,
     };
 
     /// Sync with: ghostty_action_u

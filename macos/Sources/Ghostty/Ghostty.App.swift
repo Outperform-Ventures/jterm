@@ -609,6 +609,9 @@ extension Ghostty {
             case GHOSTTY_ACTION_START_SEARCH:
                 startSearch(app, target: target, v: action.action.start_search)
 
+            case GHOSTTY_ACTION_END_SEARCH:
+                endSearch(app, target: target)
+
             case GHOSTTY_ACTION_TOGGLE_TAB_OVERVIEW:
                 fallthrough
             case GHOSTTY_ACTION_TOGGLE_WINDOW_DECORATIONS:
@@ -1660,6 +1663,27 @@ extension Ghostty {
                 let startSearch = Ghostty.Action.StartSearch(c: v)
                 DispatchQueue.main.async {
                     surfaceView.searchState = Ghostty.SurfaceView.SearchState(from: startSearch)
+                }
+
+            default:
+                assertionFailure()
+            }
+        }
+
+        private static func endSearch(
+            _ app: ghostty_app_t,
+            target: ghostty_target_s) {
+            switch (target.tag) {
+            case GHOSTTY_TARGET_APP:
+                Ghostty.logger.warning("end_search does nothing with an app target")
+                return
+
+            case GHOSTTY_TARGET_SURFACE:
+                guard let surface = target.target.surface else { return }
+                guard let surfaceView = self.surfaceView(from: surface) else { return }
+
+                DispatchQueue.main.async {
+                    surfaceView.searchState = nil
                 }
 
             default:
