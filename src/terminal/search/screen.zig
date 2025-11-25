@@ -90,6 +90,11 @@ pub const ScreenSearch = struct {
         pub fn needsFeed(self: State) bool {
             return switch (self) {
                 .history_feed => true,
+
+                // Not obvious but complete search states will prune
+                // stale history results on feed.
+                .complete => true,
+
                 else => false,
             };
         }
@@ -216,6 +221,9 @@ pub const ScreenSearch = struct {
 
     /// Feed more data to the searcher so it can continue searching. This
     /// accesses the screen state, so the caller must hold the necessary locks.
+    ///
+    /// Feed on a complete screen search will perform some cleanup of
+    /// potentially stale history results (pruned) and reclaim some memory.
     pub fn feed(self: *ScreenSearch) Allocator.Error!void {
         const history: *PageListSearch = if (self.history) |*h| &h.searcher else {
             // No history to feed, search is complete.
@@ -228,6 +236,11 @@ pub const ScreenSearch = struct {
         if (!try history.feed()) {
             // No more data to feed, search is complete.
             self.state = .complete;
+
+            // We use this opportunity to also clean up older history
+            // results that may be gone due to scrollback pruning, though.
+            self.pruneHistory();
+
             return;
         }
 
@@ -243,6 +256,55 @@ pub const ScreenSearch = struct {
             // If we're complete then the feed call above should always
             // return false and we can't reach this.
             .complete => unreachable,
+        }
+    }
+
+    fn pruneHistory(self: *ScreenSearch) void {
+        const history: *PageListSearch = if (self.history) |*h| &h.searcher else return;
+
+        // Keep track of the last checked node to avoid redundant work.
+        var last_checked: ?*PageList.List.Node = null;
+
+        // Go through our history results in reverse order to find
+        // the oldest matches first (since oldest nodes are pruned first).
+        for (0..self.history_results.items.len) |rev_i| {
+            const i = self.history_results.items.len - 1 - rev_i;
+            const node = node: {
+                const hl = &self.history_results.items[i];
+                break :node hl.chunks.items(.node)[0];
+            };
+
+            // If this is the same node as what we last checked and
+            // found to prune, then continue until we find the first
+            // non-matching, non-pruned node so we can prune the older
+            // ones.
+            if (last_checked == node) continue;
+            last_checked = node;
+
+            // Try to find this node in the PageList using a standard
+            // O(N) traversal. This isn't as bad as it seems because our
+            // oldest matches are likely to be near the start of the
+            // list and as soon as we find one we're done.
+            var it = history.list.pages.first;
+            while (it) |valid_node| : (it = valid_node.next) {
+                if (valid_node != node) continue;
+
+                // This is a valid node. If we're not at rev_i 0 then
+                // it means we have some data to prune! If we are
+                // at rev_i 0 then we can break out because there
+                // is nothing to prune.
+                if (rev_i == 0) return;
+
+                // Prune the last rev_i items.
+                const alloc = self.allocator();
+                for (self.history_results.items[i + 1 ..]) |*prune_hl| {
+                    prune_hl.deinit(alloc);
+                }
+                self.history_results.shrinkAndFree(alloc, i);
+
+                // Once we've pruned, future results can't be invalid.
+                return;
+            }
         }
     }
 
