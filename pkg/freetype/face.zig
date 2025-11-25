@@ -252,8 +252,12 @@ pub const RenderMode = enum(c_uint) {
     sdf = c.FT_RENDER_MODE_SDF,
 };
 
-/// A list of bit field constants for FT_Load_Glyph to indicate what kind of
-/// operations to perform during glyph loading.
+/// A collection of flags for FT_Load_Glyph that indicate
+/// what kind of operations to perform during glyph loading.
+///
+/// Some of these flags are not included in the official FreeType
+/// documentation, but are nevertheless present and named in the
+/// header, so the names have been copied from there.
 pub const LoadFlags = packed struct(c_int) {
     no_scale: bool = false,
     no_hinting: bool = false,
@@ -263,7 +267,7 @@ pub const LoadFlags = packed struct(c_int) {
     force_autohint: bool = false,
     crop_bitmap: bool = false,
     pedantic: bool = false,
-    _padding1: u1 = 0,
+    advance_only: bool = false,
     ignore_global_advance_width: bool = false,
     no_recurse: bool = false,
     ignore_transform: bool = false,
@@ -271,17 +275,13 @@ pub const LoadFlags = packed struct(c_int) {
     linear_design: bool = false,
     sbits_only: bool = false,
     no_autohint: bool = false,
-    target_normal: bool = false,
-    target_light: bool = false,
-    target_mono: bool = false,
-    target_lcd: bool = false,
+    target: Target = .normal,
     color: bool = false,
-    target_lcd_v: bool = false,
     compute_metrics: bool = false,
     bitmap_metrics_only: bool = false,
-    _padding2: u1 = 0,
+    svg_only: bool = false,
     no_svg: bool = false,
-    _padding3: u6 = 0,
+    _padding: u7 = 0,
 
     pub const Target = enum(u4) {
         normal = 0,
