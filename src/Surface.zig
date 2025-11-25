@@ -1363,6 +1363,32 @@ fn searchCallback_(
             try self.renderer_thread.wakeup.notify();
         },
 
+        .selected_match => |selected_| {
+            if (selected_) |sel| {
+                // Copy the flattened match.
+                var arena: ArenaAllocator = .init(self.alloc);
+                errdefer arena.deinit();
+                const alloc = arena.allocator();
+                const match = try sel.highlight.clone(alloc);
+
+                _ = self.renderer_thread.mailbox.push(
+                    .{ .search_selected_match = .{
+                        .arena = arena,
+                        .match = match,
+                    } },
+                    .forever,
+                );
+            } else {
+                // Reset our selected match
+                _ = self.renderer_thread.mailbox.push(
+                    .{ .search_selected_match = null },
+                    .forever,
+                );
+            }
+
+            try self.renderer_thread.wakeup.notify();
+        },
+
         // When we quit, tell our renderer to reset any search state.
         .quit => {
             _ = self.renderer_thread.mailbox.push(
@@ -4892,6 +4918,19 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
                 .{ .change_needle = text },
                 .forever,
             );
+            s.state.wakeup.notify() catch {};
+        },
+
+        .navigate_search => |nav| {
+            const s: *Search = if (self.search) |*s| s else return false;
+            _ = s.state.mailbox.push(
+                .{ .select = switch (nav) {
+                    .next => .next,
+                    .previous => .prev,
+                } },
+                .forever,
+            );
+            s.state.wakeup.notify() catch {};
         },
 
         .copy_to_clipboard => |format| {

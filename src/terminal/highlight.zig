@@ -32,6 +32,21 @@ const Screen = @import("Screen.zig");
 pub const Untracked = struct {
     start: Pin,
     end: Pin,
+
+    pub fn track(
+        self: *const Untracked,
+        screen: *Screen,
+    ) Allocator.Error!Tracked {
+        return try .init(
+            screen,
+            self.start,
+            self.end,
+        );
+    }
+
+    pub fn eql(self: Untracked, other: Untracked) bool {
+        return self.start.eql(other.start) and self.end.eql(other.end);
+    }
 };
 
 /// A tracked highlight is a highlight that stores its highlighted
@@ -144,8 +159,19 @@ pub const Flattened = struct {
         };
     }
 
+    pub fn startPin(self: Flattened) Pin {
+        const slice = self.chunks.slice();
+        return .{
+            .node = slice.items(.node)[0],
+            .x = self.top_x,
+            .y = slice.items(.start)[0],
+        };
+    }
+
     /// Convert to an Untracked highlight.
     pub fn untracked(self: Flattened) Untracked {
+        // Note: we don't use startPin/endPin here because it is slightly
+        // faster to reuse the slices.
         const slice = self.chunks.slice();
         const nodes = slice.items(.node);
         const starts = slice.items(.start);
