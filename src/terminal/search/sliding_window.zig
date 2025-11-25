@@ -174,7 +174,7 @@ pub const SlidingWindow = struct {
         };
 
         // Search the first slice for the needle.
-        if (std.mem.indexOf(u8, slices[0], self.needle)) |idx| {
+        if (std.ascii.indexOfIgnoreCase(slices[0], self.needle)) |idx| {
             return self.highlight(
                 idx,
                 self.needle.len,
@@ -200,8 +200,7 @@ pub const SlidingWindow = struct {
             @memcpy(self.overlap_buf[prefix.len..overlap_len], suffix);
 
             // Search the overlap
-            const idx = std.mem.indexOf(
-                u8,
+            const idx = std.ascii.indexOfIgnoreCase(
                 self.overlap_buf[0..overlap_len],
                 self.needle,
             ) orelse break :overlap;
@@ -215,7 +214,7 @@ pub const SlidingWindow = struct {
         }
 
         // Search the last slice for the needle.
-        if (std.mem.indexOf(u8, slices[1], self.needle)) |idx| {
+        if (std.ascii.indexOfIgnoreCase(slices[1], self.needle)) |idx| {
             return self.highlight(
                 slices[0].len + idx,
                 self.needle.len,
@@ -660,6 +659,50 @@ test "SlidingWindow single append" {
     try testing.expect(w.next() == null);
 }
 
+test "SlidingWindow single append case insensitive ASCII" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var w: SlidingWindow = try .init(alloc, .forward, "Boo!");
+    defer w.deinit();
+
+    var s = try Screen.init(alloc, .{ .cols = 80, .rows = 24, .max_scrollback = 0 });
+    defer s.deinit();
+    try s.testWriteString("hello. boo! hello. boo!");
+
+    // We want to test single-page cases.
+    try testing.expect(s.pages.pages.first == s.pages.pages.last);
+    const node: *PageList.List.Node = s.pages.pages.first.?;
+    _ = try w.append(node);
+
+    // We should be able to find two matches.
+    {
+        const h = w.next().?;
+        const sel = h.untracked();
+        try testing.expectEqual(point.Point{ .active = .{
+            .x = 7,
+            .y = 0,
+        } }, s.pages.pointFromPin(.active, sel.start));
+        try testing.expectEqual(point.Point{ .active = .{
+            .x = 10,
+            .y = 0,
+        } }, s.pages.pointFromPin(.active, sel.end));
+    }
+    {
+        const h = w.next().?;
+        const sel = h.untracked();
+        try testing.expectEqual(point.Point{ .active = .{
+            .x = 19,
+            .y = 0,
+        } }, s.pages.pointFromPin(.active, sel.start));
+        try testing.expectEqual(point.Point{ .active = .{
+            .x = 22,
+            .y = 0,
+        } }, s.pages.pointFromPin(.active, sel.end));
+    }
+    try testing.expect(w.next() == null);
+    try testing.expect(w.next() == null);
+}
 test "SlidingWindow single append no match" {
     const testing = std.testing;
     const alloc = testing.allocator;
