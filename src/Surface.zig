@@ -4918,6 +4918,19 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
                 .{ .change_needle = text },
                 .forever,
             );
+            s.state.wakeup.notify() catch {};
+        },
+
+        .navigate_search => |nav| {
+            const s: *Search = if (self.search) |*s| s else return false;
+            _ = s.state.mailbox.push(
+                .{ .select = switch (nav) {
+                    .next => .next,
+                    .previous => .prev,
+                } },
+                .forever,
+            );
+            s.state.wakeup.notify() catch {};
         },
 
         .copy_to_clipboard => |format| {
