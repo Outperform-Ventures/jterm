@@ -32,6 +32,17 @@ const Screen = @import("Screen.zig");
 pub const Untracked = struct {
     start: Pin,
     end: Pin,
+
+    pub fn track(
+        self: *const Untracked,
+        screen: *Screen,
+    ) Allocator.Error!Tracked {
+        return try .init(
+            screen,
+            self.start,
+            self.end,
+        );
+    }
 };
 
 /// A tracked highlight is a highlight that stores its highlighted

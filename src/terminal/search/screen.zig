@@ -3,7 +3,9 @@ const assert = @import("../../quirks.zig").inlineAssert;
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
 const point = @import("../point.zig");
-const FlattenedHighlight = @import("../highlight.zig").Flattened;
+const highlight = @import("../highlight.zig");
+const FlattenedHighlight = highlight.Flattened;
+const TrackedHighlight = highlight.Tracked;
 const PageList = @import("../PageList.zig");
 const Pin = PageList.Pin;
 const Screen = @import("../Screen.zig");
@@ -41,12 +43,29 @@ pub const ScreenSearch = struct {
     /// Current state of the search, a state machine.
     state: State,
 
+    /// The currently selected match, if any. As the screen contents
+    /// change or get pruned, the screen search will do its best to keep
+    /// this accurate.
+    selected: ?SelectedMatch = null,
+
     /// The results found so far. These are stored separately because history
     /// is mostly immutable once found, while active area results may
     /// change. This lets us easily reset the active area results for a
     /// re-search scenario.
     history_results: std.ArrayList(FlattenedHighlight),
     active_results: std.ArrayList(FlattenedHighlight),
+
+    const SelectedMatch = struct {
+        /// Index from the end of the match list (0 = most recent match)
+        idx: usize,
+
+        /// Tracked highlight so we can detect movement.
+        highlight: TrackedHighlight,
+
+        pub fn deinit(self: *SelectedMatch, screen: *Screen) void {
+            self.highlight.deinit(screen);
+        }
+    };
 
     /// History search state.
     const HistorySearch = struct {
@@ -126,6 +145,7 @@ pub const ScreenSearch = struct {
         const alloc = self.allocator();
         self.active.deinit();
         if (self.history) |*h| h.deinit(self.screen);
+        if (self.selected) |*m| m.deinit(self.screen);
         for (self.active_results.items) |*hl| hl.deinit(alloc);
         self.active_results.deinit(alloc);
         for (self.history_results.items) |*hl| hl.deinit(alloc);
@@ -473,6 +493,100 @@ pub const ScreenSearch = struct {
             },
         }
     }
+
+    pub const Select = enum {
+        /// Next selection, in reverse order (newest to oldest)
+        next,
+    };
+
+    /// Return the selected match.
+    ///
+    /// This does not require read/write access to the underlying screen.
+    pub fn selectedMatch(self: *const ScreenSearch) ?FlattenedHighlight {
+        const sel = self.selected orelse return null;
+        const active_len = self.active_results.items.len;
+        if (sel.idx < active_len) {
+            return self.active_results.items[active_len - 1 - sel.idx];
+        }
+
+        const history_len = self.history_results.items.len;
+        if (sel.idx < active_len + history_len) {
+            return self.history_results.items[sel.idx - active_len];
+        }
+
+        return null;
+    }
+
+    /// Select the next or previous search result. This requires read/write
+    /// access to the underlying screen, since we utilize tracked pins to
+    /// ensure our selection sticks with contents changing.
+    pub fn select(self: *ScreenSearch, to: Select) Allocator.Error!void {
+        switch (to) {
+            .next => try self.selectNext(),
+        }
+    }
+
+    fn selectNext(self: *ScreenSearch) Allocator.Error!void {
+        // All selection requires valid pins so we prune history and
+        // reload our active area immediately. This ensures all search
+        // results point to valid nodes.
+        try self.reloadActive();
+        self.pruneHistory();
+
+        // Get our previous match so we can change it. If we have no
+        // prior match, we have the easy task of getting the first.
+        var prev = if (self.selected) |*m| m else {
+            // Get our highlight
+            const hl: FlattenedHighlight = hl: {
+                if (self.active_results.items.len > 0) {
+                    // Active is in forward order
+                    const len = self.active_results.items.len;
+                    break :hl self.active_results.items[len - 1];
+                } else if (self.history_results.items.len > 0) {
+                    // History is in reverse order
+                    break :hl self.history_results.items[0];
+                } else {
+                    // No matches at all. Can't select anything.
+                    return;
+                }
+            };
+
+            // Pin it so we can track any movement
+            const tracked = try hl.untracked().track(self.screen);
+            errdefer tracked.deinit(self.screen);
+
+            // Our selection is index zero since we just started and
+            // we store our selection.
+            self.selected = .{
+                .idx = 0,
+                .highlight = tracked,
+            };
+            return;
+        };
+
+        const next_idx = prev.idx + 1;
+        const active_len = self.active_results.items.len;
+        const history_len = self.history_results.items.len;
+        if (next_idx >= active_len + history_len) {
+            // No more matches. We don't wrap or reset the match currently.
+            return;
+        }
+        const hl: FlattenedHighlight = if (next_idx < active_len)
+            self.active_results.items[active_len - 1 - next_idx]
+        else
+            self.history_results.items[next_idx - active_len];
+
+        // Pin it so we can track any movement
+        const tracked = try hl.untracked().track(self.screen);
+        errdefer tracked.deinit(self.screen);
+
+        // Free our previous match and setup our new selection
+        prev.deinit(self.screen);
+        self.selected = .{
+            .idx = next_idx,
+            .highlight = tracked,
+        };
+    }
 };
 
 test "simple search" {
@@ -682,6 +796,65 @@ test "active change contents" {
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 3,
             .y = 1,
+        } }, t.screens.active.pages.pointFromPin(.screen, sel.end).?);
+    }
+}
+
+test "select next" {
+    const alloc = testing.allocator;
+    var t: Terminal = try .init(alloc, .{ .cols = 10, .rows = 2 });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+    try s.nextSlice("Fizz\r\nBuzz\r\nFizz\r\nBang");
+
+    var search: ScreenSearch = try .init(alloc, t.screens.active, "Fizz");
+    defer search.deinit();
+
+    // Initially no selection
+    try testing.expect(search.selectedMatch() == null);
+
+    // Select our next match (first)
+    try search.searchAll();
+    try search.select(.next);
+    {
+        const sel = search.selectedMatch().?.untracked();
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 2,
+        } }, t.screens.active.pages.pointFromPin(.screen, sel.start).?);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 3,
+            .y = 2,
+        } }, t.screens.active.pages.pointFromPin(.screen, sel.end).?);
+    }
+
+    // Next match
+    try search.select(.next);
+    {
+        const sel = search.selectedMatch().?.untracked();
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 0,
+        } }, t.screens.active.pages.pointFromPin(.screen, sel.start).?);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 3,
+            .y = 0,
+        } }, t.screens.active.pages.pointFromPin(.screen, sel.end).?);
+    }
+
+    // Next match (no wrap)
+    try search.select(.next);
+    {
+        const sel = search.selectedMatch().?.untracked();
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 0,
+        } }, t.screens.active.pages.pointFromPin(.screen, sel.start).?);
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 3,
+            .y = 0,
         } }, t.screens.active.pages.pointFromPin(.screen, sel.end).?);
     }
 }
