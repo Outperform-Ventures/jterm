@@ -340,6 +340,10 @@ pub const Action = union(enum) {
     /// is not performed.
     navigate_search: NavigateSearch,
 
+    /// Start a search if it isn't started already. This doesn't set any
+    /// search terms, but opens the UI for searching.
+    start_search,
+
     /// Clear the screen and all scrollback.
     clear_screen,
 
@@ -1167,6 +1171,7 @@ pub const Action = union(enum) {
             .cursor_key,
             .search,
             .navigate_search,
+            .start_search,
             .reset,
             .copy_to_clipboard,
             .copy_url_to_clipboard,

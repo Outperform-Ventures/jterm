@@ -163,6 +163,12 @@ fn actionCommands(action: Action.Key) []const Command {
             .description = "Paste the contents of the selection clipboard.",
         }},
 
+        .start_search => comptime &.{.{
+            .action = .start_search,
+            .title = "Start Search",
+            .description = "Start a search if one isn't already active.",
+        }},
+
         .navigate_search => comptime &.{ .{
             .action = .{ .navigate_search = .next },
             .title = "Next Search Result",

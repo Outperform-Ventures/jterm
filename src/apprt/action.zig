@@ -301,6 +301,9 @@ pub const Action = union(Key) {
     /// A command has finished,
     command_finished: CommandFinished,
 
+    /// Start the search overlay with an optional initial needle.
+    start_search: StartSearch,
+
     /// Sync with: ghostty_action_tag_e
     pub const Key = enum(c_int) {
         quit,
@@ -358,6 +361,7 @@ pub const Action = union(Key) {
         progress_report,
         show_on_screen_keyboard,
         command_finished,
+        start_search,
     };
 
     /// Sync with: ghostty_action_u
@@ -767,6 +771,21 @@ pub const CommandFinished = struct {
         return .{
             .exit_code = self.exit_code orelse -1,
             .duration = self.duration.duration,
+        };
+    }
+};
+
+pub const StartSearch = struct {
+    needle: [:0]const u8,
+
+    // Sync with: ghostty_action_start_search_s
+    pub const C = extern struct {
+        needle: [*:0]const u8,
+    };
+
+    pub fn cval(self: StartSearch) C {
+        return .{
+            .needle = self.needle.ptr,
         };
     }
 };

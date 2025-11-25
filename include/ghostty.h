@@ -747,6 +747,11 @@ typedef struct {
   uint64_t duration;
 } ghostty_action_command_finished_s;
 
+// apprt.action.StartSearch.C
+typedef struct {
+  const char* needle;
+} ghostty_action_start_search_s;
+
 // terminal.Scrollbar
 typedef struct {
   uint64_t total;
@@ -811,6 +816,7 @@ typedef enum {
   GHOSTTY_ACTION_PROGRESS_REPORT,
   GHOSTTY_ACTION_SHOW_ON_SCREEN_KEYBOARD,
   GHOSTTY_ACTION_COMMAND_FINISHED,
+  GHOSTTY_ACTION_START_SEARCH,
 } ghostty_action_tag_e;
 
 typedef union {
@@ -844,6 +850,7 @@ typedef union {
   ghostty_surface_message_childexited_s child_exited;
   ghostty_action_progress_report_s progress_report;
   ghostty_action_command_finished_s command_finished;
+  ghostty_action_start_search_s start_search;
 } ghostty_action_u;
 
 typedef struct {

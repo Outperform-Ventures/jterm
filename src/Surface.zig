@@ -4877,6 +4877,17 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             self.renderer_state.terminal.fullReset();
         },
 
+        .start_search => if (self.search == null) {
+            // To save resources, we don't actually start a search here,
+            // we just notify teh apprt. The real thread will start when
+            // the first needles are set.
+            _ = try self.rt_app.performAction(
+                .{ .surface = self },
+                .start_search,
+                .{ .needle = "" },
+            );
+        } else return false,
+
         .search => |text| search: {
             const s: *Search = if (self.search) |*s| s else init: {
                 // If we're stopping the search and we had no prior search,
