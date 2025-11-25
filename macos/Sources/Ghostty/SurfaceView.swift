@@ -200,7 +200,7 @@ extension Ghostty {
 
                 // Search overlay
                 if surfaceView.searchState != nil {
-                    SurfaceSearchOverlay(searchState: $surfaceView.searchState)
+                    SurfaceSearchOverlay(surfaceView: surfaceView, searchState: $surfaceView.searchState)
                 }
 
                 // Show bell border if enabled
@@ -389,6 +389,7 @@ extension Ghostty {
 
     /// Search overlay view that displays a search bar with input field and navigation buttons.
     struct SurfaceSearchOverlay: View {
+        let surfaceView: SurfaceView
         @Binding var searchState: SurfaceView.SearchState?
         @State private var searchText: String = ""
         @State private var corner: Corner = .topRight
@@ -409,6 +410,9 @@ extension Ghostty {
                         .background(Color.primary.opacity(0.1))
                         .cornerRadius(6)
                         .focused($isSearchFieldFocused)
+                        .onExitCommand {
+                            Ghostty.moveFocus(to: surfaceView)
+                        }
                     
                     Button(action: {}) {
                         Image(systemName: "chevron.up")
