@@ -65,7 +65,17 @@ extension Ghostty {
         @Published var keySequence: [KeyboardShortcut] = []
 
         // The current search state. When non-nil, the search overlay should be shown.
-        @Published var searchState: SearchState? = nil
+        @Published var searchState: SearchState? = nil {
+            didSet {
+                // If the search state becomes nil, we need to make sure we're stopping
+                // the search internally.
+                if searchState == nil {
+                    guard let surface = self.surface else { return }
+                    let action = "search:"
+                    ghostty_surface_binding_action(surface, action, UInt(action.count))
+                }
+            }
+        }
 
         // The time this surface last became focused. This is a ContinuousClock.Instant
         // on supported platforms.
