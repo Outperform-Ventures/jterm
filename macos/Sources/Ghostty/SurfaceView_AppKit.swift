@@ -88,13 +88,13 @@ extension Ghostty {
                         .sink { [weak self] needle in
                             guard let surface = self?.surface else { return }
                             let action = "search:\(needle)"
-                            ghostty_surface_binding_action(surface, action, UInt(action.count))
+                            ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8)))
                         }
                 } else if oldValue != nil {
                     searchNeedleCancellable = nil
                     guard let surface = self.surface else { return }
                     let action = "end_search"
-                    ghostty_surface_binding_action(surface, action, UInt(action.count))
+                    ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8)))
                 }
             }
         }
@@ -1448,7 +1448,7 @@ extension Ghostty {
         @IBAction func copy(_ sender: Any?) {
             guard let surface = self.surface else { return }
             let action = "copy_to_clipboard"
-            if (!ghostty_surface_binding_action(surface, action, UInt(action.count))) {
+            if (!ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8)))) {
                 AppDelegate.logger.warning("action failed action=\(action)")
             }
         }
@@ -1456,7 +1456,7 @@ extension Ghostty {
         @IBAction func paste(_ sender: Any?) {
             guard let surface = self.surface else { return }
             let action = "paste_from_clipboard"
-            if (!ghostty_surface_binding_action(surface, action, UInt(action.count))) {
+            if (!ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8)))) {
                 AppDelegate.logger.warning("action failed action=\(action)")
             }
         }
@@ -1465,7 +1465,7 @@ extension Ghostty {
         @IBAction func pasteAsPlainText(_ sender: Any?) {
             guard let surface = self.surface else { return }
             let action = "paste_from_clipboard"
-            if (!ghostty_surface_binding_action(surface, action, UInt(action.count))) {
+            if (!ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8)))) {
                 AppDelegate.logger.warning("action failed action=\(action)")
             }
         }
@@ -1473,7 +1473,7 @@ extension Ghostty {
         @IBAction func pasteSelection(_ sender: Any?) {
             guard let surface = self.surface else { return }
             let action = "paste_from_selection"
-            if (!ghostty_surface_binding_action(surface, action, UInt(action.count))) {
+            if (!ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8)))) {
                 AppDelegate.logger.warning("action failed action=\(action)")
             }
         }
@@ -1481,7 +1481,7 @@ extension Ghostty {
         @IBAction override func selectAll(_ sender: Any?) {
             guard let surface = self.surface else { return }
             let action = "select_all"
-            if (!ghostty_surface_binding_action(surface, action, UInt(action.count))) {
+            if (!ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8)))) {
                 AppDelegate.logger.warning("action failed action=\(action)")
             }
         }
@@ -1489,7 +1489,7 @@ extension Ghostty {
         @IBAction func find(_ sender: Any?) {
             guard let surface = self.surface else { return }
             let action = "start_search"
-            if (!ghostty_surface_binding_action(surface, action, UInt(action.count))) {
+            if (!ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8)))) {
                 AppDelegate.logger.warning("action failed action=\(action)")
             }
         }
@@ -1497,7 +1497,7 @@ extension Ghostty {
         @IBAction func findNext(_ sender: Any?) {
             guard let surface = self.surface else { return }
             let action = "search:next"
-            if (!ghostty_surface_binding_action(surface, action, UInt(action.count))) {
+            if (!ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8)))) {
                 AppDelegate.logger.warning("action failed action=\(action)")
             }
         }
@@ -1505,7 +1505,7 @@ extension Ghostty {
         @IBAction func findPrevious(_ sender: Any?) {
             guard let surface = self.surface else { return }
             let action = "search:previous"
-            if (!ghostty_surface_binding_action(surface, action, UInt(action.count))) {
+            if (!ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8)))) {
                 AppDelegate.logger.warning("action failed action=\(action)")
             }
         }
@@ -1513,7 +1513,7 @@ extension Ghostty {
         @IBAction func findHide(_ sender: Any?) {
             guard let surface = self.surface else { return }
             let action = "end_search"
-            if (!ghostty_surface_binding_action(surface, action, UInt(action.count))) {
+            if (!ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8)))) {
                 AppDelegate.logger.warning("action failed action=\(action)")
             }
         }
@@ -1541,7 +1541,7 @@ extension Ghostty {
         @objc func resetTerminal(_ sender: Any) {
             guard let surface = self.surface else { return }
             let action = "reset"
-            if (!ghostty_surface_binding_action(surface, action, UInt(action.count))) {
+            if (!ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8)))) {
                 AppDelegate.logger.warning("action failed action=\(action)")
             }
         }
@@ -1549,7 +1549,7 @@ extension Ghostty {
         @objc func toggleTerminalInspector(_ sender: Any) {
             guard let surface = self.surface else { return }
             let action = "inspector:toggle"
-            if (!ghostty_surface_binding_action(surface, action, UInt(action.count))) {
+            if (!ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8)))) {
                 AppDelegate.logger.warning("action failed action=\(action)")
             }
         }
