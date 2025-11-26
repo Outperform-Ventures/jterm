@@ -412,11 +412,11 @@ extension Ghostty {
                     .background(Color.primary.opacity(0.1))
                     .cornerRadius(6)
                     .focused($isSearchFieldFocused)
+#if canImport(AppKit)
                     .onExitCommand {
-                        #if canImport(AppKit)
                         Ghostty.moveFocus(to: surfaceView)
-                        #endif
                     }
+#endif
                     .backport.onKeyPress(.return) { modifiers in
                         guard let surface = surfaceView.surface else { return .ignored }
                         let action = modifiers.contains(.shift)
