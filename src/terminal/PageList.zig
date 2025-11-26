@@ -43,6 +43,7 @@ const Node = struct {
     prev: ?*Node = null,
     next: ?*Node = null,
     data: Page,
+    serial: u64,
 };
 
 /// The memory pool we get page nodes from.
@@ -112,6 +113,20 @@ pool_owned: bool,
 
 /// The list of pages in the screen.
 pages: List,
+
+/// A monotonically increasing serial number that is incremented each
+/// time a page is allocated or reused as new. The serial is assigned to
+/// the Node.
+///
+/// The serial number can be used to detect whether the page is identical
+/// to the page that was originally referenced by a pointer. Since we reuse
+/// and pool memory, pointer stability is not guaranteed, but the serial
+/// will always be different for different allocations.
+///
+/// Developer note: we never do overflow checking on this. If we created
+/// a new page every second it'd take 584 billion years to overflow. We're
+/// going to risk it.
+page_serial: u64,
 
 /// Byte size of the total amount of allocated pages. Note this does
 /// not include the total allocated amount in the pool which may be more
@@ -264,7 +279,13 @@ pub fn init(
     // necessary.
     var pool = try MemoryPool.init(alloc, std.heap.page_allocator, page_preheat);
     errdefer pool.deinit();
-    const page_list, const page_size = try initPages(&pool, cols, rows);
+    var page_serial: u64 = 0;
+    const page_list, const page_size = try initPages(
+        &pool,
+        &page_serial,
+        cols,
+        rows,
+    );
 
     // Get our minimum max size, see doc comments for more details.
     const min_max_size = try minMaxSize(cols, rows);
@@ -282,6 +303,7 @@ pub fn init(
         .pool = pool,
         .pool_owned = true,
         .pages = page_list,
+        .page_serial = page_serial,
         .page_size = page_size,
         .explicit_max_size = max_size orelse std.math.maxInt(usize),
         .min_max_size = min_max_size,
@@ -297,6 +319,7 @@ pub fn init(
 
 fn initPages(
     pool: *MemoryPool,
+    serial: *u64,
     cols: size.CellCountInt,
     rows: size.CellCountInt,
 ) !struct { List, usize } {
@@ -323,6 +346,7 @@ fn initPages(
                 .init(page_buf),
                 Page.layout(cap),
             ),
+            .serial = serial.*,
         };
         node.data.size.rows = @min(rem, node.data.capacity.rows);
         rem -= node.data.size.rows;
@@ -330,6 +354,9 @@ fn initPages(
         // Add the page to the list
         page_list.append(node);
         page_size += page_buf.len;
+
+        // Increment our serial
+        serial.* += 1;
     }
 
     assert(page_list.first != null);
@@ -523,6 +550,7 @@ pub fn reset(self: *PageList) void {
     // we retained the capacity for the minimum number of pages we need.
     self.pages, self.page_size = initPages(
         &self.pool,
+        &self.page_serial,
         self.cols,
         self.rows,
     ) catch @panic("initPages failed");
@@ -638,6 +666,7 @@ pub fn clone(
     }
 
     // Copy our pages
+    var page_serial: u64 = 0;
     var total_rows: usize = 0;
     var page_size: usize = 0;
     while (it.next()) |chunk| {
@@ -646,6 +675,7 @@ pub fn clone(
         const node = try createPageExt(
             pool,
             chunk.node.data.capacity,
+            &page_serial,
             &page_size,
         );
         assert(node.data.capacity.rows >= chunk.end - chunk.start);
@@ -690,6 +720,7 @@ pub fn clone(
             .alloc => true,
         },
         .pages = page_list,
+        .page_serial = page_serial,
         .page_size = page_size,
         .explicit_max_size = self.explicit_max_size,
         .min_max_size = self.min_max_size,
@@ -2431,6 +2462,10 @@ pub fn grow(self: *PageList) !?*List.Node {
         first.data.size.rows = 1;
         self.pages.insertAfter(last, first);
 
+        // We also need to reset the serial number
+        first.serial = self.page_serial;
+        self.page_serial += 1;
+
         // Update any tracked pins that point to this page to point to the
         // new first page to the top-left.
         const pin_keys = self.tracked_pins.keys();
@@ -2570,12 +2605,18 @@ inline fn createPage(
     cap: Capacity,
 ) Allocator.Error!*List.Node {
     // log.debug("create page cap={}", .{cap});
-    return try createPageExt(&self.pool, cap, &self.page_size);
+    return try createPageExt(
+        &self.pool,
+        cap,
+        &self.page_serial,
+        &self.page_size,
+    );
 }
 
 inline fn createPageExt(
     pool: *MemoryPool,
     cap: Capacity,
+    serial: *u64,
     total_size: ?*usize,
 ) Allocator.Error!*List.Node {
     var page = try pool.nodes.create();
@@ -2605,8 +2646,12 @@ inline fn createPageExt(
     // to undefined, 0xAA.
     if (comptime std.debug.runtime_safety) @memset(page_buf, 0);
 
-    page.* = .{ .data = .initBuf(.init(page_buf), layout) };
+    page.* = .{
+        .data = .initBuf(.init(page_buf), layout),
+        .serial = serial.*,
+    };
     page.data.size.rows = 0;
+    serial.* += 1;
 
     if (total_size) |v| {
         // Accumulate page size now. We don't assert or check max size
