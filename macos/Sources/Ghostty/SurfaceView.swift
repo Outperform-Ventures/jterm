@@ -469,7 +469,7 @@ extension Ghostty {
                 }
                 .padding(8)
                 .background(.background)
-                .cornerRadius(8)
+                .clipShape(clipShape)
                 .shadow(radius: 4)
                 .onAppear {
                     isSearchFieldFocused = true
@@ -508,7 +508,15 @@ extension Ghostty {
                 )
             }
         }
-        
+
+        private var clipShape: some Shape {
+            if #available(iOS 26.0, macOS 26.0, *) {
+                return ConcentricRectangle(corners: .concentric(minimum: 8), isUniform: true)
+            } else {
+                return RoundedRectangle(cornerRadius: 8)
+            }
+        }
+
         enum Corner {
             case topLeft, topRight, bottomLeft, bottomRight
             
