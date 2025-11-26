@@ -75,7 +75,7 @@ extension Ghostty {
                         let action = "search:\(needle)"
                         ghostty_surface_binding_action(surface, action, UInt(action.count))
                     }
-                } else {
+                } else if oldValue != nil {
                     searchNeedleCancellable = nil
                     guard let surface = self.surface else { return }
                     let action = "search:"
