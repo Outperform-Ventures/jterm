@@ -114,7 +114,7 @@ pub const Flattened = struct {
     /// The page chunks that make up this highlight. This handles the
     /// y bounds since chunks[0].start is the first highlighted row
     /// and chunks[len - 1].end is the last highlighted row (exclsive).
-    chunks: std.MultiArrayList(PageChunk),
+    chunks: std.MultiArrayList(Chunk),
 
     /// The x bounds of the highlight. `bot_x` may be less than `top_x`
     /// for typical left-to-right highlights: can start the selection right
@@ -122,8 +122,16 @@ pub const Flattened = struct {
     top_x: size.CellCountInt,
     bot_x: size.CellCountInt,
 
-    /// Exposed for easier type references.
-    pub const Chunk = PageChunk;
+    /// A flattened chunk is almost identical to a PageList.Chunk but
+    /// we also flatten the serial number. This lets the flattened
+    /// highlight more robust for comparisons and validity checks with
+    /// the PageList.
+    pub const Chunk = struct {
+        node: *PageList.List.Node,
+        serial: u64,
+        start: size.CellCountInt,
+        end: size.CellCountInt,
+    };
 
     pub const empty: Flattened = .{
         .chunks = .empty,
@@ -139,7 +147,12 @@ pub const Flattened = struct {
         var result: std.MultiArrayList(PageChunk) = .empty;
         errdefer result.deinit(alloc);
         var it = start.pageIterator(.right_down, end);
-        while (it.next()) |chunk| try result.append(alloc, chunk);
+        while (it.next()) |chunk| try result.append(alloc, .{
+            .node = chunk.node,
+            .serial = chunk.node.serial,
+            .start = chunk.start,
+            .end = chunk.end,
+        });
         return .{
             .chunks = result,
             .top_x = start.x,
