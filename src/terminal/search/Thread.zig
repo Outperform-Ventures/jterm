@@ -643,8 +643,20 @@ const Search = struct {
         // found the viewport/active area dirty, so we should mark it as
         // dirty in our viewport searcher so it forces a re-search.
         if (t.flags.search_viewport_dirty) {
-            self.viewport.active_dirty = true;
             t.flags.search_viewport_dirty = false;
+
+            // Mark our viewport dirty so it researches the active
+            self.viewport.active_dirty = true;
+
+            // Reload our active area for our active screen
+            if (self.screens.getPtr(t.screens.active_key)) |screen_search| {
+                screen_search.reloadActive() catch |err| switch (err) {
+                    error.OutOfMemory => log.warn(
+                        "error reloading active area for screen key={} err={}",
+                        .{ t.screens.active_key, err },
+                    ),
+                };
+            }
         }
 
         // Check our viewport for changes.
