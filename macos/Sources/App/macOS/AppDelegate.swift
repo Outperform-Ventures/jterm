@@ -48,6 +48,7 @@ class AppDelegate: NSObject,
     @IBOutlet private var menuFind: NSMenuItem?
     @IBOutlet private var menuFindNext: NSMenuItem?
     @IBOutlet private var menuFindPrevious: NSMenuItem?
+    @IBOutlet private var menuHideFindBar: NSMenuItem?
 
     @IBOutlet private var menuToggleVisibility: NSMenuItem?
     @IBOutlet private var menuToggleFullScreen: NSMenuItem?

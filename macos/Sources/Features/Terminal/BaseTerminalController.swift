@@ -1124,6 +1124,10 @@ class BaseTerminalController: NSWindowController,
     @IBAction func findPrevious(_ sender: Any) {
         focusedSurface?.findNext(sender)
     }
+    
+    @IBAction func findHide(_ sender: Any) {
+        focusedSurface?.findHide(sender)
+    }
 
     @objc func resetTerminal(_ sender: Any) {
         guard let surface = focusedSurface?.surface else { return }
@@ -1145,6 +1149,18 @@ class BaseTerminalController: NSWindowController,
             self.macosTitlebarProxyIcon = config.macosTitlebarProxyIcon
             self.windowStepResize = config.windowStepResize
             self.focusFollowsMouse = config.focusFollowsMouse
+        }
+    }
+}
+
+extension BaseTerminalController: NSMenuItemValidation {
+    func validateMenuItem(_ item: NSMenuItem) -> Bool {
+        switch item.action {
+        case #selector(findHide):
+            return focusedSurface?.searchState != nil
+
+        default:
+            return true
         }
     }
 }

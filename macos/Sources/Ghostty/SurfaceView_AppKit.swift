@@ -1494,6 +1494,14 @@ extension Ghostty {
                 AppDelegate.logger.warning("action failed action=\(action)")
             }
         }
+        
+        @IBAction func findHide(_ sender: Any?) {
+            guard let surface = self.surface else { return }
+            let action = "search:"
+            if (!ghostty_surface_binding_action(surface, action, UInt(action.count))) {
+                AppDelegate.logger.warning("action failed action=\(action)")
+            }
+        }
 
         @IBAction func splitRight(_ sender: Any) {
             guard let surface = self.surface else { return }
@@ -1967,6 +1975,9 @@ extension Ghostty.SurfaceView: NSMenuItemValidation {
             let pb = NSPasteboard.ghosttySelection
             guard let str = pb.getOpinionatedStringContents() else { return false }
             return !str.isEmpty
+            
+        case #selector(findHide):
+            return searchState != nil
 
         default:
             return true

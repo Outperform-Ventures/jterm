@@ -31,6 +31,7 @@
                 <outlet property="menuFindParent" destination="cE3-Bt-FcH" id="2dc-ok-hgH"/>
                 <outlet property="menuFindPrevious" destination="1hd-2Z-wVm" id="sSo-wO-2MW"/>
                 <outlet property="menuFloatOnTop" destination="uRj-7z-1Nh" id="94n-o9-Jol"/>
+                <outlet property="menuHideFindBar" destination="xzC-AG-HAc" id="HCo-o6-VWv"/>
                 <outlet property="menuIncreaseFontSize" destination="CIH-ey-Z6x" id="hkc-9C-80E"/>
                 <outlet property="menuMoveSplitDividerDown" destination="Zj7-2W-fdF" id="997-LL-nlN"/>
                 <outlet property="menuMoveSplitDividerLeft" destination="wSR-ny-j1a" id="HCZ-CI-2ob"/>
@@ -269,6 +270,13 @@
                                             <modifierMask key="keyEquivalentModifierMask"/>
                                             <connections>
                                                 <action selector="findPrevious:" target="-1" id="Zvs-bs-ZR4"/>
+                                            </connections>
+                                        </menuItem>
+                                        <menuItem isSeparatorItem="YES" id="KlV-2C-wYr"/>
+                                        <menuItem title="Hide Find Bar" id="xzC-AG-HAc">
+                                            <modifierMask key="keyEquivalentModifierMask"/>
+                                            <connections>
+                                                <action selector="findHide:" target="-1" id="hGP-K9-yN9"/>
                                             </connections>
                                         </menuItem>
                                     </items>
