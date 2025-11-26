@@ -499,11 +499,13 @@ extension Ghostty {
                                 x: centerPos.x + value.translation.width,
                                 y: centerPos.y + value.translation.height
                             )
-                            corner = closestCorner(to: newCenter, in: geo.size)
-                            dragOffset = .zero
+                            let newCorner = closestCorner(to: newCenter, in: geo.size)
+                            withAnimation(.easeOut(duration: 0.2)) {
+                                corner = newCorner
+                                dragOffset = .zero
+                            }
                         }
                 )
-                .animation(.easeOut(duration: 0.2), value: corner)
             }
         }
         
