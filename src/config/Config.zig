@@ -6412,8 +6412,26 @@ pub const Keybinds = struct {
             );
             try self.set.putFlags(
                 alloc,
+                .{ .key = .{ .unicode = 'f' }, .mods = .{ .super = true, .shift = true } },
+                .{ .search = "" },
+                .{ .performable = true },
+            );
+            try self.set.putFlags(
+                alloc,
                 .{ .key = .{ .physical = .escape } },
                 .{ .search = "" },
+                .{ .performable = true },
+            );
+            try self.set.putFlags(
+                alloc,
+                .{ .key = .{ .unicode = 'g' }, .mods = .{ .super = true } },
+                .{ .navigate_search = .next },
+                .{ .performable = true },
+            );
+            try self.set.putFlags(
+                alloc,
+                .{ .key = .{ .unicode = 'g' }, .mods = .{ .super = true, .shift = true } },
+                .{ .navigate_search = .previous },
                 .{ .performable = true },
             );
 
