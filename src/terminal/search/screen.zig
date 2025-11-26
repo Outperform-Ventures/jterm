@@ -4,6 +4,7 @@ const testing = std.testing;
 const Allocator = std.mem.Allocator;
 const point = @import("../point.zig");
 const highlight = @import("../highlight.zig");
+const size = @import("../size.zig");
 const FlattenedHighlight = highlight.Flattened;
 const TrackedHighlight = highlight.Tracked;
 const PageList = @import("../PageList.zig");
@@ -56,6 +57,11 @@ pub const ScreenSearch = struct {
     /// re-search scenario.
     history_results: std.ArrayList(FlattenedHighlight),
     active_results: std.ArrayList(FlattenedHighlight),
+
+    /// The dimensions of the screen. When this changes we need to
+    /// restart the whole search, currently.
+    rows: size.CellCountInt,
+    cols: size.CellCountInt,
 
     pub const SelectedMatch = struct {
         /// Index from the end of the match list (0 = most recent match)
@@ -129,6 +135,8 @@ pub const ScreenSearch = struct {
     ) Allocator.Error!ScreenSearch {
         var result: ScreenSearch = .{
             .screen = screen,
+            .rows = screen.pages.rows,
+            .cols = screen.pages.cols,
             .active = try .init(alloc, needle_unowned),
             .history = null,
             .state = .active,
@@ -247,6 +255,29 @@ pub const ScreenSearch = struct {
     /// Feed on a complete screen search will perform some cleanup of
     /// potentially stale history results (pruned) and reclaim some memory.
     pub fn feed(self: *ScreenSearch) Allocator.Error!void {
+        // If the screen resizes, we have to reset our entire search. That
+        // isn't ideal but we don't have a better way right now to handle
+        // reflowing the search results beyond putting a tracked pin for
+        // every single result.
+        if (self.screen.pages.rows != self.rows or
+            self.screen.pages.cols != self.cols)
+        {
+            // Reinit
+            const new: ScreenSearch = try .init(
+                self.allocator(),
+                self.screen,
+                self.needle(),
+            );
+
+            // Deinit/reinit
+            self.deinit();
+            self.* = new;
+
+            // New result should have matching dimensions
+            assert(self.screen.pages.rows == self.rows);
+            assert(self.screen.pages.cols == self.cols);
+        }
+
         const history: *PageListSearch = if (self.history) |*h| &h.searcher else {
             // No history to feed, search is complete.
             self.state = .complete;
@@ -282,49 +313,19 @@ pub const ScreenSearch = struct {
     }
 
     fn pruneHistory(self: *ScreenSearch) void {
-        const history: *PageListSearch = if (self.history) |*h| &h.searcher else return;
-
-        // Keep track of the last checked node to avoid redundant work.
-        var last_checked: ?*PageList.List.Node = null;
-
-        // Go through our history results in reverse order to find
-        // the oldest matches first (since oldest nodes are pruned first).
-        for (0..self.history_results.items.len) |rev_i| {
-            const i = self.history_results.items.len - 1 - rev_i;
-            const node = node: {
-                const hl = &self.history_results.items[i];
-                break :node hl.chunks.items(.node)[0];
-            };
-
-            // If this is the same node as what we last checked and
-            // found to prune, then continue until we find the first
-            // non-matching, non-pruned node so we can prune the older
-            // ones.
-            if (last_checked == node) continue;
-            last_checked = node;
-
-            // Try to find this node in the PageList using a standard
-            // O(N) traversal. This isn't as bad as it seems because our
-            // oldest matches are likely to be near the start of the
-            // list and as soon as we find one we're done.
-            var it = history.list.pages.first;
-            while (it) |valid_node| : (it = valid_node.next) {
-                if (valid_node != node) continue;
-
-                // This is a valid node. If we're not at rev_i 0 then
-                // it means we have some data to prune! If we are
-                // at rev_i 0 then we can break out because there
-                // is nothing to prune.
-                if (rev_i == 0) return;
-
-                // Prune the last rev_i items.
+        // Go through our history results in order (newest to oldest) to find
+        // any result that contains an invalid serial. Prune up to that
+        // point.
+        for (0..self.history_results.items.len) |i| {
+            const hl = &self.history_results.items[i];
+            const serials = hl.chunks.items(.serial);
+            const lowest = serials[0];
+            if (lowest < self.screen.pages.page_serial_min) {
+                // Everything from here forward we assume is invalid because
+                // our history results only get older.
                 const alloc = self.allocator();
-                for (self.history_results.items[i + 1 ..]) |*prune_hl| {
-                    prune_hl.deinit(alloc);
-                }
+                for (self.history_results.items[i..]) |*prune_hl| prune_hl.deinit(alloc);
                 self.history_results.shrinkAndFree(alloc, i);
-
-                // Once we've pruned, future results can't be invalid.
                 return;
             }
         }

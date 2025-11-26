@@ -87,6 +87,7 @@ pub const SlidingWindow = struct {
     const MetaBuf = CircBuf(Meta, undefined);
     const Meta = struct {
         node: *PageList.List.Node,
+        serial: u64,
         cell_map: std.ArrayList(point.Coordinate),
 
         pub fn deinit(self: *Meta, alloc: Allocator) void {
@@ -345,6 +346,7 @@ pub const SlidingWindow = struct {
                     result.bot_x = end_map.x;
                     self.chunk_buf.appendAssumeCapacity(.{
                         .node = meta.node,
+                        .serial = meta.serial,
                         .start = @intCast(start_map.y),
                         .end = @intCast(end_map.y + 1),
                     });
@@ -363,6 +365,7 @@ pub const SlidingWindow = struct {
                     result.top_x = map.x;
                     self.chunk_buf.appendAssumeCapacity(.{
                         .node = meta.node,
+                        .serial = meta.serial,
                         .start = @intCast(map.y),
                         .end = meta.node.data.size.rows,
                     });
@@ -397,6 +400,7 @@ pub const SlidingWindow = struct {
                     // to our results because we want the full flattened list.
                     self.chunk_buf.appendAssumeCapacity(.{
                         .node = meta.node,
+                        .serial = meta.serial,
                         .start = 0,
                         .end = meta.node.data.size.rows,
                     });
@@ -410,6 +414,7 @@ pub const SlidingWindow = struct {
                 result.bot_x = map.x;
                 self.chunk_buf.appendAssumeCapacity(.{
                     .node = meta.node,
+                    .serial = meta.serial,
                     .start = 0,
                     .end = @intCast(map.y + 1),
                 });
@@ -513,6 +518,7 @@ pub const SlidingWindow = struct {
         // Initialize our metadata for the node.
         var meta: Meta = .{
             .node = node,
+            .serial = node.serial,
             .cell_map = .empty,
         };
         errdefer meta.deinit(self.alloc);
