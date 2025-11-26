@@ -69,7 +69,7 @@ extension Ghostty {
         @Published var searchState: SearchState? = nil {
             didSet {
                 if let searchState {
-                    searchNeedleCancellable = searchState.$needle.sink { [weak self] needle in
+                    searchNeedleCancellable = searchState.$needle.removeDuplicates().sink { [weak self] needle in
                         guard let surface = self?.surface else { return }
                         guard needle.count > 1 else { return }
                         let action = "search:\(needle)"
