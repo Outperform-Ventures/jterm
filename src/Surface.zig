@@ -4943,19 +4943,24 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             );
         },
 
+        .end_search => {
+            if (self.search) |*s| {
+                s.deinit();
+                self.search = null;
+            }
+
+            return try self.rt_app.performAction(
+                .{ .surface = self },
+                .end_search,
+                {},
+            );
+        },
+
         .search => |text| search: {
             const s: *Search = if (self.search) |*s| s else init: {
                 // If we're stopping the search and we had no prior search,
                 // then there is nothing to do.
-                if (text.len == 0) {
-                    // So GUIs can hide visible search widgets.
-                    _ = try self.rt_app.performAction(
-                        .{ .surface = self },
-                        .end_search,
-                        {},
-                    );
-                    return false;
-                }
+                if (text.len == 0) return false;
 
                 // We need to assign directly to self.search because we need
                 // a stable pointer back to the thread state.
@@ -4985,13 +4990,6 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             if (text.len == 0) {
                 s.deinit();
                 self.search = null;
-
-                // Notify apprt search has ended.
-                _ = try self.rt_app.performAction(
-                    .{ .surface = self },
-                    .end_search,
-                    {},
-                );
                 break :search;
             }
 

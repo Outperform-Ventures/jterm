@@ -6413,7 +6413,7 @@ pub const Keybinds = struct {
             try self.set.putFlags(
                 alloc,
                 .{ .key = .{ .unicode = 'f' }, .mods = .{ .super = true, .shift = true } },
-                .{ .search = "" },
+                .end_search,
                 .{ .performable = true },
             );
             try self.set.putFlags(

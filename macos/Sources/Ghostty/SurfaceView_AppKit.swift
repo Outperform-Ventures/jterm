@@ -75,9 +75,8 @@ extension Ghostty {
                     // avoid kicking off expensive searches.
                     searchNeedleCancellable = searchState.$needle
                         .removeDuplicates()
-                        .filter { $0.count > 0 }
                         .map { needle -> AnyPublisher<String, Never> in
-                            if needle.count >= 3 {
+                            if needle.isEmpty || needle.count >= 3 {
                                 return Just(needle).eraseToAnyPublisher()
                             } else {
                                 return Just(needle)
