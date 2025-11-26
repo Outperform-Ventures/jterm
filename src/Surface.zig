@@ -4944,16 +4944,23 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
         },
 
         .end_search => {
+            // We only return that this was performed if we actually
+            // stopped a search, but we also send the apprt end_search so
+            // that GUIs can clean up stale stuff.
+            const performed = self.search != null;
+
             if (self.search) |*s| {
                 s.deinit();
                 self.search = null;
             }
 
-            return try self.rt_app.performAction(
+            _ = try self.rt_app.performAction(
                 .{ .surface = self },
                 .end_search,
                 {},
             );
+
+            return performed;
         },
 
         .search => |text| search: {

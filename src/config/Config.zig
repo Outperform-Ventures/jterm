@@ -6419,7 +6419,7 @@ pub const Keybinds = struct {
             try self.set.putFlags(
                 alloc,
                 .{ .key = .{ .physical = .escape } },
-                .{ .search = "" },
+                .end_search,
                 .{ .performable = true },
             );
             try self.set.putFlags(

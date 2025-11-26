@@ -93,7 +93,7 @@ extension Ghostty {
                 } else if oldValue != nil {
                     searchNeedleCancellable = nil
                     guard let surface = self.surface else { return }
-                    let action = "search:"
+                    let action = "end_search"
                     ghostty_surface_binding_action(surface, action, UInt(action.count))
                 }
             }
@@ -1512,7 +1512,7 @@ extension Ghostty {
         
         @IBAction func findHide(_ sender: Any?) {
             guard let surface = self.surface else { return }
-            let action = "search:"
+            let action = "end_search"
             if (!ghostty_surface_binding_action(surface, action, UInt(action.count))) {
                 AppDelegate.logger.warning("action failed action=\(action)")
             }
