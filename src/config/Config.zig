@@ -6403,6 +6403,38 @@ pub const Keybinds = struct {
                 .{ .jump_to_prompt = 1 },
             );
 
+            // Search
+            try self.set.putFlags(
+                alloc,
+                .{ .key = .{ .unicode = 'f' }, .mods = .{ .super = true } },
+                .start_search,
+                .{ .performable = true },
+            );
+            try self.set.putFlags(
+                alloc,
+                .{ .key = .{ .unicode = 'f' }, .mods = .{ .super = true, .shift = true } },
+                .end_search,
+                .{ .performable = true },
+            );
+            try self.set.putFlags(
+                alloc,
+                .{ .key = .{ .physical = .escape } },
+                .end_search,
+                .{ .performable = true },
+            );
+            try self.set.putFlags(
+                alloc,
+                .{ .key = .{ .unicode = 'g' }, .mods = .{ .super = true } },
+                .{ .navigate_search = .next },
+                .{ .performable = true },
+            );
+            try self.set.putFlags(
+                alloc,
+                .{ .key = .{ .unicode = 'g' }, .mods = .{ .super = true, .shift = true } },
+                .{ .navigate_search = .previous },
+                .{ .performable = true },
+            );
+
             // Inspector, matching Chromium
             try self.set.put(
                 alloc,

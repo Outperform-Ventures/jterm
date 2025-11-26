@@ -493,6 +493,10 @@ pub const ScreenSearch = struct {
             // in our history (fast path)
             if (results.items.len == 0) break :history;
 
+            // The number added to our history. Needed for updating
+            // our selection if we have one.
+            const added_len = results.items.len;
+
             // Matches! Reverse our list then append all the remaining
             // history items that didn't start on our original node.
             std.mem.reverse(FlattenedHighlight, results.items);
@@ -505,7 +509,7 @@ pub const ScreenSearch = struct {
             if (self.selected) |*m| selected: {
                 const active_len = self.active_results.items.len;
                 if (m.idx < active_len) break :selected;
-                m.idx += results.items.len;
+                m.idx += added_len;
 
                 // Moving the idx should not change our targeted result
                 // since the history is immutable.
@@ -513,6 +517,26 @@ pub const ScreenSearch = struct {
                     const hl = self.history_results.items[m.idx - active_len];
                     assert(m.highlight.start.eql(hl.startPin()));
                 }
+            }
+        } else {
+            // No history node means we have no history
+            if (self.history) |*h| {
+                h.deinit(self.screen);
+                self.history = null;
+                for (self.history_results.items) |*hl| hl.deinit(alloc);
+                self.history_results.clearRetainingCapacity();
+            }
+
+            // If we have a selection in the history area, we need to
+            // move it to the end of the active area.
+            if (self.selected) |*m| selected: {
+                const active_len = self.active_results.items.len;
+                if (m.idx < active_len) break :selected;
+                m.deinit(self.screen);
+                self.selected = null;
+                _ = self.select(.prev) catch |err| {
+                    log.info("reload failed to reset search selection err={}", .{err});
+                };
             }
         }
 
