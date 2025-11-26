@@ -107,6 +107,12 @@ pub const Message = union(enum) {
     /// The scrollbar state changed for the surface.
     scrollbar: terminal.Scrollbar,
 
+    /// Search progress update
+    search_total: ?usize,
+
+    /// Selected search index change
+    search_selected: ?usize,
+
     pub const ReportTitleStyle = enum {
         csi_21_t,
 

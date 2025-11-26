@@ -804,6 +804,14 @@ pub fn close(self: *Surface) void {
     self.rt_surface.close(self.needsConfirmQuit());
 }
 
+/// Returns a mailbox that can be used to send messages to this surface.
+inline fn surfaceMailbox(self: *Surface) Mailbox {
+    return .{
+        .surface = self,
+        .app = .{ .rt_app = self.rt_app, .mailbox = &self.app.mailbox },
+    };
+}
+
 /// Forces the surface to render. This is useful for when the surface
 /// is in the middle of animation (such as a resize, etc.) or when
 /// the render timer is managed manually by the apprt.
@@ -1068,6 +1076,22 @@ pub fn handleMessage(self: *Surface, msg: Message) !void {
             ) catch |err| {
                 log.warn("apprt failed to notify command finish={}", .{err});
             };
+        },
+
+        .search_total => |v| {
+            _ = try self.rt_app.performAction(
+                .{ .surface = self },
+                .search_total,
+                .{ .total = v },
+            );
+        },
+
+        .search_selected => |v| {
+            _ = try self.rt_app.performAction(
+                .{ .surface = self },
+                .search_selected,
+                .{ .selected = v },
+            );
         },
     }
 }
@@ -1378,15 +1402,34 @@ fn searchCallback_(
                     } },
                     .forever,
                 );
+
+                // Send the selected index to the surface mailbox
+                _ = self.surfaceMailbox().push(
+                    .{ .search_selected = sel.idx },
+                    .forever,
+                );
             } else {
                 // Reset our selected match
                 _ = self.renderer_thread.mailbox.push(
                     .{ .search_selected_match = null },
                     .forever,
                 );
+
+                // Reset the selected index
+                _ = self.surfaceMailbox().push(
+                    .{ .search_selected = null },
+                    .forever,
+                );
             }
 
             try self.renderer_thread.wakeup.notify();
+        },
+
+        .total_matches => |total| {
+            _ = self.surfaceMailbox().push(
+                .{ .search_total = total },
+                .forever,
+            );
         },
 
         // When we quit, tell our renderer to reset any search state.
@@ -1403,12 +1446,20 @@ fn searchCallback_(
                 .forever,
             );
             try self.renderer_thread.wakeup.notify();
+
+            // Reset search totals in the surface
+            _ = self.surfaceMailbox().push(
+                .{ .search_total = null },
+                .forever,
+            );
+            _ = self.surfaceMailbox().push(
+                .{ .search_selected = null },
+                .forever,
+            );
         },
 
         // Unhandled, so far.
-        .total_matches,
-        .complete,
-        => {},
+        .complete => {},
     }
 }
 
