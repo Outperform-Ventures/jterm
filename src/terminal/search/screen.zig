@@ -518,6 +518,26 @@ pub const ScreenSearch = struct {
                     assert(m.highlight.start.eql(hl.startPin()));
                 }
             }
+        } else {
+            // No history node means we have no history
+            if (self.history) |*h| {
+                h.deinit(self.screen);
+                self.history = null;
+                for (self.history_results.items) |*hl| hl.deinit(alloc);
+                self.history_results.clearRetainingCapacity();
+            }
+
+            // If we have a selection in the history area, we need to
+            // move it to the end of the active area.
+            if (self.selected) |*m| selected: {
+                const active_len = self.active_results.items.len;
+                if (m.idx < active_len) break :selected;
+                m.deinit(self.screen);
+                self.selected = null;
+                _ = self.select(.prev) catch |err| {
+                    log.info("reload failed to reset search selection err={}", .{err});
+                };
+            }
         }
 
         // Figure out if we need to fixup our selection later because
