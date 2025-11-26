@@ -199,8 +199,12 @@ extension Ghostty {
                 #endif
 
                 // Search overlay
-                if surfaceView.searchState != nil {
-                    SurfaceSearchOverlay(surfaceView: surfaceView, searchState: $surfaceView.searchState)
+                if let searchState = surfaceView.searchState {
+                    SurfaceSearchOverlay(
+                        surfaceView: surfaceView,
+                        searchState: searchState,
+                        onClose: { surfaceView.searchState = nil }
+                    )
                 }
 
                 // Show bell border if enabled
@@ -390,7 +394,8 @@ extension Ghostty {
     /// Search overlay view that displays a search bar with input field and navigation buttons.
     struct SurfaceSearchOverlay: View {
         let surfaceView: SurfaceView
-        @Binding var searchState: SurfaceView.SearchState?
+        @ObservedObject var searchState: SurfaceView.SearchState
+        let onClose: () -> Void
         @State private var corner: Corner = .topRight
         @State private var dragOffset: CGSize = .zero
         @State private var barSize: CGSize = .zero
@@ -401,10 +406,7 @@ extension Ghostty {
         var body: some View {
             GeometryReader { geo in
                 HStack(spacing: 8) {
-                    TextField("Search", text: Binding(
-                        get: { searchState?.needle ?? "" },
-                        set: { searchState?.needle = $0 }
-                    ))
+                    TextField("Search", text: $searchState.needle)
                     .textFieldStyle(.plain)
                     .frame(width: 180)
                     .padding(.horizontal, 8)
@@ -426,9 +428,13 @@ extension Ghostty {
                         return .handled
                     }
                     
-                    if let selected = searchState?.selected {
-                        let totalText = searchState?.total.map { String($0) } ?? "?"
-                        Text("\(selected)/\(totalText)")
+                    if let selected = searchState.selected {
+                        Text("\(selected + 1)/\(searchState.total, default: "?")")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .monospacedDigit()
+                    } else if let total = searchState.total {
+                        Text("-/\(total)")
                             .font(.caption)
                             .foregroundColor(.secondary)
                             .monospacedDigit()
@@ -452,9 +458,7 @@ extension Ghostty {
                     }
                     .buttonStyle(.borderless)
                     
-                    Button(action: {
-                        searchState = nil
-                    }) {
+                    Button(action: onClose) {
                         Image(systemName: "xmark")
                     }
                     .buttonStyle(.borderless)
