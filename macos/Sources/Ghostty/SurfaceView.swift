@@ -426,6 +426,14 @@ extension Ghostty {
                         return .handled
                     }
                     
+                    if let selected = searchState?.selected {
+                        let totalText = searchState?.total.map { String($0) } ?? "?"
+                        Text("\(selected)/\(totalText)")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .monospacedDigit()
+                    }
+                    
                     Button(action: {
                         guard let surface = surfaceView.surface else { return }
                         let action = "navigate_search:next"
@@ -814,6 +822,8 @@ extension FocusedValues {
 extension Ghostty.SurfaceView {
     class SearchState: ObservableObject {
         @Published var needle: String = ""
+        @Published var selected: UInt? = nil
+        @Published var total: UInt? = nil
 
         init(from startSearch: Ghostty.Action.StartSearch) {
             self.needle = startSearch.needle ?? ""
