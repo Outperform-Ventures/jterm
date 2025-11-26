@@ -128,6 +128,10 @@ pages: List,
 /// going to risk it.
 page_serial: u64,
 
+/// The lowest still valid serial number that could exist. This allows
+/// for quick comparisons to find invalid pages in references.
+page_serial_min: u64,
+
 /// Byte size of the total amount of allocated pages. Note this does
 /// not include the total allocated amount in the pool which may be more
 /// than this due to preheating.
@@ -304,6 +308,7 @@ pub fn init(
         .pool_owned = true,
         .pages = page_list,
         .page_serial = page_serial,
+        .page_serial_min = 0,
         .page_size = page_size,
         .explicit_max_size = max_size orelse std.math.maxInt(usize),
         .min_max_size = min_max_size,
@@ -390,6 +395,7 @@ pub inline fn pauseIntegrityChecks(self: *PageList, pause: bool) void {
 const IntegrityError = error{
     TotalRowsMismatch,
     ViewportPinOffsetMismatch,
+    PageSerialInvalid,
 };
 
 /// Verify the integrity of the PageList. This is expensive and should
@@ -401,8 +407,27 @@ fn verifyIntegrity(self: *const PageList) IntegrityError!void {
     // Our viewport pin should never be garbage
     assert(!self.viewport_pin.garbage);
 
+    // Grab our total rows
+    var actual_total: usize = 0;
+    {
+        var node_ = self.pages.first;
+        while (node_) |node| {
+            actual_total += node.data.size.rows;
+            node_ = node.next;
+
+            // While doing this traversal, verify no node has a serial
+            // number lower than our min.
+            if (node.serial < self.page_serial_min) {
+                log.warn(
+                    "PageList integrity violation: page serial too low serial={} min={}",
+                    .{ node.serial, self.page_serial_min },
+                );
+                return IntegrityError.PageSerialInvalid;
+            }
+        }
+    }
+
     // Verify that our cached total_rows matches the actual row count
-    const actual_total = self.totalRows();
     if (actual_total != self.total_rows) {
         log.warn(
             "PageList integrity violation: total_rows mismatch cached={} actual={}",
@@ -721,6 +746,7 @@ pub fn clone(
         },
         .pages = page_list,
         .page_serial = page_serial,
+        .page_serial_min = 0,
         .page_size = page_size,
         .explicit_max_size = self.explicit_max_size,
         .min_max_size = self.min_max_size,
@@ -2462,7 +2488,11 @@ pub fn grow(self: *PageList) !?*List.Node {
         first.data.size.rows = 1;
         self.pages.insertAfter(last, first);
 
-        // We also need to reset the serial number
+        // We also need to reset the serial number. Since this is the only
+        // place we ever reuse a serial number, we also can safely set
+        // page_serial_min to be one more than the old serial because we
+        // only ever prune the oldest pages.
+        self.page_serial_min = first.serial + 1;
         first.serial = self.page_serial;
         self.page_serial += 1;
 
