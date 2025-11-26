@@ -69,12 +69,28 @@ extension Ghostty {
         @Published var searchState: SearchState? = nil {
             didSet {
                 if let searchState {
-                    searchNeedleCancellable = searchState.$needle.removeDuplicates().sink { [weak self] needle in
-                        guard let surface = self?.surface else { return }
-                        guard needle.count > 0 else { return }
-                        let action = "search:\(needle)"
-                        ghostty_surface_binding_action(surface, action, UInt(action.count))
-                    }
+                    // I'm not a Combine expert so if there is a better way to do this I'm
+                    // all ears. What we're doing here is grabbing the latest needle. If the
+                    // needle is less than 3 chars, we debounce it for a few hundred ms to
+                    // avoid kicking off expensive searches.
+                    searchNeedleCancellable = searchState.$needle
+                        .removeDuplicates()
+                        .filter { $0.count > 0 }
+                        .map { needle -> AnyPublisher<String, Never> in
+                            if needle.count >= 3 {
+                                return Just(needle).eraseToAnyPublisher()
+                            } else {
+                                return Just(needle)
+                                    .delay(for: .milliseconds(300), scheduler: DispatchQueue.main)
+                                    .eraseToAnyPublisher()
+                            }
+                        }
+                        .switchToLatest()
+                        .sink { [weak self] needle in
+                            guard let surface = self?.surface else { return }
+                            let action = "search:\(needle)"
+                            ghostty_surface_binding_action(surface, action, UInt(action.count))
+                        }
                 } else if oldValue != nil {
                     searchNeedleCancellable = nil
                     guard let surface = self.surface else { return }
