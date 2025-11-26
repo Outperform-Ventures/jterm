@@ -612,6 +612,12 @@ extension Ghostty {
             case GHOSTTY_ACTION_END_SEARCH:
                 endSearch(app, target: target)
 
+            case GHOSTTY_ACTION_SEARCH_TOTAL:
+                searchTotal(app, target: target, v: action.action.search_total)
+
+            case GHOSTTY_ACTION_SEARCH_SELECTED:
+                searchSelected(app, target: target, v: action.action.search_selected)
+
             case GHOSTTY_ACTION_TOGGLE_TAB_OVERVIEW:
                 fallthrough
             case GHOSTTY_ACTION_TOGGLE_WINDOW_DECORATIONS:
@@ -1688,6 +1694,52 @@ extension Ghostty {
 
                 DispatchQueue.main.async {
                     surfaceView.searchState = nil
+                }
+
+            default:
+                assertionFailure()
+            }
+        }
+
+        private static func searchTotal(
+            _ app: ghostty_app_t,
+            target: ghostty_target_s,
+            v: ghostty_action_search_total_s) {
+            switch (target.tag) {
+            case GHOSTTY_TARGET_APP:
+                Ghostty.logger.warning("search_total does nothing with an app target")
+                return
+
+            case GHOSTTY_TARGET_SURFACE:
+                guard let surface = target.target.surface else { return }
+                guard let surfaceView = self.surfaceView(from: surface) else { return }
+
+                let total: UInt? = v.total >= 0 ? UInt(v.total) : nil
+                DispatchQueue.main.async {
+                    surfaceView.searchState?.total = total
+                }
+
+            default:
+                assertionFailure()
+            }
+        }
+
+        private static func searchSelected(
+            _ app: ghostty_app_t,
+            target: ghostty_target_s,
+            v: ghostty_action_search_selected_s) {
+            switch (target.tag) {
+            case GHOSTTY_TARGET_APP:
+                Ghostty.logger.warning("search_selected does nothing with an app target")
+                return
+
+            case GHOSTTY_TARGET_SURFACE:
+                guard let surface = target.target.surface else { return }
+                guard let surfaceView = self.surfaceView(from: surface) else { return }
+
+                let selected: UInt? = v.selected >= 0 ? UInt(v.selected) : nil
+                DispatchQueue.main.async {
+                    surfaceView.searchState?.selected = selected
                 }
 
             default:
