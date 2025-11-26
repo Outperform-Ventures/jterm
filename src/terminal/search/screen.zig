@@ -4,6 +4,7 @@ const testing = std.testing;
 const Allocator = std.mem.Allocator;
 const point = @import("../point.zig");
 const highlight = @import("../highlight.zig");
+const size = @import("../size.zig");
 const FlattenedHighlight = highlight.Flattened;
 const TrackedHighlight = highlight.Tracked;
 const PageList = @import("../PageList.zig");
@@ -56,6 +57,11 @@ pub const ScreenSearch = struct {
     /// re-search scenario.
     history_results: std.ArrayList(FlattenedHighlight),
     active_results: std.ArrayList(FlattenedHighlight),
+
+    /// The dimensions of the screen. When this changes we need to
+    /// restart the whole search, currently.
+    rows: size.CellCountInt,
+    cols: size.CellCountInt,
 
     pub const SelectedMatch = struct {
         /// Index from the end of the match list (0 = most recent match)
@@ -129,6 +135,8 @@ pub const ScreenSearch = struct {
     ) Allocator.Error!ScreenSearch {
         var result: ScreenSearch = .{
             .screen = screen,
+            .rows = screen.pages.rows,
+            .cols = screen.pages.cols,
             .active = try .init(alloc, needle_unowned),
             .history = null,
             .state = .active,
@@ -247,6 +255,29 @@ pub const ScreenSearch = struct {
     /// Feed on a complete screen search will perform some cleanup of
     /// potentially stale history results (pruned) and reclaim some memory.
     pub fn feed(self: *ScreenSearch) Allocator.Error!void {
+        // If the screen resizes, we have to reset our entire search. That
+        // isn't ideal but we don't have a better way right now to handle
+        // reflowing the search results beyond putting a tracked pin for
+        // every single result.
+        if (self.screen.pages.rows != self.rows or
+            self.screen.pages.cols != self.cols)
+        {
+            // Reinit
+            const new: ScreenSearch = try .init(
+                self.allocator(),
+                self.screen,
+                self.needle(),
+            );
+
+            // Deinit/reinit
+            self.deinit();
+            self.* = new;
+
+            // New result should have matching dimensions
+            assert(self.screen.pages.rows == self.rows);
+            assert(self.screen.pages.cols == self.cols);
+        }
+
         const history: *PageListSearch = if (self.history) |*h| &h.searcher else {
             // No history to feed, search is complete.
             self.state = .complete;
