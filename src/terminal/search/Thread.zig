@@ -292,6 +292,10 @@ fn changeNeedle(self: *Thread, needle: []const u8) !void {
                 self.opts.event_userdata,
             );
             cb(
+                .{ .selected_match = null },
+                self.opts.event_userdata,
+            );
+            cb(
                 .{ .viewport_matches = &.{} },
                 self.opts.event_userdata,
             );
