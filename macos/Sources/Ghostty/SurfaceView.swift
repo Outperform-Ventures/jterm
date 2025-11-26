@@ -405,21 +405,24 @@ extension Ghostty {
                         get: { searchState?.needle ?? "" },
                         set: { searchState?.needle = $0 }
                     ))
-                        .textFieldStyle(.plain)
-                        .frame(width: 180)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 6)
-                        .background(Color.primary.opacity(0.1))
-                        .cornerRadius(6)
-                        .focused($isSearchFieldFocused)
-                        .onSubmit {
-                            guard let surface = surfaceView.surface else { return }
-                            let action = "navigate_search:next"
-                            ghostty_surface_binding_action(surface, action, UInt(action.count))
-                        }
-                        .onExitCommand {
-                            Ghostty.moveFocus(to: surfaceView)
-                        }
+                    .textFieldStyle(.plain)
+                    .frame(width: 180)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 6)
+                    .background(Color.primary.opacity(0.1))
+                    .cornerRadius(6)
+                    .focused($isSearchFieldFocused)
+                    .onExitCommand {
+                        Ghostty.moveFocus(to: surfaceView)
+                    }
+                    .backport.onKeyPress(.return) { modifiers in
+                        guard let surface = surfaceView.surface else { return .ignored }
+                        let action = modifiers.contains(.shift)
+                        ? "navigate_search:previous"
+                        : "navigate_search:next"
+                        ghostty_surface_binding_action(surface, action, UInt(action.count))
+                        return .handled
+                    }
                     
                     Button(action: {
                         guard let surface = surfaceView.surface else { return }
@@ -526,7 +529,7 @@ extension Ghostty {
             }
         }
     }
-    
+
     /// A surface is terminology in Ghostty for a terminal surface, or a place where a terminal is actually drawn
     /// and interacted with. The word "surface" is used because a surface may represent a window, a tab,
     /// a split, a small preview pane, etc. It is ANYTHING that has a terminal drawn to it.
