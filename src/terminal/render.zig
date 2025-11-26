@@ -441,6 +441,7 @@ pub const RenderState = struct {
                     // faster than iterating pages again later.
                     if (last_dirty_page) |last_p| last_p.dirty = false;
                     last_dirty_page = p;
+                    break :dirty;
                 }
 
                 // If our row is dirty then we're dirty.
