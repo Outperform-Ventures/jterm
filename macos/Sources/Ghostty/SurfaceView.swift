@@ -440,14 +440,14 @@ extension Ghostty {
                         let action = modifiers.contains(.shift)
                         ? "navigate_search:previous"
                         : "navigate_search:next"
-                        ghostty_surface_binding_action(surface, action, UInt(action.count))
+                        ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8)))
                         return .handled
                     }
 
                     Button(action: {
                         guard let surface = surfaceView.surface else { return }
                         let action = "navigate_search:next"
-                        ghostty_surface_binding_action(surface, action, UInt(action.count))
+                        ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8)))
                     }) {
                         Image(systemName: "chevron.up")
                     }
@@ -456,7 +456,7 @@ extension Ghostty {
                     Button(action: {
                         guard let surface = surfaceView.surface else { return }
                         let action = "navigate_search:previous"
-                        ghostty_surface_binding_action(surface, action, UInt(action.count))
+                        ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8)))
                     }) {
                         Image(systemName: "chevron.down")
                     }

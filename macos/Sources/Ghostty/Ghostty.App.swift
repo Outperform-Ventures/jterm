@@ -180,14 +180,14 @@ extension Ghostty {
 
         func newTab(surface: ghostty_surface_t) {
             let action = "new_tab"
-            if (!ghostty_surface_binding_action(surface, action, UInt(action.count))) {
+            if (!ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8)))) {
                 logger.warning("action failed action=\(action)")
             }
         }
 
         func newWindow(surface: ghostty_surface_t) {
             let action = "new_window"
-            if (!ghostty_surface_binding_action(surface, action, UInt(action.count))) {
+            if (!ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8)))) {
                 logger.warning("action failed action=\(action)")
             }
         }
@@ -210,14 +210,14 @@ extension Ghostty {
 
         func splitToggleZoom(surface: ghostty_surface_t) {
             let action = "toggle_split_zoom"
-            if (!ghostty_surface_binding_action(surface, action, UInt(action.count))) {
+            if (!ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8)))) {
                 logger.warning("action failed action=\(action)")
             }
         }
 
         func toggleFullscreen(surface: ghostty_surface_t) {
             let action = "toggle_fullscreen"
-            if (!ghostty_surface_binding_action(surface, action, UInt(action.count))) {
+            if (!ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8)))) {
                 logger.warning("action failed action=\(action)")
             }
         }
@@ -238,21 +238,21 @@ extension Ghostty {
             case .reset:
                 action = "reset_font_size"
             }
-            if (!ghostty_surface_binding_action(surface, action, UInt(action.count))) {
+            if (!ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8)))) {
                 logger.warning("action failed action=\(action)")
             }
         }
 
         func toggleTerminalInspector(surface: ghostty_surface_t) {
             let action = "inspector:toggle"
-            if (!ghostty_surface_binding_action(surface, action, UInt(action.count))) {
+            if (!ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8)))) {
                 logger.warning("action failed action=\(action)")
             }
         }
 
         func resetTerminal(surface: ghostty_surface_t) {
             let action = "reset"
-            if (!ghostty_surface_binding_action(surface, action, UInt(action.count))) {
+            if (!ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8)))) {
                 logger.warning("action failed action=\(action)")
             }
         }
