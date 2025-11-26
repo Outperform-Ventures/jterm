@@ -1112,6 +1112,18 @@ class BaseTerminalController: NSWindowController,
     @IBAction func toggleCommandPalette(_ sender: Any?) {
         commandPaletteIsShowing.toggle()
     }
+    
+    @IBAction func find(_ sender: Any) {
+        focusedSurface?.find(sender)
+    }
+    
+    @IBAction func findNext(_ sender: Any) {
+        focusedSurface?.findNext(sender)
+    }
+    
+    @IBAction func findPrevious(_ sender: Any) {
+        focusedSurface?.findNext(sender)
+    }
 
     @objc func resetTerminal(_ sender: Any) {
         guard let surface = focusedSurface?.surface else { return }

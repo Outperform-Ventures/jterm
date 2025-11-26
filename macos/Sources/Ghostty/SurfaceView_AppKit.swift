@@ -1470,6 +1470,30 @@ extension Ghostty {
                 AppDelegate.logger.warning("action failed action=\(action)")
             }
         }
+        
+        @IBAction func find(_ sender: Any?) {
+            guard let surface = self.surface else { return }
+            let action = "start_search"
+            if (!ghostty_surface_binding_action(surface, action, UInt(action.count))) {
+                AppDelegate.logger.warning("action failed action=\(action)")
+            }
+        }
+        
+        @IBAction func findNext(_ sender: Any?) {
+            guard let surface = self.surface else { return }
+            let action = "search:next"
+            if (!ghostty_surface_binding_action(surface, action, UInt(action.count))) {
+                AppDelegate.logger.warning("action failed action=\(action)")
+            }
+        }
+
+        @IBAction func findPrevious(_ sender: Any?) {
+            guard let surface = self.surface else { return }
+            let action = "search:previous"
+            if (!ghostty_surface_binding_action(surface, action, UInt(action.count))) {
+                AppDelegate.logger.warning("action failed action=\(action)")
+            }
+        }
 
         @IBAction func splitRight(_ sender: Any) {
             guard let surface = self.surface else { return }
