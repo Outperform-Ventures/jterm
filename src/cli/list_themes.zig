@@ -1,11 +1,9 @@
 const std = @import("std");
-const inputpkg = @import("../input.zig");
 const args = @import("args.zig");
 const Action = @import("ghostty.zig").Action;
 const Config = @import("../config/Config.zig");
 const themepkg = @import("../config/theme.zig");
 const tui = @import("tui.zig");
-const internal_os = @import("../os/main.zig");
 const global_state = &@import("../global.zig").state;
 
 const vaxis = @import("vaxis");
