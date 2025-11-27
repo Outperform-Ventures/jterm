@@ -1,8 +1,6 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const assert = @import("../../quirks.zig").inlineAssert;
 const testing = std.testing;
-const CircBuf = @import("../../datastruct/main.zig").CircBuf;
 const terminal = @import("../main.zig");
 const point = terminal.point;
 const FlattenedHighlight = @import("../highlight.zig").Flattened;
@@ -11,7 +9,6 @@ const PageList = terminal.PageList;
 const Pin = PageList.Pin;
 const Selection = terminal.Selection;
 const Screen = terminal.Screen;
-const PageFormatter = @import("../formatter.zig").PageFormatter;
 const Terminal = @import("../Terminal.zig");
 const SlidingWindow = @import("sliding_window.zig").SlidingWindow;
 
