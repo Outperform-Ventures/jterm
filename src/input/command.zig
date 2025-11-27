@@ -185,12 +185,6 @@ fn actionCommands(action: Action.Key) []const Command {
             .description = "Navigate to the previous search result, if any.",
         } },
 
-        .search => comptime &.{.{
-            .action = .{ .search = "" },
-            .title = "End Search",
-            .description = "End a search if one is active.",
-        }},
-
         .increase_font_size => comptime &.{.{
             .action = .{ .increase_font_size = 1 },
             .title = "Increase Font Size",
@@ -633,6 +627,7 @@ fn actionCommands(action: Action.Key) []const Command {
         .esc,
         .cursor_key,
         .set_font_size,
+        .search,
         .scroll_to_row,
         .scroll_page_fractional,
         .scroll_page_lines,
