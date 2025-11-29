@@ -178,7 +178,13 @@ pub fn run(gpa_alloc: std.mem.Allocator) !u8 {
         return 0;
     }
 
+    var theme_config = try Config.default(gpa_alloc);
+    defer theme_config.deinit();
     for (themes.items) |theme| {
+        try theme_config.loadFile(theme_config._arena.?.allocator(), theme.path);
+        if (!shouldIncludeTheme(opts.color, theme_config)) {
+            continue;
+        }
         if (opts.path)
             try stdout.print("{s} ({t}) {s}\n", .{ theme.theme, theme.location, theme.path })
         else
