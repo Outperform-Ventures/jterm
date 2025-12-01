@@ -1964,6 +1964,7 @@ pub const Surface = extern struct {
             SearchOverlay.properties.active.name,
             &value,
         );
+
         if (active) {
             priv.search_overlay.grabFocus();
         }
