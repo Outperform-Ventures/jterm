@@ -7,10 +7,10 @@ import GhosttyKit
 class TerminalWindow: NSWindow {
     /// Posted when a terminal window awakes from nib.
     static let terminalDidAwake = Notification.Name("TerminalWindowDidAwake")
-    
+
     /// Posted when a terminal window will close
     static let terminalWillCloseNotification = Notification.Name("TerminalWindowWillClose")
-    
+
     /// This is the key in UserDefaults to use for the default `level` value. This is
     /// used by the manual float on top menu item feature.
     static let defaultLevelKey: String = "TerminalDefaultLevel"
@@ -20,15 +20,20 @@ class TerminalWindow: NSWindow {
 
     /// Reset split zoom button in titlebar
     private let resetZoomAccessory = NSTitlebarAccessoryViewController()
-    
+
     /// Update notification UI in titlebar
     private let updateAccessory = NSTitlebarAccessoryViewController()
 
+    /// Visual indicator that mirrors the selected tab color.
+    private let tabColorIndicator = TabColorIndicator()
+
     /// The configuration derived from the Ghostty config so we don't need to rely on references.
     private(set) var derivedConfig: DerivedConfig = .init()
-
     private var tabMenuObserver: NSObjectProtocol? = nil
-    
+    private var tabColorSelection: TabColor = .none {
+        didSet { tabColorIndicator.tabColor = tabColorSelection }
+    }
+
     /// Whether this window supports the update accessory. If this is false, then views within this
     /// window should determine how to show update notifications.
     var supportsUpdateAccessory: Bool {
@@ -40,7 +45,11 @@ class TerminalWindow: NSWindow {
     var terminalController: TerminalController? {
         windowController as? TerminalController
     }
-    
+
+    func display(tabColor: TabColor) {
+        tabColorSelection = tabColor
+    }
+
     // MARK: NSWindow Overrides
 
     override var toolbar: NSToolbar? {
@@ -66,7 +75,7 @@ class TerminalWindow: NSWindow {
             guard let self, let menu = n.object as? NSMenu else { return }
             self.configureTabContextMenuIfNeeded(menu)
         }
-        
+
         // This is required so that window restoration properly creates our tabs
         // again. I'm not sure why this is required. If you don't do this, then
         // tabs restore as separate windows.
@@ -74,14 +83,14 @@ class TerminalWindow: NSWindow {
         DispatchQueue.main.async {
             self.tabbingMode = .automatic
         }
-        
+
         // All new windows are based on the app config at the time of creation.
         guard let appDelegate = NSApp.delegate as? AppDelegate else { return }
         let config = appDelegate.ghostty.config
 
         // Setup our initial config
         derivedConfig = .init(config)
-        
+
         // If there is a hardcoded title in the configuration, we set that
         // immediately. Future `set_title` apprt actions will override this
         // if necessary but this ensures our window loads with the proper
@@ -116,7 +125,7 @@ class TerminalWindow: NSWindow {
                 }))
             addTitlebarAccessoryViewController(resetZoomAccessory)
             resetZoomAccessory.view.translatesAutoresizingMaskIntoConstraints = false
-            
+
             // Create update notification accessory
             if supportsUpdateAccessory {
                 updateAccessory.layoutAttribute = .right
@@ -132,9 +141,19 @@ class TerminalWindow: NSWindow {
         // Setup the accessory view for tabs that shows our keyboard shortcuts,
         // zoomed state, etc. Note I tried to use SwiftUI here but ran into issues
         // where buttons were not clickable.
-        let stackView = NSStackView(views: [keyEquivalentLabel, resetZoomTabButton])
+        tabColorIndicator.translatesAutoresizingMaskIntoConstraints = false
+        tabColorIndicator.widthAnchor.constraint(equalToConstant: 12).isActive = true
+        tabColorIndicator.heightAnchor.constraint(equalToConstant: 4).isActive = true
+        tabColorIndicator.tabColor = tabColorSelection
+
+        let stackView = NSStackView()
+        stackView.orientation = .horizontal
         stackView.setHuggingPriority(.defaultHigh, for: .horizontal)
-        stackView.spacing = 3
+        stackView.spacing = 4
+        stackView.alignment = .centerY
+        stackView.addArrangedSubview(tabColorIndicator)
+        stackView.addArrangedSubview(keyEquivalentLabel)
+        stackView.addArrangedSubview(resetZoomTabButton)
         tab.accessoryView = stackView
 
         // Get our saved level
@@ -145,7 +164,7 @@ class TerminalWindow: NSWindow {
     // still become key/main and receive events.
     override var canBecomeKey: Bool { return true }
     override var canBecomeMain: Bool { return true }
-    
+
     override func close() {
         NotificationCenter.default.post(name: Self.terminalWillCloseNotification, object: self)
         super.close()
@@ -216,6 +235,9 @@ class TerminalWindow: NSWindow {
     static let tabBarIdentifier: NSUserInterfaceItemIdentifier = .init("_ghosttyTabBar")
 
     private static let closeTabsOnRightMenuItemIdentifier = NSUserInterfaceItemIdentifier("com.mitchellh.ghostty.closeTabsOnTheRightMenuItem")
+    private static let tabColorSeparatorIdentifier = NSUserInterfaceItemIdentifier("com.mitchellh.ghostty.tabColorSeparator")
+    private static let tabColorHeaderIdentifier = NSUserInterfaceItemIdentifier("com.mitchellh.ghostty.tabColorHeader")
+    private static let tabColorPaletteIdentifier = NSUserInterfaceItemIdentifier("com.mitchellh.ghostty.tabColorPalette")
 
     func findTitlebarView() -> NSView? {
         // Find our tab bar. If it doesn't exist we don't do anything.
@@ -279,7 +301,7 @@ class TerminalWindow: NSWindow {
         if let idx = titlebarAccessoryViewControllers.firstIndex(of: resetZoomAccessory) {
             removeTitlebarAccessoryViewController(at: idx)
         }
-        
+
         // We don't need to do this with the update accessory. I don't know why but
         // everything works fine.
     }
@@ -302,29 +324,37 @@ class TerminalWindow: NSWindow {
             .first { $0.action == NSSelectorFromString("performClose:") }
             .flatMap { $0.target as? NSWindow }
             .flatMap { $0.windowController as? TerminalController }
-
+        
         // Close tabs to the right
         let item = NSMenuItem(title: "Close Tabs to the Right", action: #selector(TerminalController.closeTabsOnTheRight(_:)), keyEquivalent: "")
         item.identifier = Self.closeTabsOnRightMenuItemIdentifier
         item.target = targetController
         item.setImageIfDesired(systemSymbolName: "xmark")
-        if !menu.insertItem(item, after: NSSelectorFromString("performCloseOtherTabs:")) &&
-           !menu.insertItem(item, after: NSSelectorFromString("performClose:")) {
+        let insertionIndex: UInt
+        if let idx = menu.insertItem(item, after: NSSelectorFromString("performCloseOtherTabs:")) {
+            insertionIndex = idx
+        } else if let idx = menu.insertItem(item, after: NSSelectorFromString("performClose:")) {
+            insertionIndex = idx
+        } else {
             menu.addItem(item)
+            insertionIndex = UInt(menu.items.count - 1)
         }
         
         // Other close items should have the xmark to match Safari on macOS 26
         for menuItem in menu.items {
             if menuItem.action == NSSelectorFromString("performClose:") ||
-               menuItem.action == NSSelectorFromString("performCloseOtherTabs:") {
+                menuItem.action == NSSelectorFromString("performCloseOtherTabs:") {
                 menuItem.setImageIfDesired(systemSymbolName: "xmark")
             }
         }
+        
+        removeTabColorSection(from: menu)
+        insertTabColorSection(into: menu, startingAt: Int(insertionIndex) + 1)
     }
 
     private func isTabContextMenu(_ menu: NSMenu) -> Bool {
         guard NSApp.keyWindow === self else { return false }
-        
+
         // These are the target selectors, at least for macOS 26.
         let tabContextSelectors: Set<String> = [
             "performClose:",
@@ -332,11 +362,55 @@ class TerminalWindow: NSWindow {
             "moveTabToNewWindow:",
             "toggleTabOverview:"
         ]
-        
+
         let selectorNames = Set(menu.items.compactMap { $0.action }.map { NSStringFromSelector($0) })
         return !selectorNames.isDisjoint(with: tabContextSelectors)
     }
 
+
+    private func removeTabColorSection(from menu: NSMenu) {
+        let identifiers: Set<NSUserInterfaceItemIdentifier> = [
+            Self.tabColorSeparatorIdentifier,
+            Self.tabColorHeaderIdentifier,
+            Self.tabColorPaletteIdentifier
+        ]
+
+        for (index, item) in menu.items.enumerated().reversed() {
+            guard let identifier = item.identifier else { continue }
+            if identifiers.contains(identifier) {
+                menu.removeItem(at: index)
+            }
+        }
+    }
+
+    private func insertTabColorSection(into menu: NSMenu, startingAt index: Int) {
+        guard let terminalController else { return }
+
+        var insertionIndex = index
+
+        let separator = NSMenuItem.separator()
+        separator.identifier = Self.tabColorSeparatorIdentifier
+        menu.insertItem(separator, at: insertionIndex)
+        insertionIndex += 1
+
+        let headerTitle = NSLocalizedString("Tab Color", comment: "Tab color context menu section title")
+        let headerItem = NSMenuItem()
+        headerItem.identifier = Self.tabColorHeaderIdentifier
+        headerItem.title = headerTitle
+        headerItem.isEnabled = false
+        menu.insertItem(headerItem, at: insertionIndex)
+        insertionIndex += 1
+
+        let paletteItem = NSMenuItem()
+        paletteItem.identifier = Self.tabColorPaletteIdentifier
+        let paletteView = TabColorPaletteView(
+            selectedColor: tabColorSelection
+        ) { [weak terminalController] color in
+            terminalController?.setTabColor(color)
+        }
+        paletteItem.view = paletteView
+        menu.insertItem(paletteItem, at: insertionIndex)
+    }
 
     // MARK: Tab Key Equivalents
 
@@ -549,7 +623,7 @@ class TerminalWindow: NSWindow {
 
     private func setInitialWindowPosition(x: Int16?, y: Int16?) {
         // If we don't have an X/Y then we try to use the previously saved window pos.
-        guard let x, let y else {
+        guard x != nil, y != nil else {
             if (!LastWindowPosition.shared.restore(self)) {
                 center()
             }
@@ -568,7 +642,7 @@ class TerminalWindow: NSWindow {
             center()
             return
         }
-        
+
         let frame = terminalController.adjustForWindowPosition(frame: frame, on: screen)
         setFrameOrigin(frame.origin)
     }
@@ -584,7 +658,7 @@ class TerminalWindow: NSWindow {
             NotificationCenter.default.removeObserver(observer)
         }
     }
-    
+
     // MARK: Config
 
     struct DerivedConfig {
@@ -651,12 +725,12 @@ extension TerminalWindow {
             }
         }
     }
-    
+
     /// A pill-shaped button that displays update status and provides access to update actions.
     struct UpdateAccessoryView: View {
         @ObservedObject var viewModel: ViewModel
         @ObservedObject var model: UpdateViewModel
-        
+
         var body: some View {
             // We use the same top/trailing padding so that it hugs the same.
             UpdatePill(model: model)
@@ -665,4 +739,237 @@ extension TerminalWindow {
         }
     }
 
+}
+
+extension TerminalWindow {
+    enum TabColor: Int, CaseIterable {
+        case none
+        case blue
+        case purple
+        case pink
+        case red
+        case orange
+        case yellow
+        case green
+        case teal
+        case graphite
+
+        static let paletteRows: [[TabColor]] = [
+            [.none, .blue, .purple, .pink, .red],
+            [.orange, .yellow, .green, .teal, .graphite],
+        ]
+
+        var localizedName: String {
+            switch self {
+            case .none:
+                return NSLocalizedString("None", comment: "Tab color option label")
+            case .blue:
+                return NSLocalizedString("Blue", comment: "Tab color option label")
+            case .purple:
+                return NSLocalizedString("Purple", comment: "Tab color option label")
+            case .pink:
+                return NSLocalizedString("Pink", comment: "Tab color option label")
+            case .red:
+                return NSLocalizedString("Red", comment: "Tab color option label")
+            case .orange:
+                return NSLocalizedString("Orange", comment: "Tab color option label")
+            case .yellow:
+                return NSLocalizedString("Yellow", comment: "Tab color option label")
+            case .green:
+                return NSLocalizedString("Green", comment: "Tab color option label")
+            case .teal:
+                return NSLocalizedString("Teal", comment: "Tab color option label")
+            case .graphite:
+                return NSLocalizedString("Graphite", comment: "Tab color option label")
+            }
+        }
+
+        var displayColor: NSColor? {
+            switch self {
+            case .none:
+                return nil
+            case .blue:
+                return .systemBlue
+            case .purple:
+                return .systemPurple
+            case .pink:
+                return .systemPink
+            case .red:
+                return .systemRed
+            case .orange:
+                return .systemOrange
+            case .yellow:
+                return .systemYellow
+            case .green:
+                return .systemGreen
+            case .teal:
+                if #available(macOS 13.0, *) {
+                    return .systemMint
+                } else {
+                    return .systemTeal
+                }
+            case .graphite:
+                return .systemGray
+            }
+        }
+
+        func swatchImage(selected: Bool) -> NSImage {
+            let size = NSSize(width: 18, height: 18)
+            return NSImage(size: size, flipped: false) { rect in
+                let circleRect = rect.insetBy(dx: 1, dy: 1)
+                let circlePath = NSBezierPath(ovalIn: circleRect)
+
+                if let fillColor = self.displayColor {
+                    fillColor.setFill()
+                    circlePath.fill()
+                } else {
+                    NSColor.clear.setFill()
+                    circlePath.fill()
+                    NSColor.quaternaryLabelColor.setStroke()
+                    circlePath.lineWidth = 1
+                    circlePath.stroke()
+                }
+
+                if self == .none {
+                    let slash = NSBezierPath()
+                    slash.move(to: NSPoint(x: circleRect.minX + 2, y: circleRect.minY + 2))
+                    slash.line(to: NSPoint(x: circleRect.maxX - 2, y: circleRect.maxY - 2))
+                    slash.lineWidth = 1.5
+                    NSColor.secondaryLabelColor.setStroke()
+                    slash.stroke()
+                }
+
+                if selected {
+                    let highlight = NSBezierPath(ovalIn: rect.insetBy(dx: 0.5, dy: 0.5))
+                    highlight.lineWidth = 2
+                    NSColor.controlAccentColor.setStroke()
+                    highlight.stroke()
+                }
+
+                return true
+            }
+        }
+    }
+}
+
+private final class TabColorIndicator: NSView {
+    var tabColor: TerminalWindow.TabColor = .none {
+        didSet { updateAppearance() }
+    }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        updateAppearance()
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func layout() {
+        super.layout()
+        updateAppearance()
+    }
+
+    private func updateAppearance() {
+        guard let layer else { return }
+        layer.cornerRadius = bounds.height / 2
+
+        if let color = tabColor.displayColor {
+            alphaValue = 1
+            layer.backgroundColor = color.cgColor
+            layer.borderWidth = 0
+            layer.borderColor = nil
+        } else {
+            alphaValue = 0
+            layer.backgroundColor = NSColor.clear.cgColor
+            layer.borderWidth = 0
+            layer.borderColor = nil
+        }
+    }
+}
+
+private final class TabColorPaletteView: NSView {
+    private let stackView = NSStackView()
+    private var selectedColor: TerminalWindow.TabColor
+    private let selectionHandler: (TerminalWindow.TabColor) -> Void
+    private var buttons: [NSButton] = []
+
+    init(selectedColor: TerminalWindow.TabColor,
+         selectionHandler: @escaping (TerminalWindow.TabColor) -> Void) {
+        self.selectedColor = selectedColor
+        self.selectionHandler = selectionHandler
+        super.init(frame: NSRect(origin: .zero, size: NSSize(width: 180, height: 60)))
+
+        stackView.orientation = .vertical
+        stackView.spacing = 6
+        addSubview(stackView)
+
+        for row in TerminalWindow.TabColor.paletteRows {
+            let rowStack = NSStackView()
+            rowStack.orientation = .horizontal
+            rowStack.spacing = 6
+
+            for color in row {
+                let button = makeButton(for: color)
+                rowStack.addArrangedSubview(button)
+                buttons.append(button)
+            }
+
+            stackView.addArrangedSubview(rowStack)
+        }
+
+        translatesAutoresizingMaskIntoConstraints = true
+        setFrameSize(intrinsicContentSize)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override var intrinsicContentSize: NSSize {
+        NSSize(width: 190, height: 70)
+    }
+
+    override func layout() {
+        super.layout()
+        stackView.frame = bounds.insetBy(dx: 10, dy: 6)
+    }
+
+    private func makeButton(for color: TerminalWindow.TabColor) -> NSButton {
+        let button = NSButton()
+        button.translatesAutoresizingMaskIntoConstraints = false
+        button.imagePosition = .imageOnly
+        button.imageScaling = .scaleProportionallyUpOrDown
+        button.image = color.swatchImage(selected: color == selectedColor)
+        button.setButtonType(.momentaryChange)
+        button.isBordered = false
+        button.focusRingType = .none
+        button.target = self
+        button.action = #selector(onSelectColor(_:))
+        button.tag = color.rawValue
+        button.toolTip = color.localizedName
+
+        NSLayoutConstraint.activate([
+            button.widthAnchor.constraint(equalToConstant: 24),
+            button.heightAnchor.constraint(equalToConstant: 24)
+        ])
+
+        return button
+    }
+
+    @objc private func onSelectColor(_ sender: NSButton) {
+        guard let color = TerminalWindow.TabColor(rawValue: sender.tag) else { return }
+        selectedColor = color
+        updateButtonImages()
+        selectionHandler(color)
+    }
+
+    private func updateButtonImages() {
+        for button in buttons {
+            guard let color = TerminalWindow.TabColor(rawValue: button.tag) else { continue }
+            button.image = color.swatchImage(selected: color == selectedColor)
+        }
+    }
 }
