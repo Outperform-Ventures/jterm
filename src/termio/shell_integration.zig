@@ -78,14 +78,6 @@ pub fn setup(
 }
 
 fn setupShell(alloc_arena: Allocator, resource_dir: []const u8, command: config.Command, env: *EnvMap, exe: []const u8, features: config.ShellIntegrationFeatures) !?ShellIntegration {
-    if (std.mem.eql(u8, "nu", exe)) {
-        try setupNu(alloc_arena, resource_dir, env, features);
-        return null;
-        // // return .{
-        // //     .shell = .nu,
-        // //     .command = try command.clone(alloc_arena),
-        // // };
-    }
     if (std.mem.eql(u8, "bash", exe)) {
         // Apple distributes their own patched version of Bash 3.2
         // on macOS that disables the ENV-based POSIX startup path.
@@ -130,6 +122,11 @@ fn setupShell(alloc_arena: Allocator, resource_dir: []const u8, command: config.
             .shell = .fish,
             .command = try command.clone(alloc_arena),
         };
+    }
+
+    if (std.mem.eql(u8, "nu", exe)) {
+        try setupNu(alloc_arena, resource_dir, env, features);
+        return null;
     }
 
     if (std.mem.eql(u8, "zsh", exe)) {

@@ -14,22 +14,21 @@ def set_ssh_env []: nothing -> record<ssh_term: string, ssh_opts: list<string>> 
 def set_ssh_terminfo [ssh_opts: list<string>, ssh_args: list<string>] {
   mut ssh_opts = $ssh_opts
   let ssh_cfg = ^ssh -G ...($ssh_args)
-    | lines 
-    | split column -n 2 " " key value
-    | where key == "user" or key == "hostname"
-    | transpose -r
+    | lines
+    | parse "{key} {value}"
+    | where key in ["user", "hostname"]
+    | select key value
+    | transpose -rd
     | into record
-  let ssh_user = $ssh_cfg.user
-  let ssh_hostname = $ssh_cfg.hostname
-  let ssh_id = $"($ssh_user)@($ssh_hostname)"
-  let ghostty_bin = $env.GHOSTTY_BIN_DIR + "/ghostty"
-  let check_cache_cmd = ["+ssh-cache", $"--host=($ssh_id)"]
+    | default { user: $env.USER, hostname: "localhost" }
+
+  let ssh_id = $"($ssh_cfg.user)@($ssh_cfg.hostname)"
+  let ghostty_bin = $env.GHOSTTY_BIN_DIR | path join "ghostty"
 
   let is_cached = (
-    ^$ghostty_bin ...$check_cache_cmd
+    ^$ghostty_bin ...(["+ssh-cache", $"--host=($ssh_id)"])
     | complete
-    | get exit_code
-    | $in == 0
+    | $in.exit_code == 0
   )
 
   if not $is_cached {
@@ -39,44 +38,36 @@ def set_ssh_terminfo [ssh_opts: list<string>, ssh_args: list<string>] {
       return {ssh_term: "xterm-256color", ssh_opts: $ssh_opts_copy}
     }
 
-    print $"Setting up xterm-ghostty terminfo on ($ssh_hostname)..."
+    print $"Setting up xterm-ghostty terminfo on ($ssh_cfg.hostname)..."
 
-    let ctrl_dir = try {
-      mktemp -td $"ghostty-ssh-($ssh_user).XXXXXX"
-    } catch {
-      $"/tmp/ghostty-ssh-($ssh_user).($nu.pid)"
-    }
-
-    let ctrl_path = $"($ctrl_dir)/socket"
+    let ctrl_path = (
+      try {
+        mktemp -td $"ghostty-ssh-($ssh_cfg.user).XXXXXX"
+      } catch {
+        $"/tmp/ghostty-ssh-($ssh_cfg.user).($nu.pid)"
+      } | path join "socket"
+    )
 
     let master_parts = $ssh_opts ++ ["-o", "ControlMaster=yes", "-o", $"ControlPath=($ctrl_path)", "-o", "ControlPersist=60s"] ++ $ssh_args
 
-    let infocmp_cmd = $master_parts ++ ["infocmp", "xterm-ghostty"]
-
     let terminfo_present = (
-      ^ssh ...$infocmp_cmd
+      ^ssh ...($master_parts ++ ["infocmp", "xterm-ghostty"])
       | complete
-      | get exit_code
-      | $in == 0
+      | $in.exit_code == 0
     )
 
     if (not $terminfo_present) {
-      let install_terminfo_cmd = $master_parts ++ ["mkdir", "-p", "~/.terminfo", "&&", "tic", "-x", "-"]
-
-      ($terminfo_data | ^ssh ...$install_terminfo_cmd) | complete | get exit_code | if $in != 0 {
+      (
+        $terminfo_data
+        | ^ssh ...($master_parts ++ ["mkdir", "-p", "~/.terminfo", "&&", "tic", "-x", "-"])
+      )
+      | complete
+      | if $in.exit_code != 0 {
         print "Warning: Failed to install terminfo."
         return {ssh_term: "xterm-256color", ssh_opts: $ssh_opts}
-      } 
-      let state_dir = try { $env.XDG_STATE_HOME } catch { $env.HOME | path join ".local/state" }
-      let ghostty_state_dir = $state_dir | path join "ghostty"
-
-      let cache_add_cmd = ["+ssh-cache", $"--add=($ssh_id)"]
-
-      # Bug?: If I dont add TMPDIR, it complains about renameacrossmountpoints
-      with-env { TMPDIR: $ghostty_state_dir } {
-        ^$ghostty_bin ...$cache_add_cmd o+e>| ignore
       }
     }
+    ^$ghostty_bin ...(["+ssh-cache", $"--add=($ssh_id)"]) o+e>| ignore
     $ssh_opts ++= ["-o", $"ControlPath=($ctrl_path)"]
   }
 
@@ -99,16 +90,15 @@ export def --wrapped ssh [...ssh_args: string] {
   }
 
   let ssh_parts = $session.ssh_opts ++ $ssh_args
-  with-env { TERM: $session.ssh_term } {
+  with-env {TERM: $session.ssh_term} {
     ^ssh ...$ssh_parts
   }
 }
 
 # Removes Ghostty's data directory from XDG_DATA_DIRS 
-let ghostty_data_dir = $env.GHOSTTY_SHELL_INTEGRATION_XDG_DIR 
-$env.XDG_DATA_DIRS = $env.XDG_DATA_DIRS
+$env.XDG_DATA_DIRS = (
+  $env.XDG_DATA_DIRS
   | split row ':'
-  | where (
-  | $it !~ $ghostty_data_dir
-  )
+  | where {|path| $path != $env.GHOSTTY_SHELL_INTEGRATION_XDG_DIR }
   | str join ':'
+)
