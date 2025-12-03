@@ -77,7 +77,14 @@ pub fn setup(
     return result;
 }
 
-fn setupShell(alloc_arena: Allocator, resource_dir: []const u8, command: config.Command, env: *EnvMap, exe: []const u8, features: config.ShellIntegrationFeatures) !?ShellIntegration {
+fn setupShell(
+    alloc_arena: Allocator,
+    resource_dir: []const u8,
+    command: config.Command,
+    env: *EnvMap,
+    exe: []const u8,
+    features: config.ShellIntegrationFeatures,
+) !?ShellIntegration {
     if (std.mem.eql(u8, "bash", exe)) {
         // Apple distributes their own patched version of Bash 3.2
         // on macOS that disables the ENV-based POSIX startup path.
