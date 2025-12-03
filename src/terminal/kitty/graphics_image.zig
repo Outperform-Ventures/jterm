@@ -1,13 +1,12 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const assert = std.debug.assert;
+const assert = @import("../../quirks.zig").inlineAssert;
 const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
 const posix = std.posix;
 
 const fastmem = @import("../../fastmem.zig");
 const command = @import("graphics_command.zig");
-const point = @import("../point.zig");
 const PageList = @import("../PageList.zig");
 const wuffs = @import("wuffs");
 

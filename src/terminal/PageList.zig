@@ -6,7 +6,7 @@ const PageList = @This();
 const std = @import("std");
 const build_options = @import("terminal_options");
 const Allocator = std.mem.Allocator;
-const assert = std.debug.assert;
+const assert = @import("../quirks.zig").inlineAssert;
 const fastmem = @import("../fastmem.zig");
 const DoublyLinkedList = @import("../datastruct/main.zig").IntrusiveDoublyLinkedList;
 const color = @import("color.zig");
@@ -15,7 +15,6 @@ const point = @import("point.zig");
 const pagepkg = @import("page.zig");
 const stylepkg = @import("style.zig");
 const size = @import("size.zig");
-const Selection = @import("Selection.zig");
 const OffsetBuf = size.OffsetBuf;
 const Capacity = pagepkg.Capacity;
 const Page = pagepkg.Page;
@@ -43,6 +42,7 @@ const Node = struct {
     prev: ?*Node = null,
     next: ?*Node = null,
     data: Page,
+    serial: u64,
 };
 
 /// The memory pool we get page nodes from.
@@ -112,6 +112,24 @@ pool_owned: bool,
 
 /// The list of pages in the screen.
 pages: List,
+
+/// A monotonically increasing serial number that is incremented each
+/// time a page is allocated or reused as new. The serial is assigned to
+/// the Node.
+///
+/// The serial number can be used to detect whether the page is identical
+/// to the page that was originally referenced by a pointer. Since we reuse
+/// and pool memory, pointer stability is not guaranteed, but the serial
+/// will always be different for different allocations.
+///
+/// Developer note: we never do overflow checking on this. If we created
+/// a new page every second it'd take 584 billion years to overflow. We're
+/// going to risk it.
+page_serial: u64,
+
+/// The lowest still valid serial number that could exist. This allows
+/// for quick comparisons to find invalid pages in references.
+page_serial_min: u64,
 
 /// Byte size of the total amount of allocated pages. Note this does
 /// not include the total allocated amount in the pool which may be more
@@ -264,7 +282,13 @@ pub fn init(
     // necessary.
     var pool = try MemoryPool.init(alloc, std.heap.page_allocator, page_preheat);
     errdefer pool.deinit();
-    const page_list, const page_size = try initPages(&pool, cols, rows);
+    var page_serial: u64 = 0;
+    const page_list, const page_size = try initPages(
+        &pool,
+        &page_serial,
+        cols,
+        rows,
+    );
 
     // Get our minimum max size, see doc comments for more details.
     const min_max_size = try minMaxSize(cols, rows);
@@ -282,6 +306,8 @@ pub fn init(
         .pool = pool,
         .pool_owned = true,
         .pages = page_list,
+        .page_serial = page_serial,
+        .page_serial_min = 0,
         .page_size = page_size,
         .explicit_max_size = max_size orelse std.math.maxInt(usize),
         .min_max_size = min_max_size,
@@ -297,6 +323,7 @@ pub fn init(
 
 fn initPages(
     pool: *MemoryPool,
+    serial: *u64,
     cols: size.CellCountInt,
     rows: size.CellCountInt,
 ) !struct { List, usize } {
@@ -323,6 +350,7 @@ fn initPages(
                 .init(page_buf),
                 Page.layout(cap),
             ),
+            .serial = serial.*,
         };
         node.data.size.rows = @min(rem, node.data.capacity.rows);
         rem -= node.data.size.rows;
@@ -330,6 +358,9 @@ fn initPages(
         // Add the page to the list
         page_list.append(node);
         page_size += page_buf.len;
+
+        // Increment our serial
+        serial.* += 1;
     }
 
     assert(page_list.first != null);
@@ -363,6 +394,7 @@ pub inline fn pauseIntegrityChecks(self: *PageList, pause: bool) void {
 const IntegrityError = error{
     TotalRowsMismatch,
     ViewportPinOffsetMismatch,
+    PageSerialInvalid,
 };
 
 /// Verify the integrity of the PageList. This is expensive and should
@@ -374,8 +406,27 @@ fn verifyIntegrity(self: *const PageList) IntegrityError!void {
     // Our viewport pin should never be garbage
     assert(!self.viewport_pin.garbage);
 
+    // Grab our total rows
+    var actual_total: usize = 0;
+    {
+        var node_ = self.pages.first;
+        while (node_) |node| {
+            actual_total += node.data.size.rows;
+            node_ = node.next;
+
+            // While doing this traversal, verify no node has a serial
+            // number lower than our min.
+            if (node.serial < self.page_serial_min) {
+                log.warn(
+                    "PageList integrity violation: page serial too low serial={} min={}",
+                    .{ node.serial, self.page_serial_min },
+                );
+                return IntegrityError.PageSerialInvalid;
+            }
+        }
+    }
+
     // Verify that our cached total_rows matches the actual row count
-    const actual_total = self.totalRows();
     if (actual_total != self.total_rows) {
         log.warn(
             "PageList integrity violation: total_rows mismatch cached={} actual={}",
@@ -523,6 +574,7 @@ pub fn reset(self: *PageList) void {
     // we retained the capacity for the minimum number of pages we need.
     self.pages, self.page_size = initPages(
         &self.pool,
+        &self.page_serial,
         self.cols,
         self.rows,
     ) catch @panic("initPages failed");
@@ -638,6 +690,7 @@ pub fn clone(
     }
 
     // Copy our pages
+    var page_serial: u64 = 0;
     var total_rows: usize = 0;
     var page_size: usize = 0;
     while (it.next()) |chunk| {
@@ -646,6 +699,7 @@ pub fn clone(
         const node = try createPageExt(
             pool,
             chunk.node.data.capacity,
+            &page_serial,
             &page_size,
         );
         assert(node.data.capacity.rows >= chunk.end - chunk.start);
@@ -657,6 +711,8 @@ pub fn clone(
             chunk.start,
             chunk.end,
         );
+
+        node.data.dirty = chunk.node.data.dirty;
 
         page_list.append(node);
 
@@ -688,6 +744,8 @@ pub fn clone(
             .alloc => true,
         },
         .pages = page_list,
+        .page_serial = page_serial,
+        .page_serial_min = 0,
         .page_size = page_size,
         .explicit_max_size = self.explicit_max_size,
         .min_max_size = self.min_max_size,
@@ -2429,6 +2487,14 @@ pub fn grow(self: *PageList) !?*List.Node {
         first.data.size.rows = 1;
         self.pages.insertAfter(last, first);
 
+        // We also need to reset the serial number. Since this is the only
+        // place we ever reuse a serial number, we also can safely set
+        // page_serial_min to be one more than the old serial because we
+        // only ever prune the oldest pages.
+        self.page_serial_min = first.serial + 1;
+        first.serial = self.page_serial;
+        self.page_serial += 1;
+
         // Update any tracked pins that point to this page to point to the
         // new first page to the top-left.
         const pin_keys = self.tracked_pins.keys();
@@ -2542,7 +2608,9 @@ pub fn adjustCapacity(
     errdefer self.destroyNode(new_node);
     const new_page: *Page = &new_node.data;
     assert(new_page.capacity.rows >= page.capacity.rows);
+    assert(new_page.capacity.cols >= page.capacity.cols);
     new_page.size.rows = page.size.rows;
+    new_page.size.cols = page.size.cols;
     try new_page.cloneFrom(page, 0, page.size.rows);
 
     // Fix up all our tracked pins to point to the new page.
@@ -2568,12 +2636,18 @@ inline fn createPage(
     cap: Capacity,
 ) Allocator.Error!*List.Node {
     // log.debug("create page cap={}", .{cap});
-    return try createPageExt(&self.pool, cap, &self.page_size);
+    return try createPageExt(
+        &self.pool,
+        cap,
+        &self.page_serial,
+        &self.page_size,
+    );
 }
 
 inline fn createPageExt(
     pool: *MemoryPool,
     cap: Capacity,
+    serial: *u64,
     total_size: ?*usize,
 ) Allocator.Error!*List.Node {
     var page = try pool.nodes.create();
@@ -2603,8 +2677,12 @@ inline fn createPageExt(
     // to undefined, 0xAA.
     if (comptime std.debug.runtime_safety) @memset(page_buf, 0);
 
-    page.* = .{ .data = .initBuf(.init(page_buf), layout) };
+    page.* = .{
+        .data = .initBuf(.init(page_buf), layout),
+        .serial = serial.*,
+    };
     page.data.size.rows = 0;
+    serial.* += 1;
 
     if (total_size) |v| {
         // Accumulate page size now. We don't assert or check max size
@@ -2683,11 +2761,11 @@ pub fn eraseRow(
     // If we have a pinned viewport, we need to adjust for active area.
     self.fixupViewport(1);
 
-    {
-        // Set all the rows as dirty in this page
-        var dirty = node.data.dirtyBitSet();
-        dirty.setRangeValue(.{ .start = pn.y, .end = node.data.size.rows }, true);
-    }
+    // Mark the whole page as dirty.
+    //
+    // Technically we only need to mark rows from the erased row to the end
+    // of the page as dirty, but that's slower and this is a hot function.
+    node.data.dirty = true;
 
     // We iterate through all of the following pages in order to move their
     // rows up by 1 as well.
@@ -2720,9 +2798,8 @@ pub fn eraseRow(
 
         fastmem.rotateOnce(Row, rows[0..node.data.size.rows]);
 
-        // Set all the rows as dirty
-        var dirty = node.data.dirtyBitSet();
-        dirty.setRangeValue(.{ .start = 0, .end = node.data.size.rows }, true);
+        // Mark the whole page as dirty.
+        node.data.dirty = true;
 
         // Our tracked pins for this page need to be updated.
         // If the pin is in row 0 that means the corresponding row has
@@ -2773,9 +2850,11 @@ pub fn eraseRowBounded(
         node.data.clearCells(&rows[pn.y], 0, node.data.size.cols);
         fastmem.rotateOnce(Row, rows[pn.y..][0 .. limit + 1]);
 
-        // Set all the rows as dirty
-        var dirty = node.data.dirtyBitSet();
-        dirty.setRangeValue(.{ .start = pn.y, .end = pn.y + limit }, true);
+        // Mark the whole page as dirty.
+        //
+        // Technically we only need to mark from the erased row to the
+        // limit but this is a hot function, so we want to minimize work.
+        node.data.dirty = true;
 
         // If our viewport is a pin and our pin is within the erased
         // region we need to maybe shift our cache up. We do this here instead
@@ -2812,11 +2891,11 @@ pub fn eraseRowBounded(
 
     fastmem.rotateOnce(Row, rows[pn.y..node.data.size.rows]);
 
-    // All the rows in the page are dirty below the erased row.
-    {
-        var dirty = node.data.dirtyBitSet();
-        dirty.setRangeValue(.{ .start = pn.y, .end = node.data.size.rows }, true);
-    }
+    // Mark the whole page as dirty.
+    //
+    // Technically we only need to mark rows from the erased row to the end
+    // of the page as dirty, but that's slower and this is a hot function.
+    node.data.dirty = true;
 
     // We need to keep track of how many rows we've shifted so that we can
     // determine at what point we need to do a partial shift on subsequent
@@ -2871,9 +2950,11 @@ pub fn eraseRowBounded(
             node.data.clearCells(&rows[0], 0, node.data.size.cols);
             fastmem.rotateOnce(Row, rows[0 .. shifted_limit + 1]);
 
-            // Set all the rows as dirty
-            var dirty = node.data.dirtyBitSet();
-            dirty.setRangeValue(.{ .start = 0, .end = shifted_limit }, true);
+            // Mark the whole page as dirty.
+            //
+            // Technically we only need to mark from the erased row to the
+            // limit but this is a hot function, so we want to minimize work.
+            node.data.dirty = true;
 
             // See the other places we do something similar in this function
             // for a detailed explanation.
@@ -2903,9 +2984,8 @@ pub fn eraseRowBounded(
 
         fastmem.rotateOnce(Row, rows[0..node.data.size.rows]);
 
-        // Set all the rows as dirty
-        var dirty = node.data.dirtyBitSet();
-        dirty.setRangeValue(.{ .start = 0, .end = node.data.size.rows }, true);
+        // Mark the whole page as dirty.
+        node.data.dirty = true;
 
         // Account for the rows shifted in this node.
         shifted += node.data.size.rows;
@@ -2993,6 +3073,9 @@ pub fn eraseRows(
             const old_dst = dst.*;
             dst.* = src.*;
             src.* = old_dst;
+
+            // Mark the moved row as dirty.
+            dst.dirty = true;
         }
 
         // Clear our remaining cells that we didn't shift or swapped
@@ -3022,10 +3105,6 @@ pub fn eraseRows(
         // Our new size is the amount we scrolled
         chunk.node.data.size.rows = @intCast(scroll_amount);
         erased += chunk.end;
-
-        // Set all the rows as dirty
-        var dirty = chunk.node.data.dirtyBitSet();
-        dirty.setRangeValue(.{ .start = 0, .end = chunk.node.data.size.rows }, true);
     }
 
     // Update our total row count
@@ -3726,7 +3805,11 @@ pub const PageIterator = struct {
 
     pub const Chunk = struct {
         node: *List.Node,
+
+        /// Start y index (inclusive) of this chunk in the page.
         start: size.CellCountInt,
+
+        /// End y index (exclusive) of this chunk in the page.
         end: size.CellCountInt,
 
         pub fn rows(self: Chunk) []Row {
@@ -3881,10 +3964,11 @@ fn growRows(self: *PageList, n: usize) !void {
 /// traverses the entire list of pages. This is used for testing/debugging.
 pub fn clearDirty(self: *PageList) void {
     var page = self.pages.first;
-    while (page) |p| {
-        var set = p.data.dirtyBitSet();
-        set.unsetAll();
-        page = p.next;
+    while (page) |p| : (page = p.next) {
+        p.data.dirty = false;
+        for (p.data.rows.ptr(p.data.memory)[0..p.data.size.rows]) |*row| {
+            row.dirty = false;
+        }
     }
 }
 
@@ -3965,72 +4049,12 @@ pub const Pin = struct {
 
     /// Check if this pin is dirty.
     pub inline fn isDirty(self: Pin) bool {
-        return self.node.data.isRowDirty(self.y);
+        return self.node.data.dirty or self.rowAndCell().row.dirty;
     }
 
     /// Mark this pin location as dirty.
     pub inline fn markDirty(self: Pin) void {
-        var set = self.node.data.dirtyBitSet();
-        set.set(self.y);
-    }
-
-    /// Returns true if the row of this pin should never have its background
-    /// color extended for filling padding space in the renderer. This is
-    /// a set of heuristics that help making our padding look better.
-    pub fn neverExtendBg(
-        self: Pin,
-        palette: *const color.Palette,
-        default_background: color.RGB,
-    ) bool {
-        // Any semantic prompts should not have their background extended
-        // because prompts often contain special formatting (such as
-        // powerline) that looks bad when extended.
-        const rac = self.rowAndCell();
-        switch (rac.row.semantic_prompt) {
-            .prompt, .prompt_continuation, .input => return true,
-            .unknown, .command => {},
-        }
-
-        for (self.cells(.all)) |*cell| {
-            // If any cell has a default background color then we don't
-            // extend because the default background color probably looks
-            // good enough as an extension.
-            switch (cell.content_tag) {
-                // If it is a background color cell, we check the color.
-                .bg_color_palette, .bg_color_rgb => {
-                    const s = self.style(cell);
-                    const bg = s.bg(cell, palette) orelse return true;
-                    if (bg.eql(default_background)) return true;
-                },
-
-                // If its a codepoint cell we can check the style.
-                .codepoint, .codepoint_grapheme => {
-                    // For codepoint containing, we also never extend bg
-                    // if any cell has a powerline glyph because these are
-                    // perfect-fit.
-                    switch (cell.codepoint()) {
-                        // Powerline
-                        0xE0B0...0xE0C8,
-                        0xE0CA,
-                        0xE0CC...0xE0D2,
-                        0xE0D4,
-                        => return true,
-
-                        else => {},
-                    }
-
-                    // Never extend a cell that has a default background.
-                    // A default background is applied if there is no background
-                    // on the style or the explicitly set background
-                    // matches our default background.
-                    const s = self.style(cell);
-                    const bg = s.bg(cell, palette) orelse return true;
-                    if (bg.eql(default_background)) return true;
-                },
-            }
-        }
-
-        return false;
+        self.rowAndCell().row.dirty = true;
     }
 
     /// Iterators. These are the same as PageList iterator funcs but operate
@@ -4375,7 +4399,7 @@ const Cell = struct {
     /// This is not very performant this is primarily used for assertions
     /// and testing.
     pub fn isDirty(self: Cell) bool {
-        return self.node.data.isRowDirty(self.row_idx);
+        return self.node.data.dirty or self.row.dirty;
     }
 
     /// Get the cell style.
@@ -6235,6 +6259,39 @@ test "PageList adjustCapacity to increase hyperlinks" {
     }
 }
 
+test "PageList adjustCapacity after col shrink" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 10, 2, 0);
+    defer s.deinit();
+
+    // Shrink columns - this updates size.cols but not capacity.cols
+    try s.resize(.{ .cols = 5, .reflow = false });
+    try testing.expectEqual(5, s.cols);
+
+    {
+        const page = &s.pages.first.?.data;
+        // capacity.cols is still 10, but size.cols should be 5
+        try testing.expectEqual(5, page.size.cols);
+        try testing.expect(page.capacity.cols >= 10);
+    }
+
+    // Now adjust capacity (e.g., to increase styles)
+    // This should preserve the current size.cols, not revert to capacity.cols
+    _ = try s.adjustCapacity(
+        s.pages.first.?,
+        .{ .styles = std_capacity.styles * 2 },
+    );
+
+    {
+        const page = &s.pages.first.?.data;
+        // After adjustCapacity, size.cols should still be 5, not 10
+        try testing.expectEqual(5, page.size.cols);
+        try testing.expectEqual(5, s.cols);
+    }
+}
+
 test "PageList pageIterator single page" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -6802,11 +6859,9 @@ test "PageList eraseRowBounded less than full row" {
     try testing.expectEqual(s.rows, s.totalRows());
 
     // The erased rows should be dirty
-    try testing.expect(!s.isDirty(.{ .active = .{ .x = 0, .y = 4 } }));
     try testing.expect(s.isDirty(.{ .active = .{ .x = 0, .y = 5 } }));
     try testing.expect(s.isDirty(.{ .active = .{ .x = 0, .y = 6 } }));
     try testing.expect(s.isDirty(.{ .active = .{ .x = 0, .y = 7 } }));
-    try testing.expect(!s.isDirty(.{ .active = .{ .x = 0, .y = 8 } }));
 
     try testing.expectEqual(s.pages.first.?, p_top.node);
     try testing.expectEqual(@as(usize, 4), p_top.y);
@@ -6840,7 +6895,6 @@ test "PageList eraseRowBounded with pin at top" {
     try testing.expect(s.isDirty(.{ .active = .{ .x = 0, .y = 0 } }));
     try testing.expect(s.isDirty(.{ .active = .{ .x = 0, .y = 1 } }));
     try testing.expect(s.isDirty(.{ .active = .{ .x = 0, .y = 2 } }));
-    try testing.expect(!s.isDirty(.{ .active = .{ .x = 0, .y = 3 } }));
 
     try testing.expectEqual(s.pages.first.?, p_top.node);
     try testing.expectEqual(@as(usize, 0), p_top.y);
@@ -6865,7 +6919,6 @@ test "PageList eraseRowBounded full rows single page" {
     try testing.expectEqual(s.rows, s.totalRows());
 
     // The erased rows should be dirty
-    try testing.expect(!s.isDirty(.{ .active = .{ .x = 0, .y = 4 } }));
     for (5..10) |y| try testing.expect(s.isDirty(.{ .active = .{
         .x = 0,
         .y = @intCast(y),
@@ -6931,7 +6984,6 @@ test "PageList eraseRowBounded full rows two pages" {
     try s.eraseRowBounded(.{ .active = .{ .y = 4 } }, 4);
 
     // The erased rows should be dirty
-    try testing.expect(!s.isDirty(.{ .active = .{ .x = 0, .y = 3 } }));
     for (4..8) |y| try testing.expect(s.isDirty(.{ .active = .{
         .x = 0,
         .y = @intCast(y),

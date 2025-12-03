@@ -1,16 +1,14 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const assert = std.debug.assert;
 const testing = std.testing;
-const CircBuf = @import("../../datastruct/main.zig").CircBuf;
 const terminal = @import("../main.zig");
 const point = terminal.point;
+const FlattenedHighlight = @import("../highlight.zig").Flattened;
 const Page = terminal.Page;
 const PageList = terminal.PageList;
 const Pin = PageList.Pin;
 const Selection = terminal.Selection;
 const Screen = terminal.Screen;
-const PageFormatter = @import("../formatter.zig").PageFormatter;
 const Terminal = @import("../Terminal.zig");
 const SlidingWindow = @import("sliding_window.zig").SlidingWindow;
 
@@ -97,7 +95,7 @@ pub const PageListSearch = struct {
     ///
     /// This does NOT access the PageList, so it can be called without
     /// a lock held.
-    pub fn next(self: *PageListSearch) ?Selection {
+    pub fn next(self: *PageListSearch) ?FlattenedHighlight {
         return self.window.next();
     }
 
@@ -111,6 +109,11 @@ pub const PageListSearch = struct {
     /// This returns false if there is no more data to feed. This essentially
     /// means we've searched the entire pagelist.
     pub fn feed(self: *PageListSearch) Allocator.Error!bool {
+        // If our pin becomes garbage it means wherever we were next
+        // was reused and we can't make sense of our progress anymore.
+        // It is effectively equivalent to reaching the end of the PageList.
+        if (self.pin.garbage) return false;
+
         // Add at least enough data to find a single match.
         var rem = self.window.needle.len;
 
@@ -149,26 +152,28 @@ test "simple search" {
     defer search.deinit();
 
     {
-        const sel = search.next().?;
+        const h = search.next().?;
+        const sel = h.untracked();
         try testing.expectEqual(point.Point{ .active = .{
             .x = 0,
             .y = 2,
-        } }, t.screens.active.pages.pointFromPin(.active, sel.start()).?);
+        } }, t.screens.active.pages.pointFromPin(.active, sel.start).?);
         try testing.expectEqual(point.Point{ .active = .{
             .x = 3,
             .y = 2,
-        } }, t.screens.active.pages.pointFromPin(.active, sel.end()).?);
+        } }, t.screens.active.pages.pointFromPin(.active, sel.end).?);
     }
     {
-        const sel = search.next().?;
+        const h = search.next().?;
+        const sel = h.untracked();
         try testing.expectEqual(point.Point{ .active = .{
             .x = 0,
             .y = 0,
-        } }, t.screens.active.pages.pointFromPin(.active, sel.start()).?);
+        } }, t.screens.active.pages.pointFromPin(.active, sel.start).?);
         try testing.expectEqual(point.Point{ .active = .{
             .x = 3,
             .y = 0,
-        } }, t.screens.active.pages.pointFromPin(.active, sel.end()).?);
+        } }, t.screens.active.pages.pointFromPin(.active, sel.end).?);
     }
     try testing.expect(search.next() == null);
 
@@ -335,12 +340,13 @@ test "feed with match spanning page boundary" {
     try testing.expect(try search.feed());
 
     // Should find the spanning match
-    const sel = search.next().?;
-    try testing.expect(sel.start().node != sel.end().node);
+    const h = search.next().?;
+    const sel = h.untracked();
+    try testing.expect(sel.start.node != sel.end.node);
     {
         const str = try t.screens.active.selectionString(
             alloc,
-            .{ .sel = sel },
+            .{ .sel = .init(sel.start, sel.end, false) },
         );
         defer alloc.free(str);
         try testing.expectEqualStrings(str, "Test");
@@ -386,5 +392,50 @@ test "feed with match spanning page boundary with newline" {
     try testing.expect(search.next() == null);
     try testing.expect(try search.feed());
     try testing.expect(search.next() == null);
+    try testing.expect(!try search.feed());
+}
+
+test "feed with pruned page" {
+    const alloc = testing.allocator;
+
+    // Zero here forces minimum max size to effectively two pages.
+    var p: PageList = try .init(alloc, 80, 24, 0);
+    defer p.deinit();
+
+    // Grow to capacity
+    const page1_node = p.pages.last.?;
+    const page1 = page1_node.data;
+    for (0..page1.capacity.rows - page1.size.rows) |_| {
+        try testing.expect(try p.grow() == null);
+    }
+
+    // Grow and allocate one more page. Then fill that page up.
+    const page2_node = (try p.grow()).?;
+    const page2 = page2_node.data;
+    for (0..page2.capacity.rows - page2.size.rows) |_| {
+        try testing.expect(try p.grow() == null);
+    }
+
+    // Setup search and feed until we can't
+    var search: PageListSearch = try .init(
+        alloc,
+        "Test",
+        &p,
+        p.pages.last.?,
+    );
+    defer search.deinit();
+    try testing.expect(try search.feed());
+    try testing.expect(!try search.feed());
+
+    // Next should create a new page, but it should reuse our first
+    // page since we're at max size.
+    const new = (try p.grow()).?;
+    try testing.expect(p.pages.last.? == new);
+
+    // Our first should now be page2 and our last should be page1
+    try testing.expectEqual(page2_node, p.pages.first.?);
+    try testing.expectEqual(page1_node, p.pages.last.?);
+
+    // Feed should still do nothing
     try testing.expect(!try search.feed());
 }

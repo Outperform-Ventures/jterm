@@ -4,7 +4,7 @@ const Binding = @This();
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const assert = std.debug.assert;
+const assert = @import("../quirks.zig").inlineAssert;
 const build_config = @import("../build_config.zig");
 const uucode = @import("uucode");
 const EntryFormatter = @import("../config/formatter.zig").EntryFormatter;
@@ -331,6 +331,25 @@ pub const Action = union(enum) {
     /// For example, `set_font_size:14.5` will set the font size
     /// to 14.5 points.
     set_font_size: f32,
+
+    /// Start a search for the given text. If the text is empty, then
+    /// the search is canceled. A canceled search will not disable any GUI
+    /// elements showing search. For that, the explicit end_search binding
+    /// should be used.
+    ///
+    /// If a previous search is active, it is replaced.
+    search: []const u8,
+
+    /// Navigate the search results. If there is no active search, this
+    /// is not performed.
+    navigate_search: NavigateSearch,
+
+    /// Start a search if it isn't started already. This doesn't set any
+    /// search terms, but opens the UI for searching.
+    start_search,
+
+    /// End the current search if any and hide any GUI elements.
+    end_search,
 
     /// Clear the screen and all scrollback.
     clear_screen,
@@ -822,6 +841,11 @@ pub const Action = union(enum) {
         }
     };
 
+    pub const NavigateSearch = enum {
+        previous,
+        next,
+    };
+
     pub const AdjustSelection = enum {
         left,
         right,
@@ -1152,6 +1176,10 @@ pub const Action = union(enum) {
             .esc,
             .text,
             .cursor_key,
+            .search,
+            .navigate_search,
+            .start_search,
+            .end_search,
             .reset,
             .copy_to_clipboard,
             .copy_url_to_clipboard,

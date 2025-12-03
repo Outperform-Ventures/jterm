@@ -1,6 +1,5 @@
 const std = @import("std");
-const builtin = @import("builtin");
-const assert = std.debug.assert;
+const assert = @import("../quirks.zig").inlineAssert;
 const Allocator = std.mem.Allocator;
 const Action = @import("Binding.zig").Action;
 
@@ -162,6 +161,28 @@ fn actionCommands(action: Action.Key) []const Command {
             .title = "Paste from Selection",
             .description = "Paste the contents of the selection clipboard.",
         }},
+
+        .start_search => comptime &.{.{
+            .action = .start_search,
+            .title = "Start Search",
+            .description = "Start a search if one isn't already active.",
+        }},
+
+        .end_search => comptime &.{.{
+            .action = .end_search,
+            .title = "End Search",
+            .description = "End the current search if any and hide any GUI elements.",
+        }},
+
+        .navigate_search => comptime &.{ .{
+            .action = .{ .navigate_search = .next },
+            .title = "Next Search Result",
+            .description = "Navigate to the next search result, if any.",
+        }, .{
+            .action = .{ .navigate_search = .previous },
+            .title = "Previous Search Result",
+            .description = "Navigate to the previous search result, if any.",
+        } },
 
         .increase_font_size => comptime &.{.{
             .action = .{ .increase_font_size = 1 },
@@ -605,6 +626,7 @@ fn actionCommands(action: Action.Key) []const Command {
         .esc,
         .cursor_key,
         .set_font_size,
+        .search,
         .scroll_to_row,
         .scroll_page_fractional,
         .scroll_page_lines,

@@ -1,7 +1,6 @@
 const std = @import("std");
-const assert = std.debug.assert;
+const assert = @import("../../../quirks.zig").inlineAssert;
 const Allocator = std.mem.Allocator;
-const builtin = @import("builtin");
 const adw = @import("adw");
 const gdk = @import("gdk");
 const gio = @import("gio");
@@ -9,7 +8,6 @@ const glib = @import("glib");
 const gobject = @import("gobject");
 const gtk = @import("gtk");
 
-const build_config = @import("../../../build_config.zig");
 const i18n = @import("../../../os/main.zig").i18n;
 const apprt = @import("../../../apprt.zig");
 const cgroup = @import("../cgroup.zig");
@@ -728,6 +726,11 @@ pub const Application = extern struct {
             .toggle_split_zoom => return Action.toggleSplitZoom(target),
             .show_on_screen_keyboard => return Action.showOnScreenKeyboard(target),
             .command_finished => return Action.commandFinished(target, value),
+
+            .start_search => Action.startSearch(target),
+            .end_search => Action.endSearch(target),
+            .search_total => Action.searchTotal(target, value),
+            .search_selected => Action.searchSelected(target, value),
 
             // Unimplemented
             .secure_input,
@@ -2336,6 +2339,34 @@ const Action = struct {
         switch (target) {
             .app => {},
             .surface => |v| v.rt_surface.surface.setScrollbar(value),
+        }
+    }
+
+    pub fn startSearch(target: apprt.Target) void {
+        switch (target) {
+            .app => {},
+            .surface => |v| v.rt_surface.surface.setSearchActive(true),
+        }
+    }
+
+    pub fn endSearch(target: apprt.Target) void {
+        switch (target) {
+            .app => {},
+            .surface => |v| v.rt_surface.surface.setSearchActive(false),
+        }
+    }
+
+    pub fn searchTotal(target: apprt.Target, value: apprt.action.SearchTotal) void {
+        switch (target) {
+            .app => {},
+            .surface => |v| v.rt_surface.surface.setSearchTotal(value.total),
+        }
+    }
+
+    pub fn searchSelected(target: apprt.Target, value: apprt.action.SearchSelected) void {
+        switch (target) {
+            .app => {},
+            .surface => |v| v.rt_surface.surface.setSearchSelected(value.selected),
         }
     }
 

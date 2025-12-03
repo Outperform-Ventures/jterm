@@ -44,6 +44,11 @@ class AppDelegate: NSObject,
     @IBOutlet private var menuPaste: NSMenuItem?
     @IBOutlet private var menuPasteSelection: NSMenuItem?
     @IBOutlet private var menuSelectAll: NSMenuItem?
+    @IBOutlet private var menuFindParent: NSMenuItem?
+    @IBOutlet private var menuFind: NSMenuItem?
+    @IBOutlet private var menuFindNext: NSMenuItem?
+    @IBOutlet private var menuFindPrevious: NSMenuItem?
+    @IBOutlet private var menuHideFindBar: NSMenuItem?
 
     @IBOutlet private var menuToggleVisibility: NSMenuItem?
     @IBOutlet private var menuToggleFullScreen: NSMenuItem?
@@ -553,6 +558,7 @@ class AppDelegate: NSObject,
         self.menuMoveSplitDividerLeft?.setImageIfDesired(systemSymbolName: "arrow.left.to.line")
         self.menuMoveSplitDividerRight?.setImageIfDesired(systemSymbolName: "arrow.right.to.line")
         self.menuFloatOnTop?.setImageIfDesired(systemSymbolName: "square.filled.on.square")
+        self.menuFindParent?.setImageIfDesired(systemSymbolName: "text.page.badge.magnifyingglass")
     }
 
     /// Sync all of our menu item keyboard shortcuts with the Ghostty configuration.
@@ -581,6 +587,9 @@ class AppDelegate: NSObject,
         syncMenuShortcut(config, action: "paste_from_clipboard", menuItem: self.menuPaste)
         syncMenuShortcut(config, action: "paste_from_selection", menuItem: self.menuPasteSelection)
         syncMenuShortcut(config, action: "select_all", menuItem: self.menuSelectAll)
+        syncMenuShortcut(config, action: "start_search", menuItem: self.menuFind)
+        syncMenuShortcut(config, action: "search:next", menuItem: self.menuFindNext)
+        syncMenuShortcut(config, action: "search:previous", menuItem: self.menuFindPrevious)
 
         syncMenuShortcut(config, action: "toggle_split_zoom", menuItem: self.menuZoomSplit)
         syncMenuShortcut(config, action: "goto_split:previous", menuItem: self.menuPreviousSplit)
@@ -885,12 +894,17 @@ class AppDelegate: NSObject,
         NSApplication.shared.appearance = .init(ghosttyConfig: config)
     }
 
-    @concurrent
+    // Using AppIconActor to ensure this work
+    // happens synchronously in the background
+    @AppIconActor
     private func updateAppIcon(from config: Ghostty.Config) async  {
         var appIcon: NSImage?
+        var appIconName: String? = config.macosIcon.rawValue
 
         switch (config.macosIcon) {
         case .official:
+            // Discard saved icon name
+            appIconName = nil
             break
         case .blueprint:
             appIcon = NSImage(named: "BlueprintImage")!
@@ -919,10 +933,15 @@ class AppDelegate: NSObject,
         case .custom:
             if let userIcon = NSImage(contentsOfFile: config.macosCustomIcon) {
                 appIcon = userIcon
+                appIconName = config.macosCustomIcon
             } else {
                 appIcon = nil // Revert back to official icon if invalid location
+                appIconName = nil // Discard saved icon name
             }
         case .customStyle:
+            // Discard saved icon name
+            // if no valid colours were found
+            appIconName = nil
             guard let ghostColor = config.macosIconGhostColor else { break }
             guard let screenColors = config.macosIconScreenColor else { break }
             guard let icon = ColorizedGhosttyIcon(
@@ -931,6 +950,24 @@ class AppDelegate: NSObject,
                 frame: config.macosIconFrame
             ).makeImage() else { break }
             appIcon = icon
+            let colorStrings = ([ghostColor] + screenColors).compactMap(\.hexString)
+            appIconName = (colorStrings + [config.macosIconFrame.rawValue])
+                .joined(separator: "_")
+        }
+        // Only change the icon if it has actually changed
+        // from the current one
+        guard UserDefaults.standard.string(forKey: "CustomGhosttyIcon") != appIconName else {
+#if DEBUG
+            if appIcon == nil {
+                await MainActor.run {
+                    // Changing the app bundle's icon will corrupt code signing.
+                    // We only use the default blueprint icon for the dock,
+                    // so developers don't need to clean and re-build every time.
+                    NSApplication.shared.applicationIconImage = NSImage(named: "BlueprintImage")
+                }
+            }
+#endif
+            return
         }
         // make it immutable, so Swift 6 won't complain
         let newIcon = appIcon
@@ -941,16 +978,9 @@ class AppDelegate: NSObject,
 
         await MainActor.run {
             self.appIcon = newIcon
-#if DEBUG
-            // if no custom icon specified, we use blueprint to distinguish from release app
-            NSApplication.shared.applicationIconImage = newIcon ?? NSImage(named: "BlueprintImage")
-            // Changing the app bundle's icon will corrupt code signing.
-            // We only use the default blueprint icon for the dock,
-            // so developers don't need to clean and re-build every time.
-#else
             NSApplication.shared.applicationIconImage = newIcon
-#endif
         }
+        UserDefaults.standard.set(appIconName, forKey: "CustomGhosttyIcon")
     }
 
     //MARK: - Restorable State
@@ -1154,10 +1184,19 @@ class AppDelegate: NSObject,
             // want to bring back these windows if we remove the toggle.
             //
             // We also ignore fullscreen windows because they don't hide anyways.
-            self.hiddenWindows = NSApp.windows.filter {
+            var visibleWindows = [Weak<NSWindow>]()
+            NSApp.windows.filter {
                 $0.isVisible &&
                 !$0.styleMask.contains(.fullScreen)
-            }.map { Weak($0) }
+            }.forEach { window in
+                // We only keep track of selectedWindow if it's in a tabGroup,
+                // so we can keep its selection state when restoring
+                let windowToHide = window.tabGroup?.selectedWindow ?? window
+                if !visibleWindows.contains(where: { $0.value === windowToHide }) {
+                    visibleWindows.append(Weak(windowToHide))
+                }
+            }
+            self.hiddenWindows = visibleWindows
         }
 
         func restore() {
@@ -1228,4 +1267,9 @@ extension AppDelegate: NSMenuItemValidation {
             return true
         }
     }
+}
+
+@globalActor
+fileprivate actor AppIconActor: GlobalActor {
+    static let shared = AppIconActor()
 }

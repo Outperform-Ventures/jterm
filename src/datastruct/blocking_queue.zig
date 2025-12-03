@@ -2,8 +2,6 @@
 //! between threads.
 
 const std = @import("std");
-const builtin = @import("builtin");
-const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 
 /// Returns a blocking queue implementation for type T.

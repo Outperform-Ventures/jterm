@@ -1,5 +1,4 @@
 const std = @import("std");
-const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const lib_alloc = @import("../../lib/allocator.zig");
 const CAllocator = lib_alloc.Allocator;

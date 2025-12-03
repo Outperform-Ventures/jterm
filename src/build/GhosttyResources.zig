@@ -1,15 +1,14 @@
 const GhosttyResources = @This();
 
 const std = @import("std");
-const builtin = @import("builtin");
 const assert = std.debug.assert;
-const buildpkg = @import("main.zig");
 const Config = @import("Config.zig");
 const RunStep = std.Build.Step.Run;
+const SharedDeps = @import("SharedDeps.zig");
 
 steps: []*std.Build.Step,
 
-pub fn init(b: *std.Build, cfg: *const Config) !GhosttyResources {
+pub fn init(b: *std.Build, cfg: *const Config, deps: *const SharedDeps) !GhosttyResources {
     var steps: std.ArrayList(*std.Build.Step) = .empty;
     errdefer steps.deinit(b.allocator);
 
@@ -25,6 +24,8 @@ pub fn init(b: *std.Build, cfg: *const Config) !GhosttyResources {
         }),
     });
     build_data_exe.linkLibC();
+
+    deps.help_strings.addImport(build_data_exe);
 
     // Terminfo
     terminfo: {

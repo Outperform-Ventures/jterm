@@ -17,7 +17,7 @@ pub const Message = apprt.surface.Message;
 
 const std = @import("std");
 const builtin = @import("builtin");
-const assert = std.debug.assert;
+const assert = @import("quirks.zig").inlineAssert;
 const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
 const global_state = &@import("global.zig").state;
@@ -26,9 +26,6 @@ const crash = @import("crash/main.zig");
 const unicode = @import("unicode/main.zig");
 const rendererpkg = @import("renderer.zig");
 const termio = @import("termio.zig");
-const objc = @import("objc");
-const imgui = @import("imgui");
-const Pty = @import("pty.zig").Pty;
 const font = @import("font/main.zig");
 const Command = @import("Command.zig");
 const terminal = @import("terminal/main.zig");
@@ -155,6 +152,9 @@ selection_scroll_active: bool = false,
 /// the wall clock time that has elapsed between timestamps.
 command_timer: ?std.time.Instant = null,
 
+/// Search state
+search: ?Search = null,
+
 /// The effect of an input event. This can be used by callers to take
 /// the appropriate action after an input event. For example, key
 /// input can be forwarded to the OS for further processing if it
@@ -172,6 +172,26 @@ pub const InputEffect = enum {
     /// the surface, runtime surface, etc. pointers may all be
     /// unsafe to use so exit immediately.
     closed,
+};
+
+/// The search state for the surface.
+const Search = struct {
+    state: terminal.search.Thread,
+    thread: std.Thread,
+
+    pub fn deinit(self: *Search) void {
+        // Notify the thread to stop
+        self.state.stop.notify() catch |err| log.err(
+            "error notifying search thread to stop, may stall err={}",
+            .{err},
+        );
+
+        // Wait for the OS thread to quit
+        self.thread.join();
+
+        // Now it is safe to deinit the state
+        self.state.deinit();
+    }
 };
 
 /// Mouse state for the surface.
@@ -728,6 +748,9 @@ pub fn init(
 }
 
 pub fn deinit(self: *Surface) void {
+    // Stop search thread
+    if (self.search) |*s| s.deinit();
+
     // Stop rendering thread
     {
         self.renderer_thread.stop.notify() catch |err|
@@ -776,6 +799,14 @@ pub fn deinit(self: *Surface) void {
 /// close process, which should ultimately deinitialize this surface.
 pub fn close(self: *Surface) void {
     self.rt_surface.close(self.needsConfirmQuit());
+}
+
+/// Returns a mailbox that can be used to send messages to this surface.
+inline fn surfaceMailbox(self: *Surface) Mailbox {
+    return .{
+        .surface = self,
+        .app = .{ .rt_app = self.rt_app, .mailbox = &self.app.mailbox },
+    };
 }
 
 /// Forces the surface to render. This is useful for when the surface
@@ -1043,6 +1074,22 @@ pub fn handleMessage(self: *Surface, msg: Message) !void {
                 log.warn("apprt failed to notify command finish={}", .{err});
             };
         },
+
+        .search_total => |v| {
+            _ = try self.rt_app.performAction(
+                .{ .surface = self },
+                .search_total,
+                .{ .total = v },
+            );
+        },
+
+        .search_selected => |v| {
+            _ = try self.rt_app.performAction(
+                .{ .surface = self },
+                .search_selected,
+                .{ .selected = v },
+            );
+        },
     }
 }
 
@@ -1299,6 +1346,118 @@ fn reportColorScheme(self: *Surface, force: bool) void {
     };
 
     self.io.queueMessage(.{ .write_stable = output }, .unlocked);
+}
+
+fn searchCallback(event: terminal.search.Thread.Event, ud: ?*anyopaque) void {
+    // IMPORTANT: This function is run on the SEARCH THREAD! It is NOT SAFE
+    // to access anything other than values that never change on the surface.
+    // The surface is guaranteed to be valid for the lifetime of the search
+    // thread.
+    const self: *Surface = @ptrCast(@alignCast(ud.?));
+    self.searchCallback_(event) catch |err| {
+        log.warn("error in search callback err={}", .{err});
+    };
+}
+
+fn searchCallback_(
+    self: *Surface,
+    event: terminal.search.Thread.Event,
+) !void {
+    // NOTE: This runs on the search thread.
+
+    switch (event) {
+        .viewport_matches => |matches_unowned| {
+            var arena: ArenaAllocator = .init(self.alloc);
+            errdefer arena.deinit();
+            const alloc = arena.allocator();
+
+            const matches = try alloc.dupe(terminal.highlight.Flattened, matches_unowned);
+            for (matches) |*m| m.* = try m.clone(alloc);
+
+            _ = self.renderer_thread.mailbox.push(
+                .{ .search_viewport_matches = .{
+                    .arena = arena,
+                    .matches = matches,
+                } },
+                .forever,
+            );
+            try self.renderer_thread.wakeup.notify();
+        },
+
+        .selected_match => |selected_| {
+            if (selected_) |sel| {
+                // Copy the flattened match.
+                var arena: ArenaAllocator = .init(self.alloc);
+                errdefer arena.deinit();
+                const alloc = arena.allocator();
+                const match = try sel.highlight.clone(alloc);
+
+                _ = self.renderer_thread.mailbox.push(
+                    .{ .search_selected_match = .{
+                        .arena = arena,
+                        .match = match,
+                    } },
+                    .forever,
+                );
+
+                // Send the selected index to the surface mailbox
+                _ = self.surfaceMailbox().push(
+                    .{ .search_selected = sel.idx },
+                    .forever,
+                );
+            } else {
+                // Reset our selected match
+                _ = self.renderer_thread.mailbox.push(
+                    .{ .search_selected_match = null },
+                    .forever,
+                );
+
+                // Reset the selected index
+                _ = self.surfaceMailbox().push(
+                    .{ .search_selected = null },
+                    .forever,
+                );
+            }
+
+            try self.renderer_thread.wakeup.notify();
+        },
+
+        .total_matches => |total| {
+            _ = self.surfaceMailbox().push(
+                .{ .search_total = total },
+                .forever,
+            );
+        },
+
+        // When we quit, tell our renderer to reset any search state.
+        .quit => {
+            _ = self.renderer_thread.mailbox.push(
+                .{ .search_selected_match = null },
+                .forever,
+            );
+            _ = self.renderer_thread.mailbox.push(
+                .{ .search_viewport_matches = .{
+                    .arena = .init(self.alloc),
+                    .matches = &.{},
+                } },
+                .forever,
+            );
+            try self.renderer_thread.wakeup.notify();
+
+            // Reset search totals in the surface
+            _ = self.surfaceMailbox().push(
+                .{ .search_total = null },
+                .forever,
+            );
+            _ = self.surfaceMailbox().push(
+                .{ .search_selected = null },
+                .forever,
+            );
+        },
+
+        // Unhandled, so far.
+        .complete => {},
+    }
 }
 
 /// Call this when modifiers change. This is safe to call even if modifiers
@@ -3305,6 +3464,8 @@ fn mouseReport(
                 .five => 65,
                 .six => 66,
                 .seven => 67,
+                .eight => 128,
+                .nine => 129,
                 else => return, // unsupported
             };
         }
@@ -4103,7 +4264,7 @@ fn osc8URI(self: *Surface, pin: terminal.Pin) ?[]const u8 {
     const cell = pin.rowAndCell().cell;
     const link_id = page.lookupHyperlink(cell) orelse return null;
     const entry = page.hyperlink_set.get(page.memory, link_id);
-    return entry.uri.offset.ptr(page.memory)[0..entry.uri.len];
+    return entry.uri.slice(page.memory);
 }
 
 pub fn mousePressureCallback(
@@ -4768,6 +4929,96 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             self.renderer_state.mutex.lock();
             defer self.renderer_state.mutex.unlock();
             self.renderer_state.terminal.fullReset();
+        },
+
+        .start_search => {
+            // To save resources, we don't actually start a search here,
+            // we just notify the apprt. The real thread will start when
+            // the first needles are set.
+            return try self.rt_app.performAction(
+                .{ .surface = self },
+                .start_search,
+                .{ .needle = "" },
+            );
+        },
+
+        .end_search => {
+            // We only return that this was performed if we actually
+            // stopped a search, but we also send the apprt end_search so
+            // that GUIs can clean up stale stuff.
+            const performed = self.search != null;
+
+            if (self.search) |*s| {
+                s.deinit();
+                self.search = null;
+            }
+
+            _ = try self.rt_app.performAction(
+                .{ .surface = self },
+                .end_search,
+                {},
+            );
+
+            return performed;
+        },
+
+        .search => |text| search: {
+            const s: *Search = if (self.search) |*s| s else init: {
+                // If we're stopping the search and we had no prior search,
+                // then there is nothing to do.
+                if (text.len == 0) return false;
+
+                // We need to assign directly to self.search because we need
+                // a stable pointer back to the thread state.
+                self.search = .{
+                    .state = try .init(self.alloc, .{
+                        .mutex = self.renderer_state.mutex,
+                        .terminal = self.renderer_state.terminal,
+                        .event_cb = &searchCallback,
+                        .event_userdata = self,
+                    }),
+                    .thread = undefined,
+                };
+                const s: *Search = &self.search.?;
+                errdefer s.state.deinit();
+
+                s.thread = try .spawn(
+                    .{},
+                    terminal.search.Thread.threadMain,
+                    .{&s.state},
+                );
+                s.thread.setName("search") catch {};
+
+                break :init s;
+            };
+
+            // Zero-length text means stop searching.
+            if (text.len == 0) {
+                s.deinit();
+                self.search = null;
+                break :search;
+            }
+
+            _ = s.state.mailbox.push(
+                .{ .change_needle = try .init(
+                    self.alloc,
+                    text,
+                ) },
+                .forever,
+            );
+            s.state.wakeup.notify() catch {};
+        },
+
+        .navigate_search => |nav| {
+            const s: *Search = if (self.search) |*s| s else return false;
+            _ = s.state.mailbox.push(
+                .{ .select = switch (nav) {
+                    .next => .next,
+                    .previous => .prev,
+                } },
+                .forever,
+            );
+            s.state.wakeup.notify() catch {};
         },
 
         .copy_to_clipboard => |format| {
