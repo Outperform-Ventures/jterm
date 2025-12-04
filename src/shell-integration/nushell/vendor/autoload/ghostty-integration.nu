@@ -19,7 +19,6 @@ def set_ssh_terminfo [ssh_opts: list<string>, ssh_args: list<string>] {
     | where key in ["user", "hostname"]
     | select key value
     | transpose -rd
-    | into record
     | default { user: $env.USER, hostname: "localhost" }
 
   let ssh_id = $"($ssh_cfg.user)@($ssh_cfg.hostname)"
@@ -33,7 +32,7 @@ def set_ssh_terminfo [ssh_opts: list<string>, ssh_args: list<string>] {
 
   if not $is_cached {
     let ssh_opts_copy = $ssh_opts
-    let terminfo_data = try {infocmp -0 -x xterm-ghostty} catch {
+    let terminfo_data = try {^infocmp -0 -x xterm-ghostty} catch {
       print "Warning: Could not generate terminfo data."
       return {ssh_term: "xterm-256color", ssh_opts: $ssh_opts_copy}
     }
