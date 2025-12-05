@@ -1,4 +1,5 @@
 const std = @import("std");
+const Allocator = std.mem.Allocator;
 const testing = std.testing;
 const assert = @import("../../quirks.zig").inlineAssert;
 const control = @import("control.zig");
@@ -29,12 +30,17 @@ const log = std.log.scoped(.terminal_tmux_viewer);
 /// This struct helps move through a state machine of connecting to a tmux
 /// session, negotiating capabilities, listing window state, etc.
 pub const Viewer = struct {
-    state: State = .startup_block,
+    /// Allocator used for all internal state.
+    alloc: Allocator,
 
-    /// The current session ID we're attached to. The default value
-    /// is meaningless, because this has to be sent down during
-    /// the startup process.
-    session_id: usize = 0,
+    /// Current state of the state machine.
+    state: State,
+
+    /// The current session ID we're attached to.
+    session_id: usize,
+
+    /// The windows in the current session.
+    windows: std.ArrayList(Window),
 
     pub const Action = union(enum) {
         /// Tmux has closed the control mode connection, we should end
@@ -48,8 +54,32 @@ pub const Viewer = struct {
         command: []const u8,
     };
 
-    /// Initial state
-    pub const init: Viewer = .{};
+    pub const Window = struct {
+        id: usize,
+        width: usize,
+        height: usize,
+        // TODO: more fields, obviously!
+    };
+
+    /// Initialize a new viewer.
+    ///
+    /// The given allocator is used for all internal state. You must
+    /// call deinit when you're done with the viewer to free it.
+    pub fn init(alloc: Allocator) Viewer {
+        return .{
+            .alloc = alloc,
+            .state = .startup_block,
+            // The default value here is meaningless. We don't get started
+            // until we receive a session-changed notification which will
+            // set this to a real value.
+            .session_id = 0,
+            .windows = .empty,
+        };
+    }
+
+    pub fn deinit(self: *Viewer) void {
+        self.windows.deinit(self.alloc);
+    }
 
     /// Send in the next tmux notification we got from the control mode
     /// protocol. The return value is any action that needs to be taken
@@ -80,10 +110,7 @@ pub const Viewer = struct {
             // I don't think this is technically possible (reading the
             // tmux source code), but if we see an exit we can semantically
             // handle this without issue.
-            .exit => {
-                self.state = .defunct;
-                return .exit;
-            },
+            .exit => return self.defunct(),
 
             // Any begin and end (even error) is fine! Now we wait for
             // session-changed to get the initial session ID. session-changed
@@ -108,10 +135,7 @@ pub const Viewer = struct {
         switch (n) {
             .enter => unreachable,
 
-            .exit => {
-                self.state = .defunct;
-                return .exit;
-            },
+            .exit => return self.defunct(),
 
             .session_changed => |info| {
                 self.session_id = info.id;
@@ -134,19 +158,17 @@ pub const Viewer = struct {
         switch (n) {
             .enter => unreachable,
 
-            .exit => {
-                self.state = .defunct;
-                return .exit;
-            },
+            .exit => return self.defunct(),
 
-            .block_end,
+            inline .block_end,
             .block_err,
-            => |content| switch (self.state) {
+            => |content, tag| switch (self.state) {
                 .startup_block, .startup_session, .defunct => unreachable,
+
                 .list_windows => {
-                    // TODO: parse the content
-                    _ = content;
-                    return null;
+                    // Move to defunct on error blocks.
+                    if (comptime tag == .block_err) return self.defunct();
+                    return self.receivedListWindows(content) catch self.defunct();
                 },
             },
 
@@ -154,6 +176,53 @@ pub const Viewer = struct {
             // to handle the other cases.
             else => return null,
         }
+    }
+
+    fn receivedListWindows(
+        self: *Viewer,
+        content: []const u8,
+    ) !Action {
+        assert(self.state == .list_windows);
+
+        // This stores our new window state from this list-windows output.
+        var windows: std.ArrayList(Window) = .empty;
+        errdefer windows.deinit(self.alloc);
+
+        // Parse all our windows
+        var it = std.mem.splitScalar(u8, content, '\n');
+        while (it.next()) |line_raw| {
+            const line = std.mem.trim(u8, line_raw, " \t\r");
+            if (line.len == 0) continue;
+            const data = output.parseFormatStruct(
+                Format.list_windows.Struct(),
+                line,
+                Format.list_windows.delim,
+            ) catch |err| {
+                log.info("failed to parse list-windows line: {s}", .{line});
+                return err;
+            };
+
+            try windows.append(self.alloc, .{
+                .id = data.window_id,
+                .width = data.window_width,
+                .height = data.window_height,
+            });
+        }
+
+        // TODO: Diff our prior windows
+
+        // Replace our window list
+        self.windows.deinit(self.alloc);
+        self.windows = windows;
+
+        return .exit;
+    }
+
+    fn defunct(self: *Viewer) Action {
+        self.state = .defunct;
+        // In the future we may want to deallocate a bunch of memory
+        // when we go defunct.
+        return .exit;
     }
 };
 
@@ -208,13 +277,15 @@ const Format = struct {
 };
 
 test "immediate exit" {
-    var viewer: Viewer = .init;
+    var viewer = Viewer.init(testing.allocator);
+    defer viewer.deinit();
     try testing.expectEqual(.exit, viewer.next(.exit).?);
     try testing.expect(viewer.next(.exit) == null);
 }
 
 test "initial flow" {
-    var viewer: Viewer = .init;
+    var viewer = Viewer.init(testing.allocator);
+    defer viewer.deinit();
 
     // First we receive the initial block end
     try testing.expect(viewer.next(.{ .block_end = "" }) == null);
@@ -228,6 +299,17 @@ test "initial flow" {
         try testing.expect(action == .command);
         try testing.expect(std.mem.startsWith(u8, action.command, "list-windows"));
         try testing.expectEqual(42, viewer.session_id);
+        // log.warn("{s}", .{action.command});
+    }
+
+    // Simulate our list-windows command
+    {
+        const action = viewer.next(.{
+            .block_end =
+            \\$0 @0 83 44 027b,83x44,0,0[83x20,0,0,0,83x23,0,21,1]
+            ,
+        }).?;
+        _ = action;
     }
 
     try testing.expectEqual(.exit, viewer.next(.exit).?);
