@@ -3,7 +3,10 @@
 # and propagates COLORTERM, TERM_PROGRAM, and TERM_PROGRAM_VERSION
 # check your sshd_config on remote host to see if these variables are accepted
 def set_ssh_env []: nothing -> record<ssh_term: string, ssh_opts: list<string>> {
-    return {ssh_term: "xterm-256color", ssh_opts: ["-o", "SetEnv COLORTERM=truecolor", "-o", "SendEnv TERM_PROGRAM TERM_PROGRAM_VERSION"]}
+  return {
+    ssh_term: "xterm-256color",
+    ssh_opts: ["-o", "SetEnv COLORTERM=truecolor", "-o", "SendEnv TERM_PROGRAM TERM_PROGRAM_VERSION"]
+  }
 }
 
 # Enables automatic terminfo installation on remote hosts.
@@ -11,7 +14,10 @@ def set_ssh_env []: nothing -> record<ssh_term: string, ssh_opts: list<string>> 
 # connecting to hosts that lack it. 
 # Requires infocmp to be available locally and tic to be available on remote hosts.
 # Caches installations to avoid repeat installations.
-def set_ssh_terminfo [ssh_opts: list<string>, ssh_args: list<string>] {
+def set_ssh_terminfo [
+  ssh_opts: list<string>, 
+  ssh_args: list<string>
+]: [nothing -> record<ssh_term: string, ssh_opts: list<string>>] {
   mut ssh_opts = $ssh_opts
   let ssh_cfg = ^ssh -G ...($ssh_args)
     | lines
@@ -47,25 +53,24 @@ def set_ssh_terminfo [ssh_opts: list<string>, ssh_args: list<string>] {
       } | path join "socket"
     )
 
-    let master_parts = $ssh_opts ++ ["-o", "ControlMaster=yes", "-o", $"ControlPath=($ctrl_path)", "-o", "ControlPersist=60s"] ++ $ssh_args
+    let master_parts = $ssh_opts ++ ["-o" "ControlMaster=yes" "-o" $"ControlPath=($ctrl_path)" "-o" "ControlPersist=60s"] ++ $ssh_args
 
-    let terminfo_present = (
-      ^ssh ...($master_parts ++ ["infocmp", "xterm-ghostty"])
-      | complete
-      | $in.exit_code == 0
+    ($terminfo_data) | ^ssh ...(
+      $master_parts ++
+      [
+      '
+      infocmp xterm-ghostty >/dev/null 2>&1 && exit 0
+      command -v tic >/dev/null 2>&1 || exit 1
+      mkdir -p ~/.terminfo 2>/dev/null && tic -x - 2>/dev/null && exit 0
+      exit 1'
+      ]
     )
-
-    if (not $terminfo_present) {
-      (
-        $terminfo_data
-        | ^ssh ...($master_parts ++ ["mkdir", "-p", "~/.terminfo", "&&", "tic", "-x", "-"])
-      )
-      | complete
-      | if $in.exit_code != 0 {
-        print "Warning: Failed to install terminfo."
-        return {ssh_term: "xterm-256color", ssh_opts: $ssh_opts}
-      }
+    | complete
+    | if $in.exit_code != 0 {
+      print "Warning: Failed to install terminfo."
+      return {ssh_term: "xterm-256color" ssh_opts: $ssh_opts}
     }
+
     ^$ghostty_bin ...(["+ssh-cache", $"--add=($ssh_id)"]) o+e>| ignore
     $ssh_opts ++= ["-o", $"ControlPath=($ctrl_path)"]
   }
@@ -74,7 +79,7 @@ def set_ssh_terminfo [ssh_opts: list<string>, ssh_args: list<string>] {
 }
 
 # SSH Integration
-export def --wrapped ssh [...ssh_args: string] {
+export def --wrapped ssh [...ssh_args: string]: any -> any {
   if ($ssh_args | is-empty) {
     return (^ssh)
   }

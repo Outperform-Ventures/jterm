@@ -68,7 +68,6 @@ pub fn setup(
         command,
         env,
         exe,
-        features,
     );
 
     // Setup our feature env vars
@@ -83,7 +82,6 @@ fn setupShell(
     command: config.Command,
     env: *EnvMap,
     exe: []const u8,
-    features: config.ShellIntegrationFeatures,
 ) !?ShellIntegration {
     if (std.mem.eql(u8, "bash", exe)) {
         // Apple distributes their own patched version of Bash 3.2
@@ -132,7 +130,9 @@ fn setupShell(
     }
 
     if (std.mem.eql(u8, "nu", exe)) {
-        try setupNu(alloc_arena, resource_dir, env, features);
+        // Sets up XDG_DATA_DIRS so that it can be picked automatically by
+        // nushell on startup.
+        try setupXdgDataDirs(alloc_arena, resource_dir, env);
         return null;
     }
 
@@ -659,19 +659,6 @@ test "xdg: existing XDG_DATA_DIRS" {
     try testing.expectEqualStrings("./shell-integration:/opt/share", env.get("XDG_DATA_DIRS").?);
 }
 
-/// Setup the nushell shell integration. This works by setting
-/// XDG_DATA_DIRS so that it can be picked automatically by
-/// nushell on startup.
-/// Only implements `ssh-*` shell features. Rest are not supported.
-fn setupNu(alloc_arena: Allocator, resource_dir: []const u8, env: *EnvMap, features: config.ShellIntegrationFeatures) !void {
-    // This makes sure that `Nu` loads our integration file
-    // and wraps the `ssh` function only if the `ssh` features
-    // are enabled.
-    // Otherwise, it does not do anything.
-    if (features.@"ssh-env" or features.@"ssh-terminfo") {
-        try setupXdgDataDirs(alloc_arena, resource_dir, env);
-    }
-}
 /// Setup the zsh automatic shell integration. This works by setting
 /// ZDOTDIR to our resources dir so that zsh will load our config. This
 /// config then loads the true user config.

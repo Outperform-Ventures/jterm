@@ -76,6 +76,18 @@ allowing us to automatically integrate with the shell. For details
 on the Fish startup process, see the
 [Fish documentation](https://fishshell.com/docs/current/language.html).
 
+### Nushell
+
+For `nushell` Ghostty prepends to the `XDG_DATA_DIRS` directory. Nushell automatically
+loads configuration files in `<XDG_DATA_DIRS>/nushell/vendor/autoload/*.nu` on startup. These
+directories are represented in `Nu` by `$nu.vendor-autoload-dirs`. For more details see
+
+[Nushell documentation](https://www.nushell.sh/book/configuration.html#configuration-overview)
+
+> [!NOTE]
+>
+> Ghostty implements concretely the `ssh-*` features. The rest of the features are supported mostly out of the box by Nushell.
+
 ### Zsh
 
 For `zsh`, Ghostty sets `ZDOTDIR` so that it loads our configuration
@@ -90,17 +102,3 @@ fi
 ```
 
 Shell integration requires Zsh 5.1+.
-
-### Nushell
-
-For `nushell` Ghostty prepends to the `XDG_DATA_DIRS` directory. Nushell automatically
-loads configuration files in `<XDG_DATA_DIRS>/nushell/vendor/autoload/*.nu` on startup. These
-directories are represented in `Nu` by `$nu.vendor-autoload-dirs`. For more details see
-
-[Nushell documentation](https://www.nushell.sh/book/configuration.html#configuration-overview)
-
-> [!NOTE]
->
-> Ghostty only prepends to `XDG_DATA_DIRS` in the case where the `ssh-*` features are enabled.
-> Nushell supports most features out of the box, so other shell integration features are not
-> necessary.
