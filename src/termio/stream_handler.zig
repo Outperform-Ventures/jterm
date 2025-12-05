@@ -368,7 +368,11 @@ pub const StreamHandler = struct {
     fn dcsCommand(self: *StreamHandler, cmd: *terminal.dcs.Command) !void {
         // log.warn("DCS command: {}", .{cmd});
         switch (cmd.*) {
-            .tmux => |tmux| {
+            .tmux => |tmux| tmux: {
+                // If tmux control mode is disabled at the build level,
+                // then this whole block shouldn't be analyzed.
+                if (comptime !terminal.options.tmux_control_mode) break :tmux;
+
                 // TODO: process it
                 log.warn("tmux control mode event unimplemented cmd={}", .{tmux});
             },
