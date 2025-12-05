@@ -36,6 +36,36 @@ pub fn parseFormatStruct(
     return result;
 }
 
+pub fn comptimeFormat(
+    comptime vars: []const Variable,
+    comptime delimiter: u8,
+) []const u8 {
+    comptime {
+        @setEvalBranchQuota(50000);
+        var counter: std.Io.Writer.Discarding = .init(&.{});
+        try format(&counter.writer, vars, delimiter);
+
+        var buf: [counter.count]u8 = undefined;
+        var writer: std.Io.Writer = .fixed(&buf);
+        try format(&writer, vars, delimiter);
+        const final = buf;
+        return final[0..writer.end];
+    }
+}
+
+/// Format a set of variables into the proper format string for tmux
+/// that we can handle with `parseFormatStruct`.
+pub fn format(
+    writer: *std.Io.Writer,
+    vars: []const Variable,
+    delimiter: u8,
+) std.Io.Writer.Error!void {
+    for (vars, 0..) |variable, i| {
+        if (i != 0) try writer.writeByte(delimiter);
+        try writer.print("#{{{t}}}", .{variable});
+    }
+}
+
 /// Returns a struct type that contains fields for each of the given
 /// format variables. This can be used with `parseFormatStruct` to
 /// parse an output string into a format struct.
@@ -202,4 +232,42 @@ test "parseFormatStruct with empty layout field" {
     const result = try parseFormatStruct(T, "$1,", ',');
     try testing.expectEqual(1, result.session_id);
     try testing.expectEqualStrings("", result.window_layout);
+}
+
+fn testFormat(
+    comptime vars: []const Variable,
+    comptime delimiter: u8,
+    comptime expected: []const u8,
+) !void {
+    const comptime_result = comptime comptimeFormat(vars, delimiter);
+    try testing.expectEqualStrings(expected, comptime_result);
+
+    var buf: [256]u8 = undefined;
+    var writer: std.Io.Writer = .fixed(&buf);
+    try format(&writer, vars, delimiter);
+    try testing.expectEqualStrings(expected, buf[0..writer.end]);
+}
+
+test "format single variable" {
+    try testFormat(&.{.session_id}, ' ', "#{session_id}");
+}
+
+test "format multiple variables" {
+    try testFormat(&.{ .session_id, .window_id, .window_width, .window_height }, ' ', "#{session_id} #{window_id} #{window_width} #{window_height}");
+}
+
+test "format with comma delimiter" {
+    try testFormat(&.{ .window_id, .window_layout }, ',', "#{window_id},#{window_layout}");
+}
+
+test "format with tab delimiter" {
+    try testFormat(&.{ .window_width, .window_height }, '\t', "#{window_width}\t#{window_height}");
+}
+
+test "format empty variables" {
+    try testFormat(&.{}, ' ', "");
+}
+
+test "format all variables" {
+    try testFormat(&.{ .session_id, .window_id, .window_width, .window_height, .window_layout }, ' ', "#{session_id} #{window_id} #{window_width} #{window_height} #{window_layout}");
 }
