@@ -52,6 +52,13 @@ pub const Viewer = struct {
         /// it is; just send it to tmux as-is. This will include the
         /// trailing newline so you can send it directly.
         command: []const u8,
+
+        /// Windows changed. This may add, remove or change windows. The
+        /// caller is responsible for diffing the new window list against
+        /// the prior one. Remember that for a given Viewer, window IDs
+        /// are guaranteed to be stable. Additionally, tmux (as of Dec 2025)
+        /// never re-uses window IDs within a server process lifetime.
+        windows: []const Window,
     };
 
     pub const Window = struct {
@@ -141,7 +148,7 @@ pub const Viewer = struct {
                 self.session_id = info.id;
                 self.state = .list_windows;
                 return .{ .command = std.fmt.comptimePrint(
-                    "list-windows -F '{s}'",
+                    "list-windows -F '{s}'\n",
                     .{comptime Format.list_windows.comptimeFormat()},
                 ) };
             },
@@ -209,13 +216,11 @@ pub const Viewer = struct {
             });
         }
 
-        // TODO: Diff our prior windows
-
         // Replace our window list
         self.windows.deinit(self.alloc);
         self.windows = windows;
 
-        return .exit;
+        return .{ .windows = self.windows.items };
     }
 
     fn defunct(self: *Viewer) Action {
@@ -309,7 +314,8 @@ test "initial flow" {
             \\$0 @0 83 44 027b,83x44,0,0[83x20,0,0,0,83x23,0,21,1]
             ,
         }).?;
-        _ = action;
+        try testing.expect(action == .windows);
+        try testing.expectEqual(1, action.windows.len);
     }
 
     try testing.expectEqual(.exit, viewer.next(.exit).?);
