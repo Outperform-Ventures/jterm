@@ -64,6 +64,30 @@ pub const Viewer = struct {
         /// are guaranteed to be stable. Additionally, tmux (as of Dec 2025)
         /// never re-uses window IDs within a server process lifetime.
         windows: []const Window,
+
+        pub fn format(self: Action, writer: *std.Io.Writer) !void {
+            const T = Action;
+            const info = @typeInfo(T).@"union";
+
+            try writer.writeAll(@typeName(T));
+            if (info.tag_type) |TagType| {
+                try writer.writeAll("{ .");
+                try writer.writeAll(@tagName(@as(TagType, self)));
+                try writer.writeAll(" = ");
+
+                inline for (info.fields) |u_field| {
+                    if (self == @field(TagType, u_field.name)) {
+                        const value = @field(self, u_field.name);
+                        switch (u_field.type) {
+                            []const u8 => try writer.print("\"{s}\"", .{std.mem.trim(u8, value, " \t\r\n")}),
+                            else => try writer.print("{any}", .{value}),
+                        }
+                    }
+                }
+
+                try writer.writeAll(" }");
+            }
+        }
     };
 
     pub const Input = union(enum) {

@@ -384,7 +384,7 @@ pub const StreamHandler = struct {
                 // If tmux control mode is disabled at the build level,
                 // then this whole block shouldn't be analyzed.
                 if (comptime !tmux_enabled) break :tmux;
-                log.info("tmux control mode event cmd={}", .{tmux});
+                log.info("tmux control mode event cmd={f}", .{tmux});
 
                 switch (tmux) {
                     .enter => {
@@ -415,7 +415,7 @@ pub const StreamHandler = struct {
                     // This can only really happen if we failed to
                     // initialize the viewer on enter.
                     log.info(
-                        "received tmux control mode command without viewer: {}",
+                        "received tmux control mode command without viewer: {f}",
                         .{tmux},
                     );
 
@@ -423,7 +423,7 @@ pub const StreamHandler = struct {
                 };
 
                 for (try viewer.next(.{ .tmux = tmux })) |action| {
-                    log.info("tmux viewer action={}", .{action});
+                    log.info("tmux viewer action={f}", .{action});
                     switch (action) {
                         .exit => {
                             // We ignore this because we will fully exit when
