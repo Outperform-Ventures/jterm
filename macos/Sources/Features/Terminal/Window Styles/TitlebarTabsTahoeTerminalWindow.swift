@@ -9,7 +9,7 @@ class TitlebarTabsTahoeTerminalWindow: TransparentTitlebarTerminalWindow, NSTool
     /// The view model for SwiftUI views
     private var viewModel = ViewModel()
 
-    /// Tb bar view for event routing
+    /// Tab bar view for event routing
     private weak var tabBarView: NSView?
     
     /// Titlebar tabs can't support the update accessory because of the way we layout
