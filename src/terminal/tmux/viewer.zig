@@ -1,5 +1,6 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+const ArenaAllocator = std.heap.ArenaAllocator;
 const testing = std.testing;
 const assert = @import("../../quirks.zig").inlineAssert;
 const control = @import("control.zig");
@@ -42,6 +43,10 @@ pub const Viewer = struct {
     /// The windows in the current session.
     windows: std.ArrayList(Window),
 
+    /// The arena used for the prior action allocated state. This contains
+    /// the contents for the actions as well as the actions slice itself.
+    action_arena: ArenaAllocator.State,
+
     pub const Action = union(enum) {
         /// Tmux has closed the control mode connection, we should end
         /// our viewer session in some way.
@@ -59,6 +64,11 @@ pub const Viewer = struct {
         /// are guaranteed to be stable. Additionally, tmux (as of Dec 2025)
         /// never re-uses window IDs within a server process lifetime.
         windows: []const Window,
+    };
+
+    pub const Input = union(enum) {
+        /// Data from tmux was received that needs to be processed.
+        tmux: control.Notification,
     };
 
     pub const Window = struct {
@@ -81,32 +91,49 @@ pub const Viewer = struct {
             // set this to a real value.
             .session_id = 0,
             .windows = .empty,
+            .action_arena = .{},
         };
     }
 
     pub fn deinit(self: *Viewer) void {
         self.windows.deinit(self.alloc);
+        self.action_arena.promote(self.alloc).deinit();
     }
 
-    /// Send in the next tmux notification we got from the control mode
-    /// protocol. The return value is any action that needs to be taken
-    /// in reaction to this notification (could be none).
-    pub fn next(self: *Viewer, n: control.Notification) ?Action {
-        return switch (self.state) {
-            .startup_block => self.nextStartupBlock(n),
-            .startup_session => self.nextStartupSession(n),
-            .defunct => defunct: {
-                log.info("received notification in defunct state, ignoring", .{});
-                break :defunct null;
-            },
-
-            // Once we're in the main states, there's a bunch of shared
-            // logic so we centralize it.
-            .list_windows => self.nextCommand(n),
+    /// Send in an input event (such as a tmux protocol notification,
+    /// keyboard input for a pane, etc.) and process it. The returned
+    /// list is a set of actions to take as a result of the input prior
+    /// to the next input. This list may be empty.
+    pub fn next(self: *Viewer, input: Input) Allocator.Error![]const Action {
+        return switch (input) {
+            .tmux => try self.nextTmux(input.tmux),
         };
     }
 
-    fn nextStartupBlock(self: *Viewer, n: control.Notification) ?Action {
+    fn nextTmux(
+        self: *Viewer,
+        n: control.Notification,
+    ) Allocator.Error![]const Action {
+        return switch (self.state) {
+            .defunct => defunct: {
+                log.info("received notification in defunct state, ignoring", .{});
+                break :defunct &.{};
+            },
+
+            .startup_block => try self.nextStartupBlock(n),
+            .startup_session => try self.nextStartupSession(n),
+            .idle => try self.nextIdle(n),
+
+            // Once we're in the main states, there's a bunch of shared
+            // logic so we centralize it.
+            .list_windows => try self.nextCommand(n),
+        };
+    }
+
+    fn nextStartupBlock(
+        self: *Viewer,
+        n: control.Notification,
+    ) Allocator.Error![]const Action {
         assert(self.state == .startup_block);
 
         switch (n) {
@@ -117,7 +144,7 @@ pub const Viewer = struct {
             // I don't think this is technically possible (reading the
             // tmux source code), but if we see an exit we can semantically
             // handle this without issue.
-            .exit => return self.defunct(),
+            .exit => return try self.defunct(),
 
             // Any begin and end (even error) is fine! Now we wait for
             // session-changed to get the initial session ID. session-changed
@@ -126,69 +153,88 @@ pub const Viewer = struct {
             // queue the notification, then do notificatins.
             .block_end, .block_err => {
                 self.state = .startup_session;
-                return null;
+                return &.{};
             },
 
             // I don't like catch-all else branches but startup is such
             // a special case of looking for very specific things that
             // are unlikely to expand.
-            else => return null,
+            else => return &.{},
         }
     }
 
-    fn nextStartupSession(self: *Viewer, n: control.Notification) ?Action {
+    fn nextStartupSession(
+        self: *Viewer,
+        n: control.Notification,
+    ) Allocator.Error![]const Action {
         assert(self.state == .startup_session);
 
         switch (n) {
             .enter => unreachable,
 
-            .exit => return self.defunct(),
+            .exit => return try self.defunct(),
 
             .session_changed => |info| {
                 self.session_id = info.id;
                 self.state = .list_windows;
-                return .{ .command = std.fmt.comptimePrint(
+                return try self.singleAction(.{ .command = std.fmt.comptimePrint(
                     "list-windows -F '{s}'\n",
                     .{comptime Format.list_windows.comptimeFormat()},
-                ) };
+                ) });
             },
 
-            else => return null,
+            else => return &.{},
         }
     }
 
-    fn nextCommand(self: *Viewer, n: control.Notification) ?Action {
-        assert(self.state != .startup_block);
-        assert(self.state != .startup_session);
-        assert(self.state != .defunct);
+    fn nextIdle(
+        self: *Viewer,
+        n: control.Notification,
+    ) Allocator.Error![]const Action {
+        assert(self.state == .idle);
 
         switch (n) {
             .enter => unreachable,
+            .exit => return try self.defunct(),
+            else => return &.{},
+        }
+    }
 
-            .exit => return self.defunct(),
+    fn nextCommand(
+        self: *Viewer,
+        n: control.Notification,
+    ) Allocator.Error![]const Action {
+        switch (n) {
+            .enter => unreachable,
+
+            .exit => return try self.defunct(),
 
             inline .block_end,
             .block_err,
             => |content, tag| switch (self.state) {
-                .startup_block, .startup_session, .defunct => unreachable,
+                .startup_block,
+                .startup_session,
+                .idle,
+                .defunct,
+                => unreachable,
 
                 .list_windows => {
                     // Move to defunct on error blocks.
-                    if (comptime tag == .block_err) return self.defunct();
-                    return self.receivedListWindows(content) catch self.defunct();
+                    if (comptime tag == .block_err) return try self.defunct();
+                    return self.receivedListWindows(content) catch return try self.defunct();
                 },
             },
 
             // TODO: Use exhaustive matching here, determine if we need
             // to handle the other cases.
-            else => return null,
+            else => return &.{},
         }
     }
 
     fn receivedListWindows(
         self: *Viewer,
         content: []const u8,
-    ) !Action {
+    ) ![]const Action {
         assert(self.state == .list_windows);
 
         // This stores our new window state from this list-windows output.
@@ -220,18 +266,46 @@ pub const Viewer = struct {
         self.windows.deinit(self.alloc);
         self.windows = windows;
 
-        return .{ .windows = self.windows.items };
+        // Go into the idle state
+        self.state = .idle;
+
+        // TODO: Diff with prior window state, dispatch capture-pane
+        // requests to collect all of the screen contents, other terminal
+        // state, etc.
+
+        return try self.singleAction(.{ .windows = self.windows.items });
     }
 
-    fn defunct(self: *Viewer) Action {
+    /// Helper to return a single action. The input action must not use
+    /// any allocated memory from `action_arena` since this will reset
+    /// the arena.
+    fn singleAction(
+        self: *Viewer,
+        action: Action,
+    ) Allocator.Error![]const Action {
+        // Make our actual arena
+        var arena = self.action_arena.promote(self.alloc);
+
+        // Need to be careful to update our internal state after
+        // doing allocations since the arena takes a copy of the state.
+        defer self.action_arena = arena.state;
+
+        // Free everything. We could retain some state here if we wanted
+        // but I don't think its worth it.
+        _ = arena.reset(.free_all);
+
+        // Make our single action slice.
+        const alloc = arena.allocator();
+        return try alloc.dupe(Action, &.{action});
+    }
+
+    fn defunct(self: *Viewer) Allocator.Error![]const Action {
         self.state = .defunct;
-        // In the future we may want to deallocate a bunch of memory
-        // when we go defunct.
-        return .exit;
+        return try self.singleAction(.exit);
     }
 };
 
-const State = enum {
+const State = union(enum) {
     /// We start in this state just after receiving the initial
     /// DCS 1000p opening sequence. We wait for an initial
     /// begin/end block that is guaranteed to be sent by tmux for
@@ -246,8 +320,13 @@ const State = enum {
     /// Tmux has closed the control mode connection
     defunct,
 
-    /// We're waiting on a list-windows response from tmux.
+    /// We're waiting on a list-windows response from tmux. This will
+    /// be used to resynchronize our entire window state.
     list_windows,
+
+    /// Idle state, we're not actually doing anything right now except
+    /// waiting for more events from tmux that may change our behavior.
+    idle,
 };
 
 /// Format strings used for commands in our viewer.
@@ -284,8 +363,11 @@ const Format = struct {
 test "immediate exit" {
     var viewer = Viewer.init(testing.allocator);
     defer viewer.deinit();
-    try testing.expectEqual(.exit, viewer.next(.exit).?);
-    try testing.expect(viewer.next(.exit) == null);
+    const actions = try viewer.next(.{ .tmux = .exit });
+    try testing.expectEqual(1, actions.len);
+    try testing.expectEqual(.exit, actions[0]);
+    const actions2 = try viewer.next(.{ .tmux = .exit });
+    try testing.expectEqual(0, actions2.len);
 }
 
 test "initial flow" {
@@ -293,31 +375,36 @@ test "initial flow" {
     defer viewer.deinit();
 
     // First we receive the initial block end
-    try testing.expect(viewer.next(.{ .block_end = "" }) == null);
+    const actions0 = try viewer.next(.{ .tmux = .{ .block_end = "" } });
+    try testing.expectEqual(0, actions0.len);
 
     // Then we receive session-changed with the initial session
     {
-        const action = viewer.next(.{ .session_changed = .{
+        const actions = try viewer.next(.{ .tmux = .{ .session_changed = .{
             .id = 42,
             .name = "main",
-        } }).?;
-        try testing.expect(action == .command);
-        try testing.expect(std.mem.startsWith(u8, action.command, "list-windows"));
+        } } });
+        try testing.expectEqual(1, actions.len);
+        try testing.expect(actions[0] == .command);
+        try testing.expect(std.mem.startsWith(u8, actions[0].command, "list-windows"));
         try testing.expectEqual(42, viewer.session_id);
-        // log.warn("{s}", .{action.command});
     }
 
     // Simulate our list-windows command
     {
-        const action = viewer.next(.{
+        const actions = try viewer.next(.{ .tmux = .{
             .block_end =
             \\$0 @0 83 44 027b,83x44,0,0[83x20,0,0,0,83x23,0,21,1]
             ,
-        }).?;
-        try testing.expect(action == .windows);
-        try testing.expectEqual(1, action.windows.len);
+        } });
+        try testing.expectEqual(1, actions.len);
+        try testing.expect(actions[0] == .windows);
+        try testing.expectEqual(1, actions[0].windows.len);
     }
 
-    try testing.expectEqual(.exit, viewer.next(.exit).?);
-    try testing.expect(viewer.next(.exit) == null);
+    const exit_actions = try viewer.next(.{ .tmux = .exit });
+    try testing.expectEqual(1, exit_actions.len);
+    try testing.expectEqual(.exit, exit_actions[0]);
+    const final_actions = try viewer.next(.{ .tmux = .exit });
+    try testing.expectEqual(0, final_actions.len);
 }
