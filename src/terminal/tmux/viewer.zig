@@ -4,6 +4,8 @@ const ArenaAllocator = std.heap.ArenaAllocator;
 const testing = std.testing;
 const assert = @import("../../quirks.zig").inlineAssert;
 const CircBuf = @import("../../datastruct/main.zig").CircBuf;
+const Terminal = @import("../Terminal.zig");
+const Layout = @import("layout.zig").Layout;
 const control = @import("control.zig");
 const output = @import("output.zig");
 
@@ -55,6 +57,9 @@ pub const Viewer = struct {
     /// The windows in the current session.
     windows: std.ArrayList(Window),
 
+    /// The panes in the current session, mapped by pane ID.
+    panes: PanesMap,
+
     /// The arena used for the prior action allocated state. This contains
     /// the contents for the actions as well as the actions slice itself.
     action_arena: ArenaAllocator.State,
@@ -65,6 +70,7 @@ pub const Viewer = struct {
     action_single: [1]Action,
 
     pub const CommandQueue = CircBuf(Command, undefined);
+    pub const PanesMap = std.AutoArrayHashMapUnmanaged(usize, Pane);
 
     pub const Action = union(enum) {
         /// Tmux has closed the control mode connection, we should end
@@ -118,7 +124,20 @@ pub const Viewer = struct {
         id: usize,
         width: usize,
         height: usize,
-        // TODO: more fields, obviously!
+        layout_arena: ArenaAllocator.State,
+        layout: Layout,
+
+        pub fn deinit(self: *Window, alloc: Allocator) void {
+            self.layout_arena.promote(alloc).deinit();
+        }
+    };
+
+    pub const Pane = struct {
+        terminal: Terminal,
+
+        pub fn deinit(self: *Pane, alloc: Allocator) void {
+            self.terminal.deinit(alloc);
+        }
     };
 
     /// Initialize a new viewer.
@@ -139,17 +158,26 @@ pub const Viewer = struct {
             .session_id = 0,
             .command_queue = command_queue,
             .windows = .empty,
+            .panes = .empty,
             .action_arena = .{},
             .action_single = undefined,
         };
     }
 
     pub fn deinit(self: *Viewer) void {
-        self.windows.deinit(self.alloc);
+        {
+            for (self.windows.items) |*window| window.deinit(self.alloc);
+            self.windows.deinit(self.alloc);
+        }
         {
             var it = self.command_queue.iterator(.forward);
             while (it.next()) |command| command.deinit(self.alloc);
             self.command_queue.deinit(self.alloc);
+        }
+        {
+            var it = self.panes.iterator();
+            while (it.next()) |kv| kv.value_ptr.deinit(self.alloc);
+            self.panes.deinit(self.alloc);
         }
         self.action_arena.promote(self.alloc).deinit();
     }
@@ -354,22 +382,131 @@ pub const Viewer = struct {
                 return err;
             };
 
+            // Parse the layout
+            var arena: ArenaAllocator = .init(self.alloc);
+            errdefer arena.deinit();
+            const window_alloc = arena.allocator();
+            const layout: Layout = Layout.parseWithChecksum(
+                window_alloc,
+                data.window_layout,
+            ) catch |err| {
+                log.info(
+                    "failed to parse window layout id={} layout={s}",
+                    .{ data.window_id, data.window_layout },
+                );
+                return err;
+            };
+
             try windows.append(self.alloc, .{
                 .id = data.window_id,
                 .width = data.window_width,
                 .height = data.window_height,
+                .layout_arena = arena.state,
+                .layout = layout,
             });
         }
 
+        // Setup our windows action so the caller can process GUI
+        // window changes.
+        try actions.append(arena_alloc, .{ .windows = windows.items });
+
+        // Go through the window layout and setup all our panes. We move
+        // this into a new panes map so that we can easily prune our old
+        // list.
+        var panes: PanesMap = .empty;
+        errdefer {
+            var panes_it = panes.iterator();
+            while (panes_it.next()) |kv| kv.value_ptr.deinit(self.alloc);
+            panes.deinit(self.alloc);
+        }
+        for (windows.items) |window| try initLayout(
+            self.alloc,
+            &self.panes,
+            &panes,
+            arena_alloc,
+            actions,
+            window.layout,
+        );
+
+        // No more errors after this point. We're about to replace all
+        // our owned state with our temporary state, and our errdefers
+        // above will double-free if there is an error.
+        errdefer comptime unreachable;
+
         // Replace our window list
+        for (self.windows.items) |*window| window.deinit(self.alloc);
         self.windows.deinit(self.alloc);
         self.windows = windows;
+
+        // Replace our panes
+        {
+            var panes_it = self.panes.iterator();
+            while (panes_it.next()) |kv| kv.value_ptr.deinit(self.alloc);
+            self.panes.deinit(self.alloc);
+            self.panes = panes;
+        }
 
         // TODO: Diff with prior window state, dispatch capture-pane
         // requests to collect all of the screen contents, other terminal
         // state, etc.
+    }
 
-        try actions.append(arena_alloc, .{ .windows = self.windows.items });
+    fn initLayout(
+        gpa_alloc: Allocator,
+        panes_old: *PanesMap,
+        panes_new: *PanesMap,
+        actions_alloc: Allocator,
+        actions: *std.ArrayList(Action),
+        layout: Layout,
+    ) !void {
+        switch (layout.content) {
+            // Nested layouts, continue going.
+            .horizontal, .vertical => |layouts| {
+                for (layouts) |l| {
+                    try initLayout(
+                        gpa_alloc,
+                        panes_old,
+                        panes_new,
+                        actions_alloc,
+                        actions,
+                        l,
+                    );
+                }
+            },
+
+            // A leaf! Initialize.
+            .pane => |id| pane: {
+                const gop = try panes_new.getOrPut(gpa_alloc, id);
+                if (gop.found_existing) {
+                    // We already have the pane setup. It should not exist
+                    // in the old map because we remove that when we set
+                    // it up.
+                    assert(!panes_old.contains(id));
+                    break :pane;
+                }
+                errdefer _ = panes_new.swapRemove(gop.key_ptr.*);
+
+                // We don't have it in our new map. If it exists in our old
+                // map then we copy it over and we're done.
+                if (panes_old.fetchSwapRemove(id)) |entry| {
+                    gop.value_ptr.* = entry.value;
+                    break :pane;
+                }
+
+                // TODO: We need to gracefully handle overflow of our
+                // max cols/width here. In practice we shouldn't hit this
+                // so we cast but its not safe.
+                var t: Terminal = try .init(gpa_alloc, .{
+                    .cols = @intCast(layout.width),
+                    .rows = @intCast(layout.height),
+                });
+                errdefer t.deinit(gpa_alloc);
+
+                gop.value_ptr.* = .{
+                    .terminal = t,
+                };
+            },
+        }
     }
 
     /// This queues the command at the end of the command queue
