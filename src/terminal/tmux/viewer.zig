@@ -47,6 +47,11 @@ pub const Viewer = struct {
     /// the contents for the actions as well as the actions slice itself.
     action_arena: ArenaAllocator.State,
 
+    /// A single action pre-allocated that we use for single-action
+    /// returns (common). This ensures that we can never get allocation
+    /// errors on single-action returns, especially those such as `.exit`.
+    action_single: [1]Action,
+
     pub const Action = union(enum) {
         /// Tmux has closed the control mode connection, we should end
         /// our viewer session in some way.
@@ -116,6 +121,7 @@ pub const Viewer = struct {
             .session_id = 0,
             .windows = .empty,
             .action_arena = .{},
+            .action_single = undefined,
         };
     }
 
@@ -128,36 +134,39 @@ pub const Viewer = struct {
     /// keyboard input for a pane, etc.) and process it. The returned
     /// list is a set of actions to take as a result of the input prior
     /// to the next input. This list may be empty.
-    pub fn next(self: *Viewer, input: Input) Allocator.Error![]const Action {
+    pub fn next(self: *Viewer, input: Input) []const Action {
+        // Developer note: this function must never return an error. If
+        // an error occurs we must go into a defunct state or some other
+        // state to gracefully handle it.
         return switch (input) {
-            .tmux => try self.nextTmux(input.tmux),
+            .tmux => self.nextTmux(input.tmux),
         };
     }
 
     fn nextTmux(
         self: *Viewer,
         n: control.Notification,
-    ) Allocator.Error![]const Action {
+    ) []const Action {
         return switch (self.state) {
             .defunct => defunct: {
                 log.info("received notification in defunct state, ignoring", .{});
                 break :defunct &.{};
             },
 
-            .startup_block => try self.nextStartupBlock(n),
-            .startup_session => try self.nextStartupSession(n),
-            .idle => try self.nextIdle(n),
+            .startup_block => self.nextStartupBlock(n),
+            .startup_session => self.nextStartupSession(n),
+            .idle => self.nextIdle(n),
 
             // Once we're in the main states, there's a bunch of shared
             // logic so we centralize it.
-            .list_windows => try self.nextCommand(n),
+            .list_windows => self.nextCommand(n),
         };
     }
 
     fn nextStartupBlock(
         self: *Viewer,
         n: control.Notification,
-    ) Allocator.Error![]const Action {
+    ) []const Action {
         assert(self.state == .startup_block);
 
         switch (n) {
@@ -168,7 +177,7 @@ pub const Viewer = struct {
             // I don't think this is technically possible (reading the
             // tmux source code), but if we see an exit we can semantically
             // handle this without issue.
-            .exit => return try self.defunct(),
+            .exit => return self.defunct(),
 
             // Any begin and end (even error) is fine! Now we wait for
             // session-changed to get the initial session ID. session-changed
@@ -190,18 +199,18 @@ pub const Viewer = struct {
     fn nextStartupSession(
         self: *Viewer,
         n: control.Notification,
-    ) Allocator.Error![]const Action {
+    ) []const Action {
         assert(self.state == .startup_session);
 
         switch (n) {
             .enter => unreachable,
 
-            .exit => return try self.defunct(),
+            .exit => return self.defunct(),
 
             .session_changed => |info| {
                 self.session_id = info.id;
                 self.state = .list_windows;
-                return try self.singleAction(.{ .command = std.fmt.comptimePrint(
+                return self.singleAction(.{ .command = std.fmt.comptimePrint(
                     "list-windows -F '{s}'\n",
                     .{comptime Format.list_windows.comptimeFormat()},
                 ) });
@@ -214,12 +223,12 @@ pub const Viewer = struct {
     fn nextIdle(
         self: *Viewer,
         n: control.Notification,
-    ) Allocator.Error![]const Action {
+    ) []const Action {
         assert(self.state == .idle);
 
         switch (n) {
             .enter => unreachable,
-            .exit => return try self.defunct(),
+            .exit => return self.defunct(),
             else => return &.{},
         }
     }
@@ -227,11 +236,11 @@ pub const Viewer = struct {
     fn nextCommand(
         self: *Viewer,
         n: control.Notification,
-    ) Allocator.Error![]const Action {
+    ) []const Action {
         switch (n) {
             .enter => unreachable,
 
-            .exit => return try self.defunct(),
+            .exit => return self.defunct(),
 
             inline .block_end,
             .block_err,
@@ -244,8 +253,8 @@ pub const Viewer = struct {
 
                 .list_windows => {
                     // Move to defunct on error blocks.
-                    if (comptime tag == .block_err) return try self.defunct();
-                    return self.receivedListWindows(content) catch return try self.defunct();
+                    if (comptime tag == .block_err) return self.defunct();
+                    return self.receivedListWindows(content) catch return self.defunct();
                 },
             },
 
@@ -297,35 +306,20 @@ pub const Viewer = struct {
         // requests to collect all of the screen contents, other terminal
         // state, etc.
 
-        return try self.singleAction(.{ .windows = self.windows.items });
+        return self.singleAction(.{ .windows = self.windows.items });
     }
 
-    /// Helper to return a single action. The input action must not use
-    /// any allocated memory from `action_arena` since this will reset
-    /// the arena.
-    fn singleAction(
-        self: *Viewer,
-        action: Action,
-    ) Allocator.Error![]const Action {
-        // Make our actual arena
-        var arena = self.action_arena.promote(self.alloc);
-
-        // Need to be careful to update our internal state after
-        // doing allocations since the arena takes a copy of the state.
-        defer self.action_arena = arena.state;
-
-        // Free everything. We could retain some state here if we wanted
-        // but I don't think its worth it.
-        _ = arena.reset(.free_all);
-
+    /// Helper to return a single action. The input action may use the arena
+    /// for allocated memory; this will not touch the arena.
+    fn singleAction(self: *Viewer, action: Action) []const Action {
         // Make our single action slice.
-        const alloc = arena.allocator();
-        return try alloc.dupe(Action, &.{action});
+        self.action_single[0] = action;
+        return &self.action_single;
     }
 
-    fn defunct(self: *Viewer) Allocator.Error![]const Action {
+    fn defunct(self: *Viewer) []const Action {
         self.state = .defunct;
-        return try self.singleAction(.exit);
+        return self.singleAction(.exit);
     }
 };
 
@@ -387,10 +381,10 @@ const Format = struct {
 test "immediate exit" {
     var viewer = Viewer.init(testing.allocator);
     defer viewer.deinit();
-    const actions = try viewer.next(.{ .tmux = .exit });
+    const actions = viewer.next(.{ .tmux = .exit });
     try testing.expectEqual(1, actions.len);
     try testing.expectEqual(.exit, actions[0]);
-    const actions2 = try viewer.next(.{ .tmux = .exit });
+    const actions2 = viewer.next(.{ .tmux = .exit });
     try testing.expectEqual(0, actions2.len);
 }
 
@@ -399,12 +393,12 @@ test "initial flow" {
     defer viewer.deinit();
 
     // First we receive the initial block end
-    const actions0 = try viewer.next(.{ .tmux = .{ .block_end = "" } });
+    const actions0 = viewer.next(.{ .tmux = .{ .block_end = "" } });
     try testing.expectEqual(0, actions0.len);
 
     // Then we receive session-changed with the initial session
     {
-        const actions = try viewer.next(.{ .tmux = .{ .session_changed = .{
+        const actions = viewer.next(.{ .tmux = .{ .session_changed = .{
             .id = 42,
             .name = "main",
         } } });
@@ -416,7 +410,7 @@ test "initial flow" {
 
     // Simulate our list-windows command
     {
-        const actions = try viewer.next(.{ .tmux = .{
+        const actions = viewer.next(.{ .tmux = .{
             .block_end =
             \\$0 @0 83 44 027b,83x44,0,0[83x20,0,0,0,83x23,0,21,1]
             ,
@@ -426,9 +420,9 @@ test "initial flow" {
         try testing.expectEqual(1, actions[0].windows.len);
     }
 
-    const exit_actions = try viewer.next(.{ .tmux = .exit });
+    const exit_actions = viewer.next(.{ .tmux = .exit });
     try testing.expectEqual(1, exit_actions.len);
     try testing.expectEqual(.exit, exit_actions[0]);
-    const final_actions = try viewer.next(.{ .tmux = .exit });
+    const final_actions = viewer.next(.{ .tmux = .exit });
     try testing.expectEqual(0, final_actions.len);
 }

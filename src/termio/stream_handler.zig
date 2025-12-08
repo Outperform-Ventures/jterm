@@ -422,7 +422,7 @@ pub const StreamHandler = struct {
                     break :tmux;
                 };
 
-                for (try viewer.next(.{ .tmux = tmux })) |action| {
+                for (viewer.next(.{ .tmux = tmux })) |action| {
                     log.info("tmux viewer action={f}", .{action});
                     switch (action) {
                         .exit => {
