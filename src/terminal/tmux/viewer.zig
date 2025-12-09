@@ -315,9 +315,9 @@ pub const Viewer = struct {
             => |content, tag| self.receivedCommandOutput(
                 content,
                 tag == .block_err,
-            ) catch err: {
+            ) catch {
                 log.warn("failed to process command output, becoming defunct", .{});
-                break :err self.defunct();
+                return self.defunct();
             },
 
             .output => |out| output: {
@@ -334,8 +334,14 @@ pub const Viewer = struct {
                 break :output &.{};
             },
 
+            // Session changed means we switched to a different tmux session.
+            // We need to reset our state and start fresh with list-windows.
+            .session_changed => |info| self.sessionChanged(info.id) catch {
+                log.warn("failed to handle session change, becoming defunct", .{});
+                return self.defunct();
+            },
+
             // TODO: There's real logic to do for these.
-            .session_changed,
             .layout_change,
             .window_add,
             => &.{},
@@ -359,6 +365,47 @@ pub const Viewer = struct {
             .client_session_changed,
             => &.{},
         };
+    }
+
+    /// When a session changes, we have to basically reset our whole state.
+    /// To do this, we emit an empty windows event (so callers can clear all
+    /// windows), reset ourself, and start all over.
+    fn sessionChanged(
+        self: *Viewer,
+        session_id: usize,
+    ) (Allocator.Error || std.Io.Writer.Error)![]const Action {
+        // Build up a new viewer. Its the easiest way to reset ourselves.
+        var replacement: Viewer = try .init(self.alloc);
+        errdefer replacement.deinit();
+
+        // Build actions: empty windows notification + list-windows command
+        var arena = replacement.action_arena.promote(replacement.alloc);
+        const arena_alloc = arena.allocator();
+        var actions: std.ArrayList(Action) = .empty;
+        try actions.append(arena_alloc, .{ .windows = &.{} });
+
+        // Setup our command queue
+        try actions.appendSlice(
+            arena_alloc,
+            try replacement.enterCommandQueue(
+                arena_alloc,
+                .list_windows,
+            ),
+        );
+
+        // Save arena state back before swap
+        replacement.action_arena = arena.state;
+
+        // Swap our self, no more error handling after this.
+        errdefer comptime unreachable;
+        self.deinit();
+        self.* = replacement;
+
+        // Set our session ID and jump directly to the list
+        self.session_id = session_id;
+
+        assert(self.state == .command_queue);
+        return actions.items;
     }
 
     fn receivedCommandOutput(
@@ -996,6 +1043,89 @@ test "immediate exit" {
                     try testing.expectEqual(0, actions.len);
                 }
             }).check,
+        },
+    });
+}
+
+test "session changed resets state" {
+    var viewer = try Viewer.init(testing.allocator);
+    defer viewer.deinit();
+
+    try testViewer(&viewer, &.{
+        // Initial startup
+        .{ .input = .{ .tmux = .{ .block_end = "" } } },
+        .{
+            .input = .{ .tmux = .{ .session_changed = .{
+                .id = 1,
+                .name = "first",
+            } } },
+            .contains_command = "list-windows",
+        },
+        // Receive window layout with two panes (same format as "initial flow" test)
+        .{
+            .input = .{ .tmux = .{
+                .block_end =
+                \\$1 @0 83 44 027b,83x44,0,0[83x20,0,0,0,83x23,0,21,1]
+                ,
+            } },
+            .contains_tags = &.{ .windows, .command },
+            .check = (struct {
+                fn check(v: *Viewer, _: []const Viewer.Action) anyerror!void {
+                    try testing.expectEqual(1, v.session_id);
+                    try testing.expectEqual(1, v.windows.items.len);
+                    try testing.expectEqual(2, v.panes.count());
+                }
+            }).check,
+        },
+        // Now session changes - should reset everything
+        .{
+            .input = .{ .tmux = .{ .session_changed = .{
+                .id = 2,
+                .name = "second",
+            } } },
+            .contains_tags = &.{ .windows, .command },
+            .contains_command = "list-windows",
+            .check = (struct {
+                fn check(v: *Viewer, actions: []const Viewer.Action) anyerror!void {
+                    // Session ID should be updated
+                    try testing.expectEqual(2, v.session_id);
+                    // Windows should be cleared (empty windows action sent)
+                    var found_empty_windows = false;
+                    for (actions) |action| {
+                        if (action == .windows and action.windows.len == 0) {
+                            found_empty_windows = true;
+                        }
+                    }
+                    try testing.expect(found_empty_windows);
+                    // Old windows should be cleared
+                    try testing.expectEqual(0, v.windows.items.len);
+                    // Old panes should be cleared
+                    try testing.expectEqual(0, v.panes.count());
+                }
+            }).check,
+        },
+        // Receive new window layout for new session (same layout, different session/window)
+        // Uses same pane IDs 0,1 - they should be re-created since old panes were cleared
+        .{
+            .input = .{ .tmux = .{
+                .block_end =
+                \\$2 @1 83 44 027b,83x44,0,0[83x20,0,0,0,83x23,0,21,1]
+                ,
+            } },
+            .contains_tags = &.{ .windows, .command },
+            .check = (struct {
+                fn check(v: *Viewer, _: []const Viewer.Action) anyerror!void {
+                    try testing.expectEqual(2, v.session_id);
+                    try testing.expectEqual(1, v.windows.items.len);
+                    try testing.expectEqual(1, v.windows.items[0].id);
+                    // Panes 0 and 1 should be created (fresh, since old ones were cleared)
+                    try testing.expectEqual(2, v.panes.count());
+                }
+            }).check,
+        },
+        .{
+            .input = .{ .tmux = .exit },
+            .contains_tags = &.{.exit},
         },
     });
 }
