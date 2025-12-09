@@ -5,6 +5,7 @@ const testing = std.testing;
 const assert = @import("../../quirks.zig").inlineAssert;
 const CircBuf = @import("../../datastruct/main.zig").CircBuf;
 const Screen = @import("../Screen.zig");
+const ScreenSet = @import("../ScreenSet.zig");
 const Terminal = @import("../Terminal.zig");
 const Layout = @import("layout.zig").Layout;
 const control = @import("control.zig");
@@ -366,13 +367,15 @@ pub const Viewer = struct {
                 content,
             ),
 
-            .pane_history => |id| try self.receivedPaneHistory(
-                id,
+            .pane_history => |cap| try self.receivedPaneHistory(
+                cap.screen_key,
+                cap.id,
                 content,
             ),
 
-            .pane_visible => |id| try self.receivedPaneVisible(
-                id,
+            .pane_visible => |cap| try self.receivedPaneVisible(
+                cap.screen_key,
+                cap.id,
                 content,
             ),
         }
@@ -494,8 +497,10 @@ pub const Viewer = struct {
                 const pane_id: usize = kv.key_ptr.*;
                 if (self.panes.contains(pane_id)) continue;
                 try self.queueCommands(&.{
-                    .{ .pane_history = pane_id },
-                    .{ .pane_visible = pane_id },
+                    .{ .pane_history = .{ .id = pane_id, .screen_key = .primary } },
+                    .{ .pane_visible = .{ .id = pane_id, .screen_key = .primary } },
+                    .{ .pane_history = .{ .id = pane_id, .screen_key = .alternate } },
+                    .{ .pane_visible = .{ .id = pane_id, .screen_key = .alternate } },
                 });
             }
         }
@@ -528,6 +533,7 @@ pub const Viewer = struct {
 
     fn receivedPaneHistory(
         self: *Viewer,
+        screen_key: ScreenSet.Key,
         id: usize,
         content: []const u8,
     ) !void {
@@ -538,6 +544,7 @@ pub const Viewer = struct {
         };
         const pane: *Pane = entry.value_ptr;
         const t: *Terminal = &pane.terminal;
+        _ = try t.switchScreen(screen_key);
         const screen: *Screen = t.screens.active;
 
         // Get a VT stream from the terminal so we can send data as-is into
@@ -569,6 +576,7 @@ pub const Viewer = struct {
 
     fn receivedPaneVisible(
         self: *Viewer,
+        screen_key: ScreenSet.Key,
         id: usize,
         content: []const u8,
     ) !void {
@@ -578,13 +586,15 @@ pub const Viewer = struct {
             return;
         };
         const pane: *Pane = entry.value_ptr;
+        const t: *Terminal = &pane.terminal;
+        _ = try t.switchScreen(screen_key);
 
         // Erase the active area and reset the cursor to the top-left
         // before writing the visible content.
-        pane.terminal.eraseDisplay(.complete, false);
-        pane.terminal.setCursorPos(1, 1);
+        t.eraseDisplay(.complete, false);
+        t.setCursorPos(1, 1);
 
-        var stream = pane.terminal.vtStream();
+        var stream = t.vtStream();
         defer stream.deinit();
         stream.nextSlice(content) catch |err| {
             log.info("failed to process pane visible for pane id={}: {}", .{ id, err });
@@ -729,14 +739,19 @@ const Command = union(enum) {
     list_windows,
 
     /// Capture history for the given pane ID.
-    pane_history: usize,
+    pane_history: CapturePane,
 
     /// Capture visible area for the given pane ID.
-    pane_visible: usize,
+    pane_visible: CapturePane,
 
     /// User command. This is a command provided by the user. Since
     /// this is user provided, we can't be sure what it is.
     user: []const u8,
+
+    const CapturePane = struct {
+        id: usize,
+        screen_key: ScreenSet.Key,
+    };
 
     pub fn deinit(self: Command, alloc: Allocator) void {
         return switch (self) {
@@ -761,24 +776,34 @@ const Command = union(enum) {
                 .{comptime Format.list_windows.comptimeFormat()},
             )),
 
-            .pane_history => |id| try writer.print(
+            .pane_history => |cap| try writer.print(
                 // -p = output to stdout instead of buffer
                 // -e = output escape sequences for SGR
+                // -a = capture alternate screen (only valid for alternate)
+                // -q = quiet, don't error if alternate screen doesn't exist
                 // -S - = start at the top of history ("-")
                 // -E -1 = end at the last line of history (1 before the
                 //   visible area is -1).
                 // -t %{d} = target a specific pane ID
-                "capture-pane -p -e -S - -E -1 -t %{d}\n",
-                .{id},
+                "capture-pane -p -e -q {s}-S - -E -1 -t %{d}\n",
+                .{
+                    if (cap.screen_key == .alternate) "-a " else "",
+                    cap.id,
+                },
             ),
 
-            .pane_visible => |id| try writer.print(
+            .pane_visible => |cap| try writer.print(
                 // -p = output to stdout instead of buffer
                 // -e = output escape sequences for SGR
+                // -a = capture alternate screen (only valid for alternate)
+                // -q = quiet, don't error if alternate screen doesn't exist
                 // -t %{d} = target a specific pane ID
                 // (no -S/-E = capture visible area only)
-                "capture-pane -p -e -t %{d}\n",
-                .{id},
+                "capture-pane -p -e -q {s}-t %{d}\n",
+                .{
+                    if (cap.screen_key == .alternate) "-a " else "",
+                    cap.id,
+                },
             ),
 
             .user => |v| try writer.writeAll(v),
@@ -938,9 +963,11 @@ test "initial flow" {
             } },
             .contains_tags = &.{ .windows, .command },
             .contains_command = "capture-pane",
+            // pane_history for pane 0 (primary)
             .check_command = (struct {
                 fn check(_: *Viewer, command: []const u8) anyerror!void {
                     try testing.expect(std.mem.containsAtLeast(u8, command, 1, "-t %0"));
+                    try testing.expect(!std.mem.containsAtLeast(u8, command, 1, "-a"));
                 }
             }).check,
         },
@@ -950,11 +977,12 @@ test "initial flow" {
                 \\Hello, world!
                 ,
             } },
-            // Moves on to pane_visible for pane 0
+            // Moves on to pane_visible for pane 0 (primary)
             .contains_command = "capture-pane",
             .check_command = (struct {
                 fn check(_: *Viewer, command: []const u8) anyerror!void {
                     try testing.expect(std.mem.containsAtLeast(u8, command, 1, "-t %0"));
+                    try testing.expect(!std.mem.containsAtLeast(u8, command, 1, "-a"));
                 }
             }).check,
             .check = (struct {
@@ -982,21 +1010,67 @@ test "initial flow" {
         },
         .{
             .input = .{ .tmux = .{ .block_end = "" } },
-            // Moves on to pane_history for pane 1
+            // Moves on to pane_history for pane 0 (alternate)
             .contains_command = "capture-pane",
             .check_command = (struct {
                 fn check(_: *Viewer, command: []const u8) anyerror!void {
-                    try testing.expect(std.mem.containsAtLeast(u8, command, 1, "-t %1"));
+                    try testing.expect(std.mem.containsAtLeast(u8, command, 1, "-t %0"));
+                    try testing.expect(std.mem.containsAtLeast(u8, command, 1, "-a"));
                 }
             }).check,
         },
         .{
             .input = .{ .tmux = .{ .block_end = "" } },
-            // Moves on to pane_visible for pane 1
+            // Moves on to pane_visible for pane 0 (alternate)
+            .contains_command = "capture-pane",
+            .check_command = (struct {
+                fn check(_: *Viewer, command: []const u8) anyerror!void {
+                    try testing.expect(std.mem.containsAtLeast(u8, command, 1, "-t %0"));
+                    try testing.expect(std.mem.containsAtLeast(u8, command, 1, "-a"));
+                }
+            }).check,
+        },
+        .{
+            .input = .{ .tmux = .{ .block_end = "" } },
+            // Moves on to pane_history for pane 1 (primary)
             .contains_command = "capture-pane",
             .check_command = (struct {
                 fn check(_: *Viewer, command: []const u8) anyerror!void {
                     try testing.expect(std.mem.containsAtLeast(u8, command, 1, "-t %1"));
+                    try testing.expect(!std.mem.containsAtLeast(u8, command, 1, "-a"));
+                }
+            }).check,
+        },
+        .{
+            .input = .{ .tmux = .{ .block_end = "" } },
+            // Moves on to pane_visible for pane 1 (primary)
+            .contains_command = "capture-pane",
+            .check_command = (struct {
+                fn check(_: *Viewer, command: []const u8) anyerror!void {
+                    try testing.expect(std.mem.containsAtLeast(u8, command, 1, "-t %1"));
+                    try testing.expect(!std.mem.containsAtLeast(u8, command, 1, "-a"));
+                }
+            }).check,
+        },
+        .{
+            .input = .{ .tmux = .{ .block_end = "" } },
+            // Moves on to pane_history for pane 1 (alternate)
+            .contains_command = "capture-pane",
+            .check_command = (struct {
+                fn check(_: *Viewer, command: []const u8) anyerror!void {
+                    try testing.expect(std.mem.containsAtLeast(u8, command, 1, "-t %1"));
+                    try testing.expect(std.mem.containsAtLeast(u8, command, 1, "-a"));
+                }
+            }).check,
+        },
+        .{
+            .input = .{ .tmux = .{ .block_end = "" } },
+            // Moves on to pane_visible for pane 1 (alternate)
+            .contains_command = "capture-pane",
+            .check_command = (struct {
+                fn check(_: *Viewer, command: []const u8) anyerror!void {
+                    try testing.expect(std.mem.containsAtLeast(u8, command, 1, "-t %1"));
+                    try testing.expect(std.mem.containsAtLeast(u8, command, 1, "-a"));
                 }
             }).check,
         },
