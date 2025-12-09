@@ -257,11 +257,17 @@ pub const Viewer = struct {
 
             .session_changed => |info| {
                 self.session_id = info.id;
-                self.state = .command_queue;
-                return self.singleAction(self.queueCommand(.list_windows) catch {
+
+                var arena = self.action_arena.promote(self.alloc);
+                defer self.action_arena = arena.state;
+                _ = arena.reset(.free_all);
+                return self.enterCommandQueue(
+                    arena.allocator(),
+                    .list_windows,
+                ) catch {
                     log.warn("failed to queue command, becoming defunct", .{});
                     return self.defunct();
-                });
+                };
             },
 
             else => return &.{},
@@ -348,14 +354,6 @@ pub const Viewer = struct {
         // Build up our actions to start with the next command if
         // we have one.
         var actions: std.ArrayList(Action) = .empty;
-        if (self.command_queue.first()) |next_command| {
-            var builder: std.Io.Writer.Allocating = .init(arena_alloc);
-            try next_command.formatCommand(&builder.writer);
-            try actions.append(
-                arena_alloc,
-                .{ .command = builder.writer.buffered() },
-            );
-        }
 
         // Process our command
         switch (command) {
@@ -370,6 +368,18 @@ pub const Viewer = struct {
             },
         }
 
+        // After processing commands, we add our next command to
+        // execute if we have one. We do this last because command
+        // processing may itself queue more commands.
+        if (self.command_queue.first()) |next_command| {
+            var builder: std.Io.Writer.Allocating = .init(arena_alloc);
+            try next_command.formatCommand(&builder.writer);
+            try actions.append(
+                arena_alloc,
+                .{ .command = builder.writer.buffered() },
+            );
+        }
+
         // Our command processing should not change our state
         assert(self.state == .command_queue);
 
@@ -382,6 +392,9 @@ pub const Viewer = struct {
         actions: *std.ArrayList(Action),
         content: []const u8,
     ) !void {
+        // If there is an error, reset our actions to what it was before.
+        errdefer actions.shrinkRetainingCapacity(actions.items.len);
+
         // This stores our new window state from this list-windows output.
         var windows: std.ArrayList(Window) = .empty;
         errdefer windows.deinit(self.alloc);
@@ -433,18 +446,49 @@ pub const Viewer = struct {
         // list.
         var panes: PanesMap = .empty;
         errdefer {
+            // Clear out all the new panes.
             var panes_it = panes.iterator();
-            while (panes_it.next()) |kv| kv.value_ptr.deinit(self.alloc);
+            while (panes_it.next()) |kv| {
+                if (!self.panes.contains(kv.key_ptr.*)) {
+                    kv.value_ptr.deinit(self.alloc);
+                }
+            }
             panes.deinit(self.alloc);
         }
         for (windows.items) |window| try initLayout(
             self.alloc,
             &self.panes,
             &panes,
-            arena_alloc,
-            actions,
             window.layout,
         );
+
+        // Build up the list of removed panes.
+        var removed: std.ArrayList(usize) = removed: {
+            var removed: std.ArrayList(usize) = .empty;
+            errdefer removed.deinit(self.alloc);
+            var panes_it = self.panes.iterator();
+            while (panes_it.next()) |kv| {
+                if (panes.contains(kv.key_ptr.*)) continue;
+                try removed.append(self.alloc, kv.key_ptr.*);
+            }
+
+            break :removed removed;
+        };
+        defer removed.deinit(self.alloc);
+
+        // Get our list of added panes and setup our command queue
+        // to populate them.
+        // TODO: errdefer cleanup
+        {
+            var panes_it = panes.iterator();
+            while (panes_it.next()) |kv| {
+                const pane_id: usize = kv.key_ptr.*;
+                if (self.panes.contains(pane_id)) continue;
+                try self.queueCommands(&.{
+                    .{ .pane_history = pane_id },
+                });
+            }
+        }
 
         // No more errors after this point. We're about to replace all
         // our owned state with our temporary state, and our errdefers
@@ -458,8 +502,15 @@ pub const Viewer = struct {
 
         // Replace our panes
         {
-            var panes_it = self.panes.iterator();
-            while (panes_it.next()) |kv| kv.value_ptr.deinit(self.alloc);
+            // First remove our old panes
+            for (removed.items) |id| if (self.panes.fetchSwapRemove(
+                id,
+            )) |entry_const| {
+                var entry = entry_const;
+                entry.value.deinit(self.alloc);
+            };
+            // We can now deinit self.panes because the existing
+            // entries are preserved.
             self.panes.deinit(self.alloc);
             self.panes = panes;
         }
@@ -471,10 +522,8 @@ pub const Viewer = struct {
 
     fn initLayout(
         gpa_alloc: Allocator,
-        panes_old: *PanesMap,
+        panes_old: *const PanesMap,
         panes_new: *PanesMap,
-        actions_alloc: Allocator,
-        actions: *std.ArrayList(Action),
         layout: Layout,
     ) !void {
         switch (layout.content) {
@@ -485,8 +534,6 @@ pub const Viewer = struct {
                         gpa_alloc,
                         panes_old,
                         panes_new,
-                        actions_alloc,
-                        actions,
                         l,
                     );
                 }
@@ -495,19 +542,13 @@ pub const Viewer = struct {
             // A leaf! Initialize.
             .pane => |id| pane: {
                 const gop = try panes_new.getOrPut(gpa_alloc, id);
-                if (gop.found_existing) {
-                    // We already have the pane setup. It should not exist
-                    // in the old map because we remove that when we set
-                    // it up.
-                    assert(!panes_old.contains(id));
-                    break :pane;
-                }
+                if (gop.found_existing) break :pane;
                 errdefer _ = panes_new.swapRemove(gop.key_ptr.*);
 
-                // We don't have it in our new map. If it exists in our old
-                // map then we copy it over and we're done.
-                if (panes_old.fetchSwapRemove(id)) |entry| {
-                    gop.value_ptr.* = entry.value;
+                // If we already have this pane, it is already initialized
+                // so just copy it over.
+                if (panes_old.getEntry(id)) |entry| {
+                    gop.value_ptr.* = entry.value_ptr.*;
                     break :pane;
                 }
 
@@ -527,30 +568,45 @@ pub const Viewer = struct {
         }
     }
 
-    /// This queues the command at the end of the command queue
-    /// and returns an action representing the next command that
-    /// should be run (the head).
-    ///
-    /// The next command is not removed, because the expectation is
-    /// that the head of our command list is always sent to tmux.
-    ///
-    /// Note: this modifies the `action_arena` since this will put
-    /// the command string into the arena. It does not clear the arena
-    /// so any previously allocated values remain valid.
-    fn queueCommand(self: *Viewer, command: Command) Allocator.Error!Action {
+    /// Enters the command queue state from any other state, queueing
+    /// the command and returning an action to execute the first command.
+    fn enterCommandQueue(
+        self: *Viewer,
+        arena_alloc: Allocator,
+        command: Command,
+    ) Allocator.Error![]const Action {
+        assert(self.state != .command_queue);
+
+        // Build our command string to send for the action.
+        var builder: std.Io.Writer.Allocating = .init(arena_alloc);
+        command.formatCommand(&builder.writer) catch return error.OutOfMemory;
+        const action: Action = .{ .command = builder.writer.buffered() };
+
         // Add our command
         try self.command_queue.ensureUnusedCapacity(self.alloc, 1);
         self.command_queue.appendAssumeCapacity(command);
 
-        // Get our first command to send, guaranteed to exist since we
-        // just appended one.
-        var arena = self.action_arena.promote(self.alloc);
-        defer self.action_arena = arena.state;
-        const arena_alloc = arena.allocator();
-        var builder: std.Io.Writer.Allocating = .init(arena_alloc);
-        const next_command = self.command_queue.first().?;
-        next_command.formatCommand(&builder.writer) catch return error.OutOfMemory;
-        return .{ .command = builder.writer.buffered() };
+        // Move into the command queue state
+        self.state = .command_queue;
+
+        return self.singleAction(action);
+    }
+
+    /// Queue multiple commands to execute. This doesn't add anything
+    /// to the actions queue or return actions or anything because the
+    /// command_queue state will automatically send the next command when
+    /// it receives output.
+    fn queueCommands(
+        self: *Viewer,
+        commands: []const Command,
+    ) Allocator.Error!void {
+        try self.command_queue.ensureUnusedCapacity(
+            self.alloc,
+            commands.len,
+        );
+        for (commands) |command| {
+            self.command_queue.appendAssumeCapacity(command);
+        }
     }
 
     /// Helper to return a single action. The input action may use the arena
@@ -636,7 +692,7 @@ const Command = union(enum) {
                 // -E -1 = end at the last line of history (1 before the
                 //   visible area is -1).
                 // -t %{d} = target a specific pane ID
-                "capture-pane -p -e -S - -E -1 -t %{d}",
+                "capture-pane -p -e -S - -E -1 -t %{d}\n",
                 .{id},
             ),
 
@@ -713,7 +769,7 @@ test "initial flow" {
             \\$0 @0 83 44 027b,83x44,0,0[83x20,0,0,0,83x23,0,21,1]
             ,
         } });
-        try testing.expectEqual(1, actions.len);
+        try testing.expect(actions.len > 0);
         try testing.expect(actions[0] == .windows);
         try testing.expectEqual(1, actions[0].windows.len);
     }
