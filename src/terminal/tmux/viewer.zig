@@ -315,14 +315,27 @@ pub const Viewer = struct {
         content: []const u8,
         is_err: bool,
     ) ![]const Action {
-        // If we have no pending commands, this is unexpected.
-        const command = self.command_queue.first() orelse {
+        // Get the command we're expecting output for. We need to get the
+        // non-pointer value because we are deleting it from the circular
+        // buffer immediately. This shallow copy is all we need since
+        // all the memory in Command is owned by GPA.
+        const command: Command = if (self.command_queue.first()) |ptr| switch (ptr.*) {
+            // I truly can't explain this. A simple `ptr.*` copy will cause
+            // our memory to become undefined when deleteOldest is called
+            // below. I logged all the pointers and they don't match so I
+            // don't know how its being set to undefined. But a copy like
+            // this does work.
+            inline else => |v, tag| @unionInit(
+                Command,
+                @tagName(tag),
+                v,
+            ),
+        } else {
+            // If we have no pending commands, this is unexpected.
             log.info("unexpected block output err={}", .{is_err});
             return &.{};
         };
         self.command_queue.deleteOldest(1);
-
-        // We always free any memory associated with the command
         defer command.deinit(self.alloc);
 
         // We'll use our arena for the return value here so we can
@@ -336,20 +349,25 @@ pub const Viewer = struct {
         // we have one.
         var actions: std.ArrayList(Action) = .empty;
         if (self.command_queue.first()) |next_command| {
+            var builder: std.Io.Writer.Allocating = .init(arena_alloc);
+            try next_command.formatCommand(&builder.writer);
             try actions.append(
                 arena_alloc,
-                .{ .command = next_command.string() },
+                .{ .command = builder.writer.buffered() },
             );
         }
 
         // Process our command
-        switch (command.*) {
+        switch (command) {
             .user => {},
             .list_windows => try self.receivedListWindows(
                 arena_alloc,
                 &actions,
                 content,
             ),
+            .pane_history => {
+                // TODO
+            },
         }
 
         // Our command processing should not change our state
@@ -515,6 +533,10 @@ pub const Viewer = struct {
     ///
     /// The next command is not removed, because the expectation is
     /// that the head of our command list is always sent to tmux.
+    ///
+    /// Note: this modifies the `action_arena` since this will put
+    /// the command string into the arena. It does not clear the arena
+    /// so any previously allocated values remain valid.
     fn queueCommand(self: *Viewer, command: Command) Allocator.Error!Action {
         // Add our command
         try self.command_queue.ensureUnusedCapacity(self.alloc, 1);
@@ -522,7 +544,13 @@ pub const Viewer = struct {
 
         // Get our first command to send, guaranteed to exist since we
         // just appended one.
-        return .{ .command = self.command_queue.first().?.string() };
+        var arena = self.action_arena.promote(self.alloc);
+        defer self.action_arena = arena.state;
+        const arena_alloc = arena.allocator();
+        var builder: std.Io.Writer.Allocating = .init(arena_alloc);
+        const next_command = self.command_queue.first().?;
+        next_command.formatCommand(&builder.writer) catch return error.OutOfMemory;
+        return .{ .command = builder.writer.buffered() };
     }
 
     /// Helper to return a single action. The input action may use the arena
@@ -572,27 +600,48 @@ const Command = union(enum) {
     /// List all windows so we can sync our window state.
     list_windows,
 
+    /// Capture history for the given pane ID.
+    pane_history: usize,
+
     /// User command. This is a command provided by the user. Since
     /// this is user provided, we can't be sure what it is.
     user: []const u8,
 
     pub fn deinit(self: Command, alloc: Allocator) void {
         return switch (self) {
-            .list_windows => {},
+            .list_windows,
+            .pane_history,
+            => {},
             .user => |v| alloc.free(v),
         };
     }
 
-    /// Returns the command to execute. The memory of the return
-    /// value is always safe as long as this command value is alive.
-    pub fn string(self: Command) []const u8 {
-        return switch (self) {
-            .list_windows => std.fmt.comptimePrint(
+    /// Format the command into the command that should be executed
+    /// by tmux. Trailing newlines are appended so this can be sent as-is
+    /// to tmux.
+    pub fn formatCommand(
+        self: Command,
+        writer: *std.Io.Writer,
+    ) std.Io.Writer.Error!void {
+        switch (self) {
+            .list_windows => try writer.writeAll(std.fmt.comptimePrint(
                 "list-windows -F '{s}'\n",
                 .{comptime Format.list_windows.comptimeFormat()},
+            )),
+
+            .pane_history => |id| try writer.print(
+                // -p = output to stdout instead of buffer
+                // -e = output escape sequences for SGR
+                // -S - = start at the top of history ("-")
+                // -E -1 = end at the last line of history (1 before the
+                //   visible area is -1).
+                // -t %{d} = target a specific pane ID
+                "capture-pane -p -e -S - -E -1 -t %{d}",
+                .{id},
             ),
-            .user => |v| v,
-        };
+
+            .user => |v| try writer.writeAll(v),
+        }
     }
 };
 
