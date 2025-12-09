@@ -18,6 +18,8 @@ const log = std.log.scoped(.terminal_tmux_viewer);
 //   out of order.
 // - We need to ignore `output` for panes that aren't yet initialized
 //   (until capture-panes are complete).
+// - We should note what the active window pane is on the tmux side;
+//   we can use this at least for initial focus.
 
 // NOTE: There is some fragility here that can possibly break if tmux
 // changes their implementation. In particular, the order of notifications
@@ -332,9 +334,30 @@ pub const Viewer = struct {
                 break :output &.{};
             },
 
-            // TODO: Use exhaustive matching here, determine if we need
-            // to handle the other cases.
-            else => &.{},
+            // TODO: There's real logic to do for these.
+            .session_changed,
+            .layout_change,
+            .window_add,
+            => &.{},
+
+            // The active pane changed. We don't care about this because
+            // we handle our own focus.
+            .window_pane_changed => &.{},
+
+            // We ignore this one. It means a session was created or
+            // destroyed. If it was our own session we will get an exit
+            // notification very soon. If it is another session we don't
+            // care.
+            .sessions_changed => &.{},
+
+            // We don't use window names for anything, currently.
+            .window_renamed => &.{},
+
+            // This is for other clients, which we don't do anything about.
+            // For us, we'll get `exit` or `session_changed`, respectively.
+            .client_detached,
+            .client_session_changed,
+            => &.{},
         };
     }
 
