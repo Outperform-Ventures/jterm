@@ -358,14 +358,17 @@ pub const Viewer = struct {
         // Process our command
         switch (command) {
             .user => {},
+
             .list_windows => try self.receivedListWindows(
                 arena_alloc,
                 &actions,
                 content,
             ),
-            .pane_history => {
-                // TODO
-            },
+
+            .pane_history => |id| try self.receivedPaneHistory(
+                id,
+                content,
+            ),
         }
 
         // After processing commands, we add our next command to
@@ -514,10 +517,29 @@ pub const Viewer = struct {
             self.panes.deinit(self.alloc);
             self.panes = panes;
         }
+    }
 
-        // TODO: Diff with prior window state, dispatch capture-pane
-        // requests to collect all of the screen contents, other terminal
-        // state, etc.
+    fn receivedPaneHistory(
+        self: *Viewer,
+        id: usize,
+        content: []const u8,
+    ) !void {
+        // Get our pane
+        const entry = self.panes.getEntry(id) orelse {
+            log.info("received pane history for untracked pane id={}", .{id});
+            return;
+        };
+        const pane: *Pane = entry.value_ptr;
+
+        // Get a VT stream from the terminal so we can send data as-is into
+        // it. This will populate the active area too so it won't be exactly
+        // correct but we'll get the active contents soon.
+        var stream = pane.terminal.vtStream();
+        defer stream.deinit();
+        stream.nextSlice(content) catch |err| {
+            log.info("failed to process pane history for pane id={}: {}", .{ id, err });
+            return err;
+        };
     }
 
     fn initLayout(
@@ -747,8 +769,10 @@ test "initial flow" {
     defer viewer.deinit();
 
     // First we receive the initial block end
-    const actions0 = viewer.next(.{ .tmux = .{ .block_end = "" } });
-    try testing.expectEqual(0, actions0.len);
+    {
+        const actions = viewer.next(.{ .tmux = .{ .block_end = "" } });
+        try testing.expectEqual(0, actions.len);
+    }
 
     // Then we receive session-changed with the initial session
     {
