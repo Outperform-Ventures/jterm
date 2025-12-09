@@ -341,10 +341,20 @@ pub const Viewer = struct {
                 return self.defunct();
             },
 
+            // Layout changed of a single window.
+            .layout_change => |info| self.layoutChanged(
+                info.window_id,
+                info.layout,
+            ) catch {
+                // Note: in the future, we can probably handle a failure
+                // here with a fallback to remove this one window, list
+                // windows again, and try again.
+                log.warn("failed to handle layout change, becoming defunct", .{});
+                return self.defunct();
+            },
+
             // TODO: There's real logic to do for these.
-            .layout_change,
-            .window_add,
-            => &.{},
+            .window_add => &.{},
 
             // The active pane changed. We don't care about this because
             // we handle our own focus.
@@ -365,6 +375,164 @@ pub const Viewer = struct {
             .client_session_changed,
             => &.{},
         };
+    }
+
+    /// When the layout changes for a single window, a pane may be added
+    /// or removed that we've never seen, in addition to the layout itself
+    /// physically changing.
+    ///
+    /// To handle this, its similar to list-windows except we expect the
+    /// window to already exist. We update the layout, do the initLayout
+    /// call for any diffs, setup commands to capture any new panes,
+    /// prune any removed panes.
+    fn layoutChanged(
+        self: *Viewer,
+        window_id: usize,
+        layout_str: []const u8,
+    ) ![]const Action {
+        // Find the window this layout change is for.
+        const window: *Window = window: for (self.windows.items) |*w| {
+            if (w.id == window_id) break :window w;
+        } else {
+            log.info("layout change for unknown window id={}", .{window_id});
+            return &.{};
+        };
+
+        // Clear our prior window arena and setup our layout
+        window.layout = layout: {
+            var arena = window.layout_arena.promote(self.alloc);
+            defer window.layout_arena = arena.state;
+            _ = arena.reset(.retain_capacity);
+            break :layout Layout.parseWithChecksum(
+                arena.allocator(),
+                layout_str,
+            ) catch |err| {
+                log.info(
+                    "failed to parse window layout id={} layout={s}",
+                    .{ window_id, layout_str },
+                );
+                return err;
+            };
+        };
+
+        // If our command queue started out empty and becomes non-empty,
+        // then we need to send down the command.
+        const command_queue_empty = self.command_queue.empty();
+
+        // Reset our arena so we can build up actions.
+        var arena = self.action_arena.promote(self.alloc);
+        defer self.action_arena = arena.state;
+        _ = arena.reset(.free_all);
+        const arena_alloc = arena.allocator();
+
+        // Our initial action is to definitely let the caller know that
+        // some windows changed.
+        var actions: std.ArrayList(Action) = .empty;
+        try actions.append(arena_alloc, .{ .windows = self.windows.items });
+
+        // Sync up our panes
+        try self.syncLayouts(self.windows.items);
+
+        // If our command queue was empty and now its not we need to add
+        // a command to the output.
+        assert(self.state == .command_queue);
+        if (command_queue_empty and !self.command_queue.empty()) {
+            var builder: std.Io.Writer.Allocating = .init(arena_alloc);
+            const command = self.command_queue.first().?;
+            command.formatCommand(&builder.writer) catch return error.OutOfMemory;
+            const action: Action = .{ .command = builder.writer.buffered() };
+            try actions.append(arena_alloc, action);
+        }
+
+        return actions.items;
+    }
+
+    fn syncLayouts(
+        self: *Viewer,
+        windows: []const Window,
+    ) !void {
+        // Go through the window layout and setup all our panes. We move
+        // this into a new panes map so that we can easily prune our old
+        // list.
+        var panes: PanesMap = .empty;
+        errdefer {
+            // Clear out all the new panes.
+            var panes_it = panes.iterator();
+            while (panes_it.next()) |kv| {
+                if (!self.panes.contains(kv.key_ptr.*)) {
+                    kv.value_ptr.deinit(self.alloc);
+                }
+            }
+            panes.deinit(self.alloc);
+        }
+        for (windows) |window| try initLayout(
+            self.alloc,
+            &self.panes,
+            &panes,
+            window.layout,
+        );
+
+        // Build up the list of removed panes.
+        var removed: std.ArrayList(usize) = removed: {
+            var removed: std.ArrayList(usize) = .empty;
+            errdefer removed.deinit(self.alloc);
+            var panes_it = self.panes.iterator();
+            while (panes_it.next()) |kv| {
+                if (panes.contains(kv.key_ptr.*)) continue;
+                try removed.append(self.alloc, kv.key_ptr.*);
+            }
+
+            break :removed removed;
+        };
+        defer removed.deinit(self.alloc);
+
+        // Ensure we can add the windows
+        try self.windows.ensureTotalCapacity(self.alloc, windows.len);
+
+        // Get our list of added panes and setup our command queue
+        // to populate them.
+        // TODO: errdefer cleanup
+        {
+            var panes_it = panes.iterator();
+            while (panes_it.next()) |kv| {
+                const pane_id: usize = kv.key_ptr.*;
+                if (self.panes.contains(pane_id)) continue;
+                try self.queueCommands(&.{
+                    .{ .pane_history = .{ .id = pane_id, .screen_key = .primary } },
+                    .{ .pane_visible = .{ .id = pane_id, .screen_key = .primary } },
+                    .{ .pane_history = .{ .id = pane_id, .screen_key = .alternate } },
+                    .{ .pane_visible = .{ .id = pane_id, .screen_key = .alternate } },
+                });
+            }
+        }
+
+        // No more errors after this point. We're about to replace all
+        // our owned state with our temporary state, and our errdefers
+        // above will double-free if there is an error.
+        errdefer comptime unreachable;
+
+        // Replace our window list if it changed. We assume it didn't
+        // change if our pointer is pointing to the same data.
+        if (windows.ptr != self.windows.items.ptr) {
+            for (self.windows.items) |*window| window.deinit(self.alloc);
+            self.windows.clearRetainingCapacity();
+            self.windows.appendSliceAssumeCapacity(windows);
+        }
+
+        // Replace our panes
+        {
+            // First remove our old panes
+            for (removed.items) |id| if (self.panes.fetchSwapRemove(
+                id,
+            )) |entry_const| {
+                var entry = entry_const;
+                entry.value.deinit(self.alloc);
+            };
+            // We can now deinit self.panes because the existing
+            // entries are preserved.
+            self.panes.deinit(self.alloc);
+            self.panes = panes;
+        }
     }
 
     /// When a session changes, we have to basically reset our whole state.
@@ -499,7 +667,7 @@ pub const Viewer = struct {
 
         // This stores our new window state from this list-windows output.
         var windows: std.ArrayList(Window) = .empty;
-        errdefer windows.deinit(self.alloc);
+        defer windows.deinit(self.alloc);
 
         // Parse all our windows
         var it = std.mem.splitScalar(u8, content, '\n');
@@ -543,82 +711,8 @@ pub const Viewer = struct {
         // window changes.
         try actions.append(arena_alloc, .{ .windows = windows.items });
 
-        // Go through the window layout and setup all our panes. We move
-        // this into a new panes map so that we can easily prune our old
-        // list.
-        var panes: PanesMap = .empty;
-        errdefer {
-            // Clear out all the new panes.
-            var panes_it = panes.iterator();
-            while (panes_it.next()) |kv| {
-                if (!self.panes.contains(kv.key_ptr.*)) {
-                    kv.value_ptr.deinit(self.alloc);
-                }
-            }
-            panes.deinit(self.alloc);
-        }
-        for (windows.items) |window| try initLayout(
-            self.alloc,
-            &self.panes,
-            &panes,
-            window.layout,
-        );
-
-        // Build up the list of removed panes.
-        var removed: std.ArrayList(usize) = removed: {
-            var removed: std.ArrayList(usize) = .empty;
-            errdefer removed.deinit(self.alloc);
-            var panes_it = self.panes.iterator();
-            while (panes_it.next()) |kv| {
-                if (panes.contains(kv.key_ptr.*)) continue;
-                try removed.append(self.alloc, kv.key_ptr.*);
-            }
-
-            break :removed removed;
-        };
-        defer removed.deinit(self.alloc);
-
-        // Get our list of added panes and setup our command queue
-        // to populate them.
-        // TODO: errdefer cleanup
-        {
-            var panes_it = panes.iterator();
-            while (panes_it.next()) |kv| {
-                const pane_id: usize = kv.key_ptr.*;
-                if (self.panes.contains(pane_id)) continue;
-                try self.queueCommands(&.{
-                    .{ .pane_history = .{ .id = pane_id, .screen_key = .primary } },
-                    .{ .pane_visible = .{ .id = pane_id, .screen_key = .primary } },
-                    .{ .pane_history = .{ .id = pane_id, .screen_key = .alternate } },
-                    .{ .pane_visible = .{ .id = pane_id, .screen_key = .alternate } },
-                });
-            }
-        }
-
-        // No more errors after this point. We're about to replace all
-        // our owned state with our temporary state, and our errdefers
-        // above will double-free if there is an error.
-        errdefer comptime unreachable;
-
-        // Replace our window list
-        for (self.windows.items) |*window| window.deinit(self.alloc);
-        self.windows.deinit(self.alloc);
-        self.windows = windows;
-
-        // Replace our panes
-        {
-            // First remove our old panes
-            for (removed.items) |id| if (self.panes.fetchSwapRemove(
-                id,
-            )) |entry_const| {
-                var entry = entry_const;
-                entry.value.deinit(self.alloc);
-            };
-            // We can now deinit self.panes because the existing
-            // entries are preserved.
-            self.panes.deinit(self.alloc);
-            self.panes = panes;
-        }
+        // Sync up our layouts. This will populate unknown panes, prune, etc.
+        try self.syncLayouts(windows.items);
     }
 
     fn receivedPaneHistory(
@@ -1291,6 +1385,188 @@ test "initial flow" {
             .check = (struct {
                 fn check(_: *Viewer, actions: []const Viewer.Action) anyerror!void {
                     try testing.expectEqual(0, actions.len);
+                }
+            }).check,
+        },
+        .{
+            .input = .{ .tmux = .exit },
+            .contains_tags = &.{.exit},
+        },
+    });
+}
+
+test "layout change" {
+    var viewer = try Viewer.init(testing.allocator);
+    defer viewer.deinit();
+
+    try testViewer(&viewer, &.{
+        // Initial startup
+        .{ .input = .{ .tmux = .{ .block_end = "" } } },
+        .{
+            .input = .{ .tmux = .{ .session_changed = .{
+                .id = 1,
+                .name = "test",
+            } } },
+            .contains_command = "list-windows",
+        },
+        // Receive initial window layout with one pane
+        .{
+            .input = .{ .tmux = .{
+                .block_end =
+                \\$0 @0 83 44 b7dd,83x44,0,0,0
+                ,
+            } },
+            .contains_tags = &.{ .windows, .command },
+            .check = (struct {
+                fn check(v: *Viewer, _: []const Viewer.Action) anyerror!void {
+                    try testing.expectEqual(1, v.windows.items.len);
+                    try testing.expectEqual(1, v.panes.count());
+                    try testing.expect(v.panes.contains(0));
+                }
+            }).check,
+        },
+        // Complete all capture-pane commands for pane 0 (primary and alternate)
+        .{ .input = .{ .tmux = .{ .block_end = "" } } },
+        .{ .input = .{ .tmux = .{ .block_end = "" } } },
+        .{ .input = .{ .tmux = .{ .block_end = "" } } },
+        .{ .input = .{ .tmux = .{ .block_end = "" } } },
+        // Now send a layout_change that splits into two panes
+        .{
+            .input = .{ .tmux = .{ .layout_change = .{
+                .window_id = 0,
+                .layout = "e07b,83x44,0,0[83x22,0,0,0,83x21,0,23,2]",
+                .visible_layout = "e07b,83x44,0,0[83x22,0,0,0,83x21,0,23,2]",
+                .raw_flags = "*",
+            } } },
+            .contains_tags = &.{.windows},
+            .check = (struct {
+                fn check(v: *Viewer, _: []const Viewer.Action) anyerror!void {
+                    // Should still have 1 window
+                    try testing.expectEqual(1, v.windows.items.len);
+                    // Should now have 2 panes (0 and 2)
+                    try testing.expectEqual(2, v.panes.count());
+                    try testing.expect(v.panes.contains(0));
+                    try testing.expect(v.panes.contains(2));
+                    // Commands should be queued for the new pane
+                    try testing.expectEqual(4, v.command_queue.len());
+                }
+            }).check,
+        },
+        .{
+            .input = .{ .tmux = .exit },
+            .contains_tags = &.{.exit},
+        },
+    });
+}
+
+test "layout_change does not return command when queue not empty" {
+    var viewer = try Viewer.init(testing.allocator);
+    defer viewer.deinit();
+
+    try testViewer(&viewer, &.{
+        // Initial startup
+        .{ .input = .{ .tmux = .{ .block_end = "" } } },
+        .{
+            .input = .{ .tmux = .{ .session_changed = .{
+                .id = 1,
+                .name = "test",
+            } } },
+            .contains_command = "list-windows",
+        },
+        // Receive initial window layout with one pane
+        .{
+            .input = .{ .tmux = .{
+                .block_end =
+                \\$0 @0 83 44 b7dd,83x44,0,0,0
+                ,
+            } },
+            .contains_tags = &.{ .windows, .command },
+            .check = (struct {
+                fn check(v: *Viewer, _: []const Viewer.Action) anyerror!void {
+                    try testing.expect(!v.command_queue.empty());
+                }
+            }).check,
+        },
+        // Do NOT complete capture-pane commands - queue still has commands.
+        // Send a layout_change that splits into two panes.
+        // This should NOT return a command action since queue was not empty.
+        .{
+            .input = .{ .tmux = .{ .layout_change = .{
+                .window_id = 0,
+                .layout = "e07b,83x44,0,0[83x22,0,0,0,83x21,0,23,2]",
+                .visible_layout = "e07b,83x44,0,0[83x22,0,0,0,83x21,0,23,2]",
+                .raw_flags = "*",
+            } } },
+            .contains_tags = &.{.windows},
+            .check = (struct {
+                fn check(v: *Viewer, actions: []const Viewer.Action) anyerror!void {
+                    try testing.expectEqual(2, v.panes.count());
+                    // Should not contain a command action
+                    for (actions) |action| {
+                        try testing.expect(action != .command);
+                    }
+                }
+            }).check,
+        },
+        .{
+            .input = .{ .tmux = .exit },
+            .contains_tags = &.{.exit},
+        },
+    });
+}
+
+test "layout_change returns command when queue was empty" {
+    var viewer = try Viewer.init(testing.allocator);
+    defer viewer.deinit();
+
+    try testViewer(&viewer, &.{
+        // Initial startup
+        .{ .input = .{ .tmux = .{ .block_end = "" } } },
+        .{
+            .input = .{ .tmux = .{ .session_changed = .{
+                .id = 1,
+                .name = "test",
+            } } },
+            .contains_command = "list-windows",
+        },
+        // Receive initial window layout with one pane
+        .{
+            .input = .{ .tmux = .{
+                .block_end =
+                \\$0 @0 83 44 b7dd,83x44,0,0,0
+                ,
+            } },
+            .contains_tags = &.{ .windows, .command },
+        },
+        // Complete all capture-pane commands for pane 0
+        .{ .input = .{ .tmux = .{ .block_end = "" } } },
+        .{ .input = .{ .tmux = .{ .block_end = "" } } },
+        .{ .input = .{ .tmux = .{ .block_end = "" } } },
+        .{ .input = .{ .tmux = .{ .block_end = "" } } },
+        // Queue should now be empty
+        .{
+            .input = .{ .tmux = .{ .block_end = "" } },
+            .check = (struct {
+                fn check(v: *Viewer, _: []const Viewer.Action) anyerror!void {
+                    try testing.expect(v.command_queue.empty());
+                }
+            }).check,
+        },
+        // Now send a layout_change that splits into two panes.
+        // This should return a command action since we're queuing commands
+        // for the new pane and the queue was empty.
+        .{
+            .input = .{ .tmux = .{ .layout_change = .{
+                .window_id = 0,
+                .layout = "e07b,83x44,0,0[83x22,0,0,0,83x21,0,23,2]",
+                .visible_layout = "e07b,83x44,0,0[83x22,0,0,0,83x21,0,23,2]",
+                .raw_flags = "*",
+            } } },
+            .contains_tags = &.{ .windows, .command },
+            .check = (struct {
+                fn check(v: *Viewer, _: []const Viewer.Action) anyerror!void {
+                    try testing.expectEqual(2, v.panes.count());
+                    try testing.expect(!v.command_queue.empty());
                 }
             }).check,
         },
