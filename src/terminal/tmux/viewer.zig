@@ -4,6 +4,7 @@ const ArenaAllocator = std.heap.ArenaAllocator;
 const testing = std.testing;
 const assert = @import("../../quirks.zig").inlineAssert;
 const CircBuf = @import("../../datastruct/main.zig").CircBuf;
+const Screen = @import("../Screen.zig");
 const Terminal = @import("../Terminal.zig");
 const Layout = @import("layout.zig").Layout;
 const control = @import("control.zig");
@@ -536,16 +537,34 @@ pub const Viewer = struct {
             return;
         };
         const pane: *Pane = entry.value_ptr;
+        const t: *Terminal = &pane.terminal;
+        const screen: *Screen = t.screens.active;
 
         // Get a VT stream from the terminal so we can send data as-is into
         // it. This will populate the active area too so it won't be exactly
         // correct but we'll get the active contents soon.
-        var stream = pane.terminal.vtStream();
+        var stream = t.vtStream();
         defer stream.deinit();
         stream.nextSlice(content) catch |err| {
             log.info("failed to process pane history for pane id={}: {}", .{ id, err });
             return err;
         };
+
+        // Populate the active area to be empty since this is only history.
+        // We'll fill it with blanks and move the cursor to the top-left.
+        t.carriageReturn();
+        for (0..t.rows) |_| try t.index();
+        t.setCursorPos(1, 1);
+
+        // Our active area should be empty
+        if (comptime std.debug.runtime_safety) {
+            var discarding: std.Io.Writer.Discarding = .init(&.{});
+            screen.dumpString(&discarding.writer, .{
+                .tl = screen.pages.getTopLeft(.active),
+                .unwrap = false,
+            }) catch unreachable;
+            assert(discarding.count == 0);
+        }
     }
 
     fn receivedPaneVisible(
@@ -929,7 +948,6 @@ test "initial flow" {
             .input = .{ .tmux = .{
                 .block_end =
                 \\Hello, world!
-                \\
                 ,
             } },
             // Moves on to pane_visible for pane 0
@@ -937,6 +955,28 @@ test "initial flow" {
             .check_command = (struct {
                 fn check(_: *Viewer, command: []const u8) anyerror!void {
                     try testing.expect(std.mem.containsAtLeast(u8, command, 1, "-t %0"));
+                }
+            }).check,
+            .check = (struct {
+                fn check(v: *Viewer, _: []const Viewer.Action) anyerror!void {
+                    const pane: *Viewer.Pane = v.panes.getEntry(0).?.value_ptr;
+                    const screen: *Screen = pane.terminal.screens.active;
+                    {
+                        const str = try screen.dumpStringAlloc(
+                            testing.allocator,
+                            .{ .history = .{} },
+                        );
+                        defer testing.allocator.free(str);
+                        try testing.expectEqualStrings("Hello, world!", str);
+                    }
+                    {
+                        const str = try screen.dumpStringAlloc(
+                            testing.allocator,
+                            .{ .active = .{} },
+                        );
+                        defer testing.allocator.free(str);
+                        try testing.expectEqualStrings("", str);
+                    }
                 }
             }).check,
         },
