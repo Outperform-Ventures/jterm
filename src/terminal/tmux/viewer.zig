@@ -754,53 +754,151 @@ const Format = struct {
     }
 };
 
+const TestStep = struct {
+    input: Viewer.Input,
+    contains_tags: []const std.meta.Tag(Viewer.Action) = &.{},
+    contains_command: []const u8 = "",
+    check: ?*const fn (viewer: *Viewer, []const Viewer.Action) anyerror!void = null,
+    check_command: ?*const fn (viewer: *Viewer, []const u8) anyerror!void = null,
+
+    fn run(self: TestStep, viewer: *Viewer) !void {
+        const actions = viewer.next(self.input);
+
+        // Common mistake, forgetting the newline on a command.
+        for (actions) |action| {
+            if (action == .command) {
+                try testing.expect(std.mem.endsWith(u8, action.command, "\n"));
+            }
+        }
+
+        for (self.contains_tags) |tag| {
+            var found = false;
+            for (actions) |action| {
+                if (action == tag) {
+                    found = true;
+                    break;
+                }
+            }
+            try testing.expect(found);
+        }
+
+        if (self.contains_command.len > 0) {
+            var found = false;
+            for (actions) |action| {
+                if (action == .command and
+                    std.mem.startsWith(u8, action.command, self.contains_command))
+                {
+                    found = true;
+                    break;
+                }
+            }
+            try testing.expect(found);
+        }
+
+        if (self.check) |check_fn| {
+            try check_fn(viewer, actions);
+        }
+
+        if (self.check_command) |check_fn| {
+            var found = false;
+            for (actions) |action| {
+                if (action == .command) {
+                    found = true;
+                    try check_fn(viewer, action.command);
+                }
+            }
+            try testing.expect(found);
+        }
+    }
+};
+
+/// A helper to run a series of test steps against a viewer and assert
+/// that the expected actions are produced.
+///
+/// I'm generally not a fan of these types of abstracted tests because
+/// it makes diagnosing failures harder, but being able to construct
+/// simulated tmux inputs and verify outputs is going to be extremely
+/// important since the tmux control mode protocol is very complex and
+/// fragile.
+fn testViewer(viewer: *Viewer, steps: []const TestStep) !void {
+    for (steps, 0..) |step, i| {
+        step.run(viewer) catch |err| {
+            log.warn("testViewer step failed i={} step={}", .{ i, step });
+            return err;
+        };
+    }
+}
+
 test "immediate exit" {
     var viewer = try Viewer.init(testing.allocator);
     defer viewer.deinit();
-    const actions = viewer.next(.{ .tmux = .exit });
-    try testing.expectEqual(1, actions.len);
-    try testing.expectEqual(.exit, actions[0]);
-    const actions2 = viewer.next(.{ .tmux = .exit });
-    try testing.expectEqual(0, actions2.len);
+
+    try testViewer(&viewer, &.{
+        .{
+            .input = .{ .tmux = .exit },
+            .contains_tags = &.{.exit},
+        },
+        .{
+            .input = .{ .tmux = .exit },
+            .check = (struct {
+                fn check(_: *Viewer, actions: []const Viewer.Action) anyerror!void {
+                    try testing.expectEqual(0, actions.len);
+                }
+            }).check,
+        },
+    });
 }
 
 test "initial flow" {
     var viewer = try Viewer.init(testing.allocator);
     defer viewer.deinit();
 
-    // First we receive the initial block end
-    {
-        const actions = viewer.next(.{ .tmux = .{ .block_end = "" } });
-        try testing.expectEqual(0, actions.len);
-    }
-
-    // Then we receive session-changed with the initial session
-    {
-        const actions = viewer.next(.{ .tmux = .{ .session_changed = .{
-            .id = 42,
-            .name = "main",
-        } } });
-        try testing.expectEqual(1, actions.len);
-        try testing.expect(actions[0] == .command);
-        try testing.expect(std.mem.startsWith(u8, actions[0].command, "list-windows"));
-        try testing.expectEqual(42, viewer.session_id);
-    }
-
-    // Simulate our list-windows command
-    {
-        const actions = viewer.next(.{ .tmux = .{
-            .block_end =
-            \\$0 @0 83 44 027b,83x44,0,0[83x20,0,0,0,83x23,0,21,1]
-            ,
-        } });
-        try testing.expect(actions.len > 0);
-        try testing.expect(actions[0] == .windows);
-        try testing.expectEqual(1, actions[0].windows.len);
-    }
-
-    const exit_actions = viewer.next(.{ .tmux = .exit });
-    try testing.expectEqual(1, exit_actions.len);
-    try testing.expectEqual(.exit, exit_actions[0]);
-    const final_actions = viewer.next(.{ .tmux = .exit });
-    try testing.expectEqual(0, final_actions.len);
+    try testViewer(&viewer, &.{
+        .{ .input = .{ .tmux = .{ .block_end = "" } } },
+        .{
+            .input = .{ .tmux = .{ .session_changed = .{
+                .id = 42,
+                .name = "main",
+            } } },
+            .contains_command = "list-windows",
+            .check = (struct {
+                fn check(v: *Viewer, _: []const Viewer.Action) anyerror!void {
+                    try testing.expectEqual(42, v.session_id);
+                }
+            }).check,
+        },
+        .{
+            .input = .{ .tmux = .{
+                .block_end =
+                \\$0 @0 83 44 027b,83x44,0,0[83x20,0,0,0,83x23,0,21,1]
+                ,
+            } },
+            .contains_tags = &.{ .windows, .command },
+            .contains_command = "capture-pane",
+            .check_command = (struct {
+                fn check(_: *Viewer, command: []const u8) anyerror!void {
+                    try testing.expect(std.mem.containsAtLeast(u8, command, 1, "-t %0"));
+                }
+            }).check,
+        },
+        .{
+            .input = .{ .tmux = .{
+                .block_end =
+                \\Hello, world!
+                \\
+                ,
+            } },
+            // Moves on to the next pane
+            .contains_command = "capture-pane",
+            .check_command = (struct {
+                fn check(_: *Viewer, command: []const u8) anyerror!void {
+                    try testing.expect(std.mem.containsAtLeast(u8, command, 1, "-t %1"));
+                }
+            }).check,
+        },
+        .{
+            .input = .{ .tmux = .exit },
+            .contains_tags = &.{.exit},
+        },
+    });
 }
