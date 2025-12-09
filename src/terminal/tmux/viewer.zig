@@ -13,6 +13,12 @@ const output = @import("output.zig");
 
 const log = std.log.scoped(.terminal_tmux_viewer);
 
+// TODO: A list of TODOs as I think about them.
+// - We need to make startup more robust so session and block can happen
+//   out of order.
+// - We need to ignore `output` for panes that aren't yet initialized
+//   (until capture-panes are complete).
+
 // NOTE: There is some fragility here that can possibly break if tmux
 // changes their implementation. In particular, the order of notifications
 // and assurances about what is sent when are based on reading the tmux
@@ -312,6 +318,20 @@ pub const Viewer = struct {
                 break :err self.defunct();
             },
 
+            .output => |out| output: {
+                self.receivedOutput(
+                    out.pane_id,
+                    out.data,
+                ) catch |err| {
+                    log.warn(
+                        "failed to process output for pane id={}: {}",
+                        .{ out.pane_id, err },
+                    );
+                };
+
+                break :output &.{};
+            },
+
             // TODO: Use exhaustive matching here, determine if we need
             // to handle the other cases.
             else => &.{},
@@ -598,6 +618,26 @@ pub const Viewer = struct {
         defer stream.deinit();
         stream.nextSlice(content) catch |err| {
             log.info("failed to process pane visible for pane id={}: {}", .{ id, err });
+            return err;
+        };
+    }
+
+    fn receivedOutput(
+        self: *Viewer,
+        id: usize,
+        data: []const u8,
+    ) !void {
+        const entry = self.panes.getEntry(id) orelse {
+            log.info("received output for untracked pane id={}", .{id});
+            return;
+        };
+        const pane: *Pane = entry.value_ptr;
+        const t: *Terminal = &pane.terminal;
+
+        var stream = t.vtStream();
+        defer stream.deinit();
+        stream.nextSlice(data) catch |err| {
+            log.info("failed to process output for pane id={}: {}", .{ id, err });
             return err;
         };
     }
@@ -1071,6 +1111,33 @@ test "initial flow" {
                 fn check(_: *Viewer, command: []const u8) anyerror!void {
                     try testing.expect(std.mem.containsAtLeast(u8, command, 1, "-t %1"));
                     try testing.expect(std.mem.containsAtLeast(u8, command, 1, "-a"));
+                }
+            }).check,
+        },
+        .{
+            .input = .{ .tmux = .{ .block_end = "" } },
+        },
+        .{
+            .input = .{ .tmux = .{ .output = .{ .pane_id = 0, .data = "new output" } } },
+            .check = (struct {
+                fn check(v: *Viewer, actions: []const Viewer.Action) anyerror!void {
+                    try testing.expectEqual(0, actions.len);
+                    const pane: *Viewer.Pane = v.panes.getEntry(0).?.value_ptr;
+                    const screen: *Screen = pane.terminal.screens.active;
+                    const str = try screen.dumpStringAlloc(
+                        testing.allocator,
+                        .{ .active = .{} },
+                    );
+                    defer testing.allocator.free(str);
+                    try testing.expect(std.mem.containsAtLeast(u8, str, 1, "new output"));
+                }
+            }).check,
+        },
+        .{
+            .input = .{ .tmux = .{ .output = .{ .pane_id = 999, .data = "ignored" } } },
+            .check = (struct {
+                fn check(_: *Viewer, actions: []const Viewer.Action) anyerror!void {
+                    try testing.expectEqual(0, actions.len);
                 }
             }).check,
         },
