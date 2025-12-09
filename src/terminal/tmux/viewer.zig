@@ -369,6 +369,11 @@ pub const Viewer = struct {
                 id,
                 content,
             ),
+
+            .pane_visible => |id| try self.receivedPaneVisible(
+                id,
+                content,
+            ),
         }
 
         // After processing commands, we add our next command to
@@ -489,6 +494,7 @@ pub const Viewer = struct {
                 if (self.panes.contains(pane_id)) continue;
                 try self.queueCommands(&.{
                     .{ .pane_history = pane_id },
+                    .{ .pane_visible = pane_id },
                 });
             }
         }
@@ -538,6 +544,31 @@ pub const Viewer = struct {
         defer stream.deinit();
         stream.nextSlice(content) catch |err| {
             log.info("failed to process pane history for pane id={}: {}", .{ id, err });
+            return err;
+        };
+    }
+
+    fn receivedPaneVisible(
+        self: *Viewer,
+        id: usize,
+        content: []const u8,
+    ) !void {
+        // Get our pane
+        const entry = self.panes.getEntry(id) orelse {
+            log.info("received pane visible for untracked pane id={}", .{id});
+            return;
+        };
+        const pane: *Pane = entry.value_ptr;
+
+        // Erase the active area and reset the cursor to the top-left
+        // before writing the visible content.
+        pane.terminal.eraseDisplay(.complete, false);
+        pane.terminal.setCursorPos(1, 1);
+
+        var stream = pane.terminal.vtStream();
+        defer stream.deinit();
+        stream.nextSlice(content) catch |err| {
+            log.info("failed to process pane visible for pane id={}: {}", .{ id, err });
             return err;
         };
     }
@@ -681,6 +712,9 @@ const Command = union(enum) {
     /// Capture history for the given pane ID.
     pane_history: usize,
 
+    /// Capture visible area for the given pane ID.
+    pane_visible: usize,
+
     /// User command. This is a command provided by the user. Since
     /// this is user provided, we can't be sure what it is.
     user: []const u8,
@@ -689,6 +723,7 @@ const Command = union(enum) {
         return switch (self) {
             .list_windows,
             .pane_history,
+            .pane_visible,
             => {},
             .user => |v| alloc.free(v),
         };
@@ -715,6 +750,15 @@ const Command = union(enum) {
                 //   visible area is -1).
                 // -t %{d} = target a specific pane ID
                 "capture-pane -p -e -S - -E -1 -t %{d}\n",
+                .{id},
+            ),
+
+            .pane_visible => |id| try writer.print(
+                // -p = output to stdout instead of buffer
+                // -e = output escape sequences for SGR
+                // -t %{d} = target a specific pane ID
+                // (no -S/-E = capture visible area only)
+                "capture-pane -p -e -t %{d}\n",
                 .{id},
             ),
 
@@ -888,7 +932,27 @@ test "initial flow" {
                 \\
                 ,
             } },
-            // Moves on to the next pane
+            // Moves on to pane_visible for pane 0
+            .contains_command = "capture-pane",
+            .check_command = (struct {
+                fn check(_: *Viewer, command: []const u8) anyerror!void {
+                    try testing.expect(std.mem.containsAtLeast(u8, command, 1, "-t %0"));
+                }
+            }).check,
+        },
+        .{
+            .input = .{ .tmux = .{ .block_end = "" } },
+            // Moves on to pane_history for pane 1
+            .contains_command = "capture-pane",
+            .check_command = (struct {
+                fn check(_: *Viewer, command: []const u8) anyerror!void {
+                    try testing.expect(std.mem.containsAtLeast(u8, command, 1, "-t %1"));
+                }
+            }).check,
+        },
+        .{
+            .input = .{ .tmux = .{ .block_end = "" } },
+            // Moves on to pane_visible for pane 1
             .contains_command = "capture-pane",
             .check_command = (struct {
                 fn check(_: *Viewer, command: []const u8) anyerror!void {
