@@ -555,7 +555,7 @@ pub const Notification = union(enum) {
             try writer.writeAll(" }");
         }
     }
-            };
+};
 
 test "tmux begin/end empty" {
     const testing = std.testing;
