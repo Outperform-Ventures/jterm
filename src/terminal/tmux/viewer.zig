@@ -3,7 +3,9 @@ const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
 const testing = std.testing;
 const assert = @import("../../quirks.zig").inlineAssert;
+const size = @import("../size.zig");
 const CircBuf = @import("../../datastruct/main.zig").CircBuf;
+const CursorStyle = @import("../cursor.zig").Style;
 const Screen = @import("../Screen.zig");
 const ScreenSet = @import("../ScreenSet.zig");
 const Terminal = @import("../Terminal.zig");
@@ -551,9 +553,11 @@ pub const Viewer = struct {
         // TODO: errdefer cleanup
         {
             var panes_it = panes.iterator();
+            var added: bool = false;
             while (panes_it.next()) |kv| {
                 const pane_id: usize = kv.key_ptr.*;
                 if (self.panes.contains(pane_id)) continue;
+                added = true;
                 try self.queueCommands(&.{
                     .{ .pane_history = .{ .id = pane_id, .screen_key = .primary } },
                     .{ .pane_visible = .{ .id = pane_id, .screen_key = .primary } },
@@ -561,6 +565,10 @@ pub const Viewer = struct {
                     .{ .pane_visible = .{ .id = pane_id, .screen_key = .alternate } },
                 });
             }
+
+            // If we added any panes, then we also want to resync the pane
+            // state (terminal modes and cursor positions and so on).
+            if (added) try self.queueCommands(&.{.pane_state});
         }
 
         // No more errors after this point. We're about to replace all
@@ -671,6 +679,8 @@ pub const Viewer = struct {
         switch (command) {
             .user => {},
 
+            .pane_state => try self.receivedPaneState(content),
+
             .list_windows => try self.receivedListWindows(
                 arena_alloc,
                 actions,
@@ -748,6 +758,137 @@ pub const Viewer = struct {
 
         // Sync up our layouts. This will populate unknown panes, prune, etc.
         try self.syncLayouts(windows.items);
+    }
+
+    fn receivedPaneState(
+        self: *Viewer,
+        content: []const u8,
+    ) !void {
+        var it = std.mem.splitScalar(u8, content, '\n');
+        while (it.next()) |line_raw| {
+            const line = std.mem.trim(u8, line_raw, " \t\r");
+            if (line.len == 0) continue;
+
+            const data = output.parseFormatStruct(
+                Format.list_panes.Struct(),
+                line,
+                Format.list_panes.delim,
+            ) catch |err| {
+                log.info("failed to parse list-panes line: {s}", .{line});
+                return err;
+            };
+
+            // Get the pane for this ID
+            const entry = self.panes.getEntry(data.pane_id) orelse {
+                log.info("received pane state for untracked pane id={}", .{data.pane_id});
+                continue;
+            };
+            const pane: *Pane = entry.value_ptr;
+            const t: *Terminal = &pane.terminal;
+
+            // Determine which screen to use based on alternate_on
+            const screen_key: ScreenSet.Key = if (data.alternate_on) .alternate else .primary;
+
+            // Set cursor position on the appropriate screen (tmux uses 0-based)
+            if (t.screens.get(screen_key)) |screen| {
+                cursor: {
+                    const cursor_x = std.math.cast(
+                        size.CellCountInt,
+                        data.cursor_x,
+                    ) orelse break :cursor;
+                    const cursor_y = std.math.cast(
+                        size.CellCountInt,
+                        data.cursor_y,
+                    ) orelse break :cursor;
+                    if (cursor_x >= screen.pages.cols or
+                        cursor_y >= screen.pages.rows) break :cursor;
+                    screen.cursorAbsolute(cursor_x, cursor_y);
+                }
+
+                // Set cursor shape on this screen
+                if (data.cursor_shape.len > 0) {
+                    if (std.mem.eql(u8, data.cursor_shape, "block")) {
+                        screen.cursor.cursor_style = .block;
+                    } else if (std.mem.eql(u8, data.cursor_shape, "underline")) {
+                        screen.cursor.cursor_style = .underline;
+                    } else if (std.mem.eql(u8, data.cursor_shape, "bar")) {
+                        screen.cursor.cursor_style = .bar;
+                    }
+                }
+                // "default" or unknown: leave as-is
+            }
+
+            // Set alternate screen saved cursor position
+            if (t.screens.get(.alternate)) |alt_screen| cursor: {
+                const alt_x = std.math.cast(
+                    size.CellCountInt,
+                    data.alternate_saved_x,
+                ) orelse break :cursor;
+                const alt_y = std.math.cast(
+                    size.CellCountInt,
+                    data.alternate_saved_y,
+                ) orelse break :cursor;
+
+                // If our coordinates are outside our screen we ignore it.
+                // tmux actually sends MAX_INT for when there isn't a set
+                // cursor position, so this isn't theoretical.
+                if (alt_x >= alt_screen.pages.cols or
+                    alt_y >= alt_screen.pages.rows) break :cursor;
+
+                alt_screen.cursorAbsolute(alt_x, alt_y);
+            }
+
+            // Set cursor visibility
+            t.modes.set(.cursor_visible, data.cursor_flag);
+
+            // Set cursor blinking
+            t.modes.set(.cursor_blinking, data.cursor_blinking);
+
+            // Terminal modes
+            t.modes.set(.insert, data.insert_flag);
+            t.modes.set(.wraparound, data.wrap_flag);
+            t.modes.set(.keypad_keys, data.keypad_flag);
+            t.modes.set(.cursor_keys, data.keypad_cursor_flag);
+            t.modes.set(.origin, data.origin_flag);
+
+            // Mouse modes
+            t.modes.set(.mouse_event_any, data.mouse_all_flag);
+            t.modes.set(.mouse_event_button, data.mouse_any_flag);
+            t.modes.set(.mouse_event_normal, data.mouse_button_flag);
+            t.modes.set(.mouse_event_x10, data.mouse_standard_flag);
+            t.modes.set(.mouse_format_utf8, data.mouse_utf8_flag);
+            t.modes.set(.mouse_format_sgr, data.mouse_sgr_flag);
+
+            // Focus and bracketed paste
+            t.modes.set(.focus_event, data.focus_flag);
+            t.modes.set(.bracketed_paste, data.bracketed_paste);
+
+            // Scroll region (tmux uses 0-based values)
+            scroll: {
+                const scroll_top = std.math.cast(
+                    size.CellCountInt,
+                    data.scroll_region_upper,
+                ) orelse break :scroll;
+                const scroll_bottom = std.math.cast(
+                    size.CellCountInt,
+                    data.scroll_region_lower,
+                ) orelse break :scroll;
+                t.scrolling_region.top = scroll_top;
+                t.scrolling_region.bottom = scroll_bottom;
+            }
+
+            // Tab stops - parse comma-separated list and set
+            t.tabstops.reset(0); // Clear all tabstops first
+            if (data.pane_tabs.len > 0) {
+                var tabs_it = std.mem.splitScalar(u8, data.pane_tabs, ',');
+                while (tabs_it.next()) |tab_str| {
+                    const col = std.fmt.parseInt(usize, tab_str, 10) catch continue;
+                    const col_cell = std.math.cast(size.CellCountInt, col) orelse continue;
+                    if (col_cell >= t.cols) continue;
+                    t.tabstops.set(col_cell);
+                }
+            }
+        }
     }
 
     fn receivedPaneHistory(
@@ -983,6 +1124,10 @@ const Command = union(enum) {
     /// Capture visible area for the given pane ID.
     pane_visible: CapturePane,
 
+    /// Capture the pane terminal state as best we can. The pane ID(s)
+    /// are part of the output so we can map it back to our panes.
+    pane_state,
+
     /// User command. This is a command provided by the user. Since
     /// this is user provided, we can't be sure what it is.
     user: []const u8,
@@ -997,6 +1142,7 @@ const Command = union(enum) {
             .list_windows,
             .pane_history,
             .pane_visible,
+            .pane_state,
             => {},
             .user => |v| alloc.free(v),
         };
@@ -1045,6 +1191,11 @@ const Command = union(enum) {
                 },
             ),
 
+            .pane_state => try writer.writeAll(std.fmt.comptimePrint(
+                "list-panes -F '{s}'\n",
+                .{comptime Format.list_panes.comptimeFormat()},
+            )),
+
             .user => |v| try writer.writeAll(v),
         }
     }
@@ -1058,6 +1209,45 @@ const Format = struct {
     /// The delimiter to use between variables. This must be a character
     /// guaranteed to not appear in any of the variable outputs.
     delim: u8,
+
+    const list_panes: Format = .{
+        .delim = ';',
+        .vars = &.{
+            .pane_id,
+            // Cursor position & appearance
+            .cursor_x,
+            .cursor_y,
+            .cursor_flag,
+            .cursor_shape,
+            .cursor_colour,
+            .cursor_blinking,
+            // Alternate screen
+            .alternate_on,
+            .alternate_saved_x,
+            .alternate_saved_y,
+            // Terminal modes
+            .insert_flag,
+            .wrap_flag,
+            .keypad_flag,
+            .keypad_cursor_flag,
+            .origin_flag,
+            // Mouse modes
+            .mouse_all_flag,
+            .mouse_any_flag,
+            .mouse_button_flag,
+            .mouse_standard_flag,
+            .mouse_utf8_flag,
+            .mouse_sgr_flag,
+            // Focus & special features
+            .focus_flag,
+            .bracketed_paste,
+            // Scroll region
+            .scroll_region_upper,
+            .scroll_region_lower,
+            // Tab stops
+            .pane_tabs,
+        },
+    };
 
     const list_windows: Format = .{
         .delim = ' ',
@@ -1461,6 +1651,8 @@ test "layout change" {
             }).check,
         },
         // Complete all capture-pane commands for pane 0 (primary and alternate)
+        // plus pane_state
+        .{ .input = .{ .tmux = .{ .block_end = "" } } },
         .{ .input = .{ .tmux = .{ .block_end = "" } } },
         .{ .input = .{ .tmux = .{ .block_end = "" } } },
         .{ .input = .{ .tmux = .{ .block_end = "" } } },
@@ -1482,8 +1674,8 @@ test "layout change" {
                     try testing.expectEqual(2, v.panes.count());
                     try testing.expect(v.panes.contains(0));
                     try testing.expect(v.panes.contains(2));
-                    // Commands should be queued for the new pane
-                    try testing.expectEqual(4, v.command_queue.len());
+                    // Commands should be queued for the new pane (4 capture-pane + 1 pane_state)
+                    try testing.expectEqual(5, v.command_queue.len());
                 }
             }).check,
         },
@@ -1709,6 +1901,182 @@ test "window_add queues list_windows when queue not empty" {
                     }
                     // But list_windows should be in the queue
                     try testing.expect(!v.command_queue.empty());
+                }
+            }).check,
+        },
+        .{
+            .input = .{ .tmux = .exit },
+            .contains_tags = &.{.exit},
+        },
+    });
+}
+
+test "two pane flow with pane state" {
+    var viewer = try Viewer.init(testing.allocator);
+    defer viewer.deinit();
+
+    try testViewer(&viewer, &.{
+        // Initial block_end from attach
+        .{ .input = .{ .tmux = .{ .block_end = "" } } },
+        // Session changed notification
+        .{
+            .input = .{ .tmux = .{ .session_changed = .{
+                .id = 0,
+                .name = "0",
+            } } },
+            .contains_command = "list-windows",
+            .check = (struct {
+                fn check(v: *Viewer, _: []const Viewer.Action) anyerror!void {
+                    try testing.expectEqual(0, v.session_id);
+                }
+            }).check,
+        },
+        // list-windows output with 2 panes in a vertical split
+        .{
+            .input = .{ .tmux = .{
+                .block_end =
+                \\$0 @0 165 79 ca97,165x79,0,0[165x40,0,0,0,165x38,0,41,4]
+                ,
+            } },
+            .contains_tags = &.{ .windows, .command },
+            .check = (struct {
+                fn check(v: *Viewer, _: []const Viewer.Action) anyerror!void {
+                    try testing.expectEqual(1, v.windows.items.len);
+                    const window = v.windows.items[0];
+                    try testing.expectEqual(0, window.id);
+                    try testing.expectEqual(165, window.width);
+                    try testing.expectEqual(79, window.height);
+                    try testing.expectEqual(2, v.panes.count());
+                    try testing.expect(v.panes.contains(0));
+                    try testing.expect(v.panes.contains(4));
+                }
+            }).check,
+        },
+        // capture-pane pane 0 primary history
+        .{
+            .input = .{ .tmux = .{
+                .block_end =
+                \\prompt %
+                \\prompt %
+                ,
+            } },
+        },
+        // capture-pane pane 0 primary visible
+        .{
+            .input = .{ .tmux = .{
+                .block_end =
+                \\prompt %
+                ,
+            } },
+            .check = (struct {
+                fn check(v: *Viewer, _: []const Viewer.Action) anyerror!void {
+                    const pane: *Viewer.Pane = v.panes.getEntry(0).?.value_ptr;
+                    const screen: *Screen = pane.terminal.screens.active;
+                    {
+                        const str = try screen.dumpStringAlloc(
+                            testing.allocator,
+                            .{ .history = .{} },
+                        );
+                        defer testing.allocator.free(str);
+                        // History has 2 lines with "prompt %" (padded to screen width)
+                        try testing.expect(std.mem.containsAtLeast(u8, str, 2, "prompt %"));
+                    }
+                    {
+                        const str = try screen.dumpStringAlloc(
+                            testing.allocator,
+                            .{ .active = .{} },
+                        );
+                        defer testing.allocator.free(str);
+                        try testing.expectEqualStrings("prompt %", str);
+                    }
+                }
+            }).check,
+        },
+        // capture-pane pane 0 alternate history (empty)
+        .{ .input = .{ .tmux = .{ .block_end = "" } } },
+        // capture-pane pane 0 alternate visible (empty)
+        .{ .input = .{ .tmux = .{ .block_end = "" } } },
+        // capture-pane pane 4 primary history
+        .{
+            .input = .{ .tmux = .{
+                .block_end =
+                \\prompt %
+                ,
+            } },
+        },
+        // capture-pane pane 4 primary visible
+        .{
+            .input = .{ .tmux = .{
+                .block_end =
+                \\prompt %
+                ,
+            } },
+            .check = (struct {
+                fn check(v: *Viewer, _: []const Viewer.Action) anyerror!void {
+                    const pane: *Viewer.Pane = v.panes.getEntry(4).?.value_ptr;
+                    const screen: *Screen = pane.terminal.screens.active;
+                    {
+                        const str = try screen.dumpStringAlloc(
+                            testing.allocator,
+                            .{ .history = .{} },
+                        );
+                        defer testing.allocator.free(str);
+                        try testing.expectEqualStrings("prompt %", str);
+                    }
+                    {
+                        const str = try screen.dumpStringAlloc(
+                            testing.allocator,
+                            .{ .active = .{} },
+                        );
+                        defer testing.allocator.free(str);
+                        // Active screen starts with "prompt %" at beginning
+                        try testing.expect(std.mem.startsWith(u8, str, "prompt %"));
+                    }
+                }
+            }).check,
+        },
+        // capture-pane pane 4 alternate history (empty)
+        .{ .input = .{ .tmux = .{ .block_end = "" } } },
+        // capture-pane pane 4 alternate visible (empty)
+        .{ .input = .{ .tmux = .{ .block_end = "" } } },
+        // list-panes output with terminal state
+        .{
+            .input = .{ .tmux = .{
+                .block_end =
+                \\%0;42;0;1;;;;0;4294967295;4294967295;0;1;0;0;0;0;0;0;0;0;0;;;0;39;8,16,24,32,40,48,56,64,72,80,88,96,104,112,120,128,136,144,152,160
+                \\%4;10;5;1;;;;0;4294967295;4294967295;0;1;0;0;0;0;0;0;0;0;0;;;0;37;8,16,24,32,40,48,56,64,72,80,88,96,104,112,120,128,136,144,152,160
+                ,
+            } },
+            .check = (struct {
+                fn check(v: *Viewer, _: []const Viewer.Action) anyerror!void {
+                    // Pane 0: cursor at (42, 0), cursor visible, wraparound on
+                    {
+                        const pane: *Viewer.Pane = v.panes.getEntry(0).?.value_ptr;
+                        const t: *Terminal = &pane.terminal;
+                        const screen: *Screen = t.screens.get(.primary).?;
+                        try testing.expectEqual(42, screen.cursor.x);
+                        try testing.expectEqual(0, screen.cursor.y);
+                        try testing.expect(t.modes.get(.cursor_visible));
+                        try testing.expect(t.modes.get(.wraparound));
+                        try testing.expect(!t.modes.get(.insert));
+                        try testing.expect(!t.modes.get(.origin));
+                        try testing.expect(!t.modes.get(.keypad_keys));
+                        try testing.expect(!t.modes.get(.cursor_keys));
+                    }
+                    // Pane 4: cursor at (10, 5), cursor visible, wraparound on
+                    {
+                        const pane: *Viewer.Pane = v.panes.getEntry(4).?.value_ptr;
+                        const t: *Terminal = &pane.terminal;
+                        const screen: *Screen = t.screens.get(.primary).?;
+                        try testing.expectEqual(10, screen.cursor.x);
+                        try testing.expectEqual(5, screen.cursor.y);
+                        try testing.expect(t.modes.get(.cursor_visible));
+                        try testing.expect(t.modes.get(.wraparound));
+                        try testing.expect(!t.modes.get(.insert));
+                        try testing.expect(!t.modes.get(.origin));
+                        try testing.expect(!t.modes.get(.keypad_keys));
+                        try testing.expect(!t.modes.get(.cursor_keys));
+                    }
                 }
             }).check,
         },
