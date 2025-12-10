@@ -61,6 +61,11 @@ pub const Viewer = struct {
     /// The current session ID we're attached to.
     session_id: usize,
 
+    /// The tmux server version string (e.g., "3.5a"). We capture this
+    /// on startup because it will allow us to change behavior between
+    /// versions as necessary.
+    tmux_version: []const u8,
+
     /// The list of commands we've sent that we want to send and wait
     /// for a response for. We only send one command at a time just
     /// to avoid any possible confusion around ordering.
@@ -168,6 +173,7 @@ pub const Viewer = struct {
             // until we receive a session-changed notification which will
             // set this to a real value.
             .session_id = 0,
+            .tmux_version = "",
             .command_queue = command_queue,
             .windows = .empty,
             .panes = .empty,
@@ -190,6 +196,9 @@ pub const Viewer = struct {
             var it = self.panes.iterator();
             while (it.next()) |kv| kv.value_ptr.deinit(self.alloc);
             self.panes.deinit(self.alloc);
+        }
+        if (self.tmux_version.len > 0) {
+            self.alloc.free(self.tmux_version);
         }
         self.action_arena.promote(self.alloc).deinit();
     }
@@ -273,9 +282,10 @@ pub const Viewer = struct {
                 var arena = self.action_arena.promote(self.alloc);
                 defer self.action_arena = arena.state;
                 _ = arena.reset(.free_all);
+
                 return self.enterCommandQueue(
                     arena.allocator(),
-                    .list_windows,
+                    &.{ .tmux_version, .list_windows },
                 ) catch {
                     log.warn("failed to queue command, becoming defunct", .{});
                     return self.defunct();
@@ -626,6 +636,9 @@ pub const Viewer = struct {
         try replacement.queueCommands(&.{.list_windows});
         replacement.state = .command_queue;
 
+        // Transfer preserved version to replacement
+        replacement.tmux_version = try replacement.alloc.dupe(u8, self.tmux_version);
+
         // Save arena state back before swap
         replacement.action_arena = arena.state;
 
@@ -698,7 +711,31 @@ pub const Viewer = struct {
                 cap.id,
                 content,
             ),
+
+            .tmux_version => try self.receivedTmuxVersion(content),
         }
+    }
+
+    fn receivedTmuxVersion(
+        self: *Viewer,
+        content: []const u8,
+    ) !void {
+        const line = std.mem.trim(u8, content, " \t\r\n");
+        if (line.len == 0) return;
+
+        const data = output.parseFormatStruct(
+            Format.tmux_version.Struct(),
+            line,
+            Format.tmux_version.delim,
+        ) catch |err| {
+            log.info("failed to parse tmux version: {s}", .{line});
+            return err;
+        };
+
+        if (self.tmux_version.len > 0) {
+            self.alloc.free(self.tmux_version);
+        }
+        self.tmux_version = try self.alloc.dupe(u8, data.version);
     }
 
     fn receivedListWindows(
@@ -1031,22 +1068,23 @@ pub const Viewer = struct {
     }
 
     /// Enters the command queue state from any other state, queueing
-    /// the command and returning an action to execute the first command.
+    /// the commands and returning an action to execute the first command.
     fn enterCommandQueue(
         self: *Viewer,
         arena_alloc: Allocator,
-        command: Command,
+        commands: []const Command,
     ) Allocator.Error![]const Action {
         assert(self.state != .command_queue);
+        assert(commands.len > 0);
 
         // Build our command string to send for the action.
         var builder: std.Io.Writer.Allocating = .init(arena_alloc);
-        command.formatCommand(&builder.writer) catch return error.OutOfMemory;
+        commands[0].formatCommand(&builder.writer) catch return error.OutOfMemory;
         const action: Action = .{ .command = builder.writer.buffered() };
 
-        // Add our command
-        try self.command_queue.ensureUnusedCapacity(self.alloc, 1);
-        self.command_queue.appendAssumeCapacity(command);
+        // Add our commands
+        try self.command_queue.ensureUnusedCapacity(self.alloc, commands.len);
+        for (commands) |cmd| self.command_queue.appendAssumeCapacity(cmd);
 
         // Move into the command queue state
         self.state = .command_queue;
@@ -1128,6 +1166,9 @@ const Command = union(enum) {
     /// are part of the output so we can map it back to our panes.
     pane_state,
 
+    /// Get the tmux server version.
+    tmux_version,
+
     /// User command. This is a command provided by the user. Since
     /// this is user provided, we can't be sure what it is.
     user: []const u8,
@@ -1143,6 +1184,7 @@ const Command = union(enum) {
             .pane_history,
             .pane_visible,
             .pane_state,
+            .tmux_version,
             => {},
             .user => |v| alloc.free(v),
         };
@@ -1194,6 +1236,11 @@ const Command = union(enum) {
             .pane_state => try writer.writeAll(std.fmt.comptimePrint(
                 "list-panes -F '{s}'\n",
                 .{comptime Format.list_panes.comptimeFormat()},
+            )),
+
+            .tmux_version => try writer.writeAll(std.fmt.comptimePrint(
+                "display-message -p '{s}'\n",
+                .{comptime Format.tmux_version.comptimeFormat()},
             )),
 
             .user => |v| try writer.writeAll(v),
@@ -1258,6 +1305,11 @@ const Format = struct {
             .window_height,
             .window_layout,
         },
+    };
+
+    const tmux_version: Format = .{
+        .delim = ' ',
+        .vars = &.{.version},
     };
 
     /// The format string, available at comptime.
@@ -1378,6 +1430,11 @@ test "session changed resets state" {
                 .id = 1,
                 .name = "first",
             } } },
+            .contains_command = "display-message",
+        },
+        // Receive version response, which triggers list-windows
+        .{
+            .input = .{ .tmux = .{ .block_end = "3.5a" } },
             .contains_command = "list-windows",
         },
         // Receive window layout with two panes (same format as "initial flow" test)
@@ -1393,10 +1450,11 @@ test "session changed resets state" {
                     try testing.expectEqual(1, v.session_id);
                     try testing.expectEqual(1, v.windows.items.len);
                     try testing.expectEqual(2, v.panes.count());
+                    try testing.expectEqualStrings("3.5a", v.tmux_version);
                 }
             }).check,
         },
-        // Now session changes - should reset everything
+        // Now session changes - should reset everything but keep version
         .{
             .input = .{ .tmux = .{ .session_changed = .{
                 .id = 2,
@@ -1420,6 +1478,8 @@ test "session changed resets state" {
                     try testing.expectEqual(0, v.windows.items.len);
                     // Old panes should be cleared
                     try testing.expectEqual(0, v.panes.count());
+                    // Version should still be preserved
+                    try testing.expectEqualStrings("3.5a", v.tmux_version);
                 }
             }).check,
         },
@@ -1460,10 +1520,20 @@ test "initial flow" {
                 .id = 42,
                 .name = "main",
             } } },
-            .contains_command = "list-windows",
+            .contains_command = "display-message",
             .check = (struct {
                 fn check(v: *Viewer, _: []const Viewer.Action) anyerror!void {
                     try testing.expectEqual(42, v.session_id);
+                }
+            }).check,
+        },
+        // Receive version response, which triggers list-windows
+        .{
+            .input = .{ .tmux = .{ .block_end = "3.5a" } },
+            .contains_command = "list-windows",
+            .check = (struct {
+                fn check(v: *Viewer, _: []const Viewer.Action) anyerror!void {
+                    try testing.expectEqualStrings("3.5a", v.tmux_version);
                 }
             }).check,
         },
@@ -1632,6 +1702,11 @@ test "layout change" {
                 .id = 1,
                 .name = "test",
             } } },
+            .contains_command = "display-message",
+        },
+        // Receive version response, which triggers list-windows
+        .{
+            .input = .{ .tmux = .{ .block_end = "3.5a" } },
             .contains_command = "list-windows",
         },
         // Receive initial window layout with one pane
@@ -1698,6 +1773,11 @@ test "layout_change does not return command when queue not empty" {
                 .id = 1,
                 .name = "test",
             } } },
+            .contains_command = "display-message",
+        },
+        // Receive version response, which triggers list-windows
+        .{
+            .input = .{ .tmux = .{ .block_end = "3.5a" } },
             .contains_command = "list-windows",
         },
         // Receive initial window layout with one pane
@@ -1754,6 +1834,11 @@ test "layout_change returns command when queue was empty" {
                 .id = 1,
                 .name = "test",
             } } },
+            .contains_command = "display-message",
+        },
+        // Receive version response, which triggers list-windows
+        .{
+            .input = .{ .tmux = .{ .block_end = "3.5a" } },
             .contains_command = "list-windows",
         },
         // Receive initial window layout with one pane
@@ -1816,6 +1901,11 @@ test "window_add queues list_windows when queue empty" {
                 .id = 1,
                 .name = "test",
             } } },
+            .contains_command = "display-message",
+        },
+        // Receive version response, which triggers list-windows
+        .{
+            .input = .{ .tmux = .{ .block_end = "3.5a" } },
             .contains_command = "list-windows",
         },
         // Receive initial window layout with one pane
@@ -1872,6 +1962,11 @@ test "window_add queues list_windows when queue not empty" {
                 .id = 1,
                 .name = "test",
             } } },
+            .contains_command = "display-message",
+        },
+        // Receive version response, which triggers list-windows
+        .{
+            .input = .{ .tmux = .{ .block_end = "3.5a" } },
             .contains_command = "list-windows",
         },
         // Receive initial window layout with one pane
@@ -1924,12 +2019,17 @@ test "two pane flow with pane state" {
                 .id = 0,
                 .name = "0",
             } } },
-            .contains_command = "list-windows",
+            .contains_command = "display-message",
             .check = (struct {
                 fn check(v: *Viewer, _: []const Viewer.Action) anyerror!void {
                     try testing.expectEqual(0, v.session_id);
                 }
             }).check,
+        },
+        // Receive version response, which triggers list-windows
+        .{
+            .input = .{ .tmux = .{ .block_end = "3.5a" } },
+            .contains_command = "list-windows",
         },
         // list-windows output with 2 panes in a vertical split
         .{

@@ -154,6 +154,8 @@ pub const Variable = enum {
     scroll_region_upper,
     /// Unique session ID prefixed with `$` (e.g., `$0`, `$42`).
     session_id,
+    /// Server version (e.g., `3.5a`).
+    version,
     /// Unique window ID prefixed with `@` (e.g., `@0`, `@42`).
     window_id,
     /// Width of window.
@@ -213,6 +215,7 @@ pub const Variable = enum {
             .cursor_colour,
             .cursor_shape,
             .pane_tabs,
+            .version,
             .window_layout,
             => value,
         };
@@ -253,6 +256,7 @@ pub const Variable = enum {
             .cursor_colour,
             .cursor_shape,
             .pane_tabs,
+            .version,
             .window_layout,
             => []const u8,
         };
@@ -480,6 +484,13 @@ test "parse pane_tabs" {
     try testing.expectEqualStrings("0,8,16,24", try Variable.parse(.pane_tabs, "0,8,16,24"));
     try testing.expectEqualStrings("", try Variable.parse(.pane_tabs, ""));
     try testing.expectEqualStrings("0", try Variable.parse(.pane_tabs, "0"));
+}
+
+test "parse version" {
+    try testing.expectEqualStrings("3.5a", try Variable.parse(.version, "3.5a"));
+    try testing.expectEqualStrings("3.5", try Variable.parse(.version, "3.5"));
+    try testing.expectEqualStrings("next-3.5", try Variable.parse(.version, "next-3.5"));
+    try testing.expectEqualStrings("", try Variable.parse(.version, ""));
 }
 
 test "parseFormatStruct single field" {
