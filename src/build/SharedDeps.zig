@@ -719,7 +719,7 @@ pub fn addSimd(
     }
 
     // Highway
-    if (b.systemIntegrationOption("highway", .{})) {
+    if (b.systemIntegrationOption("highway", .{ .default = false })) {
         m.linkSystemLibrary("libhwy", dynamic_link_opts);
     } else {
         if (b.lazyDependency("highway", .{
