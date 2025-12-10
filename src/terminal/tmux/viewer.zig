@@ -353,8 +353,11 @@ pub const Viewer = struct {
                 return self.defunct();
             },
 
-            // TODO: There's real logic to do for these.
-            .window_add => &.{},
+            // A window was added to this session.
+            .window_add => |info| self.windowAdd(info.id) catch {
+                log.warn("failed to handle window add, becoming defunct", .{});
+                return self.defunct();
+            },
 
             // The active pane changed. We don't care about this because
             // we handle our own focus.
@@ -445,6 +448,40 @@ pub const Viewer = struct {
         }
 
         return actions.items;
+    }
+
+    /// When a window is added to the session, we need to refresh our window
+    /// list to get the new window's information.
+    fn windowAdd(self: *Viewer, window_id: usize) ![]const Action {
+        _ = window_id; // We refresh all windows via list-windows
+
+        // If our command queue started out empty and becomes non-empty,
+        // then we need to send down the command.
+        const command_queue_empty = self.command_queue.empty();
+
+        // Queue list-windows to get the updated window list
+        try self.queueCommands(&.{.list_windows});
+
+        // If our command queue was empty and now it's not, we need to add
+        // a command to the output.
+        assert(self.state == .command_queue);
+        if (command_queue_empty) {
+            var arena = self.action_arena.promote(self.alloc);
+            defer self.action_arena = arena.state;
+            _ = arena.reset(.free_all);
+            const arena_alloc = arena.allocator();
+
+            var builder: std.Io.Writer.Allocating = .init(arena_alloc);
+            const command = self.command_queue.first().?;
+            command.formatCommand(&builder.writer) catch return error.OutOfMemory;
+            const action: Action = .{ .command = builder.writer.buffered() };
+
+            var actions: std.ArrayList(Action) = .empty;
+            try actions.append(arena_alloc, action);
+            return actions.items;
+        }
+
+        return &.{};
     }
 
     fn syncLayouts(
@@ -1566,6 +1603,113 @@ test "layout_change returns command when queue was empty" {
             .check = (struct {
                 fn check(v: *Viewer, _: []const Viewer.Action) anyerror!void {
                     try testing.expectEqual(2, v.panes.count());
+                    try testing.expect(!v.command_queue.empty());
+                }
+            }).check,
+        },
+        .{
+            .input = .{ .tmux = .exit },
+            .contains_tags = &.{.exit},
+        },
+    });
+}
+
+test "window_add queues list_windows when queue empty" {
+    var viewer = try Viewer.init(testing.allocator);
+    defer viewer.deinit();
+
+    try testViewer(&viewer, &.{
+        // Initial startup
+        .{ .input = .{ .tmux = .{ .block_end = "" } } },
+        .{
+            .input = .{ .tmux = .{ .session_changed = .{
+                .id = 1,
+                .name = "test",
+            } } },
+            .contains_command = "list-windows",
+        },
+        // Receive initial window layout with one pane
+        .{
+            .input = .{ .tmux = .{
+                .block_end =
+                \\$0 @0 83 44 b7dd,83x44,0,0,0
+                ,
+            } },
+            .contains_tags = &.{ .windows, .command },
+        },
+        // Complete all capture-pane commands for pane 0
+        .{ .input = .{ .tmux = .{ .block_end = "" } } },
+        .{ .input = .{ .tmux = .{ .block_end = "" } } },
+        .{ .input = .{ .tmux = .{ .block_end = "" } } },
+        .{ .input = .{ .tmux = .{ .block_end = "" } } },
+        // Queue should now be empty
+        .{
+            .input = .{ .tmux = .{ .block_end = "" } },
+            .check = (struct {
+                fn check(v: *Viewer, _: []const Viewer.Action) anyerror!void {
+                    try testing.expect(v.command_queue.empty());
+                }
+            }).check,
+        },
+        // Now send window_add - should trigger list-windows command
+        .{
+            .input = .{ .tmux = .{ .window_add = .{ .id = 1 } } },
+            .contains_command = "list-windows",
+            .check = (struct {
+                fn check(v: *Viewer, _: []const Viewer.Action) anyerror!void {
+                    // Command queue should have list_windows
+                    try testing.expect(!v.command_queue.empty());
+                    try testing.expectEqual(1, v.command_queue.len());
+                }
+            }).check,
+        },
+        .{
+            .input = .{ .tmux = .exit },
+            .contains_tags = &.{.exit},
+        },
+    });
+}
+
+test "window_add queues list_windows when queue not empty" {
+    var viewer = try Viewer.init(testing.allocator);
+    defer viewer.deinit();
+
+    try testViewer(&viewer, &.{
+        // Initial startup
+        .{ .input = .{ .tmux = .{ .block_end = "" } } },
+        .{
+            .input = .{ .tmux = .{ .session_changed = .{
+                .id = 1,
+                .name = "test",
+            } } },
+            .contains_command = "list-windows",
+        },
+        // Receive initial window layout with one pane
+        .{
+            .input = .{ .tmux = .{
+                .block_end =
+                \\$0 @0 83 44 b7dd,83x44,0,0,0
+                ,
+            } },
+            .contains_tags = &.{ .windows, .command },
+            .check = (struct {
+                fn check(v: *Viewer, _: []const Viewer.Action) anyerror!void {
+                    // Queue should have capture-pane commands
+                    try testing.expect(!v.command_queue.empty());
+                }
+            }).check,
+        },
+        // Do NOT complete capture-pane commands - queue still has commands.
+        // Send window_add - should queue list-windows but NOT return command action
+        .{
+            .input = .{ .tmux = .{ .window_add = .{ .id = 1 } } },
+            .check = (struct {
+                fn check(v: *Viewer, actions: []const Viewer.Action) anyerror!void {
+                    // Should not contain a command action since queue was not empty
+                    for (actions) |action| {
+                        try testing.expect(action != .command);
+                    }
+                    // But list_windows should be in the queue
                     try testing.expect(!v.command_queue.empty());
                 }
             }).check,
