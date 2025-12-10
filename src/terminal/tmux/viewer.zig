@@ -51,6 +51,110 @@ const COMMAND_QUEUE_INITIAL = 8;
 ///
 /// This struct helps move through a state machine of connecting to a tmux
 /// session, negotiating capabilities, listing window state, etc.
+///
+/// ## Viewer Lifecycle
+///
+/// The viewer progresses through several states from initial connection
+/// to steady-state operation. Here is the full flow:
+///
+/// ```
+///                              ┌─────────────────────────────────────────────┐
+///                              │           TMUX CONTROL MODE START           │
+///                              │         (DCS 1000p received by host)        │
+///                              └─────────────────┬───────────────────────────┘
+///                                                │
+///                                                ▼
+///                              ┌─────────────────────────────────────────────┐
+///                              │            startup_block                    │
+///                              │                                             │
+///                              │  Wait for initial %begin/%end block from    │
+///                              │  tmux. This is the response to the initial  │
+///                              │  command (e.g., "attach -t 0").             │
+///                              └─────────────────┬───────────────────────────┘
+///                                                │ %end / %error
+///                                                ▼
+///                              ┌─────────────────────────────────────────────┐
+///                              │           startup_session                   │
+///                              │                                             │
+///                              │  Wait for %session-changed notification     │
+///                              │  to get the initial session ID.             │
+///                              └─────────────────┬───────────────────────────┘
+///                                                │ %session-changed
+///                                                ▼
+///                              ┌─────────────────────────────────────────────┐
+///                              │           command_queue                     │
+///                              │                                             │
+///                              │  Main operating state. Process commands     │
+///                              │  sequentially and handle notifications.     │
+///                              └─────────────────────────────────────────────┘
+///                                                │
+///                    ┌───────────────────────────┼───────────────────────────┐
+///                    │                           │                           │
+///                    ▼                           ▼                           ▼
+///     ┌──────────────────────────┐ ┌──────────────────────────┐ ┌────────────────────────┐
+///     │     tmux_version         │ │     list_windows         │ │   %output / %layout-   │
+///     │                          │ │                          │ │   change / etc.        │
+///     │  Query tmux version for  │ │  Get all windows in the  │ │                        │
+///     │  compatibility checks.   │ │  current session.        │ │  Handle live updates   │
+///     └──────────────────────────┘ └────────────┬─────────────┘ │  from tmux server.     │
+///                                               │               └────────────────────────┘
+///                                               ▼
+///                              ┌─────────────────────────────────────────────┐
+///                              │          syncLayouts                        │
+///                              │                                             │
+///                              │  For each window, parse layout and sync     │
+///                              │  panes. New panes trigger capture commands. │
+///                              └─────────────────┬───────────────────────────┘
+///                                                │
+///                    ┌───────────────────────────┴───────────────────────────┐
+///                    │                  For each new pane:                   │
+///                    ▼                                                       ▼
+///     ┌──────────────────────────┐                            ┌──────────────────────────┐
+///     │     pane_history         │                            │     pane_visible         │
+///     │     (primary screen)     │                            │     (primary screen)     │
+///     │                          │                            │                          │
+///     │  Capture scrollback      │                            │  Capture visible area    │
+///     │  history into terminal.  │                            │  into terminal.          │
+///     └──────────────────────────┘                            └──────────────────────────┘
+///                    │                                                       │
+///                    ▼                                                       ▼
+///     ┌──────────────────────────┐                            ┌──────────────────────────┐
+///     │     pane_history         │                            │     pane_visible         │
+///     │     (alternate screen)   │                            │     (alternate screen)   │
+///     └──────────────────────────┘                            └──────────────────────────┘
+///                    │                                                       │
+///                    └───────────────────────────┬───────────────────────────┘
+///                                                ▼
+///                              ┌─────────────────────────────────────────────┐
+///                              │          pane_state                         │
+///                              │                                             │
+///                              │  Query cursor position, cursor style,       │
+///                              │  and alternate screen mode for all panes.   │
+///                              └─────────────────────────────────────────────┘
+///                                                │
+///                                                ▼
+///                              ┌─────────────────────────────────────────────┐
+///                              │        READY FOR OPERATION                  │
+///                              │                                             │
+///                              │  Panes are populated with content. The      │
+///                              │  viewer handles %output for live updates,   │
+///                              │  %layout-change for pane changes, and       │
+///                              │  %session-changed for session switches.     │
+///                              └─────────────────────────────────────────────┘
+/// ```
+///
+/// ## Error Handling
+///
+/// At any point, if an unrecoverable error occurs or tmux sends `%exit`,
+/// the viewer transitions to the `defunct` state and emits an `.exit` action.
+///
+/// ## Session Changes
+///
+/// When `%session-changed` is received during `command_queue` state, the
+/// viewer resets itself completely: clears all windows/panes, emits an
+/// empty windows action, and restarts the `list_windows` flow for the new
+/// session.
+///
 pub const Viewer = struct {
     /// Allocator used for all internal state.
     alloc: Allocator,
