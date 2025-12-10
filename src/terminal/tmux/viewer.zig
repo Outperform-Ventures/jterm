@@ -306,43 +306,73 @@ pub const Viewer = struct {
         // handle it by ignoring any command output. That's okay!
         assert(self.state == .command_queue);
 
-        return switch (n) {
+        // Clear our prior arena so it is ready to be used for any
+        // actions immediately.
+        {
+            var arena = self.action_arena.promote(self.alloc);
+            _ = arena.reset(.free_all);
+            self.action_arena = arena.state;
+        }
+
+        // Setup our empty actions list that commands can populate.
+        var actions: std.ArrayList(Action) = .empty;
+
+        // Track whether the in-flight command slot is available. Starts true
+        // if queue is empty (no command in flight). Set to true when a command
+        // completes (block_end/block_err) or the queue is reset (session_changed).
+        var command_consumed = self.command_queue.empty();
+
+        switch (n) {
             .enter => unreachable,
-            .exit => self.defunct(),
+            .exit => return self.defunct(),
 
             inline .block_end,
             .block_err,
-            => |content, tag| self.receivedCommandOutput(
-                content,
-                tag == .block_err,
-            ) catch {
-                log.warn("failed to process command output, becoming defunct", .{});
-                return self.defunct();
-            },
-
-            .output => |out| output: {
-                self.receivedOutput(
-                    out.pane_id,
-                    out.data,
-                ) catch |err| {
-                    log.warn(
-                        "failed to process output for pane id={}: {}",
-                        .{ out.pane_id, err },
-                    );
+            => |content, tag| {
+                self.receivedCommandOutput(
+                    &actions,
+                    content,
+                    tag == .block_err,
+                ) catch {
+                    log.warn("failed to process command output, becoming defunct", .{});
+                    return self.defunct();
                 };
 
-                break :output &.{};
+                // Command is consumed since a block end/err is the output
+                // from a command.
+                command_consumed = true;
+            },
+
+            .output => |out| self.receivedOutput(
+                out.pane_id,
+                out.data,
+            ) catch |err| {
+                log.warn(
+                    "failed to process output for pane id={}: {}",
+                    .{ out.pane_id, err },
+                );
             },
 
             // Session changed means we switched to a different tmux session.
             // We need to reset our state and start fresh with list-windows.
-            .session_changed => |info| self.sessionChanged(info.id) catch {
-                log.warn("failed to handle session change, becoming defunct", .{});
-                return self.defunct();
+            // This completely replaces the viewer, so treat it like a fresh start.
+            .session_changed => |info| {
+                self.sessionChanged(
+                    &actions,
+                    info.id,
+                ) catch {
+                    log.warn("failed to handle session change, becoming defunct", .{});
+                    return self.defunct();
+                };
+
+                // Command is consumed because sessionChanged resets
+                // our entire viewer.
+                command_consumed = true;
             },
 
             // Layout changed of a single window.
             .layout_change => |info| self.layoutChanged(
+                &actions,
                 info.window_id,
                 info.layout,
             ) catch {
@@ -361,23 +391,53 @@ pub const Viewer = struct {
 
             // The active pane changed. We don't care about this because
             // we handle our own focus.
-            .window_pane_changed => &.{},
+            .window_pane_changed => {},
 
             // We ignore this one. It means a session was created or
             // destroyed. If it was our own session we will get an exit
             // notification very soon. If it is another session we don't
             // care.
-            .sessions_changed => &.{},
+            .sessions_changed => {},
 
             // We don't use window names for anything, currently.
-            .window_renamed => &.{},
+            .window_renamed => {},
 
             // This is for other clients, which we don't do anything about.
             // For us, we'll get `exit` or `session_changed`, respectively.
             .client_detached,
             .client_session_changed,
-            => &.{},
-        };
+            => {},
+        }
+
+        // After processing commands, we add our next command to
+        // execute if we have one. We do this last because command
+        // processing may itself queue more commands. We only emit a
+        // command if a prior command was consumed (or never existed).
+        if (self.state == .command_queue and command_consumed) {
+            if (self.command_queue.first()) |next_command| {
+                // We should not have any commands, because our nextCommand
+                // always queues them.
+                if (comptime std.debug.runtime_safety) {
+                    for (actions.items) |action| {
+                        if (action == .command) assert(false);
+                    }
+                }
+
+                var arena = self.action_arena.promote(self.alloc);
+                defer self.action_arena = arena.state;
+                const arena_alloc = arena.allocator();
+
+                var builder: std.Io.Writer.Allocating = .init(arena_alloc);
+                next_command.formatCommand(&builder.writer) catch
+                    return self.defunct();
+                actions.append(
+                    arena_alloc,
+                    .{ .command = builder.writer.buffered() },
+                ) catch return self.defunct();
+            }
+        }
+
+        return actions.items;
     }
 
     /// When the layout changes for a single window, a pane may be added
@@ -390,15 +450,16 @@ pub const Viewer = struct {
     /// prune any removed panes.
     fn layoutChanged(
         self: *Viewer,
+        actions: *std.ArrayList(Action),
         window_id: usize,
         layout_str: []const u8,
-    ) ![]const Action {
+    ) !void {
         // Find the window this layout change is for.
         const window: *Window = window: for (self.windows.items) |*w| {
             if (w.id == window_id) break :window w;
         } else {
             log.info("layout change for unknown window id={}", .{window_id});
-            return &.{};
+            return;
         };
 
         // Clear our prior window arena and setup our layout
@@ -418,70 +479,29 @@ pub const Viewer = struct {
             };
         };
 
-        // If our command queue started out empty and becomes non-empty,
-        // then we need to send down the command.
-        const command_queue_empty = self.command_queue.empty();
-
         // Reset our arena so we can build up actions.
         var arena = self.action_arena.promote(self.alloc);
         defer self.action_arena = arena.state;
-        _ = arena.reset(.free_all);
         const arena_alloc = arena.allocator();
 
         // Our initial action is to definitely let the caller know that
         // some windows changed.
-        var actions: std.ArrayList(Action) = .empty;
         try actions.append(arena_alloc, .{ .windows = self.windows.items });
 
         // Sync up our panes
         try self.syncLayouts(self.windows.items);
-
-        // If our command queue was empty and now its not we need to add
-        // a command to the output.
-        assert(self.state == .command_queue);
-        if (command_queue_empty and !self.command_queue.empty()) {
-            var builder: std.Io.Writer.Allocating = .init(arena_alloc);
-            const command = self.command_queue.first().?;
-            command.formatCommand(&builder.writer) catch return error.OutOfMemory;
-            const action: Action = .{ .command = builder.writer.buffered() };
-            try actions.append(arena_alloc, action);
-        }
-
-        return actions.items;
     }
 
     /// When a window is added to the session, we need to refresh our window
     /// list to get the new window's information.
-    fn windowAdd(self: *Viewer, window_id: usize) ![]const Action {
+    fn windowAdd(
+        self: *Viewer,
+        window_id: usize,
+    ) !void {
         _ = window_id; // We refresh all windows via list-windows
-
-        // If our command queue started out empty and becomes non-empty,
-        // then we need to send down the command.
-        const command_queue_empty = self.command_queue.empty();
 
         // Queue list-windows to get the updated window list
         try self.queueCommands(&.{.list_windows});
-
-        // If our command queue was empty and now it's not, we need to add
-        // a command to the output.
-        assert(self.state == .command_queue);
-        if (command_queue_empty) {
-            var arena = self.action_arena.promote(self.alloc);
-            defer self.action_arena = arena.state;
-            _ = arena.reset(.free_all);
-            const arena_alloc = arena.allocator();
-
-            var builder: std.Io.Writer.Allocating = .init(arena_alloc);
-            const command = self.command_queue.first().?;
-            command.formatCommand(&builder.writer) catch return error.OutOfMemory;
-            const action: Action = .{ .command = builder.writer.buffered() };
-
-            var actions: std.ArrayList(Action) = .empty;
-            try actions.append(arena_alloc, action);
-            return actions.items;
-        }
-
-        return &.{};
     }
 
     fn syncLayouts(
@@ -577,26 +597,26 @@ pub const Viewer = struct {
     /// windows), reset ourself, and start all over.
     fn sessionChanged(
         self: *Viewer,
+        actions: *std.ArrayList(Action),
         session_id: usize,
-    ) (Allocator.Error || std.Io.Writer.Error)![]const Action {
+    ) (Allocator.Error || std.Io.Writer.Error)!void {
         // Build up a new viewer. Its the easiest way to reset ourselves.
         var replacement: Viewer = try .init(self.alloc);
         errdefer replacement.deinit();
 
+        // Our actions must start out empty so we don't mix arenas
+        assert(actions.items.len == 0);
+        errdefer actions.* = .empty;
+
         // Build actions: empty windows notification + list-windows command
         var arena = replacement.action_arena.promote(replacement.alloc);
         const arena_alloc = arena.allocator();
-        var actions: std.ArrayList(Action) = .empty;
         try actions.append(arena_alloc, .{ .windows = &.{} });
 
-        // Setup our command queue
-        try actions.appendSlice(
-            arena_alloc,
-            try replacement.enterCommandQueue(
-                arena_alloc,
-                .list_windows,
-            ),
-        );
+        // Setup our command queue and put ourselves in the command queue
+        // state.
+        try replacement.queueCommands(&.{.list_windows});
+        replacement.state = .command_queue;
 
         // Save arena state back before swap
         replacement.action_arena = arena.state;
@@ -610,14 +630,14 @@ pub const Viewer = struct {
         self.session_id = session_id;
 
         assert(self.state == .command_queue);
-        return actions.items;
     }
 
     fn receivedCommandOutput(
         self: *Viewer,
+        actions: *std.ArrayList(Action),
         content: []const u8,
         is_err: bool,
-    ) ![]const Action {
+    ) !void {
         // Get the command we're expecting output for. We need to get the
         // non-pointer value because we are deleting it from the circular
         // buffer immediately. This shallow copy is all we need since
@@ -636,7 +656,7 @@ pub const Viewer = struct {
         } else {
             // If we have no pending commands, this is unexpected.
             log.info("unexpected block output err={}", .{is_err});
-            return &.{};
+            return;
         };
         self.command_queue.deleteOldest(1);
         defer command.deinit(self.alloc);
@@ -645,12 +665,7 @@ pub const Viewer = struct {
         // easily accumulate actions.
         var arena = self.action_arena.promote(self.alloc);
         defer self.action_arena = arena.state;
-        _ = arena.reset(.free_all);
         const arena_alloc = arena.allocator();
-
-        // Build up our actions to start with the next command if
-        // we have one.
-        var actions: std.ArrayList(Action) = .empty;
 
         // Process our command
         switch (command) {
@@ -658,7 +673,7 @@ pub const Viewer = struct {
 
             .list_windows => try self.receivedListWindows(
                 arena_alloc,
-                &actions,
+                actions,
                 content,
             ),
 
@@ -674,23 +689,6 @@ pub const Viewer = struct {
                 content,
             ),
         }
-
-        // After processing commands, we add our next command to
-        // execute if we have one. We do this last because command
-        // processing may itself queue more commands.
-        if (self.command_queue.first()) |next_command| {
-            var builder: std.Io.Writer.Allocating = .init(arena_alloc);
-            try next_command.formatCommand(&builder.writer);
-            try actions.append(
-                arena_alloc,
-                .{ .command = builder.writer.buffered() },
-            );
-        }
-
-        // Our command processing should not change our state
-        assert(self.state == .command_queue);
-
-        return actions.items;
     }
 
     fn receivedListWindows(
