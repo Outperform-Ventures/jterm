@@ -541,7 +541,7 @@ fn actionCommands(action: Action.Key) []const Command {
             .{
                 .action = .{ .close_tab = .right },
                 .title = "Close Tabs to the Right",
-                .description = "Close every tab to the right of the current one.",
+                .description = "Close all tabs to the right of the current one.",
             },
         },
 
