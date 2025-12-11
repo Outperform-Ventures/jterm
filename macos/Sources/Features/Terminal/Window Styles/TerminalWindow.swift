@@ -299,23 +299,8 @@ class TerminalWindow: NSWindow {
         item.identifier = Self.closeTabsOnRightMenuItemIdentifier
         item.target = nil
         item.isEnabled = true
-        
-        // Remove any previously configured items, because the menu is
-        // cached across different tab targets.
-        if let existing = menu.items.first(where: { $0.identifier == item.identifier }) {
-            menu.removeItem(existing)
-        }
-
-        // Insert it wherever we can
-        if let idx = menu.items.firstIndex(where: {
-            $0.action == NSSelectorFromString("performCloseOtherTabs:")
-        }) {
-            menu.insertItem(item, at: idx + 1)
-        } else if let idx = menu.items.firstIndex(where: {
-            $0.action == NSSelectorFromString("performClose:")
-        }) {
-            menu.insertItem(item, at: idx + 1)
-        } else {
+        if !menu.insertItem(item, after: NSSelectorFromString("performCloseOtherTabs:")) &&
+           !menu.insertItem(item, after: NSSelectorFromString("performClose:")) {
             menu.addItem(item)
         }
     }
