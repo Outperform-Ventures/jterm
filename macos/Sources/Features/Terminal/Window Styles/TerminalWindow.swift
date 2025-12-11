@@ -25,14 +25,17 @@ class TerminalWindow: NSWindow {
     private let updateAccessory = NSTitlebarAccessoryViewController()
 
     /// Visual indicator that mirrors the selected tab color.
-    private let tabColorIndicator = TabColorIndicator()
+    private lazy var tabColorIndicator: NSHostingView<TabColorIndicatorView> = {
+        let view = NSHostingView(rootView: TabColorIndicatorView(tabColor: tabColor))
+        view.translatesAutoresizingMaskIntoConstraints = false
+        return view
+    }()
 
     /// The configuration derived from the Ghostty config so we don't need to rely on references.
     private(set) var derivedConfig: DerivedConfig = .init()
+    
+    /// Sets up our tab context menu
     private var tabMenuObserver: NSObjectProtocol? = nil
-    private var tabColorSelection: TerminalTabColor = .none {
-        didSet { tabColorIndicator.tabColor = tabColorSelection }
-    }
 
     /// Whether this window supports the update accessory. If this is false, then views within this
     /// window should determine how to show update notifications.
@@ -46,11 +49,12 @@ class TerminalWindow: NSWindow {
         windowController as? TerminalController
     }
 
-    var tabColor: TerminalTabColor {
-        get { tabColorSelection }
-        set {
-            guard tabColorSelection != newValue else { return }
-            tabColorSelection = newValue
+    /// The color assigned to this window's tab. Setting this updates the tab color indicator
+    /// and marks the window's restorable state as dirty.
+    var tabColor: TerminalTabColor = .none {
+        didSet {
+            guard tabColor != oldValue else { return }
+            tabColorIndicator.rootView = TabColorIndicatorView(tabColor: tabColor)
             invalidateRestorableState()
         }
     }
@@ -146,10 +150,7 @@ class TerminalWindow: NSWindow {
         // Setup the accessory view for tabs that shows our keyboard shortcuts,
         // zoomed state, etc. Note I tried to use SwiftUI here but ran into issues
         // where buttons were not clickable.
-        tabColorIndicator.translatesAutoresizingMaskIntoConstraints = false
-        tabColorIndicator.widthAnchor.constraint(equalToConstant: 12).isActive = true
-        tabColorIndicator.heightAnchor.constraint(equalToConstant: 4).isActive = true
-        tabColorIndicator.tabColor = tabColorSelection
+        tabColorIndicator.rootView = TabColorIndicatorView(tabColor: tabColor)
 
         let stackView = NSStackView()
         stackView.orientation = .horizontal
@@ -643,42 +644,22 @@ extension TerminalWindow {
 
 }
 
+/// A pill-shaped visual indicator displayed in the tab accessory view that shows
+/// the user-assigned tab color. When no color is set, the view is hidden.
+private struct TabColorIndicatorView: View {
+    /// The tab color to display.
+    let tabColor: TerminalTabColor
 
-
-private final class TabColorIndicator: NSView {
-    var tabColor: TerminalTabColor = .none {
-        didSet { updateAppearance() }
-    }
-
-    override init(frame frameRect: NSRect) {
-        super.init(frame: frameRect)
-        wantsLayer = true
-        updateAppearance()
-    }
-
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    override func layout() {
-        super.layout()
-        updateAppearance()
-    }
-
-    private func updateAppearance() {
-        guard let layer else { return }
-        layer.cornerRadius = bounds.height / 2
-
+    var body: some View {
         if let color = tabColor.displayColor {
-            alphaValue = 1
-            layer.backgroundColor = color.cgColor
-            layer.borderWidth = 0
-            layer.borderColor = nil
+            Capsule()
+                .fill(Color(color))
+                .frame(width: 12, height: 4)
         } else {
-            alphaValue = 0
-            layer.backgroundColor = NSColor.clear.cgColor
-            layer.borderWidth = 0
-            layer.borderColor = nil
+            Capsule()
+                .fill(Color.clear)
+                .frame(width: 12, height: 4)
+                .hidden()
         }
     }
 }
@@ -759,7 +740,7 @@ extension TerminalWindow {
         let paletteItem = NSMenuItem()
         paletteItem.identifier = Self.tabColorPaletteIdentifier
         paletteItem.view = makeTabColorPaletteView(
-            selectedColor: tabColorSelection
+            selectedColor: tabColor
         ) { [weak target] color in
             (target?.window as? TerminalWindow)?.tabColor = color
         }
