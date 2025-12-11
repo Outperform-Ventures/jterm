@@ -234,11 +234,6 @@ class TerminalWindow: NSWindow {
     /// added.
     static let tabBarIdentifier: NSUserInterfaceItemIdentifier = .init("_ghosttyTabBar")
 
-    private static let closeTabsOnRightMenuItemIdentifier = NSUserInterfaceItemIdentifier("com.mitchellh.ghostty.closeTabsOnTheRightMenuItem")
-    private static let tabColorSeparatorIdentifier = NSUserInterfaceItemIdentifier("com.mitchellh.ghostty.tabColorSeparator")
-    private static let tabColorHeaderIdentifier = NSUserInterfaceItemIdentifier("com.mitchellh.ghostty.tabColorHeader")
-    private static let tabColorPaletteIdentifier = NSUserInterfaceItemIdentifier("com.mitchellh.ghostty.tabColorPalette")
-
     func findTitlebarView() -> NSView? {
         // Find our tab bar. If it doesn't exist we don't do anything.
         //
@@ -312,81 +307,6 @@ class TerminalWindow: NSWindow {
                 addTitlebarAccessoryViewController(resetZoomAccessory)
             }
         }
-    }
-
-    private func configureTabContextMenuIfNeeded(_ menu: NSMenu) {
-        guard isTabContextMenu(menu) else { return }
-        
-        // Get the target from an existing menu item. The native tab context menu items
-        // target the specific window/controller that was right-clicked, not the focused one.
-        // We need to use that same target so validation and action use the correct tab.
-        let targetController = menu.items
-            .first { $0.action == NSSelectorFromString("performClose:") }
-            .flatMap { $0.target as? NSWindow }
-            .flatMap { $0.windowController as? TerminalController }
-        
-        // Close tabs to the right
-        let item = NSMenuItem(title: "Close Tabs to the Right", action: #selector(TerminalController.closeTabsOnTheRight(_:)), keyEquivalent: "")
-        item.identifier = Self.closeTabsOnRightMenuItemIdentifier
-        item.target = targetController
-        item.setImageIfDesired(systemSymbolName: "xmark")
-        if menu.insertItem(item, after: NSSelectorFromString("performCloseOtherTabs:")) == nil,
-           menu.insertItem(item, after: NSSelectorFromString("performClose:")) == nil {
-            menu.addItem(item)
-        }
-        
-        // Other close items should have the xmark to match Safari on macOS 26
-        for menuItem in menu.items {
-            if menuItem.action == NSSelectorFromString("performClose:") ||
-                menuItem.action == NSSelectorFromString("performCloseOtherTabs:") {
-                menuItem.setImageIfDesired(systemSymbolName: "xmark")
-            }
-        }
-        
-        appendTabColorSection(to: menu, target: targetController)
-    }
-
-    private func isTabContextMenu(_ menu: NSMenu) -> Bool {
-        guard NSApp.keyWindow === self else { return false }
-
-        // These are the target selectors, at least for macOS 26.
-        let tabContextSelectors: Set<String> = [
-            "performClose:",
-            "performCloseOtherTabs:",
-            "moveTabToNewWindow:",
-            "toggleTabOverview:"
-        ]
-
-        let selectorNames = Set(menu.items.compactMap { $0.action }.map { NSStringFromSelector($0) })
-        return !selectorNames.isDisjoint(with: tabContextSelectors)
-    }
-
-    private func appendTabColorSection(to menu: NSMenu, target: TerminalController?) {
-        menu.removeItems(withIdentifiers: [
-            Self.tabColorSeparatorIdentifier,
-            Self.tabColorHeaderIdentifier,
-            Self.tabColorPaletteIdentifier
-        ])
-
-        let separator = NSMenuItem.separator()
-        separator.identifier = Self.tabColorSeparatorIdentifier
-        menu.addItem(separator)
-
-        let headerItem = NSMenuItem()
-        headerItem.identifier = Self.tabColorHeaderIdentifier
-        headerItem.title = "Tab Color"
-        headerItem.isEnabled = false
-        headerItem.setImageIfDesired(systemSymbolName: "eyedropper")
-        menu.addItem(headerItem)
-
-        let paletteItem = NSMenuItem()
-        paletteItem.identifier = Self.tabColorPaletteIdentifier
-        paletteItem.view = makeTabColorPaletteView(
-            selectedColor: tabColorSelection
-        ) { [weak target] color in
-            target?.setTabColor(color)
-        }
-        menu.addItem(paletteItem)
     }
 
     // MARK: Tab Key Equivalents
@@ -755,6 +675,90 @@ private final class TabColorIndicator: NSView {
             layer.borderWidth = 0
             layer.borderColor = nil
         }
+    }
+}
+
+// MARK: - Tab Context Menu
+
+extension TerminalWindow {
+    private static let closeTabsOnRightMenuItemIdentifier = NSUserInterfaceItemIdentifier("com.mitchellh.ghostty.closeTabsOnTheRightMenuItem")
+    private static let tabColorSeparatorIdentifier = NSUserInterfaceItemIdentifier("com.mitchellh.ghostty.tabColorSeparator")
+    private static let tabColorHeaderIdentifier = NSUserInterfaceItemIdentifier("com.mitchellh.ghostty.tabColorHeader")
+    private static let tabColorPaletteIdentifier = NSUserInterfaceItemIdentifier("com.mitchellh.ghostty.tabColorPalette")
+
+    func configureTabContextMenuIfNeeded(_ menu: NSMenu) {
+        guard isTabContextMenu(menu) else { return }
+
+        // Get the target from an existing menu item. The native tab context menu items
+        // target the specific window/controller that was right-clicked, not the focused one.
+        // We need to use that same target so validation and action use the correct tab.
+        let targetController = menu.items
+            .first { $0.action == NSSelectorFromString("performClose:") }
+            .flatMap { $0.target as? NSWindow }
+            .flatMap { $0.windowController as? TerminalController }
+
+        // Close tabs to the right
+        let item = NSMenuItem(title: "Close Tabs to the Right", action: #selector(TerminalController.closeTabsOnTheRight(_:)), keyEquivalent: "")
+        item.identifier = Self.closeTabsOnRightMenuItemIdentifier
+        item.target = targetController
+        item.setImageIfDesired(systemSymbolName: "xmark")
+        if menu.insertItem(item, after: NSSelectorFromString("performCloseOtherTabs:")) == nil,
+           menu.insertItem(item, after: NSSelectorFromString("performClose:")) == nil {
+            menu.addItem(item)
+        }
+
+        // Other close items should have the xmark to match Safari on macOS 26
+        for menuItem in menu.items {
+            if menuItem.action == NSSelectorFromString("performClose:") ||
+                menuItem.action == NSSelectorFromString("performCloseOtherTabs:") {
+                menuItem.setImageIfDesired(systemSymbolName: "xmark")
+            }
+        }
+
+        appendTabColorSection(to: menu, target: targetController)
+    }
+
+    private func isTabContextMenu(_ menu: NSMenu) -> Bool {
+        guard NSApp.keyWindow === self else { return false }
+
+        // These are the target selectors, at least for macOS 26.
+        let tabContextSelectors: Set<String> = [
+            "performClose:",
+            "performCloseOtherTabs:",
+            "moveTabToNewWindow:",
+            "toggleTabOverview:"
+        ]
+
+        let selectorNames = Set(menu.items.compactMap { $0.action }.map { NSStringFromSelector($0) })
+        return !selectorNames.isDisjoint(with: tabContextSelectors)
+    }
+
+    private func appendTabColorSection(to menu: NSMenu, target: TerminalController?) {
+        menu.removeItems(withIdentifiers: [
+            Self.tabColorSeparatorIdentifier,
+            Self.tabColorHeaderIdentifier,
+            Self.tabColorPaletteIdentifier
+        ])
+
+        let separator = NSMenuItem.separator()
+        separator.identifier = Self.tabColorSeparatorIdentifier
+        menu.addItem(separator)
+
+        let headerItem = NSMenuItem()
+        headerItem.identifier = Self.tabColorHeaderIdentifier
+        headerItem.title = "Tab Color"
+        headerItem.isEnabled = false
+        headerItem.setImageIfDesired(systemSymbolName: "eyedropper")
+        menu.addItem(headerItem)
+
+        let paletteItem = NSMenuItem()
+        paletteItem.identifier = Self.tabColorPaletteIdentifier
+        paletteItem.view = makeTabColorPaletteView(
+            selectedColor: tabColorSelection
+        ) { [weak target] color in
+            target?.setTabColor(color)
+        }
+        menu.addItem(paletteItem)
     }
 }
 
