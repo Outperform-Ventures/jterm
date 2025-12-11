@@ -303,13 +303,22 @@ class TerminalWindow: NSWindow {
             .flatMap { $0.target as? NSWindow }
             .flatMap { $0.windowController as? TerminalController }
 
+        // Close tabs to the right
         let item = NSMenuItem(title: "Close Tabs to the Right", action: #selector(TerminalController.closeTabsOnTheRight(_:)), keyEquivalent: "")
         item.identifier = Self.closeTabsOnRightMenuItemIdentifier
         item.target = targetController
-
+        item.setImageIfDesired(systemSymbolName: "xmark")
         if !menu.insertItem(item, after: NSSelectorFromString("performCloseOtherTabs:")) &&
            !menu.insertItem(item, after: NSSelectorFromString("performClose:")) {
             menu.addItem(item)
+        }
+        
+        // Other close items should have the xmark to match Safari on macOS 26
+        for menuItem in menu.items {
+            if menuItem.action == NSSelectorFromString("performClose:") ||
+               menuItem.action == NSSelectorFromString("performCloseOtherTabs:") {
+                menuItem.setImageIfDesired(systemSymbolName: "xmark")
+            }
         }
     }
 
