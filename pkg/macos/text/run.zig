@@ -106,19 +106,6 @@ pub const Run = opaque {
     pub fn getStatus(self: *Run) Status {
         return @bitCast(c.CTRunGetStatus(@ptrCast(self)));
     }
-
-    pub fn getAttributes(self: *Run) *foundation.Dictionary {
-        return @ptrCast(@constCast(c.CTRunGetAttributes(@ptrCast(self))));
-    }
-
-    pub fn getFont(self: *Run) ?*text.Font {
-        const attrs = self.getAttributes();
-        const font_ptr = attrs.getValue(*const anyopaque, c.kCTFontAttributeName);
-        if (font_ptr) |ptr| {
-            return @ptrCast(@constCast(ptr));
-        }
-        return null;
-    }
 };
 
 /// https://developer.apple.com/documentation/coretext/ctrunstatus?language=objc
