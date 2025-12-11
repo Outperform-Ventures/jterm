@@ -740,7 +740,7 @@ extension TerminalWindow {
         let paletteItem = NSMenuItem()
         paletteItem.identifier = Self.tabColorPaletteIdentifier
         paletteItem.view = makeTabColorPaletteView(
-            selectedColor: tabColor
+            selectedColor: (target?.window as? TerminalWindow)?.tabColor ?? .none
         ) { [weak target] color in
             (target?.window as? TerminalWindow)?.tabColor = color
         }
