@@ -349,7 +349,7 @@ class TerminalWindow: NSWindow {
         }
         
         removeTabColorSection(from: menu)
-        insertTabColorSection(into: menu, startingAt: Int(insertionIndex) + 1)
+        appendTabColorSection(to: menu)
     }
 
     private func isTabContextMenu(_ menu: NSMenu) -> Bool {
@@ -383,33 +383,29 @@ class TerminalWindow: NSWindow {
         }
     }
 
-    private func insertTabColorSection(into menu: NSMenu, startingAt index: Int) {
+    private func appendTabColorSection(to menu: NSMenu) {
         guard let terminalController else { return }
-
-        var insertionIndex = index
 
         let separator = NSMenuItem.separator()
         separator.identifier = Self.tabColorSeparatorIdentifier
-        menu.insertItem(separator, at: insertionIndex)
-        insertionIndex += 1
+        menu.addItem(separator)
 
         let headerTitle = NSLocalizedString("Tab Color", comment: "Tab color context menu section title")
         let headerItem = NSMenuItem()
         headerItem.identifier = Self.tabColorHeaderIdentifier
         headerItem.title = headerTitle
         headerItem.isEnabled = false
-        menu.insertItem(headerItem, at: insertionIndex)
-        insertionIndex += 1
+        headerItem.setImageIfDesired(systemSymbolName: "eyedropper")
+        menu.addItem(headerItem)
 
         let paletteItem = NSMenuItem()
         paletteItem.identifier = Self.tabColorPaletteIdentifier
-        let paletteView = TabColorPaletteView(
+        paletteItem.view = makeTabColorPaletteView(
             selectedColor: tabColorSelection
         ) { [weak terminalController] color in
             terminalController?.setTabColor(color)
         }
-        paletteItem.view = paletteView
-        menu.insertItem(paletteItem, at: insertionIndex)
+        menu.addItem(paletteItem)
     }
 
     // MARK: Tab Key Equivalents
@@ -781,86 +777,14 @@ private final class TabColorIndicator: NSView {
     }
 }
 
-private final class TabColorPaletteView: NSView {
-    private let stackView = NSStackView()
-    private var selectedColor: TerminalTabColor
-    private let selectionHandler: (TerminalTabColor) -> Void
-    private var buttons: [NSButton] = []
-
-    init(selectedColor: TerminalTabColor,
-         selectionHandler: @escaping (TerminalTabColor) -> Void) {
-        self.selectedColor = selectedColor
-        self.selectionHandler = selectionHandler
-        super.init(frame: NSRect(origin: .zero, size: NSSize(width: 180, height: 60)))
-
-        stackView.orientation = .vertical
-        stackView.spacing = 6
-        addSubview(stackView)
-
-        for row in TerminalTabColor.paletteRows {
-            let rowStack = NSStackView()
-            rowStack.orientation = .horizontal
-            rowStack.spacing = 6
-
-            for color in row {
-                let button = makeButton(for: color)
-                rowStack.addArrangedSubview(button)
-                buttons.append(button)
-            }
-
-            stackView.addArrangedSubview(rowStack)
-        }
-
-        translatesAutoresizingMaskIntoConstraints = true
-        setFrameSize(intrinsicContentSize)
-    }
-
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    override var intrinsicContentSize: NSSize {
-        NSSize(width: 190, height: 70)
-    }
-
-    override func layout() {
-        super.layout()
-        stackView.frame = bounds.insetBy(dx: 10, dy: 6)
-    }
-
-    private func makeButton(for color: TerminalTabColor) -> NSButton {
-        let button = NSButton()
-        button.translatesAutoresizingMaskIntoConstraints = false
-        button.imagePosition = .imageOnly
-        button.imageScaling = .scaleProportionallyUpOrDown
-        button.image = color.swatchImage(selected: color == selectedColor)
-        button.setButtonType(.momentaryChange)
-        button.isBordered = false
-        button.focusRingType = .none
-        button.target = self
-        button.action = #selector(onSelectColor(_:))
-        button.tag = color.rawValue
-        button.toolTip = color.localizedName
-
-        NSLayoutConstraint.activate([
-            button.widthAnchor.constraint(equalToConstant: 24),
-            button.heightAnchor.constraint(equalToConstant: 24)
-        ])
-
-        return button
-    }
-
-    @objc private func onSelectColor(_ sender: NSButton) {
-        guard let color = TerminalTabColor(rawValue: sender.tag) else { return }
-        selectedColor = color
-        updateButtonImages()
-        selectionHandler(color)
-    }
-
-    private func updateButtonImages() {
-        for button in buttons {
-            guard let color = TerminalTabColor(rawValue: button.tag) else { continue }
-            button.image = color.swatchImage(selected: color == selectedColor)
-        }
-    }
+private func makeTabColorPaletteView(
+    selectedColor: TerminalTabColor,
+    selectionHandler: @escaping (TerminalTabColor) -> Void
+) -> NSView {
+    let hostingView = NSHostingView(rootView: TabColorMenuView(
+        selectedColor: selectedColor,
+        onSelect: selectionHandler
+    ))
+    hostingView.frame.size = hostingView.intrinsicContentSize
+    return hostingView
 }

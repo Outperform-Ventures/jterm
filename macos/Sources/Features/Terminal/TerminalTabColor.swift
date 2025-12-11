@@ -1,4 +1,5 @@
 import AppKit
+import SwiftUI
 
 enum TerminalTabColor: Int, CaseIterable, Codable {
     case none
@@ -106,5 +107,76 @@ enum TerminalTabColor: Int, CaseIterable, Codable {
 
             return true
         }
+    }
+}
+
+// MARK: - Menu View
+
+/// A SwiftUI view displaying a color palette for tab color selection.
+/// Used as a custom view inside an NSMenuItem in the tab context menu.
+struct TabColorMenuView: View {
+    @State private var currentSelection: TerminalTabColor
+    let onSelect: (TerminalTabColor) -> Void
+
+    init(selectedColor: TerminalTabColor, onSelect: @escaping (TerminalTabColor) -> Void) {
+        self._currentSelection = State(initialValue: selectedColor)
+        self.onSelect = onSelect
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            ForEach(TerminalTabColor.paletteRows, id: \.self) { row in
+                HStack(spacing: 2) {
+                    ForEach(row, id: \.self) { color in
+                        TabColorSwatch(
+                            color: color,
+                            isSelected: color == currentSelection
+                        ) {
+                            currentSelection = color
+                            onSelect(color)
+                        }
+                    }
+                }
+            }
+        }
+        .padding(.leading, Self.leadingPadding)
+        .padding(.trailing, 12)
+        .padding(.top, 4)
+        .padding(.bottom, 4)
+    }
+
+    /// Leading padding to align with the menu's icon gutter.
+    /// macOS 26 introduced icons in menus, requiring additional padding.
+    private static var leadingPadding: CGFloat {
+        if #available(macOS 26.0, *) {
+            return 40
+        } else {
+            return 12
+        }
+    }
+}
+
+/// A single color swatch button in the tab color palette.
+private struct TabColorSwatch: View {
+    let color: TerminalTabColor
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Group {
+                if color == .none {
+                    Image(systemName: isSelected ? "circle.slash" : "circle")
+                        .foregroundStyle(.secondary)
+                } else if let displayColor = color.displayColor {
+                    Image(systemName: isSelected ? "checkmark.circle.fill" : "circle.fill")
+                        .foregroundStyle(Color(nsColor: displayColor))
+                }
+            }
+            .font(.system(size: 16))
+            .frame(width: 20, height: 20)
+        }
+        .buttonStyle(.plain)
+        .help(color.localizedName)
     }
 }
