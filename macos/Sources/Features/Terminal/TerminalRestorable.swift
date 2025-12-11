@@ -15,7 +15,7 @@ class TerminalRestorableState: Codable {
         self.focusedSurface = controller.focusedSurface?.id.uuidString
         self.surfaceTree = controller.surfaceTree
         self.effectiveFullscreenMode = controller.fullscreenStyle?.fullscreenMode
-        self.tabColor = controller.tabColor
+        self.tabColor = (controller.window as? TerminalWindow)?.tabColor ?? .none
     }
 
     init?(coder aDecoder: NSCoder) {
@@ -97,7 +97,8 @@ class TerminalWindowRestoration: NSObject, NSWindowRestoration {
             return
         }
 
-        c.tabColor = state.tabColor
+        // Restore our tab color
+        (window as? TerminalWindow)?.tabColor = state.tabColor
 
         // Setup our restored state on the controller
         // Find the focused surface in surfaceTree

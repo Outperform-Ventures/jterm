@@ -46,8 +46,13 @@ class TerminalWindow: NSWindow {
         windowController as? TerminalController
     }
 
-    func display(tabColor: TerminalTabColor) {
-        tabColorSelection = tabColor
+    var tabColor: TerminalTabColor {
+        get { tabColorSelection }
+        set {
+            guard tabColorSelection != newValue else { return }
+            tabColorSelection = newValue
+            invalidateRestorableState()
+        }
     }
 
     // MARK: NSWindow Overrides
@@ -756,7 +761,7 @@ extension TerminalWindow {
         paletteItem.view = makeTabColorPaletteView(
             selectedColor: tabColorSelection
         ) { [weak target] color in
-            target?.setTabColor(color)
+            (target?.window as? TerminalWindow)?.tabColor = color
         }
         menu.addItem(paletteItem)
     }
