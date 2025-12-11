@@ -97,7 +97,7 @@ class TerminalWindowRestoration: NSObject, NSWindowRestoration {
             return
         }
 
-        c.tabColor = TerminalWindow.TabColor(rawValue: state.tabColorRawValue) ?? .none
+        c.tabColor = TerminalTabColor(rawValue: state.tabColorRawValue) ?? .none
 
         // Setup our restored state on the controller
         // Find the focused surface in surfaceTree

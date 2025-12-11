@@ -30,7 +30,7 @@ class TerminalWindow: NSWindow {
     /// The configuration derived from the Ghostty config so we don't need to rely on references.
     private(set) var derivedConfig: DerivedConfig = .init()
     private var tabMenuObserver: NSObjectProtocol? = nil
-    private var tabColorSelection: TabColor = .none {
+    private var tabColorSelection: TerminalTabColor = .none {
         didSet { tabColorIndicator.tabColor = tabColorSelection }
     }
 
@@ -46,7 +46,7 @@ class TerminalWindow: NSWindow {
         windowController as? TerminalController
     }
 
-    func display(tabColor: TabColor) {
+    func display(tabColor: TerminalTabColor) {
         tabColorSelection = tabColor
     }
 
@@ -741,119 +741,10 @@ extension TerminalWindow {
 
 }
 
-extension TerminalWindow {
-    enum TabColor: Int, CaseIterable {
-        case none
-        case blue
-        case purple
-        case pink
-        case red
-        case orange
-        case yellow
-        case green
-        case teal
-        case graphite
 
-        static let paletteRows: [[TabColor]] = [
-            [.none, .blue, .purple, .pink, .red],
-            [.orange, .yellow, .green, .teal, .graphite],
-        ]
-
-        var localizedName: String {
-            switch self {
-            case .none:
-                return NSLocalizedString("None", comment: "Tab color option label")
-            case .blue:
-                return NSLocalizedString("Blue", comment: "Tab color option label")
-            case .purple:
-                return NSLocalizedString("Purple", comment: "Tab color option label")
-            case .pink:
-                return NSLocalizedString("Pink", comment: "Tab color option label")
-            case .red:
-                return NSLocalizedString("Red", comment: "Tab color option label")
-            case .orange:
-                return NSLocalizedString("Orange", comment: "Tab color option label")
-            case .yellow:
-                return NSLocalizedString("Yellow", comment: "Tab color option label")
-            case .green:
-                return NSLocalizedString("Green", comment: "Tab color option label")
-            case .teal:
-                return NSLocalizedString("Teal", comment: "Tab color option label")
-            case .graphite:
-                return NSLocalizedString("Graphite", comment: "Tab color option label")
-            }
-        }
-
-        var displayColor: NSColor? {
-            switch self {
-            case .none:
-                return nil
-            case .blue:
-                return .systemBlue
-            case .purple:
-                return .systemPurple
-            case .pink:
-                return .systemPink
-            case .red:
-                return .systemRed
-            case .orange:
-                return .systemOrange
-            case .yellow:
-                return .systemYellow
-            case .green:
-                return .systemGreen
-            case .teal:
-                if #available(macOS 13.0, *) {
-                    return .systemMint
-                } else {
-                    return .systemTeal
-                }
-            case .graphite:
-                return .systemGray
-            }
-        }
-
-        func swatchImage(selected: Bool) -> NSImage {
-            let size = NSSize(width: 18, height: 18)
-            return NSImage(size: size, flipped: false) { rect in
-                let circleRect = rect.insetBy(dx: 1, dy: 1)
-                let circlePath = NSBezierPath(ovalIn: circleRect)
-
-                if let fillColor = self.displayColor {
-                    fillColor.setFill()
-                    circlePath.fill()
-                } else {
-                    NSColor.clear.setFill()
-                    circlePath.fill()
-                    NSColor.quaternaryLabelColor.setStroke()
-                    circlePath.lineWidth = 1
-                    circlePath.stroke()
-                }
-
-                if self == .none {
-                    let slash = NSBezierPath()
-                    slash.move(to: NSPoint(x: circleRect.minX + 2, y: circleRect.minY + 2))
-                    slash.line(to: NSPoint(x: circleRect.maxX - 2, y: circleRect.maxY - 2))
-                    slash.lineWidth = 1.5
-                    NSColor.secondaryLabelColor.setStroke()
-                    slash.stroke()
-                }
-
-                if selected {
-                    let highlight = NSBezierPath(ovalIn: rect.insetBy(dx: 0.5, dy: 0.5))
-                    highlight.lineWidth = 2
-                    NSColor.controlAccentColor.setStroke()
-                    highlight.stroke()
-                }
-
-                return true
-            }
-        }
-    }
-}
 
 private final class TabColorIndicator: NSView {
-    var tabColor: TerminalWindow.TabColor = .none {
+    var tabColor: TerminalTabColor = .none {
         didSet { updateAppearance() }
     }
 
@@ -892,12 +783,12 @@ private final class TabColorIndicator: NSView {
 
 private final class TabColorPaletteView: NSView {
     private let stackView = NSStackView()
-    private var selectedColor: TerminalWindow.TabColor
-    private let selectionHandler: (TerminalWindow.TabColor) -> Void
+    private var selectedColor: TerminalTabColor
+    private let selectionHandler: (TerminalTabColor) -> Void
     private var buttons: [NSButton] = []
 
-    init(selectedColor: TerminalWindow.TabColor,
-         selectionHandler: @escaping (TerminalWindow.TabColor) -> Void) {
+    init(selectedColor: TerminalTabColor,
+         selectionHandler: @escaping (TerminalTabColor) -> Void) {
         self.selectedColor = selectedColor
         self.selectionHandler = selectionHandler
         super.init(frame: NSRect(origin: .zero, size: NSSize(width: 180, height: 60)))
@@ -906,7 +797,7 @@ private final class TabColorPaletteView: NSView {
         stackView.spacing = 6
         addSubview(stackView)
 
-        for row in TerminalWindow.TabColor.paletteRows {
+        for row in TerminalTabColor.paletteRows {
             let rowStack = NSStackView()
             rowStack.orientation = .horizontal
             rowStack.spacing = 6
@@ -937,7 +828,7 @@ private final class TabColorPaletteView: NSView {
         stackView.frame = bounds.insetBy(dx: 10, dy: 6)
     }
 
-    private func makeButton(for color: TerminalWindow.TabColor) -> NSButton {
+    private func makeButton(for color: TerminalTabColor) -> NSButton {
         let button = NSButton()
         button.translatesAutoresizingMaskIntoConstraints = false
         button.imagePosition = .imageOnly
@@ -960,7 +851,7 @@ private final class TabColorPaletteView: NSView {
     }
 
     @objc private func onSelectColor(_ sender: NSButton) {
-        guard let color = TerminalWindow.TabColor(rawValue: sender.tag) else { return }
+        guard let color = TerminalTabColor(rawValue: sender.tag) else { return }
         selectedColor = color
         updateButtonImages()
         selectionHandler(color)
@@ -968,7 +859,7 @@ private final class TabColorPaletteView: NSView {
 
     private func updateButtonImages() {
         for button in buttons {
-            guard let color = TerminalWindow.TabColor(rawValue: button.tag) else { continue }
+            guard let color = TerminalTabColor(rawValue: button.tag) else { continue }
             button.image = color.swatchImage(selected: color == selectedColor)
         }
     }

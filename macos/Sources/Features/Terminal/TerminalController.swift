@@ -55,7 +55,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     private(set) var derivedConfig: DerivedConfig
 
     /// The accent color that should be rendered for this tab.
-    var tabColor: TerminalWindow.TabColor = .none {
+    var tabColor: TerminalTabColor = .none {
         didSet {
             guard tabColor != oldValue else { return }
             if let terminalWindow = window as? TerminalWindow {
@@ -863,7 +863,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         let focusedSurface: UUID?
         let tabIndex: Int?
         weak var tabGroup: NSWindowTabGroup?
-        let tabColor: TerminalWindow.TabColor
+        let tabColor: TerminalTabColor
     }
 
     convenience init(_ ghostty: Ghostty.App,
@@ -1196,7 +1196,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     }
 
 
-    func setTabColor(_ color: TerminalWindow.TabColor) {
+    func setTabColor(_ color: TerminalTabColor) {
         tabColor = color
     }
 
