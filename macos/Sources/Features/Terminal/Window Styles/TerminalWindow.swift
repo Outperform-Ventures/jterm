@@ -669,7 +669,7 @@ private struct TabColorIndicatorView: View {
 extension TerminalWindow {
     private static let closeTabsOnRightMenuItemIdentifier = NSUserInterfaceItemIdentifier("com.mitchellh.ghostty.closeTabsOnTheRightMenuItem")
     private static let tabColorSeparatorIdentifier = NSUserInterfaceItemIdentifier("com.mitchellh.ghostty.tabColorSeparator")
-    private static let tabColorHeaderIdentifier = NSUserInterfaceItemIdentifier("com.mitchellh.ghostty.tabColorHeader")
+
     private static let tabColorPaletteIdentifier = NSUserInterfaceItemIdentifier("com.mitchellh.ghostty.tabColorPalette")
 
     func configureTabContextMenuIfNeeded(_ menu: NSMenu) {
@@ -722,20 +722,12 @@ extension TerminalWindow {
     private func appendTabColorSection(to menu: NSMenu, target: TerminalController?) {
         menu.removeItems(withIdentifiers: [
             Self.tabColorSeparatorIdentifier,
-            Self.tabColorHeaderIdentifier,
             Self.tabColorPaletteIdentifier
         ])
 
         let separator = NSMenuItem.separator()
         separator.identifier = Self.tabColorSeparatorIdentifier
         menu.addItem(separator)
-
-        let headerItem = NSMenuItem()
-        headerItem.identifier = Self.tabColorHeaderIdentifier
-        headerItem.title = "Tab Color"
-        headerItem.isEnabled = false
-        headerItem.setImageIfDesired(systemSymbolName: "eyedropper")
-        menu.addItem(headerItem)
 
         let paletteItem = NSMenuItem()
         paletteItem.identifier = Self.tabColorPaletteIdentifier
