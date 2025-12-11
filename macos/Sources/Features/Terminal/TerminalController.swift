@@ -640,9 +640,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         let tabsToClose = tabGroup.windows.enumerated().filter { $0.offset > currentIndex }
         guard !tabsToClose.isEmpty else { return }
 
-        if let undoManager {
-            undoManager.beginUndoGrouping()
-        }
+        undoManager?.beginUndoGrouping()
         defer {
             undoManager?.endUndoGrouping()
         }
@@ -654,7 +652,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         }
 
         if let undoManager {
-            undoManager.setActionName("Close Tabs on the Right")
+            undoManager.setActionName("Close Tabs to the Right")
 
             undoManager.registerUndo(
                 withTarget: self,

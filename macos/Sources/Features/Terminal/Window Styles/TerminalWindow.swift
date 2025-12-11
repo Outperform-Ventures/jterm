@@ -297,7 +297,7 @@ class TerminalWindow: NSWindow {
         }
         guard let terminalController else { return }
 
-        let title = NSLocalizedString("Close Tabs on the Right", comment: "Tab context menu option")
+        let title = NSLocalizedString("Close Tabs to the Right", comment: "Tab context menu option")
         let item = NSMenuItem(title: title, action: #selector(TerminalController.closeTabsOnTheRight(_:)), keyEquivalent: "")
         item.identifier = Self.closeTabsOnRightMenuItemIdentifier
         item.target = terminalController
