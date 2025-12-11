@@ -13,11 +13,6 @@ enum TerminalTabColor: Int, CaseIterable, Codable {
     case teal
     case graphite
 
-    static let paletteRows: [[TerminalTabColor]] = [
-        [.none, .blue, .purple, .pink, .red],
-        [.orange, .yellow, .green, .teal, .graphite],
-    ]
-
     var localizedName: String {
         switch self {
         case .none:
@@ -125,7 +120,7 @@ struct TabColorMenuView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
-            ForEach(TerminalTabColor.paletteRows, id: \.self) { row in
+            ForEach(Self.paletteRows, id: \.self) { row in
                 HStack(spacing: 2) {
                     ForEach(row, id: \.self) { color in
                         TabColorSwatch(
@@ -144,6 +139,11 @@ struct TabColorMenuView: View {
         .padding(.top, 4)
         .padding(.bottom, 4)
     }
+    
+    static let paletteRows: [[TerminalTabColor]] = [
+        [.none, .blue, .purple, .pink, .red],
+        [.orange, .yellow, .green, .teal, .graphite],
+    ]
 
     /// Leading padding to align with the menu's icon gutter.
     /// macOS 26 introduced icons in menus, requiring additional padding.
