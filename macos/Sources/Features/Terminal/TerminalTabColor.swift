@@ -1,6 +1,6 @@
 import AppKit
 
-enum TerminalTabColor: Int, CaseIterable {
+enum TerminalTabColor: Int, CaseIterable, Codable {
     case none
     case blue
     case purple

@@ -9,13 +9,13 @@ class TerminalRestorableState: Codable {
     let focusedSurface: String?
     let surfaceTree: SplitTree<Ghostty.SurfaceView>
     let effectiveFullscreenMode: FullscreenMode?
-    let tabColorRawValue: Int
+    let tabColor: TerminalTabColor
 
     init(from controller: TerminalController) {
         self.focusedSurface = controller.focusedSurface?.id.uuidString
         self.surfaceTree = controller.surfaceTree
         self.effectiveFullscreenMode = controller.fullscreenStyle?.fullscreenMode
-        self.tabColorRawValue = controller.tabColor.rawValue
+        self.tabColor = controller.tabColor
     }
 
     init?(coder aDecoder: NSCoder) {
@@ -33,7 +33,7 @@ class TerminalRestorableState: Codable {
         self.surfaceTree = v.value.surfaceTree
         self.focusedSurface = v.value.focusedSurface
         self.effectiveFullscreenMode = v.value.effectiveFullscreenMode
-        self.tabColorRawValue = v.value.tabColorRawValue
+        self.tabColor = v.value.tabColor
     }
 
     func encode(with coder: NSCoder) {
@@ -97,7 +97,7 @@ class TerminalWindowRestoration: NSObject, NSWindowRestoration {
             return
         }
 
-        c.tabColor = TerminalTabColor(rawValue: state.tabColorRawValue) ?? .none
+        c.tabColor = state.tabColor
 
         // Setup our restored state on the controller
         // Find the focused surface in surfaceTree
