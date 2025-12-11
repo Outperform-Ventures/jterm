@@ -56,12 +56,14 @@ class TerminalWindow: NSWindow {
         // Notify that this terminal window has loaded
         NotificationCenter.default.post(name: Self.terminalDidAwake, object: self)
 
+        // This is fragile, but there doesn't seem to be an official API for customizing
+        // native tab bar menus.
         tabMenuObserver = NotificationCenter.default.addObserver(
             forName: Notification.Name(rawValue: "NSMenuWillOpenNotification"),
             object: nil,
             queue: .main
-        ) { [weak self] note in
-            guard let self, let menu = note.object as? NSMenu else { return }
+        ) { [weak self] n in
+            guard let self, let menu = n.object as? NSMenu else { return }
             self.configureTabContextMenuIfNeeded(menu)
         }
         
@@ -292,32 +294,26 @@ class TerminalWindow: NSWindow {
 
     private func configureTabContextMenuIfNeeded(_ menu: NSMenu) {
         guard isTabContextMenu(menu) else { return }
-        if let existing = menu.items.first(where: { $0.identifier == Self.closeTabsOnRightMenuItemIdentifier }) {
+
+        let item = NSMenuItem(title: "Close Tabs to the Right", action: #selector(TerminalController.closeTabsOnTheRight(_:)), keyEquivalent: "")
+        item.identifier = Self.closeTabsOnRightMenuItemIdentifier
+        item.target = nil
+        item.isEnabled = true
+        
+        // Remove any previously configured items, because the menu is
+        // cached across different tab targets.
+        if let existing = menu.items.first(where: { $0.identifier == item.identifier }) {
             menu.removeItem(existing)
         }
-        guard let terminalController else { return }
 
-        let title = NSLocalizedString("Close Tabs to the Right", comment: "Tab context menu option")
-        let item = NSMenuItem(title: title, action: #selector(TerminalController.closeTabsOnTheRight(_:)), keyEquivalent: "")
-        item.identifier = Self.closeTabsOnRightMenuItemIdentifier
-        item.target = terminalController
-        item.isEnabled = true
-
-        let closeOtherIndex = menu.items.firstIndex(where: { menuItem in
-            guard let action = menuItem.action else { return false }
-            let name = NSStringFromSelector(action).lowercased()
-            return name.contains("close") && name.contains("other") && name.contains("tab")
-        })
-
-        let closeThisIndex = menu.items.firstIndex(where: { menuItem in
-            guard let action = menuItem.action else { return false }
-            let name = NSStringFromSelector(action).lowercased()
-            return name.contains("close") && name.contains("tab")
-        })
-
-        if let idx = closeOtherIndex {
+        // Insert it wherever we can
+        if let idx = menu.items.firstIndex(where: {
+            $0.action == NSSelectorFromString("performCloseOtherTabs:")
+        }) {
             menu.insertItem(item, at: idx + 1)
-        } else if let idx = closeThisIndex {
+        } else if let idx = menu.items.firstIndex(where: {
+            $0.action == NSSelectorFromString("performClose:")
+        }) {
             menu.insertItem(item, at: idx + 1)
         } else {
             menu.addItem(item)
@@ -326,8 +322,17 @@ class TerminalWindow: NSWindow {
 
     private func isTabContextMenu(_ menu: NSMenu) -> Bool {
         guard NSApp.keyWindow === self else { return false }
-        let selectorNames = menu.items.compactMap { $0.action }.map { NSStringFromSelector($0).lowercased() }
-        return selectorNames.contains { $0.contains("close") && $0.contains("tab") }
+        
+        // These are the target selectors, at least for macOS 26.
+        let tabContextSelectors: Set<String> = [
+            "performClose:",
+            "performCloseOtherTabs:",
+            "moveTabToNewWindow:",
+            "toggleTabOverview:"
+        ]
+        
+        let selectorNames = Set(menu.items.compactMap { $0.action }.map { NSStringFromSelector($0) })
+        return !selectorNames.isDisjoint(with: tabContextSelectors)
     }
 
 
