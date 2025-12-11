@@ -644,7 +644,7 @@ extension TerminalWindow {
 
 }
 
-/// A pill-shaped visual indicator displayed in the tab accessory view that shows
+/// A small circle indicator displayed in the tab accessory view that shows
 /// the user-assigned tab color. When no color is set, the view is hidden.
 private struct TabColorIndicatorView: View {
     /// The tab color to display.
@@ -652,13 +652,13 @@ private struct TabColorIndicatorView: View {
 
     var body: some View {
         if let color = tabColor.displayColor {
-            Capsule()
+            Circle()
                 .fill(Color(color))
-                .frame(width: 12, height: 4)
+                .frame(width: 6, height: 6)
         } else {
-            Capsule()
+            Circle()
                 .fill(Color.clear)
-                .frame(width: 12, height: 4)
+                .frame(width: 6, height: 6)
                 .hidden()
         }
     }
