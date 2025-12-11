@@ -294,11 +294,19 @@ class TerminalWindow: NSWindow {
 
     private func configureTabContextMenuIfNeeded(_ menu: NSMenu) {
         guard isTabContextMenu(menu) else { return }
+        
+        // Get the target from an existing menu item. The native tab context menu items
+        // target the specific window/controller that was right-clicked, not the focused one.
+        // We need to use that same target so validation and action use the correct tab.
+        let targetController = menu.items
+            .first { $0.action == NSSelectorFromString("performClose:") }
+            .flatMap { $0.target as? NSWindow }
+            .flatMap { $0.windowController as? TerminalController }
 
         let item = NSMenuItem(title: "Close Tabs to the Right", action: #selector(TerminalController.closeTabsOnTheRight(_:)), keyEquivalent: "")
         item.identifier = Self.closeTabsOnRightMenuItemIdentifier
-        item.target = nil
-        item.isEnabled = true
+        item.target = targetController
+
         if !menu.insertItem(item, after: NSSelectorFromString("performCloseOtherTabs:")) &&
            !menu.insertItem(item, after: NSSelectorFromString("performClose:")) {
             menu.addItem(item)
