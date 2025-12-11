@@ -27,4 +27,16 @@ extension NSMenu {
         insertItem(item, at: insertionIndex)
         return UInt(insertionIndex)
     }
+
+    /// Removes all menu items whose identifier is in the given set.
+    ///
+    /// - Parameter identifiers: The set of identifiers to match for removal.
+    func removeItems(withIdentifiers identifiers: Set<NSUserInterfaceItemIdentifier>) {
+        for (index, item) in items.enumerated().reversed() {
+            guard let identifier = item.identifier else { continue }
+            if identifiers.contains(identifier) {
+                removeItem(at: index)
+            }
+        }
+    }
 }

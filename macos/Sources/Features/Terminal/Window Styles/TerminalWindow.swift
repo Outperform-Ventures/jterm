@@ -330,14 +330,9 @@ class TerminalWindow: NSWindow {
         item.identifier = Self.closeTabsOnRightMenuItemIdentifier
         item.target = targetController
         item.setImageIfDesired(systemSymbolName: "xmark")
-        let insertionIndex: UInt
-        if let idx = menu.insertItem(item, after: NSSelectorFromString("performCloseOtherTabs:")) {
-            insertionIndex = idx
-        } else if let idx = menu.insertItem(item, after: NSSelectorFromString("performClose:")) {
-            insertionIndex = idx
-        } else {
+        if menu.insertItem(item, after: NSSelectorFromString("performCloseOtherTabs:")) == nil,
+           menu.insertItem(item, after: NSSelectorFromString("performClose:")) == nil {
             menu.addItem(item)
-            insertionIndex = UInt(menu.items.count - 1)
         }
         
         // Other close items should have the xmark to match Safari on macOS 26
@@ -348,8 +343,7 @@ class TerminalWindow: NSWindow {
             }
         }
         
-        removeTabColorSection(from: menu)
-        appendTabColorSection(to: menu)
+        appendTabColorSection(to: menu, target: targetController)
     }
 
     private func isTabContextMenu(_ menu: NSMenu) -> Bool {
@@ -367,33 +361,20 @@ class TerminalWindow: NSWindow {
         return !selectorNames.isDisjoint(with: tabContextSelectors)
     }
 
-
-    private func removeTabColorSection(from menu: NSMenu) {
-        let identifiers: Set<NSUserInterfaceItemIdentifier> = [
+    private func appendTabColorSection(to menu: NSMenu, target: TerminalController?) {
+        menu.removeItems(withIdentifiers: [
             Self.tabColorSeparatorIdentifier,
             Self.tabColorHeaderIdentifier,
             Self.tabColorPaletteIdentifier
-        ]
-
-        for (index, item) in menu.items.enumerated().reversed() {
-            guard let identifier = item.identifier else { continue }
-            if identifiers.contains(identifier) {
-                menu.removeItem(at: index)
-            }
-        }
-    }
-
-    private func appendTabColorSection(to menu: NSMenu) {
-        guard let terminalController else { return }
+        ])
 
         let separator = NSMenuItem.separator()
         separator.identifier = Self.tabColorSeparatorIdentifier
         menu.addItem(separator)
 
-        let headerTitle = NSLocalizedString("Tab Color", comment: "Tab color context menu section title")
         let headerItem = NSMenuItem()
         headerItem.identifier = Self.tabColorHeaderIdentifier
-        headerItem.title = headerTitle
+        headerItem.title = "Tab Color"
         headerItem.isEnabled = false
         headerItem.setImageIfDesired(systemSymbolName: "eyedropper")
         menu.addItem(headerItem)
@@ -402,8 +383,8 @@ class TerminalWindow: NSWindow {
         paletteItem.identifier = Self.tabColorPaletteIdentifier
         paletteItem.view = makeTabColorPaletteView(
             selectedColor: tabColorSelection
-        ) { [weak terminalController] color in
-            terminalController?.setTabColor(color)
+        ) { [weak target] color in
+            target?.setTabColor(color)
         }
         menu.addItem(paletteItem)
     }
