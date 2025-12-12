@@ -106,7 +106,9 @@ extension Ghostty {
                 
                 // Readonly indicator badge
                 if surfaceView.readonly {
-                    ReadonlyBadge()
+                    ReadonlyBadge {
+                        surfaceView.toggleReadonly(nil)
+                    }
                 }
                 
                 // Progress report
@@ -767,6 +769,10 @@ extension Ghostty {
     /// A badge overlay that indicates a surface is in readonly mode.
     /// Positioned in the top-right corner and styled to be noticeable but unobtrusive.
     struct ReadonlyBadge: View {
+        let onDisable: () -> Void
+        
+        @State private var showingPopover = false
+        
         private let badgeColor = Color(hue: 0.08, saturation: 0.5, brightness: 0.8)
         
         var body: some View {
@@ -784,12 +790,18 @@ extension Ghostty {
                     .padding(.vertical, 4)
                     .background(badgeBackground)
                     .foregroundStyle(badgeColor)
+                    .onTapGesture {
+                        showingPopover = true
+                    }
+                    .backport.pointerStyle(.link)
+                    .popover(isPresented: $showingPopover, arrowEdge: .bottom) {
+                        ReadonlyPopoverView(onDisable: onDisable, isPresented: $showingPopover)
+                    }
                 }
                 .padding(8)
                 
                 Spacer()
             }
-            .allowsHitTesting(false)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("Read-only terminal")
         }
@@ -801,6 +813,44 @@ extension Ghostty {
                     RoundedRectangle(cornerRadius: 6)
                         .strokeBorder(Color.orange.opacity(0.6), lineWidth: 1.5)
                 )
+        }
+    }
+    
+    struct ReadonlyPopoverView: View {
+        let onDisable: () -> Void
+        @Binding var isPresented: Bool
+        
+        var body: some View {
+            VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "eye.fill")
+                            .foregroundColor(.orange)
+                            .font(.system(size: 13))
+                        Text("Read-Only Mode")
+                            .font(.system(size: 13, weight: .semibold))
+                    }
+                    
+                    Text("This terminal is in read-only mode. You can still view, select, and scroll through the content, but no input events will be sent to the running application.")
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                
+                HStack {
+                    Spacer()
+                    
+                    Button("Disable") {
+                        onDisable()
+                        isPresented = false
+                    }
+                    .keyboardShortcut(.defaultAction)
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                }
+            }
+            .padding(16)
+            .frame(width: 280)
         }
     }
 
