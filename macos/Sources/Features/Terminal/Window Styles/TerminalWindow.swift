@@ -668,6 +668,7 @@ private struct TabColorIndicatorView: View {
 
 extension TerminalWindow {
     private static let closeTabsOnRightMenuItemIdentifier = NSUserInterfaceItemIdentifier("com.mitchellh.ghostty.closeTabsOnTheRightMenuItem")
+    private static let changeTitleMenuItemIdentifier = NSUserInterfaceItemIdentifier("com.mitchellh.ghostty.changeTitleMenuItem")
     private static let tabColorSeparatorIdentifier = NSUserInterfaceItemIdentifier("com.mitchellh.ghostty.tabColorSeparator")
 
     private static let tabColorPaletteIdentifier = NSUserInterfaceItemIdentifier("com.mitchellh.ghostty.tabColorPalette")
@@ -701,7 +702,7 @@ extension TerminalWindow {
             }
         }
 
-        appendTabColorSection(to: menu, target: targetController)
+        appendTabModifierSection(to: menu, target: targetController)
     }
 
     private func isTabContextMenu(_ menu: NSMenu) -> Bool {
@@ -719,15 +720,23 @@ extension TerminalWindow {
         return !selectorNames.isDisjoint(with: tabContextSelectors)
     }
 
-    private func appendTabColorSection(to menu: NSMenu, target: TerminalController?) {
+    private func appendTabModifierSection(to menu: NSMenu, target: TerminalController?) {
         menu.removeItems(withIdentifiers: [
             Self.tabColorSeparatorIdentifier,
+            Self.changeTitleMenuItemIdentifier,
             Self.tabColorPaletteIdentifier
         ])
 
         let separator = NSMenuItem.separator()
         separator.identifier = Self.tabColorSeparatorIdentifier
         menu.addItem(separator)
+
+        // Change Title...
+        let changeTitleItem = NSMenuItem(title: "Change Title...", action: #selector(BaseTerminalController.changeTabTitle(_:)), keyEquivalent: "")
+        changeTitleItem.identifier = Self.changeTitleMenuItemIdentifier
+        changeTitleItem.target = target
+        changeTitleItem.setImageIfDesired(systemSymbolName: "pencil.line")
+        menu.addItem(changeTitleItem)
 
         let paletteItem = NSMenuItem()
         paletteItem.identifier = Self.tabColorPaletteIdentifier
