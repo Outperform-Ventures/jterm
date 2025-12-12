@@ -104,6 +104,11 @@ extension Ghostty {
                 }
                 .ghosttySurfaceView(surfaceView)
                 
+                // Readonly indicator badge
+                if surfaceView.readonly {
+                    ReadonlyBadge()
+                }
+                
                 // Progress report
                 if let progressReport = surfaceView.progressReport, progressReport.state != .remove {
                     VStack(spacing: 0) {
@@ -754,6 +759,48 @@ extension Ghostty {
                 .allowsHitTesting(false)
                 .opacity(bell ? 1.0 : 0.0)
                 .animation(.easeInOut(duration: 0.3), value: bell)
+        }
+    }
+
+    // MARK: Readonly Badge
+    
+    /// A badge overlay that indicates a surface is in readonly mode.
+    /// Positioned in the top-right corner and styled to be noticeable but unobtrusive.
+    struct ReadonlyBadge: View {
+        private let badgeColor = Color(hue: 0.08, saturation: 0.5, brightness: 0.8)
+        
+        var body: some View {
+            VStack {
+                HStack {
+                    Spacer()
+                    
+                    HStack(spacing: 5) {
+                        Image(systemName: "eye.fill")
+                            .font(.system(size: 12))
+                        Text("Read-only")
+                            .font(.system(size: 12, weight: .medium))
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(badgeBackground)
+                    .foregroundStyle(badgeColor)
+                }
+                .padding(8)
+                
+                Spacer()
+            }
+            .allowsHitTesting(false)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Read-only terminal")
+        }
+        
+        private var badgeBackground: some View {
+            RoundedRectangle(cornerRadius: 6)
+                .fill(.regularMaterial)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6)
+                        .strokeBorder(Color.orange.opacity(0.6), lineWidth: 1.5)
+                )
         }
     }
 
