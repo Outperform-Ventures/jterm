@@ -2592,12 +2592,6 @@ pub fn keyCallback(
         if (insp_ev) |*ev| ev else null,
     )) |v| return v;
 
-    // If the surface is in read-only mode, we consume the key event here
-    // without sending it to the PTY.
-    if (self.readonly) {
-        return .consumed;
-    }
-
     // If we allow KAM and KAM is enabled then we do nothing.
     if (self.config.vt_kam_allowed) {
         self.renderer_state.mutex.lock();
