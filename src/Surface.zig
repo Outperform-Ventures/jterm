@@ -818,6 +818,15 @@ inline fn surfaceMailbox(self: *Surface) Mailbox {
     };
 }
 
+/// Queue a message for the IO thread.
+fn queueIo(
+    self: *Surface,
+    msg: termio.Message,
+    mutex: termio.Termio.MutexState,
+) void {
+    self.io.queueMessage(msg, mutex);
+}
+
 /// Forces the surface to render. This is useful for when the surface
 /// is in the middle of animation (such as a resize, etc.) or when
 /// the render timer is managed manually by the apprt.
@@ -849,7 +858,7 @@ pub fn activateInspector(self: *Surface) !void {
 
     // Notify our components we have an inspector active
     _ = self.renderer_thread.mailbox.push(.{ .inspector = true }, .{ .forever = {} });
-    self.io.queueMessage(.{ .inspector = true }, .unlocked);
+    self.queueIo(.{ .inspector = true }, .unlocked);
 }
 
 /// Deactivate the inspector and stop collecting any information.
@@ -866,7 +875,7 @@ pub fn deactivateInspector(self: *Surface) void {
 
     // Notify our components we have deactivated inspector
     _ = self.renderer_thread.mailbox.push(.{ .inspector = false }, .{ .forever = {} });
-    self.io.queueMessage(.{ .inspector = false }, .unlocked);
+    self.queueIo(.{ .inspector = false }, .unlocked);
 
     // Deinit the inspector
     insp.deinit();
@@ -938,7 +947,7 @@ pub fn handleMessage(self: *Surface, msg: Message) !void {
             // We always use an allocating message because we don't know
             // the length of the title and this isn't a performance critical
             // path.
-            self.io.queueMessage(.{
+            self.queueIo(.{
                 .write_alloc = .{
                     .alloc = self.alloc,
                     .data = data,
@@ -1130,7 +1139,7 @@ fn selectionScrollTick(self: *Surface) !void {
     // If our screen changed while this is happening, we stop our
     // selection scroll.
     if (self.mouse.left_click_screen != t.screens.active_key) {
-        self.io.queueMessage(
+        self.queueIo(
             .{ .selection_scroll = false },
             .locked,
         );
@@ -1362,7 +1371,7 @@ fn reportColorScheme(self: *Surface, force: bool) void {
         .dark => "\x1B[?997;1n",
     };
 
-    self.io.queueMessage(.{ .write_stable = output }, .unlocked);
+    self.queueIo(.{ .write_stable = output }, .unlocked);
 }
 
 fn searchCallback(event: terminal.search.Thread.Event, ud: ?*anyopaque) void {
@@ -1735,7 +1744,7 @@ pub fn updateConfig(
     errdefer termio_config_ptr.deinit();
 
     _ = self.renderer_thread.mailbox.push(renderer_message, .{ .forever = {} });
-    self.io.queueMessage(.{
+    self.queueIo(.{
         .change_config = .{
             .alloc = self.alloc,
             .ptr = termio_config_ptr,
@@ -2301,7 +2310,7 @@ fn setCellSize(self: *Surface, size: rendererpkg.CellSize) !void {
     self.balancePaddingIfNeeded();
 
     // Notify the terminal
-    self.io.queueMessage(.{ .resize = self.size }, .unlocked);
+    self.queueIo(.{ .resize = self.size }, .unlocked);
 
     // Update our terminal default size if necessary.
     self.recomputeInitialSize() catch |err| {
@@ -2404,7 +2413,7 @@ fn resize(self: *Surface, size: rendererpkg.ScreenSize) !void {
     }
 
     // Mail the IO thread
-    self.io.queueMessage(.{ .resize = self.size }, .unlocked);
+    self.queueIo(.{ .resize = self.size }, .unlocked);
 }
 
 /// Recalculate the balanced padding if needed.
@@ -2686,7 +2695,7 @@ pub fn keyCallback(
         }
 
         errdefer write_req.deinit();
-        self.io.queueMessage(switch (write_req) {
+        self.queueIo(switch (write_req) {
             .small => |v| .{ .write_small = v },
             .stable => |v| .{ .write_stable = v },
             .alloc => |v| .{ .write_alloc = v },
@@ -2915,7 +2924,7 @@ fn endKeySequence(
     if (self.keyboard.queued.items.len > 0) {
         switch (action) {
             .flush => for (self.keyboard.queued.items) |write_req| {
-                self.io.queueMessage(switch (write_req) {
+                self.queueIo(switch (write_req) {
                     .small => |v| .{ .write_small = v },
                     .stable => |v| .{ .write_stable = v },
                     .alloc => |v| .{ .write_alloc = v },
@@ -3141,7 +3150,7 @@ pub fn focusCallback(self: *Surface, focused: bool) !void {
         self.renderer_state.mutex.lock();
         self.io.terminal.flags.focused = focused;
         self.renderer_state.mutex.unlock();
-        self.io.queueMessage(.{ .focused = focused }, .unlocked);
+        self.queueIo(.{ .focused = focused }, .unlocked);
     }
 }
 
@@ -3307,7 +3316,7 @@ pub fn scrollCallback(
                     };
                 };
                 for (0..y.magnitude()) |_| {
-                    self.io.queueMessage(.{ .write_stable = seq }, .locked);
+                    self.queueIo(.{ .write_stable = seq }, .locked);
                 }
             }
 
@@ -3532,7 +3541,7 @@ fn mouseReport(
             data[5] = 32 + @as(u8, @intCast(viewport_point.y)) + 1;
 
             // Ask our IO thread to write the data
-            self.io.queueMessage(.{ .write_small = .{
+            self.queueIo(.{ .write_small = .{
                 .data = data,
                 .len = 6,
             } }, .locked);
@@ -3555,7 +3564,7 @@ fn mouseReport(
             i += try std.unicode.utf8Encode(@intCast(32 + viewport_point.y + 1), data[i..]);
 
             // Ask our IO thread to write the data
-            self.io.queueMessage(.{ .write_small = .{
+            self.queueIo(.{ .write_small = .{
                 .data = data,
                 .len = @intCast(i),
             } }, .locked);
@@ -3576,7 +3585,7 @@ fn mouseReport(
             });
 
             // Ask our IO thread to write the data
-            self.io.queueMessage(.{ .write_small = .{
+            self.queueIo(.{ .write_small = .{
                 .data = data,
                 .len = @intCast(resp.len),
             } }, .locked);
@@ -3593,7 +3602,7 @@ fn mouseReport(
             });
 
             // Ask our IO thread to write the data
-            self.io.queueMessage(.{ .write_small = .{
+            self.queueIo(.{ .write_small = .{
                 .data = data,
                 .len = @intCast(resp.len),
             } }, .locked);
@@ -3622,7 +3631,7 @@ fn mouseReport(
             });
 
             // Ask our IO thread to write the data
-            self.io.queueMessage(.{ .write_small = .{
+            self.queueIo(.{ .write_small = .{
                 .data = data,
                 .len = @intCast(resp.len),
             } }, .locked);
@@ -3774,7 +3783,7 @@ pub fn mouseButtonCallback(
         // Stop selection scrolling when releasing the left mouse button
         // but only when selection scrolling is active.
         if (self.selection_scroll_active) {
-            self.io.queueMessage(
+            self.queueIo(
                 .{ .selection_scroll = false },
                 .unlocked,
             );
@@ -4131,7 +4140,7 @@ fn clickMoveCursor(self: *Surface, to: terminal.Pin) !void {
             break :arrow if (t.modes.get(.cursor_keys)) "\x1bOB" else "\x1b[B";
         };
         for (0..@abs(path.y)) |_| {
-            self.io.queueMessage(.{ .write_stable = arrow }, .locked);
+            self.queueIo(.{ .write_stable = arrow }, .locked);
         }
     }
     if (path.x != 0) {
@@ -4141,7 +4150,7 @@ fn clickMoveCursor(self: *Surface, to: terminal.Pin) !void {
             break :arrow if (t.modes.get(.cursor_keys)) "\x1bOC" else "\x1b[C";
         };
         for (0..@abs(path.x)) |_| {
-            self.io.queueMessage(.{ .write_stable = arrow }, .locked);
+            self.queueIo(.{ .write_stable = arrow }, .locked);
         }
     }
 }
@@ -4414,7 +4423,7 @@ pub fn cursorPosCallback(
     // Stop selection scrolling when inside the viewport within a 1px buffer
     // for fullscreen windows, but only when selection scrolling is active.
     if (pos.y >= 1 and self.selection_scroll_active) {
-        self.io.queueMessage(
+        self.queueIo(
             .{ .selection_scroll = false },
             .locked,
         );
@@ -4514,7 +4523,7 @@ pub fn cursorPosCallback(
         if ((pos.y <= 1 or pos.y > max_y - 1) and
             !self.selection_scroll_active)
         {
-            self.io.queueMessage(
+            self.queueIo(
                 .{ .selection_scroll = true },
                 .locked,
             );
@@ -4890,7 +4899,7 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
                 .esc => try std.fmt.bufPrint(&buf, "\x1b{s}", .{data}),
                 else => unreachable,
             };
-            self.io.queueMessage(try termio.Message.writeReq(
+            self.queueIo(try termio.Message.writeReq(
                 self.alloc,
                 full_data,
             ), .unlocked);
@@ -4917,7 +4926,7 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
                 );
                 return true;
             };
-            self.io.queueMessage(try termio.Message.writeReq(
+            self.queueIo(try termio.Message.writeReq(
                 self.alloc,
                 text,
             ), .unlocked);
@@ -4950,9 +4959,9 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             };
 
             if (normal) {
-                self.io.queueMessage(.{ .write_stable = ck.normal }, .unlocked);
+                self.queueIo(.{ .write_stable = ck.normal }, .unlocked);
             } else {
-                self.io.queueMessage(.{ .write_stable = ck.application }, .unlocked);
+                self.queueIo(.{ .write_stable = ck.application }, .unlocked);
             }
         },
 
@@ -5225,19 +5234,19 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
                 if (self.io.terminal.screens.active_key == .alternate) return false;
             }
 
-            self.io.queueMessage(.{
+            self.queueIo(.{
                 .clear_screen = .{ .history = true },
             }, .unlocked);
         },
 
         .scroll_to_top => {
-            self.io.queueMessage(.{
+            self.queueIo(.{
                 .scroll_viewport = .{ .top = {} },
             }, .unlocked);
         },
 
         .scroll_to_bottom => {
-            self.io.queueMessage(.{
+            self.queueIo(.{
                 .scroll_viewport = .{ .bottom = {} },
             }, .unlocked);
         },
@@ -5267,14 +5276,14 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
 
         .scroll_page_up => {
             const rows: isize = @intCast(self.size.grid().rows);
-            self.io.queueMessage(.{
+            self.queueIo(.{
                 .scroll_viewport = .{ .delta = -1 * rows },
             }, .unlocked);
         },
 
         .scroll_page_down => {
             const rows: isize = @intCast(self.size.grid().rows);
-            self.io.queueMessage(.{
+            self.queueIo(.{
                 .scroll_viewport = .{ .delta = rows },
             }, .unlocked);
         },
@@ -5282,19 +5291,19 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
         .scroll_page_fractional => |fraction| {
             const rows: f32 = @floatFromInt(self.size.grid().rows);
             const delta: isize = @intFromFloat(@trunc(fraction * rows));
-            self.io.queueMessage(.{
+            self.queueIo(.{
                 .scroll_viewport = .{ .delta = delta },
             }, .unlocked);
         },
 
         .scroll_page_lines => |lines| {
-            self.io.queueMessage(.{
+            self.queueIo(.{
                 .scroll_viewport = .{ .delta = lines },
             }, .unlocked);
         },
 
         .jump_to_prompt => |delta| {
-            self.io.queueMessage(.{
+            self.queueIo(.{
                 .jump_to_prompt = @intCast(delta),
             }, .unlocked);
         },
@@ -5514,7 +5523,7 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
                 };
             },
 
-            .io => self.io.queueMessage(.{ .crash = {} }, .unlocked),
+            .io => self.queueIo(.{ .crash = {} }, .unlocked),
         },
 
         .adjust_selection => |direction| {
@@ -5712,7 +5721,7 @@ fn writeScreenFile(
             },
             .url = path,
         }),
-        .paste => self.io.queueMessage(try termio.Message.writeReq(
+        .paste => self.queueIo(try termio.Message.writeReq(
             self.alloc,
             path,
         ), .unlocked),
@@ -5852,7 +5861,7 @@ fn completeClipboardPaste(
     };
 
     for (vecs) |vec| if (vec.len > 0) {
-        self.io.queueMessage(try termio.Message.writeReq(
+        self.queueIo(try termio.Message.writeReq(
             self.alloc,
             vec,
         ), .unlocked);
@@ -5898,7 +5907,7 @@ fn completeClipboardReadOSC52(
     const encoded = enc.encode(buf[prefix.len..], data);
     assert(encoded.len == size);
 
-    self.io.queueMessage(try termio.Message.writeReq(
+    self.queueIo(try termio.Message.writeReq(
         self.alloc,
         buf,
     ), .unlocked);
