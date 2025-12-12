@@ -1512,6 +1512,14 @@ extension Ghostty {
             }
         }
 
+        @IBAction func toggleReadonly(_ sender: Any?) {
+            guard let surface = self.surface else { return }
+            let action = "toggle_readonly"
+            if (!ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8)))) {
+                AppDelegate.logger.warning("action failed action=\(action)")
+            }
+        }
+
         @IBAction func splitRight(_ sender: Any) {
             guard let surface = self.surface else { return }
             ghostty_surface_split(surface, GHOSTTY_SPLIT_DIRECTION_RIGHT)
@@ -1987,6 +1995,10 @@ extension Ghostty.SurfaceView: NSMenuItemValidation {
             
         case #selector(findHide):
             return searchState != nil
+
+        case #selector(toggleReadonly):
+            item.state = readonly ? .on : .off
+            return true
 
         default:
             return true
