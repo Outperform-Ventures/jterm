@@ -147,7 +147,7 @@ selection_scroll_active: bool = false,
 
 /// True if the surface is in read-only mode. When read-only, no input
 /// is sent to the PTY but terminal-level operations like selections,
-/// scrolling, and copy/paste keybinds still work. Warn before quit is
+/// (native) scrolling, and copy keybinds still work. Warn before quit is
 /// always enabled in this state.
 readonly: bool = false,
 
