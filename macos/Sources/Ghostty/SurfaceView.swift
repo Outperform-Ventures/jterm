@@ -103,14 +103,7 @@ extension Ghostty {
                     }
                 }
                 .ghosttySurfaceView(surfaceView)
-                
-                // Readonly indicator badge
-                if surfaceView.readonly {
-                    ReadonlyBadge {
-                        surfaceView.toggleReadonly(nil)
-                    }
-                }
-                
+                .allowsHitTesting(false)
                 // Progress report
                 if let progressReport = surfaceView.progressReport, progressReport.state != .remove {
                     VStack(spacing: 0) {
@@ -123,6 +116,13 @@ extension Ghostty {
                 }
                 
 #if canImport(AppKit)
+                // Readonly indicator badge
+                if surfaceView.readonly {
+                    ReadonlyBadge {
+                        surfaceView.toggleReadonly(nil)
+                    }
+                }
+                
                 // If we are in the middle of a key sequence, then we show a visual element. We only
                 // support this on macOS currently although in theory we can support mobile with keyboards!
                 if !surfaceView.keySequence.isEmpty {
