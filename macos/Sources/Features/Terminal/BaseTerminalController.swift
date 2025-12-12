@@ -81,6 +81,15 @@ class BaseTerminalController: NSWindowController,
     /// The cancellables related to our focused surface.
     private var focusedSurfaceCancellables: Set<AnyCancellable> = []
 
+    /// An override title for the tab/window set by the user via prompt_tab_title.
+    /// When set, this takes precedence over the computed title from the terminal.
+    var tabTitleOverride: String? = nil {
+        didSet { applyTitleToWindow() }
+    }
+
+    /// The last computed title from the focused surface (without the override).
+    private var lastComputedTitle: String = "👻"
+
     /// The time that undo/redo operations that contain running ptys are valid for.
     var undoExpiration: Duration {
         ghostty.config.undoTimeout
@@ -323,6 +332,37 @@ class BaseTerminalController: NSWindowController,
 
         // Store our alert so we only ever show one.
         self.alert = alert
+    }
+
+    /// Prompt the user to change the tab/window title.
+    func promptTabTitle() {
+        guard let window else { return }
+
+        let alert = NSAlert()
+        alert.messageText = "Change Tab Title"
+        alert.informativeText = "Leave blank to restore the default."
+        alert.alertStyle = .informational
+
+        let textField = NSTextField(frame: NSRect(x: 0, y: 0, width: 250, height: 24))
+        textField.stringValue = tabTitleOverride ?? window.title
+        alert.accessoryView = textField
+
+        alert.addButton(withTitle: "OK")
+        alert.addButton(withTitle: "Cancel")
+
+        alert.window.initialFirstResponder = textField
+
+        alert.beginSheetModal(for: window) { [weak self] response in
+            guard let self else { return }
+            guard response == .alertFirstButtonReturn else { return }
+
+            let newTitle = textField.stringValue
+            if newTitle.isEmpty {
+                self.tabTitleOverride = nil
+            } else {
+                self.tabTitleOverride = newTitle
+            }
+        }
     }
 
     /// Close a surface from a view.
@@ -718,10 +758,13 @@ class BaseTerminalController: NSWindowController,
     }
 
     private func titleDidChange(to: String) {
+        lastComputedTitle = to
+        applyTitleToWindow()
+    }
+
+    private func applyTitleToWindow() {
         guard let window else { return }
-        
-        // Set the main window title
-        window.title = to
+        window.title = tabTitleOverride ?? lastComputedTitle
     }
     
     func pwdDidChange(to: URL?) {

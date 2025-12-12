@@ -525,6 +525,9 @@ extension Ghostty {
             case GHOSTTY_ACTION_PROMPT_TITLE:
                 return promptTitle(app, target: target)
 
+            case GHOSTTY_ACTION_PROMPT_TAB_TITLE:
+                return promptTabTitle(app, target: target)
+
             case GHOSTTY_ACTION_PWD:
                 pwdChanged(app, target: target, v: action.action.pwd)
 
@@ -1366,6 +1369,32 @@ extension Ghostty {
             }
 
             return true
+        }
+
+        private static func promptTabTitle(
+            _ app: ghostty_app_t,
+            target: ghostty_target_s) -> Bool {
+            switch (target.tag) {
+            case GHOSTTY_TARGET_APP:
+                guard let window = NSApp.mainWindow ?? NSApp.keyWindow,
+                      let controller = window.windowController as? BaseTerminalController
+                else { return false }
+                controller.promptTabTitle()
+                return true
+
+            case GHOSTTY_TARGET_SURFACE:
+                guard let surface = target.target.surface else { return false }
+                guard let surfaceView = self.surfaceView(from: surface) else { return false }
+                guard let window = surfaceView.window,
+                      let controller = window.windowController as? BaseTerminalController
+                else { return false }
+                controller.promptTabTitle()
+                return true
+
+            default:
+                assertionFailure()
+                return false
+            }
         }
 
         private static func pwdChanged(
