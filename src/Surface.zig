@@ -819,11 +819,26 @@ inline fn surfaceMailbox(self: *Surface) Mailbox {
 }
 
 /// Queue a message for the IO thread.
+///
+/// We centralize all our logic into this spot so we can intercept
+/// messages for example in readonly mode.
 fn queueIo(
     self: *Surface,
     msg: termio.Message,
     mutex: termio.Termio.MutexState,
 ) void {
+    // In readonly mode, we don't allow any writes through to the pty.
+    if (self.readonly) {
+        switch (msg) {
+            .write_small,
+            .write_stable,
+            .write_alloc,
+            => return,
+
+            else => {},
+        }
+    }
+
     self.io.queueMessage(msg, mutex);
 }
 
@@ -3291,9 +3306,7 @@ pub fn scrollCallback(
         // we convert to cursor keys. This only happens if we're:
         // (1) alt screen (2) no explicit mouse reporting and (3) alt
         // scroll mode enabled.
-        // Additionally, we don't send cursor keys if the surface is in read-only mode.
-        if (!self.readonly and
-            self.io.terminal.screens.active_key == .alternate and
+        if (self.io.terminal.screens.active_key == .alternate and
             self.io.terminal.flags.mouse_event == .none and
             self.io.terminal.modes.get(.mouse_alternate_scroll))
         {
@@ -3402,10 +3415,9 @@ pub fn contentScaleCallback(self: *Surface, content_scale: apprt.ContentScale) !
 const MouseReportAction = enum { press, release, motion };
 
 /// Returns true if mouse reporting is enabled both in the config and
-/// the terminal state, and the surface is not in read-only mode.
+/// the terminal state.
 fn isMouseReporting(self: *const Surface) bool {
-    return !self.readonly and
-        self.config.mouse_reporting and
+    return self.config.mouse_reporting and
         self.io.terminal.flags.mouse_event != .none;
 }
 
@@ -3419,9 +3431,6 @@ fn mouseReport(
     // Mouse reporting must be enabled by both config and terminal state
     assert(self.config.mouse_reporting);
     assert(self.io.terminal.flags.mouse_event != .none);
-
-    // Callers must verify the surface is not in read-only mode
-    assert(!self.readonly);
 
     // Depending on the event, we may do nothing at all.
     switch (self.io.terminal.flags.mouse_event) {
