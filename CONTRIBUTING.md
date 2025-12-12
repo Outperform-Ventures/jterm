@@ -27,10 +27,10 @@ which AI assistance was used (e.g. docs only vs. code generation).
 **Note that AI _assistance_ does not equal AI _generation_**. We require
 a significant amount of human accountability, involvement and interaction
 even within AI-assisted contributions. Contributors are required to be able
-to understand the AI-assisted output, and be able to reason with it and
-answer critical questions about it. Should a PR see no visible human
-accountability and involvement, or it is so broken that it requires significant
-rework to be acceptable, **we reserve the right to close it without hesitation**.
+to understand the AI-assisted output, reason with it and answer critical
+questions about it. Should a PR see no visible human accountability and
+involvement, or it is so broken that it requires significant rework to be
+acceptable, **we reserve the right to close it without hesitation**.
 
 **In addition, we currently restrict AI assistance to code changes only.**
 No AI-generated media, e.g. artwork, icons, videos and other assets is
@@ -57,6 +57,9 @@ been repeatedly caught relying entirely on LLMs during interactions.
 > language barrier.
 >
 > Please write your responses yourself, to the best of your ability.
+> If you do feel the need to polish your sentences, however, please use
+> dedicated translation software rather than an LLM.
+>
 > We greatly appreciate it. Thank you. ❤️
 
 Minor exceptions to this policy include trivial AI-generated tab completion
