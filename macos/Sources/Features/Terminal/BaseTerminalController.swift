@@ -1060,6 +1060,10 @@ class BaseTerminalController: NSWindowController,
         window.performClose(sender)
     }
 
+    @IBAction func changeTabTitle(_ sender: Any) {
+        promptTabTitle()
+    }
+
     @IBAction func splitRight(_ sender: Any) {
         guard let surface = focusedSurface?.surface else { return }
         ghostty.split(surface: surface, direction: GHOSTTY_SPLIT_DIRECTION_RIGHT)
