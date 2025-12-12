@@ -314,6 +314,9 @@ pub const Action = union(Key) {
     /// The currently selected search match index (1-based).
     search_selected: SearchSelected,
 
+    /// The readonly state of the surface has changed.
+    readonly: Readonly,
+
     /// Sync with: ghostty_action_tag_e
     pub const Key = enum(c_int) {
         quit,
@@ -375,6 +378,7 @@ pub const Action = union(Key) {
         end_search,
         search_total,
         search_selected,
+        readonly,
     };
 
     /// Sync with: ghostty_action_u
@@ -530,6 +534,11 @@ pub const Inspector = enum(c_int) {
 pub const QuitTimer = enum(c_int) {
     start,
     stop,
+};
+
+pub const Readonly = enum(c_int) {
+    off,
+    on,
 };
 
 pub const MouseVisibility = enum(c_int) {

@@ -5424,6 +5424,11 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
 
         .toggle_readonly => {
             self.readonly = !self.readonly;
+            _ = try self.rt_app.performAction(
+                .{ .surface = self },
+                .readonly,
+                if (self.readonly) .on else .off,
+            );
             return true;
         },
 
