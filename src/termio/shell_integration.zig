@@ -353,7 +353,11 @@ fn setupBash(
     );
     try env.put("ENV", integ_dir);
 
-    return .{ .shell = try cmd.toOwnedSlice() };
+    // Get the command string from the builder, then copy it to the arena
+    // allocator. The stackFallback allocator's memory becomes invalid after
+    // this function returns, so we must copy to the arena.
+    const cmd_str = try cmd.toOwnedSlice();
+    return .{ .shell = try alloc.dupeZ(u8, cmd_str) };
 }
 
 test "bash" {
