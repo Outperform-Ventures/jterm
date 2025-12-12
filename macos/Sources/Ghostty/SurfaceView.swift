@@ -103,7 +103,7 @@ extension Ghostty {
                     }
                 }
                 .ghosttySurfaceView(surfaceView)
-                .allowsHitTesting(false)
+                
                 // Progress report
                 if let progressReport = surfaceView.progressReport, progressReport.state != .remove {
                     VStack(spacing: 0) {
