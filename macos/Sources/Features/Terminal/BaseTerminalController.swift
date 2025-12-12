@@ -83,7 +83,7 @@ class BaseTerminalController: NSWindowController,
 
     /// An override title for the tab/window set by the user via prompt_tab_title.
     /// When set, this takes precedence over the computed title from the terminal.
-    var tabTitleOverride: String? = nil {
+    var titleOverride: String? = nil {
         didSet { applyTitleToWindow() }
     }
 
@@ -344,7 +344,7 @@ class BaseTerminalController: NSWindowController,
         alert.alertStyle = .informational
 
         let textField = NSTextField(frame: NSRect(x: 0, y: 0, width: 250, height: 24))
-        textField.stringValue = tabTitleOverride ?? window.title
+        textField.stringValue = titleOverride ?? window.title
         alert.accessoryView = textField
 
         alert.addButton(withTitle: "OK")
@@ -358,9 +358,9 @@ class BaseTerminalController: NSWindowController,
 
             let newTitle = textField.stringValue
             if newTitle.isEmpty {
-                self.tabTitleOverride = nil
+                self.titleOverride = nil
             } else {
-                self.tabTitleOverride = newTitle
+                self.titleOverride = newTitle
             }
         }
     }
@@ -764,7 +764,7 @@ class BaseTerminalController: NSWindowController,
 
     private func applyTitleToWindow() {
         guard let window else { return }
-        window.title = tabTitleOverride ?? lastComputedTitle
+        window.title = titleOverride ?? lastComputedTitle
     }
     
     func pwdDidChange(to: URL?) {
