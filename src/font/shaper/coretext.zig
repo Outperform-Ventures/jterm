@@ -467,7 +467,7 @@ pub const Shaper = struct {
                 const x_offset = position.x - cell_offset.x;
                 const y_offset = position.y - cell_offset.y;
 
-                // Ford debugging positions, turn this on:
+                // For debugging positions, turn this on:
                 //const advance_x_offset = run_offset.x - cell_offset.x;
                 //const advance_y_offset = run_offset.y - cell_offset.y;
                 //const x_offset_diff = x_offset - advance_x_offset;
