@@ -2016,42 +2016,67 @@ const Action = struct {
         }
     }
 
-    pub fn gotoWindow(
-        direction: apprt.action.GotoWindow,
-    ) bool {
+    pub fn gotoWindow(direction: apprt.action.GotoWindow) bool {
         const glist = gtk.Window.listToplevels();
         defer glist.free();
 
-        const node = @as(?*glib.List, glist.findCustom(null, findActiveWindow));
+        // The window we're starting from is typically our active window.
+        const starting: *glib.List = @as(?*glib.List, glist.findCustom(
+            null,
+            findActiveWindow,
+        )) orelse glist;
 
-        const target_node = if (node) |n| switch (direction) {
-            .next => n.f_next orelse glist,
-            .previous => n.f_prev orelse last: {
-                var current = glist;
-                while (current.f_next) |next| {
-                    current = next;
-                }
-                break :last current;
-            },
-        } else glist;
-
-        const data = target_node.f_data  orelse return false;
-        const gtk_window: *gtk.Window = @ptrCast(@alignCast(data));
-        gtk.Window.present(gtk_window);
-
-        const ghostty_window = gobject.ext.cast(Window, gtk_window) orelse return false;
-
-        var surface: ?*gobject.Object = null;
-        ghostty_window.as(gobject.Object).get("active-surface", &surface, @as(?*anyopaque, null));
-
-        if (surface) |s| {
-            const surface_obj = gobject.ext.cast(Surface, s) orelse return false;
-            surface_obj.grabFocus();
-            return true;
+        // Go forward or backwards in the list until we find a valid
+        // window that is visible.
+        var current_: ?*glib.List = starting;
+        while (current_) |node| : (current_ = switch (direction) {
+            .next => node.f_next,
+            .previous => node.f_prev,
+        }) {
+            const data = node.f_data orelse continue;
+            const gtk_window: *gtk.Window = @ptrCast(@alignCast(data));
+            if (gotoWindowMaybe(gtk_window)) return true;
         }
 
-        log.warn("window has no active surface, cannot grab focus", .{});
+        // If we reached here, we didn't find a valid window to focus.
+        // Wrap around.
+        current_ = switch (direction) {
+            .next => glist,
+            .previous => last: {
+                var end: *glib.List = glist;
+                while (end.f_next) |next| end = next;
+                break :last end;
+            },
+        };
+        while (current_) |node| : (current_ = switch (direction) {
+            .next => node.f_next,
+            .previous => node.f_prev,
+        }) {
+            if (current_ == starting) break;
+            const data = node.f_data orelse continue;
+            const gtk_window: *gtk.Window = @ptrCast(@alignCast(data));
+            if (gotoWindowMaybe(gtk_window)) return true;
+        }
+
         return false;
+    }
+
+    fn gotoWindowMaybe(gtk_window: *gtk.Window) bool {
+        // If it is already active skip it.
+        if (gtk_window.isActive() != 0) return false;
+        // If it is hidden, skip it.
+        if (gtk_window.as(gtk.Widget).isVisible() == 0) return false;
+        // If it isn't a Ghostty window, skip it.
+        const window = gobject.ext.cast(
+            Window,
+            gtk_window,
+        ) orelse return false;
+
+        // Focus our active surface
+        const surface = window.getActiveSurface() orelse return false;
+        gtk.Window.present(gtk_window);
+        surface.grabFocus();
+        return true;
     }
 
     pub fn initialSize(
