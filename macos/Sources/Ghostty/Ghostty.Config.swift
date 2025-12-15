@@ -261,17 +261,6 @@ extension Ghostty {
             return MacOSWindowButtons(rawValue: str) ?? defaultValue
         }
 
-        var macosBackgroundStyle: MacBackgroundStyle {
-            let defaultValue = MacBackgroundStyle.defaultStyle
-            guard let config = self.config else { return defaultValue }
-            var v: UnsafePointer<Int8>? = nil
-            let key = "macos-background-style"
-            guard ghostty_config_get(config, &v, key, UInt(key.count)) else { return defaultValue }
-            guard let ptr = v else { return defaultValue }
-            let str = String(cString: ptr)
-            return MacBackgroundStyle(rawValue: str) ?? defaultValue
-        }
-
         var macosTitlebarStyle: String {
             let defaultValue = "transparent"
             guard let config = self.config else { return defaultValue }
@@ -665,6 +654,16 @@ extension Ghostty.Config {
                 return false
             default:
                 return true
+            }
+        }
+
+        /// Returns true if this is a macOS glass style (regular or clear).
+        var isGlassStyle: Bool {
+            switch self {
+            case .macosGlassRegular, .macosGlassClear:
+                return true
+            default:
+                return false
             }
         }
 

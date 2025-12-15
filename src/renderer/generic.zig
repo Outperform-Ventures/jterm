@@ -561,7 +561,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             vsync: bool,
             colorspace: configpkg.Config.WindowColorspace,
             blending: configpkg.Config.AlphaBlending,
-            macos_background_style: configpkg.Config.MacBackgroundStyle,
+            background_blur: configpkg.Config.BackgroundBlur,
 
             pub fn init(
                 alloc_gpa: Allocator,
@@ -634,7 +634,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     .vsync = config.@"window-vsync",
                     .colorspace = config.@"window-colorspace",
                     .blending = config.@"alpha-blending",
-                    .macos_background_style = config.@"macos-background-style",
+                    .background_blur = config.@"background-blur",
                     .arena = arena,
                 };
             }
@@ -645,16 +645,6 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 self.arena.deinit();
             }
         };
-
-        /// Determines if the terminal background should be disabled based on platform and config.
-        /// On macOS, when background effects are enabled (background style != default), the effect
-        /// layer handles the background rendering instead of the terminal renderer.
-        fn shouldDisableBackground(config: DerivedConfig) bool {
-            return switch (builtin.os.tag) {
-                .macos => config.macos_background_style != .default,
-                else => false,
-            };
-        }
 
         pub fn init(alloc: Allocator, options: renderer.Options) !Self {
             // Initialize our graphics API wrapper, this will prepare the
@@ -728,6 +718,9 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                         options.config.background.r,
                         options.config.background.g,
                         options.config.background.b,
+                        // Note that if we're on macOS with glass effects
+                        // we'll disable background opacity but we handle
+                        // that in updateFrame.
                         @intFromFloat(@round(options.config.background_opacity * 255.0)),
                     },
                     .bools = .{
@@ -1305,10 +1298,18 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     self.terminal_state.colors.background.r,
                     self.terminal_state.colors.background.g,
                     self.terminal_state.colors.background.b,
-                    if (shouldDisableBackground(self.config))
-                        0
-                    else
-                        @intFromFloat(@round(self.config.background_opacity * 255.0)),
+                    @intFromFloat(@round(self.config.background_opacity * 255.0)),
+                };
+
+                // If we're on macOS and have glass styles, we remove
+                // the background opacity because the glass effect handles
+                // it.
+                if (comptime builtin.os.tag == .macos) switch (self.config.background_blur) {
+                    .@"macos-glass-regular",
+                    .@"macos-glass-clear",
+                    => self.uniforms.bg_color[3] = 0,
+
+                    else => {},
                 };
             }
         }

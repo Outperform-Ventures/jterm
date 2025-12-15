@@ -480,7 +480,7 @@ class TerminalWindow: NSWindow {
             backgroundColor = .white.withAlphaComponent(0.001)
 
             // Add liquid glass behind terminal content
-            if #available(macOS 26.0, *), derivedConfig.macosBackgroundStyle != .defaultStyle {
+            if #available(macOS 26.0, *), derivedConfig.backgroundBlur.isGlassStyle {
                 setupGlassLayer()
             } else if let appDelegate = NSApp.delegate as? AppDelegate {
                 ghostty_set_window_background_blur(
@@ -590,14 +590,13 @@ class TerminalWindow: NSWindow {
         let effectView = NSGlassEffectView()
 
         // Map Ghostty config to NSGlassEffectView style
-        let backgroundStyle = derivedConfig.macosBackgroundStyle
-        switch backgroundStyle {
-        case .regularGlass:
+        switch derivedConfig.backgroundBlur {
+        case .macosGlassRegular:
             effectView.style = NSGlassEffectView.Style.regular
-        case .clearGlass:
+        case .macosGlassClear:
             effectView.style = NSGlassEffectView.Style.clear
         default:
-            // Should not reach here since we check for "default" before calling setupGlassLayer()
+            // Should not reach here since we check for glass style before calling setupGlassLayer()
             return
         }
 
@@ -623,10 +622,10 @@ class TerminalWindow: NSWindow {
 
     struct DerivedConfig {
         let title: String?
+        let backgroundBlur: Ghostty.Config.BackgroundBlur
         let backgroundColor: NSColor
         let backgroundOpacity: Double
         let macosWindowButtons: Ghostty.MacOSWindowButtons
-        let macosBackgroundStyle: Ghostty.MacBackgroundStyle
         let macosTitlebarStyle: String
         let windowCornerRadius: CGFloat
 
@@ -635,7 +634,7 @@ class TerminalWindow: NSWindow {
             self.backgroundColor = NSColor.windowBackgroundColor
             self.backgroundOpacity = 1
             self.macosWindowButtons = .visible
-            self.macosBackgroundStyle = .defaultStyle
+            self.backgroundBlur = .disabled
             self.macosTitlebarStyle = "transparent"
             self.windowCornerRadius = 16
         }
@@ -645,7 +644,7 @@ class TerminalWindow: NSWindow {
             self.backgroundColor = NSColor(config.backgroundColor)
             self.backgroundOpacity = config.backgroundOpacity
             self.macosWindowButtons = config.macosWindowButtons
-            self.macosBackgroundStyle = config.macosBackgroundStyle
+            self.backgroundBlur = config.backgroundBlur
             self.macosTitlebarStyle = config.macosTitlebarStyle
 
             // Set corner radius based on macos-titlebar-style

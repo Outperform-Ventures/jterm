@@ -352,13 +352,6 @@ extension Ghostty {
         case hidden
     }
 
-    /// Enum for the macos-background-style config option
-    enum MacBackgroundStyle: String {
-        case defaultStyle = "default"
-        case regularGlass = "regular-glass"
-        case clearGlass = "clear-glass"
-    }
-
     /// Enum for auto-update-channel config option
     enum AutoUpdateChannel: String {
         case tip

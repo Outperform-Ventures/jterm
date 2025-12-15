@@ -927,6 +927,12 @@ palette: Palette = .{},
 ///     reasonable for a good looking blur. Higher blur intensities may
 ///     cause strange rendering and performance issues.
 ///
+/// On macOS 26.0 and later, there are additional special values that
+/// can be set to use the native macOS glass effects:
+///
+///   * `macos-glass-regular` - Standard glass effect with some opacity
+///   * `macos-glass-clear` - Highly transparent glass effect
+///
 /// Supported on macOS and on some Linux desktop environments, including:
 ///
 ///   * KDE Plasma (Wayland and X11)
@@ -3105,22 +3111,6 @@ keybind: Keybinds = .{},
 ///
 /// Available since: 1.2.0
 @"macos-shortcuts": MacShortcuts = .ask,
-
-/// The background style for macOS windows when `background-opacity` is less
-/// than 1. This controls the visual effect applied behind the terminal
-/// background.
-///
-/// Valid values are:
-///
-///   * `default` - Uses the standard background behavior. The `background-blur`
-///     configuration will control whether blur is applied (available on
-///     all macOS versions)
-///   * `regular-glass` - Standard glass effect with some opacity (macOS
-///      26.0+ only)
-///   * `clear-glass` - Highly transparent glass effect (macOS 26.0+ only)
-///
-/// Available since: 1.3.0
-@"macos-background-style": MacBackgroundStyle = .default,
 
 /// Put every surface (tab, split, window) into a dedicated Linux cgroup.
 ///
@@ -7704,13 +7694,6 @@ pub const MacShortcuts = enum {
     allow,
     deny,
     ask,
-};
-
-/// See macos-background-style
-pub const MacBackgroundStyle = enum {
-    default,
-    @"regular-glass",
-    @"clear-glass",
 };
 
 /// See gtk-single-instance
