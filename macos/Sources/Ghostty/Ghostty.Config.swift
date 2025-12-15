@@ -402,12 +402,12 @@ extension Ghostty {
             return v;
         }
 
-        var backgroundBlurRadius: Int {
-            guard let config = self.config else { return 1 }
-            var v: Int = 0
+        var backgroundBlur: BackgroundBlur {
+            guard let config = self.config else { return .disabled }
+            var v: Int16 = 0
             let key = "background-blur"
             _ = ghostty_config_get(config, &v, key, UInt(key.lengthOfBytes(using: .utf8)))
-            return v;
+            return BackgroundBlur(fromCValue: v)
         }
 
         var unfocusedSplitOpacity: Double {
@@ -626,6 +626,60 @@ extension Ghostty.Config {
         case download
     }
 
+    /// Background blur configuration that maps from the C API values.
+    /// Positive values represent blur radius, special negative values
+    /// represent macOS-specific glass effects.
+    enum BackgroundBlur: Equatable {
+        case disabled
+        case radius(Int)
+        case macosGlassRegular
+        case macosGlassClear
+
+        init(fromCValue value: Int16) {
+            switch value {
+            case 0:
+                self = .disabled
+            case -1:
+                self = .macosGlassRegular
+            case -2:
+                self = .macosGlassClear
+            default:
+                self = .radius(Int(value))
+            }
+        }
+
+        var isEnabled: Bool {
+            switch self {
+            case .disabled:
+                return false
+            default:
+                return true
+            }
+        }
+
+        /// Returns true if this is a macOS glass style (regular or clear).
+        var isGlassStyle: Bool {
+            switch self {
+            case .macosGlassRegular, .macosGlassClear:
+                return true
+            default:
+                return false
+            }
+        }
+
+        /// Returns the blur radius if applicable, nil for glass effects.
+        var radius: Int? {
+            switch self {
+            case .disabled:
+                return nil
+            case .radius(let r):
+                return r
+            case .macosGlassRegular, .macosGlassClear:
+                return nil
+            }
+        }
+    }
+
     struct BellFeatures: OptionSet {
         let rawValue: CUnsignedInt
 
@@ -635,7 +689,7 @@ extension Ghostty.Config {
         static let title = BellFeatures(rawValue: 1 << 3)
         static let border = BellFeatures(rawValue: 1 << 4)
     }
-    
+
     enum MacDockDropBehavior: String {
         case new_tab = "new-tab"
         case new_window = "new-window"
