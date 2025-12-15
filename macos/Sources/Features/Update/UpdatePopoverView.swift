@@ -125,15 +125,7 @@ fileprivate struct UpdateAvailableView: View {
     let dismiss: DismissAction
     
     private let labelWidth: CGFloat = 60
-
-    private func releaseDateString(date: Date, channel: String?) -> String {
-        let dateString = date.formatted(date: .abbreviated, time: .omitted)
-        if let channel, !channel.isEmpty {
-            return "\(dateString) (\(channel))"
-        }
-        return dateString
-    }
-
+    
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 12) {
@@ -165,7 +157,7 @@ fileprivate struct UpdateAvailableView: View {
                                 Text("Released:")
                                     .foregroundColor(.secondary)
                                     .frame(width: labelWidth, alignment: .trailing)
-                                Text(releaseDateString(date: date, channel: update.appcastItem.channel))
+                                Text(date.formatted(date: .abbreviated, time: .omitted))
                             }
                             .font(.system(size: 11))
                         }
