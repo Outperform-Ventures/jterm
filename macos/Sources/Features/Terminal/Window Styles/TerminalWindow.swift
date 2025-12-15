@@ -483,6 +483,11 @@ class TerminalWindow: NSWindow {
             if #available(macOS 26.0, *), derivedConfig.backgroundBlur.isGlassStyle {
                 setupGlassLayer()
             } else if let appDelegate = NSApp.delegate as? AppDelegate {
+                // If we had a prior glass layer we should remove it
+                if #available(macOS 26.0, *) {
+                    removeGlassLayer()
+                }
+                
                 ghostty_set_window_background_blur(
                     appDelegate.ghostty.app,
                     Unmanaged.passUnretained(self).toOpaque())
@@ -578,12 +583,11 @@ class TerminalWindow: NSWindow {
 
     @available(macOS 26.0, *)
     private func setupGlassLayer() {
-        guard let contentView = contentView else { return }
-
         // Remove existing glass effect view
-        glassEffectView?.removeFromSuperview()
-
+        removeGlassLayer()
+    
         // Get the window content view (parent of the NSHostingView)
+        guard let contentView else { return }
         guard let windowContentView = contentView.superview else { return }
 
         // Create NSGlassEffectView for native glass effect
@@ -596,13 +600,13 @@ class TerminalWindow: NSWindow {
         case .macosGlassClear:
             effectView.style = NSGlassEffectView.Style.clear
         default:
-            // Should not reach here since we check for glass style before calling setupGlassLayer()
-            return
+            // Should not reach here since we check for glass style before calling
+            // setupGlassLayer()
+            assertionFailure()
         }
 
         effectView.cornerRadius = derivedConfig.windowCornerRadius
         effectView.tintColor = preferredBackgroundColor
-
         effectView.frame = windowContentView.bounds
         effectView.autoresizingMask = [.width, .height]
 
