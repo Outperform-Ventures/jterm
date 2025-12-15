@@ -728,10 +728,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                         options.config.background.r,
                         options.config.background.g,
                         options.config.background.b,
-                        if (shouldDisableBackground(options.config))
-                            0
-                        else
-                            @intFromFloat(@round(options.config.background_opacity * 255.0)),
+                        @intFromFloat(@round(options.config.background_opacity * 255.0)),
                     },
                     .bools = .{
                         .cursor_wide = false,
