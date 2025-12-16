@@ -1,6 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const assert = std.debug.assert;
+const assert = @import("../../quirks.zig").inlineAssert;
 const Allocator = std.mem.Allocator;
 const macos = @import("macos");
 const harfbuzz = @import("harfbuzz");
@@ -363,9 +363,20 @@ pub const Face = struct {
         // We center all glyphs within the pixel-rounded and adjusted
         // cell width if it's larger than the face width, so that they
         // aren't weirdly off to the left.
-        if (metrics.face_width < cell_width) {
+        //
+        // We don't do this if the glyph has a stretch constraint,
+        // since in that case the position was already calculated with the
+        // new cell width in mind.
+        if (constraint.size != .stretch) {
             // We add half the difference to re-center.
-            x += (cell_width - metrics.face_width) / 2;
+            const dx = (cell_width - metrics.face_width) / 2;
+            x += dx;
+            if (dx < 0) {
+                // For negative diff (cell narrower than advance), we remove the
+                // integer part and only keep the fractional adjustment needed
+                // for consistent subpixel positioning.
+                x -= @trunc(dx);
+            }
         }
 
         // If this is a bitmap glyph, it will always render as full pixels,
@@ -376,18 +387,6 @@ pub const Face = struct {
             height = cell_height - @round(cell_height - height - y) - @round(y);
             x = @round(x);
             y = @round(y);
-        }
-
-        // We center all glyphs within the pixel-rounded and adjusted
-        // cell width if it's larger than the face width, so that they
-        // aren't weirdly off to the left.
-        //
-        // We don't do this if the glyph has a stretch constraint,
-        // since in that case the position was already calculated with the
-        // new cell width in mind.
-        if ((constraint.size != .stretch) and (metrics.face_width < cell_width)) {
-            // We add half the difference to re-center.
-            x += (cell_width - metrics.face_width) / 2;
         }
 
         // We make an assumption that font smoothing ("thicken")

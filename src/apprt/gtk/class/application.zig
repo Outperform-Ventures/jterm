@@ -1,7 +1,6 @@
 const std = @import("std");
-const assert = std.debug.assert;
+const assert = @import("../../../quirks.zig").inlineAssert;
 const Allocator = std.mem.Allocator;
-const builtin = @import("builtin");
 const adw = @import("adw");
 const gdk = @import("gdk");
 const gio = @import("gio");
@@ -10,6 +9,7 @@ const gobject = @import("gobject");
 const gtk = @import("gtk");
 
 const build_config = @import("../../../build_config.zig");
+const state = &@import("../../../global.zig").state;
 const i18n = @import("../../../os/main.zig").i18n;
 const apprt = @import("../../../apprt.zig");
 const cgroup = @import("../cgroup.zig");
@@ -394,6 +394,14 @@ pub const Application = extern struct {
             .{ .detail = "config" },
         );
 
+        _ = gtk.CssProvider.signals.parsing_error.connect(
+            css_provider,
+            *Self,
+            signalCssParsingError,
+            self,
+            .{},
+        );
+
         // Trigger initial config changes
         self.as(gobject.Object).notifyByPspec(properties.config.impl.param_spec);
 
@@ -530,12 +538,16 @@ pub const Application = extern struct {
                 }
 
                 // If we have no windows attached to our app, also quit.
-                if (priv.requested_window and @as(
-                    ?*glib.List,
-                    self.as(gtk.Application).getWindows(),
-                ) == null) {
-                    log.debug("must_quit due to no app windows", .{});
-                    break :q true;
+                // We only do this if we don't have the closed delay set,
+                // because with the closed delay set we'll exit eventually.
+                if (config.@"quit-after-last-window-closed-delay" == null) {
+                    if (priv.requested_window and @as(
+                        ?*glib.List,
+                        self.as(gtk.Application).getWindows(),
+                    ) == null) {
+                        log.debug("must_quit due to no app windows", .{});
+                        break :q true;
+                    }
                 }
 
                 // No quit conditions met
@@ -649,6 +661,8 @@ pub const Application = extern struct {
 
             .goto_split => return Action.gotoSplit(target, value),
 
+            .goto_window => return Action.gotoWindow(value),
+
             .goto_tab => return Action.gotoTab(target, value),
 
             .initial_size => return Action.initialSize(target, value),
@@ -683,7 +697,7 @@ pub const Application = extern struct {
 
             .progress_report => return Action.progressReport(target, value),
 
-            .prompt_title => return Action.promptTitle(target),
+            .prompt_title => return Action.promptTitle(target, value),
 
             .quit => self.quit(),
 
@@ -696,6 +710,8 @@ pub const Application = extern struct {
             .resize_split => return Action.resizeSplit(target, value),
 
             .ring_bell => Action.ringBell(target),
+
+            .scrollbar => Action.scrollbar(target, value),
 
             .set_title => Action.setTitle(target, value),
 
@@ -715,6 +731,11 @@ pub const Application = extern struct {
             .show_on_screen_keyboard => return Action.showOnScreenKeyboard(target),
             .command_finished => return Action.commandFinished(target, value),
 
+            .start_search => Action.startSearch(target),
+            .end_search => Action.endSearch(target),
+            .search_total => Action.searchTotal(target, value),
+            .search_selected => Action.searchSelected(target, value),
+
             // Unimplemented
             .secure_input,
             .close_all_windows,
@@ -729,6 +750,7 @@ pub const Application = extern struct {
             .check_for_updates,
             .undo,
             .redo,
+            .readonly,
             => {
                 log.warn("unimplemented action={}", .{action});
                 return false;
@@ -806,19 +828,19 @@ pub const Application = extern struct {
         }
     }
 
-    fn loadRuntimeCss(self: *Self) Allocator.Error!void {
+    fn loadRuntimeCss(self: *Self) (Allocator.Error || std.Io.Writer.Error)!void {
         const alloc = self.allocator();
+        const priv: *Private = self.private();
+        const config = priv.config.get();
 
-        const config = self.private().config.get();
+        var buf: std.Io.Writer.Allocating = try .initCapacity(alloc, 2048);
+        defer buf.deinit();
 
-        var buf: std.ArrayListUnmanaged(u8) = try .initCapacity(alloc, 2048);
-        defer buf.deinit(alloc);
-
-        const writer = buf.writer(alloc);
+        const writer = &buf.writer;
 
         // Load standard css first as it can override some of the user configured styling.
-        try loadRuntimeCss414(config, &writer);
-        try loadRuntimeCss416(config, &writer);
+        try loadRuntimeCss414(config, writer);
+        try loadRuntimeCss416(config, writer);
 
         const unfocused_fill: CoreConfig.Color = config.@"unfocused-split-fill" orelse config.background;
 
@@ -858,25 +880,22 @@ pub const Application = extern struct {
             , .{ .font_family = font_family });
         }
 
-        // ensure that we have a sentinel
-        try writer.writeByte(0);
+        const contents = buf.written();
 
-        const data = buf.items[0 .. buf.items.len - 1 :0];
+        log.debug("runtime CSS is {d} bytes", .{contents.len});
 
-        log.debug("runtime CSS is {d} bytes", .{data.len + 1});
+        const bytes = glib.Bytes.new(contents.ptr, contents.len);
+        defer bytes.unref();
 
         // Clears any previously loaded CSS from this provider
-        loadCssProviderFromData(
-            self.private().css_provider,
-            data,
-        );
+        priv.css_provider.loadFromBytes(bytes);
     }
 
     /// Load runtime CSS for older than GTK 4.16
     fn loadRuntimeCss414(
         config: *const CoreConfig,
-        writer: *const std.ArrayListUnmanaged(u8).Writer,
-    ) Allocator.Error!void {
+        writer: *std.Io.Writer,
+    ) std.Io.Writer.Error!void {
         if (gtk_version.runtimeAtLeast(4, 16, 0)) return;
 
         const window_theme = config.@"window-theme";
@@ -911,8 +930,8 @@ pub const Application = extern struct {
     /// Load runtime for GTK 4.16 and newer
     fn loadRuntimeCss416(
         config: *const CoreConfig,
-        writer: *const std.ArrayListUnmanaged(u8).Writer,
-    ) Allocator.Error!void {
+        writer: *std.Io.Writer,
+    ) std.Io.Writer.Error!void {
         if (gtk_version.runtimeUntil(4, 16, 0)) return;
 
         const window_theme = config.@"window-theme";
@@ -1008,8 +1027,8 @@ pub const Application = extern struct {
         }
     }
 
-    fn loadCustomCss(self: *Self) !void {
-        const priv = self.private();
+    fn loadCustomCss(self: *Self) (std.fs.File.ReadError || Allocator.Error)!void {
+        const priv: *Private = self.private();
         const alloc = self.allocator();
         const display = gdk.Display.getDefault() orelse {
             log.warn("unable to get display", .{});
@@ -1026,7 +1045,7 @@ pub const Application = extern struct {
         }
         priv.custom_css_providers.clearRetainingCapacity();
 
-        const config = priv.config.getMut();
+        const config = priv.config.get();
         for (config.@"gtk-custom-css".value.items) |p| {
             const path, const optional = switch (p) {
                 .optional => |path| .{ path, true },
@@ -1043,25 +1062,42 @@ pub const Application = extern struct {
             };
             defer file.close();
 
+            const css_file_size_limit = 5 * 1024 * 1024; // 5MB
+
             log.info("loading gtk-custom-css path={s}", .{path});
-            var buf: [4096]u8 = undefined;
-            var reader = file.reader(&buf);
-            const contents = try reader.interface.readAlloc(
+            const contents = file.readToEndAlloc(
                 alloc,
-                5 * 1024 * 1024, // 5MB,
-            );
+                css_file_size_limit,
+            ) catch |err| switch (err) {
+                error.FileTooBig => {
+                    log.warn("gtk-custom-css file {s} was larger than {Bi}", .{ path, css_file_size_limit });
+                    continue;
+                },
+                else => |e| return e,
+            };
             defer alloc.free(contents);
 
-            const data = try alloc.dupeZ(u8, contents);
-            defer alloc.free(data);
+            const bytes = glib.Bytes.new(contents.ptr, contents.len);
+            defer bytes.unref();
 
-            const provider = gtk.CssProvider.new();
-            errdefer provider.unref();
-            try priv.custom_css_providers.append(alloc, provider);
-            loadCssProviderFromData(provider, data);
+            const css_provider = gtk.CssProvider.new();
+            errdefer css_provider.unref();
+
+            _ = gtk.CssProvider.signals.parsing_error.connect(
+                css_provider,
+                *Self,
+                signalCssParsingError,
+                self,
+                .{},
+            );
+
+            try priv.custom_css_providers.append(alloc, css_provider);
+
+            css_provider.loadFromBytes(bytes);
+
             gtk.StyleContext.addProviderForDisplay(
                 display,
-                provider.as(gtk.StyleProvider),
+                css_provider.as(gtk.StyleProvider),
                 gtk.STYLE_PROVIDER_PRIORITY_USER,
             );
         }
@@ -1083,7 +1119,7 @@ pub const Application = extern struct {
         self.syncActionAccelerator("win.split-down", .{ .new_split = .down });
         self.syncActionAccelerator("win.split-left", .{ .new_split = .left });
         self.syncActionAccelerator("win.split-up", .{ .new_split = .up });
-        self.syncActionAccelerator("win.copy", .{ .copy_to_clipboard = {} });
+        self.syncActionAccelerator("win.copy", .{ .copy_to_clipboard = .mixed });
         self.syncActionAccelerator("win.paste", .{ .paste_from_clipboard = {} });
         self.syncActionAccelerator("win.reset", .{ .reset = {} });
         self.syncActionAccelerator("win.clear", .{ .clear_screen = {} });
@@ -1164,7 +1200,7 @@ pub const Application = extern struct {
         // just stuck with the old CSS but we don't want to fail the entire
         // config change operation.
         self.loadRuntimeCss() catch |err| switch (err) {
-            error.OutOfMemory => log.warn(
+            error.WriteFailed, error.OutOfMemory => log.warn(
                 "out of memory loading runtime CSS, no runtime CSS applied",
                 .{},
             ),
@@ -1175,6 +1211,37 @@ pub const Application = extern struct {
                 .{err},
             );
         };
+    }
+
+    /// Log CSS parsing error
+    fn signalCssParsingError(
+        _: *gtk.CssProvider,
+        css_section: *gtk.CssSection,
+        err: *glib.Error,
+        _: *Self,
+    ) callconv(.c) void {
+        const location = css_section.toString();
+        defer glib.free(location);
+        if (comptime gtk_version.atLeast(4, 16, 0)) bytes: {
+            const bytes = css_section.getBytes() orelse break :bytes;
+            var len: usize = undefined;
+            const ptr = bytes.getData(&len) orelse break :bytes;
+            const data = ptr[0..len];
+            log.warn("css parsing failed at {s}: {s} {d} {s}\n{s}", .{
+                location,
+                glib.quarkToString(err.f_domain),
+                err.f_code,
+                err.f_message orelse "«unknown»",
+                data,
+            });
+            return;
+        }
+        log.warn("css parsing failed at {s}: {s} {d} {s}", .{
+            location,
+            glib.quarkToString(err.f_domain),
+            err.f_code,
+            err.f_message orelse "«unknown»",
+        });
     }
 
     //---------------------------------------------------------------
@@ -1521,7 +1588,7 @@ pub const Application = extern struct {
             .dark;
         log.debug("style manager changed scheme={}", .{scheme});
 
-        const priv = self.private();
+        const priv: *Private = self.private();
         const core_app = priv.core_app;
         core_app.colorSchemeEvent(self.rt(), scheme) catch |err| {
             log.warn("error updating app color scheme err={}", .{err});
@@ -1533,6 +1600,26 @@ pub const Application = extern struct {
                     .{err},
                 );
             };
+        }
+
+        if (gtk_version.atLeast(4, 20, 0)) {
+            const gtk_scheme: gtk.InterfaceColorScheme = switch (scheme) {
+                .light => gtk.InterfaceColorScheme.light,
+                .dark => gtk.InterfaceColorScheme.dark,
+            };
+            var value = gobject.ext.Value.newFrom(gtk_scheme);
+            gobject.Object.setProperty(
+                priv.css_provider.as(gobject.Object),
+                "prefers-color-scheme",
+                &value,
+            );
+            for (priv.custom_css_providers.items) |css_provider| {
+                gobject.Object.setProperty(
+                    css_provider.as(gobject.Object),
+                    "prefers-color-scheme",
+                    &value,
+                );
+            }
         }
     }
 
@@ -1931,6 +2018,69 @@ const Action = struct {
         }
     }
 
+    pub fn gotoWindow(direction: apprt.action.GotoWindow) bool {
+        const glist = gtk.Window.listToplevels();
+        defer glist.free();
+
+        // The window we're starting from is typically our active window.
+        const starting: *glib.List = @as(?*glib.List, glist.findCustom(
+            null,
+            findActiveWindow,
+        )) orelse glist;
+
+        // Go forward or backwards in the list until we find a valid
+        // window that is visible.
+        var current_: ?*glib.List = starting;
+        while (current_) |node| : (current_ = switch (direction) {
+            .next => node.f_next,
+            .previous => node.f_prev,
+        }) {
+            const data = node.f_data orelse continue;
+            const gtk_window: *gtk.Window = @ptrCast(@alignCast(data));
+            if (gotoWindowMaybe(gtk_window)) return true;
+        }
+
+        // If we reached here, we didn't find a valid window to focus.
+        // Wrap around.
+        current_ = switch (direction) {
+            .next => glist,
+            .previous => last: {
+                var end: *glib.List = glist;
+                while (end.f_next) |next| end = next;
+                break :last end;
+            },
+        };
+        while (current_) |node| : (current_ = switch (direction) {
+            .next => node.f_next,
+            .previous => node.f_prev,
+        }) {
+            if (current_ == starting) break;
+            const data = node.f_data orelse continue;
+            const gtk_window: *gtk.Window = @ptrCast(@alignCast(data));
+            if (gotoWindowMaybe(gtk_window)) return true;
+        }
+
+        return false;
+    }
+
+    fn gotoWindowMaybe(gtk_window: *gtk.Window) bool {
+        // If it is already active skip it.
+        if (gtk_window.isActive() != 0) return false;
+        // If it is hidden, skip it.
+        if (gtk_window.as(gtk.Widget).isVisible() == 0) return false;
+        // If it isn't a Ghostty window, skip it.
+        const window = gobject.ext.cast(
+            Window,
+            gtk_window,
+        ) orelse return false;
+
+        // Focus our active surface
+        const surface = window.getActiveSurface() orelse return false;
+        gtk.Window.present(gtk_window);
+        surface.grabFocus();
+        return true;
+    }
+
     pub fn initialSize(
         target: apprt.Target,
         value: apprt.action.InitialSize,
@@ -2168,12 +2318,18 @@ const Action = struct {
         };
     }
 
-    pub fn promptTitle(target: apprt.Target) bool {
-        switch (target) {
-            .app => return false,
-            .surface => |v| {
-                v.rt_surface.surface.promptTitle();
-                return true;
+    pub fn promptTitle(target: apprt.Target, value: apprt.action.PromptTitle) bool {
+        switch (value) {
+            .surface => switch (target) {
+                .app => return false,
+                .surface => |v| {
+                    v.rt_surface.surface.promptTitle();
+                    return true;
+                },
+            },
+            .tab => {
+                // GTK does not yet support tab title prompting
+                return false;
             },
         }
     }
@@ -2267,6 +2423,44 @@ const Action = struct {
         switch (target) {
             .app => {},
             .surface => |v| v.rt_surface.surface.setBellRinging(true),
+        }
+    }
+
+    pub fn scrollbar(
+        target: apprt.Target,
+        value: apprt.Action.Value(.scrollbar),
+    ) void {
+        switch (target) {
+            .app => {},
+            .surface => |v| v.rt_surface.surface.setScrollbar(value),
+        }
+    }
+
+    pub fn startSearch(target: apprt.Target) void {
+        switch (target) {
+            .app => {},
+            .surface => |v| v.rt_surface.surface.setSearchActive(true),
+        }
+    }
+
+    pub fn endSearch(target: apprt.Target) void {
+        switch (target) {
+            .app => {},
+            .surface => |v| v.rt_surface.surface.setSearchActive(false),
+        }
+    }
+
+    pub fn searchTotal(target: apprt.Target, value: apprt.action.SearchTotal) void {
+        switch (target) {
+            .app => {},
+            .surface => |v| v.rt_surface.surface.setSearchTotal(value.total),
+        }
+    }
+
+    pub fn searchSelected(target: apprt.Target, value: apprt.action.SearchSelected) void {
+        switch (target) {
+            .app => {},
+            .surface => |v| v.rt_surface.surface.setSearchSelected(value.selected),
         }
     }
 
@@ -2485,7 +2679,9 @@ fn setGtkEnv(config: *const CoreConfig) error{NoSpaceLeft}!void {
         /// disable it.
         @"vulkan-disable": bool = false,
     } = .{
-        .opengl = config.@"gtk-opengl-debug",
+        // `gtk-opengl-debug` dumps logs directly to stderr so both must be true
+        // to enable OpenGL debugging.
+        .opengl = state.logging.stderr and config.@"gtk-opengl-debug",
     };
 
     var gdk_disable: struct {
@@ -2579,9 +2775,4 @@ fn findActiveWindow(data: ?*const anyopaque, _: ?*const anyopaque) callconv(.c) 
     // but we want to return 0 to indicate equality.
     // Abusing integers to be enums and booleans is a terrible idea, C.
     return if (window.isActive() != 0) 0 else -1;
-}
-
-fn loadCssProviderFromData(provider: *gtk.CssProvider, data: [:0]const u8) void {
-    assert(gtk_version.runtimeAtLeast(4, 12, 0));
-    provider.loadFromString(data);
 }

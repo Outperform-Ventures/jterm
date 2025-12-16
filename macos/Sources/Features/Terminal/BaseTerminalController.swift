@@ -48,6 +48,9 @@ class BaseTerminalController: NSWindowController,
 
     /// This can be set to show/hide the command palette.
     @Published var commandPaletteIsShowing: Bool = false
+    
+    /// Set if the terminal view should show the update overlay.
+    @Published var updateOverlayIsVisible: Bool = false
 
     /// Whether the terminal surface should focus when the mouse is over it.
     var focusFollowsMouse: Bool {
@@ -69,11 +72,23 @@ class BaseTerminalController: NSWindowController,
     /// The previous frame information from the window
     private var savedFrame: SavedFrame? = nil
 
+    /// Cache previously applied appearance to avoid unnecessary updates
+    private var appliedColorScheme: ghostty_color_scheme_e?
+
     /// The configuration derived from the Ghostty config so we don't need to rely on references.
     private var derivedConfig: DerivedConfig
 
     /// The cancellables related to our focused surface.
     private var focusedSurfaceCancellables: Set<AnyCancellable> = []
+
+    /// An override title for the tab/window set by the user via prompt_tab_title.
+    /// When set, this takes precedence over the computed title from the terminal.
+    var titleOverride: String? = nil {
+        didSet { applyTitleToWindow() }
+    }
+
+    /// The last computed title from the focused surface (without the override).
+    private var lastComputedTitle: String = "👻"
 
     /// The time that undo/redo operations that contain running ptys are valid for.
     var undoExpiration: Duration {
@@ -317,6 +332,37 @@ class BaseTerminalController: NSWindowController,
 
         // Store our alert so we only ever show one.
         self.alert = alert
+    }
+
+    /// Prompt the user to change the tab/window title.
+    func promptTabTitle() {
+        guard let window else { return }
+
+        let alert = NSAlert()
+        alert.messageText = "Change Tab Title"
+        alert.informativeText = "Leave blank to restore the default."
+        alert.alertStyle = .informational
+
+        let textField = NSTextField(frame: NSRect(x: 0, y: 0, width: 250, height: 24))
+        textField.stringValue = titleOverride ?? window.title
+        alert.accessoryView = textField
+
+        alert.addButton(withTitle: "OK")
+        alert.addButton(withTitle: "Cancel")
+
+        alert.window.initialFirstResponder = textField
+
+        alert.beginSheetModal(for: window) { [weak self] response in
+            guard let self else { return }
+            guard response == .alertFirstButtonReturn else { return }
+
+            let newTitle = textField.stringValue
+            if newTitle.isEmpty {
+                self.titleOverride = nil
+            } else {
+                self.titleOverride = newTitle
+            }
+        }
     }
 
     /// Close a surface from a view.
@@ -566,23 +612,12 @@ class BaseTerminalController: NSWindowController,
         // Get the direction from the notification
         guard let directionAny = notification.userInfo?[Ghostty.Notification.SplitDirectionKey] else { return }
         guard let direction = directionAny as? Ghostty.SplitFocusDirection else { return }
-        
-        // Convert Ghostty.SplitFocusDirection to our SplitTree.FocusDirection
-        let focusDirection: SplitTree<Ghostty.SurfaceView>.FocusDirection
-        switch direction {
-        case .previous: focusDirection = .previous
-        case .next: focusDirection = .next
-        case .up: focusDirection = .spatial(.up)
-        case .down: focusDirection = .spatial(.down)
-        case .left: focusDirection = .spatial(.left)
-        case .right: focusDirection = .spatial(.right)
-        }
 
         // Find the node for the target surface
         guard let targetNode = surfaceTree.root?.node(view: target) else { return }
         
         // Find the next surface to focus
-        guard let nextSurface = surfaceTree.focusTarget(for: focusDirection, from: targetNode) else {
+        guard let nextSurface = surfaceTree.focusTarget(for: direction.toSplitTreeFocusDirection(), from: targetNode) else {
             return
         }
 
@@ -723,10 +758,13 @@ class BaseTerminalController: NSWindowController,
     }
 
     private func titleDidChange(to: String) {
+        lastComputedTitle = to
+        applyTitleToWindow()
+    }
+
+    private func applyTitleToWindow() {
         guard let window else { return }
-        
-        // Set the main window title
-        window.title = to
+        window.title = titleOverride ?? lastComputedTitle
     }
     
     func pwdDidChange(to: URL?) {
@@ -818,7 +856,18 @@ class BaseTerminalController: NSWindowController,
         }
     }
 
-    func fullscreenDidChange() {}
+    func fullscreenDidChange() {
+        guard let fullscreenStyle else { return }
+        
+        // When we enter fullscreen, we want to show the update overlay so that it
+        // is easily visible. For native fullscreen this is visible by showing the
+        // menubar but we don't want to rely on that.
+        if fullscreenStyle.isFullscreen {
+            updateOverlayIsVisible = true
+        } else {
+            updateOverlayIsVisible = defaultUpdateOverlayVisibility()
+        }
+    }
 
     // MARK: Clipboard Confirmation
 
@@ -900,6 +949,28 @@ class BaseTerminalController: NSWindowController,
             fullscreenStyle = NativeFullscreen(window)
             fullscreenStyle?.delegate = self
         }
+        
+        // Set our update overlay state
+        updateOverlayIsVisible = defaultUpdateOverlayVisibility()
+    }
+    
+    func defaultUpdateOverlayVisibility() -> Bool {
+        guard let window else { return true }
+        
+        // No titlebar we always show the update overlay because it can't support
+        // updates in the titlebar
+        guard window.styleMask.contains(.titled) else {
+            return true
+        }
+        
+        // If it's a non terminal window we can't trust it has an update accessory,
+        // so we always want to show the overlay.
+        guard let window = window as? TerminalWindow else {
+            return true
+        }
+        
+        // Show the overlay if the window isn't.
+        return !window.supportsUpdateAccessory
     }
 
     // MARK: NSWindowDelegate
@@ -987,6 +1058,10 @@ class BaseTerminalController: NSWindowController,
     @IBAction func closeWindow(_ sender: Any) {
         guard let window = window else { return }
         window.performClose(sender)
+    }
+
+    @IBAction func changeTabTitle(_ sender: Any) {
+        promptTabTitle()
     }
 
     @IBAction func splitRight(_ sender: Any) {
@@ -1087,6 +1162,22 @@ class BaseTerminalController: NSWindowController,
     @IBAction func toggleCommandPalette(_ sender: Any?) {
         commandPaletteIsShowing.toggle()
     }
+    
+    @IBAction func find(_ sender: Any) {
+        focusedSurface?.find(sender)
+    }
+    
+    @IBAction func findNext(_ sender: Any) {
+        focusedSurface?.findNext(sender)
+    }
+    
+    @IBAction func findPrevious(_ sender: Any) {
+        focusedSurface?.findNext(sender)
+    }
+    
+    @IBAction func findHide(_ sender: Any) {
+        focusedSurface?.findHide(sender)
+    }
 
     @objc func resetTerminal(_ sender: Any) {
         guard let surface = focusedSurface?.surface else { return }
@@ -1109,5 +1200,48 @@ class BaseTerminalController: NSWindowController,
             self.windowStepResize = config.windowStepResize
             self.focusFollowsMouse = config.focusFollowsMouse
         }
+    }
+}
+
+extension BaseTerminalController: NSMenuItemValidation {
+    func validateMenuItem(_ item: NSMenuItem) -> Bool {
+        switch item.action {
+        case #selector(findHide):
+            return focusedSurface?.searchState != nil
+
+        default:
+            return true
+        }
+    }
+	
+    // MARK: - Surface Color Scheme
+
+    /// Update the surface tree's color scheme only when it actually changes.
+    ///
+    /// Calling ``ghostty_surface_set_color_scheme`` triggers
+    /// ``syncAppearance(_:)`` via notification,
+    /// so we avoid redundant calls.
+    func updateColorSchemeForSurfaceTree() {
+        /// Derive the target scheme from `window-theme` or system appearance.
+        /// We set the scheme on surfaces so they pick the correct theme
+        /// and let ``syncAppearance(_:)`` update the window accordingly.
+        ///
+        /// Using App's effectiveAppearance here to prevent incorrect updates.
+        let themeAppearance = NSApplication.shared.effectiveAppearance
+        let scheme: ghostty_color_scheme_e
+        if themeAppearance.isDark {
+            scheme = GHOSTTY_COLOR_SCHEME_DARK
+        } else {
+            scheme = GHOSTTY_COLOR_SCHEME_LIGHT
+        }
+        guard scheme != appliedColorScheme else {
+            return
+        }
+        for surfaceView in surfaceTree {
+            if let surface = surfaceView.surface {
+                ghostty_surface_set_color_scheme(surface, scheme)
+            }
+        }
+        appliedColorScheme = scheme
     }
 }

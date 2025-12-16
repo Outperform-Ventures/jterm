@@ -4,14 +4,20 @@ import Cocoa
 class TerminalRestorableState: Codable {
     static let selfKey = "state"
     static let versionKey = "version"
-    static let version: Int = 5
+    static let version: Int = 7
 
     let focusedSurface: String?
     let surfaceTree: SplitTree<Ghostty.SurfaceView>
+    let effectiveFullscreenMode: FullscreenMode?
+    let tabColor: TerminalTabColor
+    let titleOverride: String?
 
     init(from controller: TerminalController) {
         self.focusedSurface = controller.focusedSurface?.id.uuidString
         self.surfaceTree = controller.surfaceTree
+        self.effectiveFullscreenMode = controller.fullscreenStyle?.fullscreenMode
+        self.tabColor = (controller.window as? TerminalWindow)?.tabColor ?? .none
+        self.titleOverride = controller.titleOverride
     }
 
     init?(coder aDecoder: NSCoder) {
@@ -28,6 +34,9 @@ class TerminalRestorableState: Codable {
 
         self.surfaceTree = v.value.surfaceTree
         self.focusedSurface = v.value.focusedSurface
+        self.effectiveFullscreenMode = v.value.effectiveFullscreenMode
+        self.tabColor = v.value.tabColor
+        self.titleOverride = v.value.titleOverride
     }
 
     func encode(with coder: NSCoder) {
@@ -91,6 +100,12 @@ class TerminalWindowRestoration: NSObject, NSWindowRestoration {
             return
         }
 
+        // Restore our tab color
+        (window as? TerminalWindow)?.tabColor = state.tabColor
+
+        // Restore the tab title override
+        c.titleOverride = state.titleOverride
+
         // Setup our restored state on the controller
         // Find the focused surface in surfaceTree
         if let focusedStr = state.focusedSurface {
@@ -109,6 +124,13 @@ class TerminalWindowRestoration: NSObject, NSWindowRestoration {
         }
 
         completionHandler(window, nil)
+        guard let mode = state.effectiveFullscreenMode, mode != .native else {
+            // We let AppKit handle native fullscreen
+            return
+        }
+        // Give the window to AppKit first, then adjust its frame and style
+        // to minimise any visible frame changes.
+        c.toggleFullscreen(mode: mode)
     }
 
     /// This restores the focus state of the surfaceview within the given window. When restoring,

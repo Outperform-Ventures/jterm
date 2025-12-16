@@ -1,6 +1,6 @@
 const std = @import("std");
 const build_config = @import("../build_config.zig");
-const assert = std.debug.assert;
+const assert = @import("../quirks.zig").inlineAssert;
 const apprt = @import("../apprt.zig");
 const configpkg = @import("../config.zig");
 const input = @import("../input.zig");
@@ -129,6 +129,9 @@ pub const Action = union(Key) {
     /// Jump to a specific split.
     goto_split: GotoSplit,
 
+    /// Jump to next/previous window.
+    goto_window: GotoWindow,
+
     /// Resize the split in the given direction.
     resize_split: ResizeSplit,
 
@@ -164,6 +167,9 @@ pub const Action = union(Key) {
     /// The cell size has changed to the given dimensions in pixels.
     cell_size: CellSize,
 
+    /// The scrollbar is updating.
+    scrollbar: terminal.Scrollbar,
+
     /// The target should be re-rendered. This usually has a specific
     /// surface target but if the app is targeted then all active
     /// surfaces should be redrawn.
@@ -186,8 +192,9 @@ pub const Action = union(Key) {
     set_title: SetTitle,
 
     /// Set the title of the target to a prompted value. It is up to
-    /// the apprt to prompt.
-    prompt_title,
+    /// the apprt to prompt. The value specifies whether to prompt for the
+    /// surface title or the tab title.
+    prompt_title: PromptTitle,
 
     /// The current working directory has changed for the target terminal.
     pwd: Pwd,
@@ -298,6 +305,21 @@ pub const Action = union(Key) {
     /// A command has finished,
     command_finished: CommandFinished,
 
+    /// Start the search overlay with an optional initial needle.
+    start_search: StartSearch,
+
+    /// End the search overlay, clearing the search state and hiding it.
+    end_search,
+
+    /// The total number of matches found by the search.
+    search_total: SearchTotal,
+
+    /// The currently selected search match index (1-based).
+    search_selected: SearchSelected,
+
+    /// The readonly state of the surface has changed.
+    readonly: Readonly,
+
     /// Sync with: ghostty_action_tag_e
     pub const Key = enum(c_int) {
         quit,
@@ -316,6 +338,7 @@ pub const Action = union(Key) {
         move_tab,
         goto_tab,
         goto_split,
+        goto_window,
         resize_split,
         equalize_splits,
         toggle_split_zoom,
@@ -324,6 +347,7 @@ pub const Action = union(Key) {
         reset_window_size,
         initial_size,
         cell_size,
+        scrollbar,
         render,
         inspector,
         show_gtk_inspector,
@@ -354,6 +378,11 @@ pub const Action = union(Key) {
         progress_report,
         show_on_screen_keyboard,
         command_finished,
+        start_search,
+        end_search,
+        search_total,
+        search_selected,
+        readonly,
     };
 
     /// Sync with: ghostty_action_u
@@ -449,6 +478,13 @@ pub const GotoSplit = enum(c_int) {
     right,
 };
 
+// This is made extern (c_int) to make interop easier with our embedded
+// runtime. The small size cost doesn't make a difference in our union.
+pub const GotoWindow = enum(c_int) {
+    previous,
+    next,
+};
+
 /// The amount to resize the split by and the direction to resize it in.
 pub const ResizeSplit = extern struct {
     amount: u16,
@@ -511,9 +547,20 @@ pub const QuitTimer = enum(c_int) {
     stop,
 };
 
+pub const Readonly = enum(c_int) {
+    off,
+    on,
+};
+
 pub const MouseVisibility = enum(c_int) {
     visible,
     hidden,
+};
+
+/// Whether to prompt for the surface title or tab title.
+pub const PromptTitle = enum(c_int) {
+    surface,
+    tab,
 };
 
 pub const MouseOverLink = struct {
@@ -720,6 +767,9 @@ pub const OpenUrl = struct {
         /// should try to open the URL in a text editor or viewer or
         /// some equivalent, if possible.
         text,
+
+        /// The URL is known to contain HTML content.
+        html,
     };
 
     // Sync with: ghostty_action_open_url_s
@@ -744,6 +794,8 @@ pub const CloseTabMode = enum(c_int) {
     this,
     /// Close all other tabs.
     other,
+    /// Close all tabs to the right of the current tab.
+    right,
 };
 
 pub const CommandFinished = struct {
@@ -760,6 +812,51 @@ pub const CommandFinished = struct {
         return .{
             .exit_code = self.exit_code orelse -1,
             .duration = self.duration.duration,
+        };
+    }
+};
+
+pub const StartSearch = struct {
+    needle: [:0]const u8,
+
+    // Sync with: ghostty_action_start_search_s
+    pub const C = extern struct {
+        needle: [*:0]const u8,
+    };
+
+    pub fn cval(self: StartSearch) C {
+        return .{
+            .needle = self.needle.ptr,
+        };
+    }
+};
+
+pub const SearchTotal = struct {
+    total: ?usize,
+
+    // Sync with: ghostty_action_search_total_s
+    pub const C = extern struct {
+        total: isize,
+    };
+
+    pub fn cval(self: SearchTotal) C {
+        return .{
+            .total = if (self.total) |t| @intCast(t) else -1,
+        };
+    }
+};
+
+pub const SearchSelected = struct {
+    selected: ?usize,
+
+    // Sync with: ghostty_action_search_selected_s
+    pub const C = extern struct {
+        selected: isize,
+    };
+
+    pub fn cval(self: SearchSelected) C {
+        return .{
+            .selected = if (self.selected) |s| @intCast(s) else -1,
         };
     }
 };

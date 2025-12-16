@@ -5,12 +5,23 @@ const std = @import("std");
 const assert = std.debug.assert;
 const Generator = @import("Generator.zig");
 const Bytes = @import("Bytes.zig");
+const urlPercentEncode = @import("../os/string_encoding.zig").urlPercentEncode;
 
 /// Valid OSC request kinds that can be generated.
 pub const ValidKind = enum {
     change_window_title,
     prompt_start,
     prompt_end,
+    end_of_input,
+    end_of_command,
+    rxvt_notify,
+    mouse_shape,
+    clipboard_operation,
+    report_pwd,
+    hyperlink_start,
+    hyperlink_end,
+    conemu_progress,
+    iterm2_notification,
 };
 
 /// Invalid OSC request kinds that can be generated.
@@ -35,23 +46,36 @@ p_valid: f64 = 1.0,
 p_valid_kind: std.enums.EnumArray(ValidKind, f64) = .initFill(1.0),
 p_invalid_kind: std.enums.EnumArray(InvalidKind, f64) = .initFill(1.0),
 
-/// The alphabet for random bytes (omitting 0x1B and 0x07).
-const bytes_alphabet: []const u8 = alphabet: {
-    var alphabet: [256]u8 = undefined;
-    for (0..alphabet.len) |i| {
-        if (i == 0x1B or i == 0x07) {
-            alphabet[i] = @intCast(i + 1);
-        } else {
-            alphabet[i] = @intCast(i);
-        }
-    }
-    const result = alphabet;
-    break :alphabet &result;
-};
+fn checkKvAlphabet(c: u8) bool {
+    return switch (c) {
+        std.ascii.control_code.esc, std.ascii.control_code.bel, ';', '=' => false,
+        else => std.ascii.isPrint(c),
+    };
+}
+
+/// The alphabet for random bytes in OSC key/value pairs (omitting 0x1B,
+/// 0x07, ';', '=').
+pub const kv_alphabet = Bytes.generateAlphabet(checkKvAlphabet);
+
+fn checkOscAlphabet(c: u8) bool {
+    return switch (c) {
+        std.ascii.control_code.esc, std.ascii.control_code.bel => false,
+        else => true,
+    };
+}
+
+/// The alphabet for random bytes in OSCs (omitting 0x1B and 0x07).
+pub const osc_alphabet = Bytes.generateAlphabet(checkOscAlphabet);
+pub const ascii_alphabet = Bytes.generateAlphabet(std.ascii.isPrint);
+pub const alphabetic_alphabet = Bytes.generateAlphabet(std.ascii.isAlphabetic);
+pub const alphanumeric_alphabet = Bytes.generateAlphabet(std.ascii.isAlphanumeric);
 
 pub fn generator(self: *Osc) Generator {
     return .init(self, next);
 }
+
+const osc = std.fmt.comptimePrint("{c}]", .{std.ascii.control_code.esc});
+const st = std.fmt.comptimePrint("{c}", .{std.ascii.control_code.bel});
 
 /// Get the next OSC request in bytes. The generated OSC request will
 /// have the prefix `ESC ]` and the terminator `BEL` (0x07).
@@ -63,23 +87,22 @@ pub fn generator(self: *Osc) Generator {
 ///
 /// The buffer must be at least 3 bytes long to accommodate the
 /// prefix and terminator.
-pub fn next(self: *Osc, buf: []u8) Generator.Error![]const u8 {
-    if (buf.len < 3) return error.NoSpaceLeft;
-    const unwrapped = try self.nextUnwrapped(buf[2 .. buf.len - 1]);
-    buf[0] = 0x1B; // ESC
-    buf[1] = ']';
-    buf[unwrapped.len + 2] = 0x07; // BEL
-    return buf[0 .. unwrapped.len + 3];
+pub fn next(self: *Osc, writer: *std.Io.Writer, max_len: usize) Generator.Error!void {
+    assert(max_len >= 3);
+    try writer.writeAll(osc);
+    try self.nextUnwrapped(writer, max_len - (osc.len + st.len));
+    try writer.writeAll(st);
 }
 
-fn nextUnwrapped(self: *Osc, buf: []u8) Generator.Error![]const u8 {
+fn nextUnwrapped(self: *Osc, writer: *std.Io.Writer, max_len: usize) Generator.Error!void {
     return switch (self.chooseValidity()) {
         .valid => valid: {
             const Indexer = @TypeOf(self.p_valid_kind).Indexer;
             const idx = self.rand.weightedIndex(f64, &self.p_valid_kind.values);
             break :valid try self.nextUnwrappedValidExact(
-                buf,
+                writer,
                 Indexer.keyForIndex(idx),
+                max_len,
             );
         },
 
@@ -87,70 +110,178 @@ fn nextUnwrapped(self: *Osc, buf: []u8) Generator.Error![]const u8 {
             const Indexer = @TypeOf(self.p_invalid_kind).Indexer;
             const idx = self.rand.weightedIndex(f64, &self.p_invalid_kind.values);
             break :invalid try self.nextUnwrappedInvalidExact(
-                buf,
+                writer,
                 Indexer.keyForIndex(idx),
+                max_len,
             );
         },
     };
 }
 
-fn nextUnwrappedValidExact(self: *const Osc, buf: []u8, k: ValidKind) Generator.Error![]const u8 {
-    var fbs = std.io.fixedBufferStream(buf);
+fn nextUnwrappedValidExact(self: *const Osc, writer: *std.Io.Writer, k: ValidKind, max_len: usize) Generator.Error!void {
     switch (k) {
-        .change_window_title => {
-            try fbs.writer().writeAll("0;"); // Set window title
-            var bytes_gen = self.bytes();
-            const title = try bytes_gen.next(fbs.buffer[fbs.pos..]);
-            try fbs.seekBy(@intCast(title.len));
+        .change_window_title => change_window_title: {
+            if (max_len < 3) break :change_window_title;
+            try writer.print("0;{f}", .{self.bytes().atMost(max_len - 3)}); // Set window title
         },
 
-        .prompt_start => {
-            try fbs.writer().writeAll("133;A"); // Start prompt
+        .prompt_start => prompt_start: {
+            if (max_len < 4) break :prompt_start;
+            var remaining = max_len;
+
+            try writer.writeAll("133;A"); // Start prompt
+            remaining -= 4;
 
             // aid
-            if (self.rand.boolean()) {
-                var bytes_gen = self.bytes();
-                bytes_gen.max_len = 16;
-                try fbs.writer().writeAll(";aid=");
-                const aid = try bytes_gen.next(fbs.buffer[fbs.pos..]);
-                try fbs.seekBy(@intCast(aid.len));
+            if (self.rand.boolean()) aid: {
+                if (remaining < 6) break :aid;
+                try writer.writeAll(";aid=");
+                remaining -= 5;
+                remaining -= try self.bytes().newAlphabet(kv_alphabet).atMost(@min(16, remaining)).write(writer);
             }
 
             // redraw
-            if (self.rand.boolean()) {
-                try fbs.writer().writeAll(";redraw=");
+            if (self.rand.boolean()) redraw: {
+                if (remaining < 9) break :redraw;
+                try writer.writeAll(";redraw=");
                 if (self.rand.boolean()) {
-                    try fbs.writer().writeAll("1");
+                    try writer.writeAll("1");
                 } else {
-                    try fbs.writer().writeAll("0");
+                    try writer.writeAll("0");
                 }
+                remaining -= 9;
             }
         },
 
-        .prompt_end => try fbs.writer().writeAll("133;B"), // End prompt
-    }
+        .prompt_end => prompt_end: {
+            if (max_len < 4) break :prompt_end;
+            try writer.writeAll("133;B"); // End prompt
+        },
 
-    return fbs.getWritten();
+        .end_of_input => end_of_input: {
+            if (max_len < 5) break :end_of_input;
+            var remaining = max_len;
+            try writer.writeAll("133;C"); // End prompt
+            remaining -= 5;
+            if (self.rand.boolean()) cmdline: {
+                const prefix = ";cmdline_url=";
+                if (remaining < prefix.len + 1) break :cmdline;
+                try writer.writeAll(prefix);
+                remaining -= prefix.len;
+                var buf: [128]u8 = undefined;
+                var w: std.Io.Writer = .fixed(&buf);
+                try self.bytes().newAlphabet(ascii_alphabet).atMost(@min(remaining, buf.len)).format(&w);
+                try urlPercentEncode(writer, w.buffered());
+                remaining -= w.buffered().len;
+            }
+        },
+
+        .end_of_command => end_of_command: {
+            if (max_len < 4) break :end_of_command;
+            try writer.writeAll("133;D"); // End prompt
+            if (self.rand.boolean()) exit_code: {
+                if (max_len < 7) break :exit_code;
+                try writer.print(";{d}", .{self.rand.int(u8)});
+            }
+        },
+
+        .mouse_shape => mouse_shape: {
+            if (max_len < 4) break :mouse_shape;
+            try writer.print("22;{f}", .{self.bytes().newAlphabet(alphabetic_alphabet).atMost(@min(32, max_len - 3))}); // Start prompt
+        },
+
+        .rxvt_notify => rxvt_notify: {
+            const prefix = "777;notify;";
+            if (max_len < prefix.len) break :rxvt_notify;
+            var remaining = max_len;
+            try writer.writeAll(prefix);
+            remaining -= prefix.len;
+            remaining -= try self.bytes().newAlphabet(kv_alphabet).atMost(@min(remaining - 2, 32)).write(writer);
+            try writer.writeByte(';');
+            remaining -= 1;
+            remaining -= try self.bytes().newAlphabet(osc_alphabet).atMost(remaining).write(writer);
+        },
+
+        .clipboard_operation => {
+            try writer.writeAll("52;");
+            var remaining = max_len - 3;
+            if (self.rand.boolean()) {
+                remaining -= try self.bytes().newAlphabet(alphabetic_alphabet).atMost(1).write(writer);
+            }
+            try writer.writeByte(';');
+            remaining -= 1;
+            if (self.rand.boolean()) {
+                remaining -= try self.bytes().newAlphabet(osc_alphabet).atMost(remaining).write(writer);
+            }
+        },
+
+        .report_pwd => report_pwd: {
+            const prefix = "7;file://localhost";
+            if (max_len < prefix.len) break :report_pwd;
+            var remaining = max_len;
+            try writer.writeAll(prefix);
+            remaining -= prefix.len;
+            for (0..self.rand.intRangeAtMost(usize, 2, 5)) |_| {
+                try writer.writeByte('/');
+                remaining -= 1;
+                remaining -= try self.bytes().newAlphabet(alphanumeric_alphabet).atMost(@min(16, remaining)).write(writer);
+            }
+        },
+
+        .hyperlink_start => {
+            try writer.writeAll("8;");
+            if (self.rand.boolean()) {
+                try writer.print("id={f}", .{self.bytes().newAlphabet(alphanumeric_alphabet).atMost(16)});
+            }
+            try writer.writeAll(";https://localhost");
+            for (0..self.rand.intRangeAtMost(usize, 2, 5)) |_| {
+                try writer.print("/{f}", .{self.bytes().newAlphabet(alphanumeric_alphabet).atMost(16)});
+            }
+        },
+
+        .hyperlink_end => hyperlink_end: {
+            if (max_len < 3) break :hyperlink_end;
+            try writer.writeAll("8;;");
+        },
+
+        .conemu_progress => {
+            try writer.writeAll("9;");
+            switch (self.rand.intRangeAtMost(u3, 0, 4)) {
+                0, 3 => |c| {
+                    try writer.print(";{d}", .{c});
+                },
+                1, 2, 4 => |c| {
+                    if (self.rand.boolean()) {
+                        try writer.print(";{d}", .{c});
+                    } else {
+                        try writer.print(";{d};{d}", .{ c, self.rand.intRangeAtMost(u8, 0, 100) });
+                    }
+                },
+                else => unreachable,
+            }
+        },
+
+        .iterm2_notification => iterm2_notification: {
+            if (max_len < 3) break :iterm2_notification;
+            // add a prefix to ensure that this is not interpreted as a ConEmu OSC
+            try writer.print("9;_{f}", .{self.bytes().newAlphabet(ascii_alphabet).atMost(max_len - 3)});
+        },
+    }
 }
 
 fn nextUnwrappedInvalidExact(
     self: *const Osc,
-    buf: []u8,
+    writer: *std.Io.Writer,
     k: InvalidKind,
-) Generator.Error![]const u8 {
+    max_len: usize,
+) Generator.Error!void {
     switch (k) {
         .random => {
-            var bytes_gen = self.bytes();
-            return try bytes_gen.next(buf);
+            try self.bytes().atMost(max_len).format(writer);
         },
 
         .good_prefix => {
-            var fbs = std.io.fixedBufferStream(buf);
-            try fbs.writer().writeAll("133;");
-            var bytes_gen = self.bytes();
-            const data = try bytes_gen.next(fbs.buffer[fbs.pos..]);
-            try fbs.seekBy(@intCast(data.len));
-            return fbs.getWritten();
+            try writer.print("133;{f}", .{self.bytes().atMost(max_len - 4)});
         },
     }
 }
@@ -158,7 +289,7 @@ fn nextUnwrappedInvalidExact(
 fn bytes(self: *const Osc) Bytes {
     return .{
         .rand = self.rand,
-        .alphabet = bytes_alphabet,
+        .alphabet = osc_alphabet,
     };
 }
 
@@ -177,11 +308,21 @@ const Validity = enum { valid, invalid };
 const test_seed = 0xC0FFEEEEEEEEEEEE;
 
 test "OSC generator" {
+    const testing = std.testing;
     var prng = std.Random.DefaultPrng.init(test_seed);
-    var buf: [4096]u8 = undefined;
-    var v: Osc = .{ .rand = prng.random() };
-    const gen = v.generator();
-    for (0..50) |_| _ = try gen.next(&buf);
+    var buf: [256]u8 = undefined;
+    {
+        var v: Osc = .{
+            .rand = prng.random(),
+        };
+        const gen = v.generator();
+        for (0..50) |_| {
+            var writer: std.Io.Writer = .fixed(&buf);
+            try gen.next(&writer, buf.len);
+            const result = writer.buffered();
+            try testing.expect(result.len > 0);
+        }
+    }
 }
 
 test "OSC generator valid" {
@@ -195,8 +336,10 @@ test "OSC generator valid" {
         .p_valid = 1.0,
     };
     for (0..50) |_| {
-        const seq = try gen.next(&buf);
-        var parser: terminal.osc.Parser = .init();
+        var writer: std.Io.Writer = .fixed(&buf);
+        try gen.next(&writer, buf.len);
+        const seq = writer.buffered();
+        var parser: terminal.osc.Parser = .init(null);
         for (seq[2 .. seq.len - 1]) |c| parser.next(c);
         try testing.expect(parser.end(null) != null);
     }
@@ -213,8 +356,10 @@ test "OSC generator invalid" {
         .p_valid = 0.0,
     };
     for (0..50) |_| {
-        const seq = try gen.next(&buf);
-        var parser: terminal.osc.Parser = .init();
+        var writer: std.Io.Writer = .fixed(&buf);
+        try gen.next(&writer, buf.len);
+        const seq = writer.buffered();
+        var parser: terminal.osc.Parser = .init(null);
         for (seq[2 .. seq.len - 1]) |c| parser.next(c);
         try testing.expect(parser.end(null) == null);
     }

@@ -45,6 +45,11 @@ typedef enum {
   GHOSTTY_CLIPBOARD_SELECTION,
 } ghostty_clipboard_e;
 
+typedef struct {
+  const char *mime;
+  const char *data;
+} ghostty_clipboard_content_s;
+
 typedef enum {
   GHOSTTY_CLIPBOARD_REQUEST_PASTE,
   GHOSTTY_CLIPBOARD_REQUEST_OSC_52_READ,
@@ -507,6 +512,12 @@ typedef enum {
   GHOSTTY_GOTO_SPLIT_RIGHT,
 } ghostty_action_goto_split_e;
 
+// apprt.action.GotoWindow
+typedef enum {
+  GHOSTTY_GOTO_WINDOW_PREVIOUS,
+  GHOSTTY_GOTO_WINDOW_NEXT,
+} ghostty_action_goto_window_e;
+
 // apprt.action.ResizeSplit.Direction
 typedef enum {
   GHOSTTY_RESIZE_SPLIT_UP,
@@ -568,6 +579,12 @@ typedef enum {
   GHOSTTY_QUIT_TIMER_STOP,
 } ghostty_action_quit_timer_e;
 
+// apprt.action.Readonly
+typedef enum {
+  GHOSTTY_READONLY_OFF,
+  GHOSTTY_READONLY_ON,
+} ghostty_action_readonly_e;
+
 // apprt.action.DesktopNotification.C
 typedef struct {
   const char* title;
@@ -578,6 +595,12 @@ typedef struct {
 typedef struct {
   const char* title;
 } ghostty_action_set_title_s;
+
+// apprt.action.PromptTitle
+typedef enum {
+  GHOSTTY_PROMPT_TITLE_SURFACE,
+  GHOSTTY_PROMPT_TITLE_TAB,
+} ghostty_action_prompt_title_e;
 
 // apprt.action.Pwd.C
 typedef struct {
@@ -695,6 +718,7 @@ typedef struct {
 typedef enum {
   GHOSTTY_ACTION_OPEN_URL_KIND_UNKNOWN,
   GHOSTTY_ACTION_OPEN_URL_KIND_TEXT,
+  GHOSTTY_ACTION_OPEN_URL_KIND_HTML,
 } ghostty_action_open_url_kind_e;
 
 // apprt.action.OpenUrl.C
@@ -708,6 +732,7 @@ typedef struct {
 typedef enum {
   GHOSTTY_ACTION_CLOSE_TAB_MODE_THIS,
   GHOSTTY_ACTION_CLOSE_TAB_MODE_OTHER,
+  GHOSTTY_ACTION_CLOSE_TAB_MODE_RIGHT,
 } ghostty_action_close_tab_mode_e;
 
 // apprt.surface.Message.ChildExited
@@ -741,6 +766,28 @@ typedef struct {
   uint64_t duration;
 } ghostty_action_command_finished_s;
 
+// apprt.action.StartSearch.C
+typedef struct {
+  const char* needle;
+} ghostty_action_start_search_s;
+
+// apprt.action.SearchTotal
+typedef struct {
+  ssize_t total;
+} ghostty_action_search_total_s;
+
+// apprt.action.SearchSelected
+typedef struct {
+  ssize_t selected;
+} ghostty_action_search_selected_s;
+
+// terminal.Scrollbar
+typedef struct {
+  uint64_t total;
+  uint64_t offset;
+  uint64_t len;
+} ghostty_action_scrollbar_s;
+
 // apprt.Action.Key
 typedef enum {
   GHOSTTY_ACTION_QUIT,
@@ -759,6 +806,7 @@ typedef enum {
   GHOSTTY_ACTION_MOVE_TAB,
   GHOSTTY_ACTION_GOTO_TAB,
   GHOSTTY_ACTION_GOTO_SPLIT,
+  GHOSTTY_ACTION_GOTO_WINDOW,
   GHOSTTY_ACTION_RESIZE_SPLIT,
   GHOSTTY_ACTION_EQUALIZE_SPLITS,
   GHOSTTY_ACTION_TOGGLE_SPLIT_ZOOM,
@@ -767,6 +815,7 @@ typedef enum {
   GHOSTTY_ACTION_RESET_WINDOW_SIZE,
   GHOSTTY_ACTION_INITIAL_SIZE,
   GHOSTTY_ACTION_CELL_SIZE,
+  GHOSTTY_ACTION_SCROLLBAR,
   GHOSTTY_ACTION_RENDER,
   GHOSTTY_ACTION_INSPECTOR,
   GHOSTTY_ACTION_SHOW_GTK_INSPECTOR,
@@ -797,7 +846,12 @@ typedef enum {
   GHOSTTY_ACTION_PROGRESS_REPORT,
   GHOSTTY_ACTION_SHOW_ON_SCREEN_KEYBOARD,
   GHOSTTY_ACTION_COMMAND_FINISHED,
-} ghostty_action_tag_e;
+  GHOSTTY_ACTION_START_SEARCH,
+  GHOSTTY_ACTION_END_SEARCH,
+  GHOSTTY_ACTION_SEARCH_TOTAL,
+  GHOSTTY_ACTION_SEARCH_SELECTED,
+  GHOSTTY_ACTION_READONLY,
+  } ghostty_action_tag_e;
 
 typedef union {
   ghostty_action_split_direction_e new_split;
@@ -805,13 +859,16 @@ typedef union {
   ghostty_action_move_tab_s move_tab;
   ghostty_action_goto_tab_e goto_tab;
   ghostty_action_goto_split_e goto_split;
+  ghostty_action_goto_window_e goto_window;
   ghostty_action_resize_split_s resize_split;
   ghostty_action_size_limit_s size_limit;
   ghostty_action_initial_size_s initial_size;
   ghostty_action_cell_size_s cell_size;
+  ghostty_action_scrollbar_s scrollbar;
   ghostty_action_inspector_e inspector;
   ghostty_action_desktop_notification_s desktop_notification;
   ghostty_action_set_title_s set_title;
+  ghostty_action_prompt_title_e prompt_title;
   ghostty_action_pwd_s pwd;
   ghostty_action_mouse_shape_e mouse_shape;
   ghostty_action_mouse_visibility_e mouse_visibility;
@@ -829,6 +886,10 @@ typedef union {
   ghostty_surface_message_childexited_s child_exited;
   ghostty_action_progress_report_s progress_report;
   ghostty_action_command_finished_s command_finished;
+  ghostty_action_start_search_s start_search;
+  ghostty_action_search_total_s search_total;
+  ghostty_action_search_selected_s search_selected;
+  ghostty_action_readonly_e readonly;
 } ghostty_action_u;
 
 typedef struct {
@@ -846,8 +907,9 @@ typedef void (*ghostty_runtime_confirm_read_clipboard_cb)(
     void*,
     ghostty_clipboard_request_e);
 typedef void (*ghostty_runtime_write_clipboard_cb)(void*,
-                                                   const char*,
                                                    ghostty_clipboard_e,
+                                                   const ghostty_clipboard_content_s*,
+                                                   size_t,
                                                    bool);
 typedef void (*ghostty_runtime_close_surface_cb)(void*, bool);
 typedef bool (*ghostty_runtime_action_cb)(ghostty_app_t,

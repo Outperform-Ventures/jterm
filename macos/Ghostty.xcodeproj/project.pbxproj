@@ -96,6 +96,7 @@
 				Features/QuickTerminal/QuickTerminalController.swift,
 				Features/QuickTerminal/QuickTerminalPosition.swift,
 				Features/QuickTerminal/QuickTerminalScreen.swift,
+				Features/QuickTerminal/QuickTerminalScreenStateCache.swift,
 				Features/QuickTerminal/QuickTerminalSize.swift,
 				Features/QuickTerminal/QuickTerminalSpaceBehavior.swift,
 				Features/QuickTerminal/QuickTerminalWindow.swift,
@@ -114,6 +115,7 @@
 				Features/Terminal/ErrorView.swift,
 				Features/Terminal/TerminalController.swift,
 				Features/Terminal/TerminalRestorable.swift,
+				Features/Terminal/TerminalTabColor.swift,
 				Features/Terminal/TerminalView.swift,
 				"Features/Terminal/Window Styles/HiddenTitlebarTerminalWindow.swift",
 				"Features/Terminal/Window Styles/Terminal.xib",
@@ -125,7 +127,14 @@
 				"Features/Terminal/Window Styles/TitlebarTabsTahoeTerminalWindow.swift",
 				"Features/Terminal/Window Styles/TitlebarTabsVenturaTerminalWindow.swift",
 				"Features/Terminal/Window Styles/TransparentTitlebarTerminalWindow.swift",
+				Features/Update/UpdateBadge.swift,
+				Features/Update/UpdateController.swift,
 				Features/Update/UpdateDelegate.swift,
+				Features/Update/UpdateDriver.swift,
+				Features/Update/UpdatePill.swift,
+				Features/Update/UpdatePopoverView.swift,
+				Features/Update/UpdateSimulator.swift,
+				Features/Update/UpdateViewModel.swift,
 				"Ghostty/FullscreenMode+Extension.swift",
 				Ghostty/Ghostty.Command.swift,
 				Ghostty/Ghostty.Error.swift,
@@ -134,6 +143,7 @@
 				Ghostty/Ghostty.Surface.swift,
 				Ghostty/InspectorView.swift,
 				"Ghostty/NSEvent+Extension.swift",
+				Ghostty/SurfaceScrollView.swift,
 				Ghostty/SurfaceView_AppKit.swift,
 				Helpers/AppInfo.swift,
 				Helpers/CodableBridge.swift,
@@ -147,6 +157,7 @@
 				"Helpers/Extensions/NSAppearance+Extension.swift",
 				"Helpers/Extensions/NSApplication+Extension.swift",
 				"Helpers/Extensions/NSImage+Extension.swift",
+				"Helpers/Extensions/NSMenu+Extension.swift",
 				"Helpers/Extensions/NSMenuItem+Extension.swift",
 				"Helpers/Extensions/NSPasteboard+Extension.swift",
 				"Helpers/Extensions/NSScreen+Extension.swift",
@@ -160,6 +171,7 @@
 				Helpers/KeyboardLayout.swift,
 				Helpers/LastWindowPosition.swift,
 				Helpers/MetalView.swift,
+				Helpers/NonDraggableHostingView.swift,
 				Helpers/PermissionRequest.swift,
 				Helpers/Private/CGS.swift,
 				Helpers/Private/Dock.swift,
@@ -545,6 +557,7 @@
 				INFOPLIST_KEY_NSRemindersUsageDescription = "A program running within Ghostty would like to access your reminders.";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "A program running within Ghostty would like to use speech recognition.";
 				INFOPLIST_KEY_NSSystemAdministrationUsageDescription = "A program running within Ghostty requires elevated privileges.";
+				INFOPLIST_PREPROCESS = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -767,7 +780,7 @@
 				EXECUTABLE_NAME = ghostty;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "Ghostty-Info.plist";
-				INFOPLIST_KEY_CFBundleDisplayName = Ghostty;
+				INFOPLIST_KEY_CFBundleDisplayName = "Ghostty[DEBUG]";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
 				INFOPLIST_KEY_NSAppleEventsUsageDescription = "A program running within Ghostty would like to use AppleScript.";
 				INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription = "A program running within Ghostty would like to use Bluetooth.";
@@ -785,6 +798,7 @@
 				INFOPLIST_KEY_NSRemindersUsageDescription = "A program running within Ghostty would like to access your reminders.";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "A program running within Ghostty would like to use speech recognition.";
 				INFOPLIST_KEY_NSSystemAdministrationUsageDescription = "A program running within Ghostty requires elevated privileges.";
+				INFOPLIST_PREPROCESS = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -839,6 +853,7 @@
 				INFOPLIST_KEY_NSRemindersUsageDescription = "A program running within Ghostty would like to access your reminders.";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "A program running within Ghostty would like to use speech recognition.";
 				INFOPLIST_KEY_NSSystemAdministrationUsageDescription = "A program running within Ghostty requires elevated privileges.";
+				INFOPLIST_PREPROCESS = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",

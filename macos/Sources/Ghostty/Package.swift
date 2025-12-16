@@ -56,7 +56,7 @@ extension Ghostty {
         case app
         case zig_run
     }
-    
+
     /// Returns the mechanism that launched the app. This is based on an env var so
     /// its up to the env var being set in the correct circumstance.
     static var launchSource: LaunchSource {
@@ -65,7 +65,7 @@ extension Ghostty {
             // source. If its unset we assume we're in a CLI environment.
             return .cli
         }
-        
+
         // If the env var is set but its unknown then we default back to the app.
         return LaunchSource(rawValue: envValue) ?? .app
     }
@@ -76,17 +76,17 @@ extension Ghostty {
 extension Ghostty {
     class AllocatedString {
         private let cString: ghostty_string_s
-        
+
         init(_ c: ghostty_string_s) {
             self.cString = c
         }
-        
+
         var string: String {
             guard let ptr = cString.ptr else { return "" }
             let data = Data(bytes: ptr, count: Int(cString.len))
             return String(data: data, encoding: .utf8) ?? ""
         }
-        
+
         deinit {
             ghostty_string_free(cString)
         }
@@ -223,7 +223,38 @@ extension Ghostty {
             }
         }
     }
+}
 
+#if canImport(AppKit)
+// MARK: SplitFocusDirection Extensions
+
+extension Ghostty.SplitFocusDirection {
+    /// Convert to a SplitTree.FocusDirection for the given ViewType.
+    func toSplitTreeFocusDirection<ViewType>() -> SplitTree<ViewType>.FocusDirection {
+        switch self {
+        case .previous:
+            return .previous
+
+        case .next:
+            return .next
+
+        case .up:
+            return .spatial(.up)
+
+        case .down:
+            return .spatial(.down)
+
+        case .left:
+            return .spatial(.left)
+
+        case .right:
+            return .spatial(.right)
+        }
+    }
+}
+#endif
+
+extension Ghostty {
     /// The type of a clipboard request
     enum ClipboardRequest {
         /// A direct paste of clipboard contents
@@ -268,9 +299,26 @@ extension Ghostty {
             }
         }
     }
+    
+    struct ClipboardContent {
+        let mime: String
+        let data: String
+        
+        static func from(content: ghostty_clipboard_content_s) -> ClipboardContent? {
+            guard let mimePtr = content.mime,
+                  let dataPtr = content.data else {
+                return nil
+            }
+            
+            return ClipboardContent(
+                mime: String(cString: mimePtr),
+                data: String(cString: dataPtr)
+            )
+        }
+    }
 
     /// macos-icon
-    enum MacOSIcon: String {
+    enum MacOSIcon: String, Sendable {
         case official
         case blueprint
         case chalkboard
@@ -332,6 +380,9 @@ extension Notification.Name {
     /// Close other tabs
     static let ghosttyCloseOtherTabs = Notification.Name("com.mitchellh.ghostty.closeOtherTabs")
 
+    /// Close tabs to the right of the focused tab
+    static let ghosttyCloseTabsOnTheRight = Notification.Name("com.mitchellh.ghostty.closeTabsOnTheRight")
+
     /// Close window
     static let ghosttyCloseWindow = Notification.Name("com.mitchellh.ghostty.closeWindow")
 
@@ -340,10 +391,21 @@ extension Notification.Name {
 
     /// Ring the bell
     static let ghosttyBellDidRing = Notification.Name("com.mitchellh.ghostty.ghosttyBellDidRing")
+
+    /// Readonly mode changed
+    static let ghosttyDidChangeReadonly = Notification.Name("com.mitchellh.ghostty.didChangeReadonly")
+    static let ReadonlyKey = ghosttyDidChangeReadonly.rawValue + ".readonly"
     static let ghosttyCommandPaletteDidToggle = Notification.Name("com.mitchellh.ghostty.commandPaletteDidToggle")
 
     /// Toggle maximize of current window
     static let ghosttyMaximizeDidToggle = Notification.Name("com.mitchellh.ghostty.maximizeDidToggle")
+
+    /// Notification sent when scrollbar updates
+    static let ghosttyDidUpdateScrollbar = Notification.Name("com.mitchellh.ghostty.didUpdateScrollbar")
+    static let ScrollbarKey = ghosttyDidUpdateScrollbar.rawValue + ".scrollbar"
+
+    /// Focus the search field
+    static let ghosttySearchFocus = Notification.Name("com.mitchellh.ghostty.searchFocus")
 }
 
 // NOTE: I am moving all of these to Notification.Name extensions over time. This

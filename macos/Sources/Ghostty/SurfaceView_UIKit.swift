@@ -40,6 +40,12 @@ extension Ghostty {
 
         /// True when the bell is active. This is set inactive on focus or event.
         @Published var bell: Bool = false
+        
+        // The current search state. When non-nil, the search overlay should be shown.
+        @Published var searchState: SearchState? = nil
+        
+        /// True when the surface is in readonly mode.
+        @Published private(set) var readonly: Bool = false
 
         // Returns sizing information for the surface. This is the raw C
         // structure because I'm lazy.

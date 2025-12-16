@@ -1,17 +1,22 @@
 #--------------------------------------------------------------------
 # Generate documentation with Doxygen
 #--------------------------------------------------------------------
-FROM ubuntu:24.04 AS builder
+FROM --platform=linux/amd64 archlinux:latest AS builder
 
 # Build argument for noindex header
 ARG ADD_NOINDEX_HEADER=false
-RUN apt-get update && apt-get install -y \
+RUN pacman -Syu --noconfirm && \
+    pacman -S --noconfirm \
     doxygen \
-    graphviz \
-    && rm -rf /var/lib/apt/lists/*
+    graphviz && \
+    pacman -Scc --noconfirm
 WORKDIR /ghostty
 COPY include/ ./include/
+COPY images/ ./images/
+COPY dist/doxygen/ ./dist/doxygen/
+COPY example/ ./example/
 COPY Doxyfile ./
+COPY DoxygenLayout.xml ./
 RUN mkdir -p zig-out/share/ghostty/doc/libghostty
 RUN doxygen
 

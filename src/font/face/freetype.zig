@@ -9,14 +9,13 @@ const builtin = @import("builtin");
 const freetype = @import("freetype");
 const harfbuzz = @import("harfbuzz");
 const stb = @import("../../stb/main.zig");
-const assert = std.debug.assert;
+const assert = @import("../../quirks.zig").inlineAssert;
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
 const font = @import("../main.zig");
 const Glyph = font.Glyph;
 const Library = font.Library;
 const opentype = @import("../opentype.zig");
-const fastmem = @import("../../fastmem.zig");
 const quirks = @import("../../quirks.zig");
 const config = @import("../../config.zig");
 
@@ -376,7 +375,15 @@ pub const Face = struct {
             // If we're gonna be rendering this glyph in monochrome,
             // then we should use the monochrome hinter as well, or
             // else it won't look very good at all.
-            .target_mono = self.load_flags.monochrome,
+            //
+            // Otherwise if the user asked for light hinting we
+            // use that, otherwise we just use the normal target.
+            .target = if (self.load_flags.monochrome)
+                .mono
+            else if (self.load_flags.light)
+                .light
+            else
+                .normal,
 
             // NO_SVG set to true because we don't currently support rendering
             // SVG glyphs under FreeType, since that requires bundling another
@@ -1143,7 +1150,7 @@ test {
             ft_font.glyphIndex('A').?,
             .{ .grid_metrics = font.Metrics.calc(ft_font.getMetrics()) },
         );
-        try testing.expectEqual(@as(u32, 20), g2.height);
+        try testing.expectEqual(@as(u32, 21), g2.height);
     }
 }
 
@@ -1176,43 +1183,6 @@ test "color emoji" {
         try testing.expect(ft_font.hasColor());
         const glyph_id = ft_font.glyphIndex('🥸').?;
         try testing.expect(ft_font.isColorGlyph(glyph_id));
-    }
-
-    // resize
-    // TODO: Comprehensive tests for constraints,
-    //       this is just an adapted legacy test.
-    {
-        const glyph = try ft_font.renderGlyph(
-            alloc,
-            &atlas,
-            ft_font.glyphIndex('🥸').?,
-            .{
-                .grid_metrics = .{
-                    .cell_width = 13,
-                    .cell_height = 24,
-                    .cell_baseline = 0,
-                    .underline_position = 0,
-                    .underline_thickness = 0,
-                    .strikethrough_position = 0,
-                    .strikethrough_thickness = 0,
-                    .overline_position = 0,
-                    .overline_thickness = 0,
-                    .box_thickness = 0,
-                    .cursor_height = 0,
-                    .icon_height = 0,
-                    .face_width = 13,
-                    .face_height = 24,
-                    .face_y = 0,
-                },
-                .constraint_width = 2,
-                .constraint = .{
-                    .size = .fit,
-                    .align_horizontal = .center,
-                    .align_vertical = .center,
-                },
-            },
-        );
-        try testing.expectEqual(@as(u32, 24), glyph.height);
     }
 }
 

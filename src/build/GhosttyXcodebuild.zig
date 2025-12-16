@@ -31,7 +31,7 @@ pub fn init(
         .ReleaseSafe,
         .ReleaseSmall,
         .ReleaseFast,
-        => "Release",
+        => "ReleaseLocal",
     };
 
     const xc_arch: ?[]const u8 = switch (deps.xcframework.target) {
@@ -151,7 +151,7 @@ pub fn init(
 
         // This overrides our default behavior and forces logs to show
         // up on stderr (in addition to the centralized macOS log).
-        open.setEnvironmentVariable("GHOSTTY_LOG", "1");
+        open.setEnvironmentVariable("GHOSTTY_LOG", "stderr,macos");
 
         // Configure how we're launching
         open.setEnvironmentVariable("GHOSTTY_MAC_LAUNCH_SOURCE", "zig_run");
