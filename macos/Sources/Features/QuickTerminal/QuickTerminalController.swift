@@ -313,13 +313,6 @@ class QuickTerminalController: BaseTerminalController {
         animateOut()
     }
 
-    override func toggleBackgroundOpacity() {
-        super.toggleBackgroundOpacity()
-
-        // Sync the window appearance with the new opacity state
-        syncAppearance()
-    }
-
     // MARK: Methods
 
     func toggle() {
@@ -603,7 +596,7 @@ class QuickTerminalController: BaseTerminalController {
         })
     }
 
-    private func syncAppearance() {
+    override func syncAppearance() {
         guard let window else { return }
 
         defer { updateColorSchemeForSurfaceTree() }

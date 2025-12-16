@@ -815,7 +815,7 @@ class BaseTerminalController: NSWindowController,
         }
     }
 
-    // MARK: Background Opacity
+    // MARK: Appearance
 
     /// Toggle the background opacity between transparent and opaque states.
     /// Do nothing if the configured background-opacity is >= 1 (already opaque).
@@ -823,9 +823,25 @@ class BaseTerminalController: NSWindowController,
     func toggleBackgroundOpacity() {
         // Do nothing if config is already fully opaque
         guard ghostty.config.backgroundOpacity < 1 else { return }
+        
+        // Do nothing if in fullscreen (transparency doesn't apply in fullscreen)
+        guard let window, !window.styleMask.contains(.fullScreen) else { return }
 
         // Toggle between transparent and opaque
         isBackgroundOpaque.toggle()
+        
+        // Update our appearance
+        syncAppearance()
+    }
+    
+    /// Override this to resync any appearance related properties. This will be called automatically
+    /// when certain window properties change that affect appearance. The list below should be updated
+    /// as we add new things:
+    ///
+    ///  - ``toggleBackgroundOpacity``
+    func syncAppearance() {
+        // Purposely a no-op. This lets subclasses override this and we can call
+        // it virtually from here.
     }
 
     // MARK: Fullscreen
@@ -888,6 +904,9 @@ class BaseTerminalController: NSWindowController,
         } else {
             updateOverlayIsVisible = defaultUpdateOverlayVisibility()
         }
+        
+        // Always resync our appearance
+        syncAppearance()
     }
 
     // MARK: Clipboard Confirmation
