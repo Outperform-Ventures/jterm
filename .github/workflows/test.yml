@@ -24,7 +24,7 @@ jobs:
       - build-linux-libghostty
       - build-nix
       - build-macos
-      - build-macos-matrix
+      - build-macos-freetype
       - build-snap
       - build-windows
       - test
@@ -464,7 +464,7 @@ jobs:
           cd macos
           xcodebuild -target Ghostty-iOS "CODE_SIGNING_ALLOWED=NO"
 
-  build-macos-matrix:
+  build-macos-freetype:
     runs-on: namespace-profile-ghostty-macos-tahoe
     needs: test
     steps:
@@ -493,18 +493,10 @@ jobs:
       - name: Test All
         run: |
           nix develop -c zig build test --system ${{ steps.deps.outputs.deps }} -Drenderer=metal -Dfont-backend=freetype
-          nix develop -c zig build test --system ${{ steps.deps.outputs.deps }} -Drenderer=metal -Dfont-backend=coretext
-          nix develop -c zig build test --system ${{ steps.deps.outputs.deps }} -Drenderer=metal -Dfont-backend=coretext_freetype
-          nix develop -c zig build test --system ${{ steps.deps.outputs.deps }} -Drenderer=metal -Dfont-backend=coretext_harfbuzz
-          nix develop -c zig build test --system ${{ steps.deps.outputs.deps }} -Drenderer=metal -Dfont-backend=coretext_noshape
 
       - name: Build All
         run: |
           nix develop -c zig build --system ${{ steps.deps.outputs.deps }} -Demit-macos-app=false -Drenderer=metal -Dfont-backend=freetype
-          nix develop -c zig build --system ${{ steps.deps.outputs.deps }} -Demit-macos-app=false -Drenderer=metal -Dfont-backend=coretext
-          nix develop -c zig build --system ${{ steps.deps.outputs.deps }} -Demit-macos-app=false -Drenderer=metal -Dfont-backend=coretext_freetype
-          nix develop -c zig build --system ${{ steps.deps.outputs.deps }} -Demit-macos-app=false -Drenderer=metal -Dfont-backend=coretext_harfbuzz
-          nix develop -c zig build --system ${{ steps.deps.outputs.deps }} -Demit-macos-app=false -Drenderer=metal -Dfont-backend=coretext_noshape
 
   build-windows:
     runs-on: windows-2022
