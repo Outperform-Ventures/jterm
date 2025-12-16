@@ -985,12 +985,20 @@ palette: Palette = .{},
 /// Available since: 1.1.0
 @"split-divider-color": ?Color = null,
 
-/// Control when Ghostty preserves the zoomed state of a split. This is a packed
-/// struct so more options can be added in the future. The `navigation` option
-/// keeps the current split zoomed when split navigation (`goto_split`) changes
-/// the focused split.
+/// Control when Ghostty preserves a zoomed split. Under normal circumstances,
+/// any operation that changes focus or layout of the split tree in a window
+/// will unzoom any zoomed split. This configuration allows you to control
+/// this behavior.
+///
+/// This can be set to `navigation` to preserve the zoomed split state
+/// when navigating to another split (e.g. via `goto_split`). This will
+/// change the zoomed split to the newly focused split instead of unzooming.
+///
+/// Any options can also be prefixed with `no-` to disable that option.
 ///
 /// Example: `split-preserve-zoom = navigation`
+///
+/// Available since: 1.3.0
 @"split-preserve-zoom": SplitPreserveZoom = .{},
 
 /// The foreground and background color for search matches. This only applies
