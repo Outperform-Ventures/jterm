@@ -253,6 +253,7 @@ test "url regex" {
             .input = "IPv6 in markdown [link](http://[2001:db8::1]/docs)",
             .expect = "http://[2001:db8::1]/docs",
         },
+        // File paths with spaces
         .{
             .input = "./spaces-end.   ",
             .expect = "./spaces-end.   ",
