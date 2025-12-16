@@ -2,6 +2,7 @@ const std = @import("std");
 const args = @import("args.zig");
 const Action = @import("ghostty.zig").Action;
 const Config = @import("../config/Config.zig");
+const configpkg = @import("../config.zig");
 const themepkg = @import("../config/theme.zig");
 const tui = @import("tui.zig");
 const global_state = &@import("../global.zig").state;
@@ -197,7 +198,7 @@ pub fn run(gpa_alloc: std.mem.Allocator) !u8 {
 }
 
 fn resolveAutoThemePath(alloc: std.mem.Allocator) ![]u8 {
-    const main_cfg_path = try Config.preferredDefaultFilePath(alloc);
+    const main_cfg_path = try configpkg.preferredDefaultFilePath(alloc);
     defer alloc.free(main_cfg_path);
 
     const base_dir = std.fs.path.dirname(main_cfg_path) orelse return error.BadPathName;
@@ -815,8 +816,8 @@ const Preview = struct {
             .save => {
                 const theme = self.themes[self.filtered.items[self.current]];
 
-                const width = 90;
-                const height = 12;
+                const width = 92;
+                const height = 17;
                 const child = win.child(
                     .{
                         .x_off = win.width / 2 -| width / 2,
@@ -839,7 +840,10 @@ const Preview = struct {
                     "",
                     "Save the configuration file and then reload it to apply the new theme.",
                     "",
-                    "Or press 'w' to write an auto theme file.",
+                    "Or press 'w' to write an auto theme file to your system's preferred default config path.",
+                    "Then add the following line to your Ghostty configuration and reload:",
+                    "",
+                    "config-file = ?auto/theme.ghostty",
                     "",
                     "For more details on configuration and themes, visit the Ghostty documentation:",
                     "",
