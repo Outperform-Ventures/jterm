@@ -115,7 +115,9 @@ pub const Action = union(Key) {
     /// Toggle the visibility of all Ghostty terminal windows.
     toggle_visibility,
 
-    /// Toggle the window background opacity. This currently only works on macOS.
+    /// Toggle the window background opacity. This only has an effect
+    /// if the window started as transparent (non-opaque), and toggles
+    /// it between fully opaque and the configured background opacity.
     toggle_background_opacity,
 
     /// Moves a tab by a relative offset.

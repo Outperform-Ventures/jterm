@@ -621,7 +621,7 @@ fn actionCommands(action: Action.Key) []const Command {
         .toggle_background_opacity => comptime &.{.{
             .action = .toggle_background_opacity,
             .title = "Toggle Background Opacity",
-            .description = "Toggle the window background between transparent and opaque.",
+            .description = "Toggle the background opacity of a window that started transparent.",
         }},
 
         .check_for_updates => comptime &.{.{
