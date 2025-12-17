@@ -3,6 +3,7 @@ import SwiftUI
 struct CommandOption: Identifiable, Hashable {
     let id = UUID()
     let title: String
+    let subtitle: String?
     let description: String?
     let symbols: [String]?
     let leadingIcon: String?
@@ -13,6 +14,7 @@ struct CommandOption: Identifiable, Hashable {
     
     init(
         title: String,
+        subtitle: String? = nil,
         description: String? = nil,
         symbols: [String]? = nil,
         leadingIcon: String? = nil,
@@ -22,6 +24,7 @@ struct CommandOption: Identifiable, Hashable {
         action: @escaping () -> Void
     ) {
         self.title = title
+        self.subtitle = subtitle
         self.description = description
         self.symbols = symbols
         self.leadingIcon = leadingIcon
@@ -55,7 +58,10 @@ struct CommandPaletteView: View {
         if query.isEmpty {
             return options
         } else {
-            return options.filter { $0.title.localizedCaseInsensitiveContains(query) }
+            return options.filter {
+                $0.title.localizedCaseInsensitiveContains(query) ||
+                ($0.subtitle?.localizedCaseInsensitiveContains(query) ?? false)
+            }
         }
     }
 
@@ -298,8 +304,16 @@ fileprivate struct CommandRow: View {
                         .font(.system(size: 14, weight: .medium))
                 }
                 
-                Text(option.title)
-                    .fontWeight(option.emphasis ? .medium : .regular)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(option.title)
+                        .fontWeight(option.emphasis ? .medium : .regular)
+                    
+                    if let subtitle = option.subtitle {
+                        Text(subtitle)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
                 
                 Spacer()
                 

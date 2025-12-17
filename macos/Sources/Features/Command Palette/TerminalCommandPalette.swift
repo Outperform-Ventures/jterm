@@ -142,10 +142,16 @@ struct TerminalCommandPaletteView: View {
             return controller.surfaceTree.map { surface in
                 let title = surface.title.isEmpty ? window.title : surface.title
                 let displayTitle = title.isEmpty ? "Untitled" : title
+                let pwd = surface.pwd?.abbreviatedPath
+                let subtitle: String? = if let pwd, !displayTitle.contains(pwd) {
+                    pwd
+                } else {
+                    nil
+                }
 
                 return CommandOption(
                     title: "Focus: \(displayTitle)",
-                    description: surface.pwd?.abbreviatedPath,
+                    subtitle: subtitle,
                     leadingIcon: "rectangle.on.rectangle",
                     leadingColor: displayColor?.displayColor.map { Color($0) }
                 ) {
