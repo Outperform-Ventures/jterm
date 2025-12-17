@@ -67,11 +67,20 @@ struct TerminalCommandPaletteView: View {
         options.append(contentsOf: updateOptions)
         
         // Sort the rest. We replace ":" with a character that sorts before space
-        // so that "Foo:" sorts before "Foo Bar:".
+        // so that "Foo:" sorts before "Foo Bar:". Use sortKey as a tie-breaker
+        // for stable ordering when titles are equal.
         options.append(contentsOf: (jumpOptions + terminalOptions).sorted { a, b in
             let aNormalized = a.title.replacingOccurrences(of: ":", with: "\t")
             let bNormalized = b.title.replacingOccurrences(of: ":", with: "\t")
-            return aNormalized.localizedCaseInsensitiveCompare(bNormalized) == .orderedAscending
+            let comparison = aNormalized.localizedCaseInsensitiveCompare(bNormalized)
+            if comparison != .orderedSame {
+                return comparison == .orderedAscending
+            }
+            // Tie-breaker: use sortKey if both have one
+            if let aSortKey = a.sortKey, let bSortKey = b.sortKey {
+                return aSortKey < bSortKey
+            }
+            return false
         })
         return options
     }
@@ -153,7 +162,8 @@ struct TerminalCommandPaletteView: View {
                     title: "Focus: \(displayTitle)",
                     subtitle: subtitle,
                     leadingIcon: "rectangle.on.rectangle",
-                    leadingColor: displayColor?.displayColor.map { Color($0) }
+                    leadingColor: displayColor?.displayColor.map { Color($0) },
+                    sortKey: AnySortKey(ObjectIdentifier(surface))
                 ) {
                     NotificationCenter.default.post(
                         name: Ghostty.Notification.ghosttyPresentTerminal,

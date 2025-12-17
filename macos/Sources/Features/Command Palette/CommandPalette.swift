@@ -1,15 +1,27 @@
 import SwiftUI
 
 struct CommandOption: Identifiable, Hashable {
+    /// Unique identifier for this option.
     let id = UUID()
+    /// The primary text displayed for this command.
     let title: String
+    /// Secondary text displayed below the title.
     let subtitle: String?
+    /// Tooltip text shown on hover.
     let description: String?
+    /// Keyboard shortcut symbols to display.
     let symbols: [String]?
+    /// SF Symbol name for the leading icon.
     let leadingIcon: String?
+    /// Color for the leading indicator circle.
     let leadingColor: Color?
+    /// Badge text displayed as a pill.
     let badge: String?
+    /// Whether to visually emphasize this option.
     let emphasis: Bool
+    /// Sort key for stable ordering when titles are equal.
+    let sortKey: AnySortKey?
+    /// The action to perform when this option is selected.
     let action: () -> Void
     
     init(
@@ -21,6 +33,7 @@ struct CommandOption: Identifiable, Hashable {
         leadingColor: Color? = nil,
         badge: String? = nil,
         emphasis: Bool = false,
+        sortKey: AnySortKey? = nil,
         action: @escaping () -> Void
     ) {
         self.title = title
@@ -31,6 +44,7 @@ struct CommandOption: Identifiable, Hashable {
         self.leadingColor = leadingColor
         self.badge = badge
         self.emphasis = emphasis
+        self.sortKey = sortKey
         self.action = action
     }
 
