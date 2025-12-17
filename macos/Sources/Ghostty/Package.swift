@@ -435,6 +435,9 @@ extension Ghostty.Notification {
     /// New window. Has base surface config requested in userinfo.
     static let ghosttyNewWindow = Notification.Name("com.mitchellh.ghostty.newWindow")
 
+    /// Present terminal. Bring the surface's window to focus without activating the app.
+    static let ghosttyPresentTerminal = Notification.Name("com.mitchellh.ghostty.presentTerminal")
+
     /// Toggle fullscreen of current window
     static let ghosttyToggleFullscreen = Notification.Name("com.mitchellh.ghostty.toggleFullscreen")
     static let FullscreenModeKey = ghosttyToggleFullscreen.rawValue
