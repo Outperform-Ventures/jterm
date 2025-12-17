@@ -103,6 +103,17 @@ pub const Shaper = struct {
         }
     };
 
+    const RunOffset = struct {
+        x: f64 = 0,
+        y: f64 = 0,
+    };
+
+    const CellOffset = struct {
+        cluster: u32 = 0,
+        x: f64 = 0,
+        y: f64 = 0,
+    };
+
     /// Create a CoreFoundation Dictionary suitable for
     /// settings the font features of a CoreText font.
     fn makeFeaturesDict(feats: []const Feature) !*macos.foundation.Dictionary {
@@ -378,21 +389,14 @@ pub const Shaper = struct {
         self.cf_release_pool.appendAssumeCapacity(line);
 
         // This keeps track of the current offsets within a run.
-        var run_offset: struct {
-            x: f64 = 0,
-            y: f64 = 0,
-        } = .{};
+        var run_offset: RunOffset = .{};
 
         // This keeps track of the current offsets within a cell.
-        var cell_offset: struct {
-            cluster: u32 = 0,
-            x: f64 = 0,
-            y: f64 = 0,
+        var cell_offset: CellOffset = .{};
 
-            // For debugging positions, turn this on:
-            //start_index: usize = 0,
-            //end_index: usize = 0,
-        } = .{};
+        // For debugging positions, turn this on:
+        //var start_index: usize = 0;
+        //var end_index: usize = 0;
 
         // Clear our cell buf and make sure we have enough room for the whole
         // line of glyphs, so that we can just assume capacity when appending
@@ -448,58 +452,25 @@ pub const Shaper = struct {
                         .cluster = cluster,
                         .x = run_offset.x,
                         .y = run_offset.y,
-
-                        // For debugging positions, turn this on:
-                        //.start_index = index,
-                        //.end_index = index,
                     };
 
                     // For debugging positions, turn this on:
+                    //    start_index = index;
+                    //    end_index = index;
                     //} else {
-                    //    if (index < cell_offset.start_index) {
-                    //        cell_offset.start_index = index;
+                    //    if (index < start_index) {
+                    //        start_index = index;
                     //    }
-                    //    if (index > cell_offset.end_index) {
-                    //        cell_offset.end_index = index;
+                    //    if (index > end_index) {
+                    //        end_index = index;
                     //    }
                 }
 
+                // For debugging positions, turn this on:
+                //try self.debugPositions(alloc, run_offset, cell_offset, position, start_index, end_index, index);
+
                 const x_offset = position.x - cell_offset.x;
                 const y_offset = position.y - cell_offset.y;
-
-                // For debugging positions, turn this on:
-                //const advance_x_offset = run_offset.x - cell_offset.x;
-                //const advance_y_offset = run_offset.y - cell_offset.y;
-                //const x_offset_diff = x_offset - advance_x_offset;
-                //const y_offset_diff = y_offset - advance_y_offset;
-
-                //if (@abs(x_offset_diff) > 0.0001 or @abs(y_offset_diff) > 0.0001) {
-                //    var allocating = std.Io.Writer.Allocating.init(alloc);
-                //    const writer = &allocating.writer;
-                //    const codepoints = state.codepoints.items[cell_offset.start_index .. cell_offset.end_index + 1];
-                //    for (codepoints) |cp| {
-                //        if (cp.codepoint == 0) continue; // Skip surrogate pair padding
-                //        try writer.print("\\u{{{x}}}", .{cp.codepoint});
-                //    }
-                //    try writer.writeAll(" → ");
-                //    for (codepoints) |cp| {
-                //        if (cp.codepoint == 0) continue; // Skip surrogate pair padding
-                //        try writer.print("{u}", .{@as(u21, @intCast(cp.codepoint))});
-                //    }
-                //    const formatted_cps = try allocating.toOwnedSlice();
-
-                //    log.warn("position differs from advance: cluster={d} pos=({d:.2},{d:.2}) adv=({d:.2},{d:.2}) diff=({d:.2},{d:.2}) current cp={x}, cps={s}", .{
-                //        cluster,
-                //        x_offset,
-                //        y_offset,
-                //        advance_x_offset,
-                //        advance_y_offset,
-                //        x_offset_diff,
-                //        y_offset_diff,
-                //        state.codepoints.items[index].codepoint,
-                //        formatted_cps,
-                //    });
-                //}
 
                 self.cell_buf.appendAssumeCapacity(.{
                     .x = @intCast(cluster),
@@ -680,6 +651,63 @@ pub const Shaper = struct {
             _ = self;
         }
     };
+
+    fn debugPositions(
+        self: *Shaper,
+        alloc: Allocator,
+        run_offset: RunOffset,
+        cell_offset: CellOffset,
+        position: macos.graphics.Point,
+        start_index: usize,
+        end_index: usize,
+        index: usize,
+    ) !void {
+        const state = &self.run_state;
+        const x_offset = position.x - cell_offset.x;
+        const y_offset = position.y - cell_offset.y;
+        const advance_x_offset = run_offset.x - cell_offset.x;
+        const advance_y_offset = run_offset.y - cell_offset.y;
+        const x_offset_diff = x_offset - advance_x_offset;
+        const y_offset_diff = y_offset - advance_y_offset;
+
+        if (@abs(x_offset_diff) > 0.0001 or @abs(y_offset_diff) > 0.0001) {
+            var allocating = std.Io.Writer.Allocating.init(alloc);
+            const writer = &allocating.writer;
+            const codepoints = state.codepoints.items[start_index .. end_index + 1];
+            for (codepoints) |cp| {
+                if (cp.codepoint == 0) continue; // Skip surrogate pair padding
+                try writer.print("\\u{{{x}}}", .{cp.codepoint});
+            }
+            try writer.writeAll(" → ");
+            for (codepoints) |cp| {
+                if (cp.codepoint == 0) continue; // Skip surrogate pair padding
+                try writer.print("{u}", .{@as(u21, @intCast(cp.codepoint))});
+            }
+            const formatted_cps = try allocating.toOwnedSlice();
+
+            // Note that the codepoints from `start_index .. end_index + 1`
+            // might not include all the codepoints being shaped. Sometimes a
+            // codepoint gets represented in a glyph with a later codepoint
+            // such that the index for the former codepoint is skipped and just
+            // the index for the latter codepoint is used. Additionally, this
+            // gets called as we iterate through the glyphs, so it won't
+            // include the codepoints that come later that might be affecting
+            // positions for the current glyph. Usually though, for that case
+            // the positions of the later glyphs will also be affected and show
+            // up in the logs.
+            log.warn("position differs from advance: cluster={d} pos=({d:.2},{d:.2}) adv=({d:.2},{d:.2}) diff=({d:.2},{d:.2}) current cp={x}, cps={s}", .{
+                cell_offset.cluster,
+                x_offset,
+                y_offset,
+                advance_x_offset,
+                advance_y_offset,
+                x_offset_diff,
+                y_offset_diff,
+                state.codepoints.items[index].codepoint,
+                formatted_cps,
+            });
+        }
+    }
 };
 
 test "run iterator" {
