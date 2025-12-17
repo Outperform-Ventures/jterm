@@ -2048,6 +2048,12 @@ fn resolvePathForOpening(
         };
 
         const resolved = try std.fs.path.resolve(self.alloc, &.{ terminal_pwd, path });
+
+        std.fs.accessAbsolute(resolved, .{}) catch {
+            self.alloc.free(resolved);
+            return null;
+        };
+
         return resolved;
     }
 
