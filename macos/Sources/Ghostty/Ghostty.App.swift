@@ -627,11 +627,12 @@ extension Ghostty {
             case GHOSTTY_ACTION_SEARCH_SELECTED:
                 searchSelected(app, target: target, v: action.action.search_selected)
 
+            case GHOSTTY_ACTION_PRESENT_TERMINAL:
+                return presentTerminal(app, target: target)
+
             case GHOSTTY_ACTION_TOGGLE_TAB_OVERVIEW:
                 fallthrough
             case GHOSTTY_ACTION_TOGGLE_WINDOW_DECORATIONS:
-                fallthrough
-            case GHOSTTY_ACTION_PRESENT_TERMINAL:
                 fallthrough
             case GHOSTTY_ACTION_SIZE_LIMIT:
                 fallthrough
@@ -842,6 +843,30 @@ extension Ghostty {
 
             default:
                 assertionFailure()
+            }
+        }
+
+        private static func presentTerminal(
+            _ app: ghostty_app_t,
+            target: ghostty_target_s
+        ) -> Bool {
+            switch (target.tag) {
+            case GHOSTTY_TARGET_APP:
+                return false
+
+            case GHOSTTY_TARGET_SURFACE:
+                guard let surface = target.target.surface else { return false }
+                guard let surfaceView = self.surfaceView(from: surface) else { return false }
+
+                NotificationCenter.default.post(
+                    name: Notification.ghosttyPresentTerminal,
+                    object: surfaceView
+                )
+                return true
+
+            default:
+                assertionFailure()
+                return false
             }
         }
 

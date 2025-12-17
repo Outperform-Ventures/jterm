@@ -195,6 +195,11 @@ class BaseTerminalController: NSWindowController,
             selector: #selector(ghosttyDidResizeSplit(_:)),
             name: Ghostty.Notification.didResizeSplit,
             object: nil)
+        center.addObserver(
+            self,
+            selector: #selector(ghosttyDidPresentTerminal(_:)),
+            name: Ghostty.Notification.ghosttyPresentTerminal,
+            object: nil)
 
         // Listen for local events that we need to know of outside of
         // single surface handlers.
@@ -698,6 +703,15 @@ class BaseTerminalController: NSWindowController,
         } catch {
             Ghostty.logger.warning("failed to resize split: \(error)")
         }
+    }
+
+    @objc private func ghosttyDidPresentTerminal(_ notification: Notification) {
+        guard let target = notification.object as? Ghostty.SurfaceView else { return }
+        guard surfaceTree.contains(target) else { return }
+
+        // Bring the window to front and focus the surface without activating the app
+        window?.orderFrontRegardless()
+        Ghostty.moveFocus(to: target)
     }
 
     // MARK: Local Events
