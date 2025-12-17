@@ -157,6 +157,7 @@
 				"Helpers/Extensions/KeyboardShortcut+Extension.swift",
 				"Helpers/Extensions/NSAppearance+Extension.swift",
 				"Helpers/Extensions/NSApplication+Extension.swift",
+				"Helpers/Extensions/NSColor+Extension.swift",
 				"Helpers/Extensions/NSImage+Extension.swift",
 				"Helpers/Extensions/NSMenu+Extension.swift",
 				"Helpers/Extensions/NSMenuItem+Extension.swift",

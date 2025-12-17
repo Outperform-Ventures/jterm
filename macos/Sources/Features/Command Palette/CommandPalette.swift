@@ -67,14 +67,23 @@ struct CommandPaletteView: View {
     @FocusState private var isTextFieldFocused: Bool
 
     // The options that we should show, taking into account any filtering from
-    // the query.
+    // the query. Options with matching leadingColor are ranked higher.
     var filteredOptions: [CommandOption] {
         if query.isEmpty {
             return options
         } else {
-            return options.filter {
+            // Filter by title/subtitle match OR color match
+            let filtered = options.filter {
                 $0.title.localizedCaseInsensitiveContains(query) ||
-                ($0.subtitle?.localizedCaseInsensitiveContains(query) ?? false)
+                ($0.subtitle?.localizedCaseInsensitiveContains(query) ?? false) ||
+                colorMatchScore(for: $0.leadingColor, query: query) > 0
+            }
+            
+            // Sort by color match score (higher scores first), then maintain original order
+            return filtered.sorted { a, b in
+                let scoreA = colorMatchScore(for: a.leadingColor, query: query)
+                let scoreB = colorMatchScore(for: b.leadingColor, query: query)
+                return scoreA > scoreB
             }
         }
     }
@@ -190,6 +199,32 @@ struct CommandPaletteView: View {
             // Also fixes initial focus while animating.
             isTextFieldFocused = isPresented
         }
+    }
+    
+    /// Returns a score (0.0 to 1.0) indicating how well a color matches a search query color name.
+    /// Returns 0 if no color name in the query matches, or if the color is nil.
+    private func colorMatchScore(for color: Color?, query: String) -> Double {
+        guard let color = color else { return 0 }
+        
+        let queryLower = query.lowercased()
+        let nsColor = NSColor(color)
+        
+        var bestScore: Double = 0
+        for name in NSColor.colorNames {
+            guard queryLower.contains(name),
+                  let systemColor = NSColor(named: name) else { continue }
+            
+            let distance = nsColor.distance(to: systemColor)
+            // Max distance in weighted RGB space is ~3.0, so normalize and invert
+            // Use a threshold to determine "close enough" matches
+            let maxDistance: Double = 1.5
+            if distance < maxDistance {
+                let score = 1.0 - (distance / maxDistance)
+                bestScore = max(bestScore, score)
+            }
+        }
+        
+        return bestScore
     }
 }
 
