@@ -86,6 +86,10 @@ pub const compatibility = std.StaticStringMap(
     // Ghostty 1.2 removed the "desktop" option and renamed it to "detect".
     // The semantics also changed slightly but this is the correct mapping.
     .{ "gtk-single-instance", compatGtkSingleInstance },
+
+    // Ghostty 1.3 rename the "window" option to "new-window".
+    // See: https://github.com/ghostty-org/ghostty/pull/9764
+    .{ "macos-dock-drop-behavior", compatMacOSDockDropBehavior },
 });
 
 /// The font families to use.
@@ -927,6 +931,15 @@ palette: Palette = .{},
 ///     reasonable for a good looking blur. Higher blur intensities may
 ///     cause strange rendering and performance issues.
 ///
+/// On macOS 26.0 and later, there are additional special values that
+/// can be set to use the native macOS glass effects:
+///
+///   * `macos-glass-regular` - Standard glass effect with some opacity
+///   * `macos-glass-clear` - Highly transparent glass effect
+///
+/// If the macOS values are set, then this implies `background-blur = true`
+/// on non-macOS platforms.
+///
 /// Supported on macOS and on some Linux desktop environments, including:
 ///
 ///   * KDE Plasma (Wayland and X11)
@@ -975,6 +988,22 @@ palette: Palette = .{},
 ///
 /// Available since: 1.1.0
 @"split-divider-color": ?Color = null,
+
+/// Control when Ghostty preserves a zoomed split. Under normal circumstances,
+/// any operation that changes focus or layout of the split tree in a window
+/// will unzoom any zoomed split. This configuration allows you to control
+/// this behavior.
+///
+/// This can be set to `navigation` to preserve the zoomed split state
+/// when navigating to another split (e.g. via `goto_split`). This will
+/// change the zoomed split to the newly focused split instead of unzooming.
+///
+/// Any options can also be prefixed with `no-` to disable that option.
+///
+/// Example: `split-preserve-zoom = navigation`
+///
+/// Available since: 1.3.0
+@"split-preserve-zoom": SplitPreserveZoom = .{},
 
 /// The foreground and background color for search matches. This only applies
 /// to non-focused search matches, also known as candidate matches.
@@ -1329,7 +1358,7 @@ maximize: bool = false,
 /// new windows, not just the first one.
 ///
 /// On macOS, this setting does not work if window-decoration is set to
-/// "false", because native fullscreen on macOS requires window decorations
+/// "none", because native fullscreen on macOS requires window decorations
 /// to be set.
 fullscreen: bool = false,
 
@@ -2825,7 +2854,7 @@ keybind: Keybinds = .{},
 /// also known as the traffic lights, that allow you to close, miniaturize, and
 /// zoom the window.
 ///
-/// This setting has no effect when `window-decoration = false` or
+/// This setting has no effect when `window-decoration = none` or
 /// `macos-titlebar-style = hidden`, as the window buttons are always hidden in
 /// these modes.
 ///
@@ -2866,7 +2895,7 @@ keybind: Keybinds = .{},
 /// macOS 14 does not have this issue and any other macOS version has not
 /// been tested.
 ///
-/// The "hidden" style hides the titlebar. Unlike `window-decoration = false`,
+/// The "hidden" style hides the titlebar. Unlike `window-decoration = none`,
 /// however, it does not remove the frame from the window or cause it to have
 /// squared corners. Changing to or from this option at run-time may affect
 /// existing windows in buggy ways.
@@ -2911,7 +2940,7 @@ keybind: Keybinds = .{},
 ///
 ///   * `new-tab` - Create a new tab in the current window, or open
 ///     a new window if none exist.
-///   * `window` - Create a new window unconditionally.
+///   * `new-window` - Create a new window unconditionally.
 ///
 /// The default value is `new-tab`.
 ///
@@ -3205,7 +3234,7 @@ else
 /// manager's simple titlebar. The behavior of this option will vary with your
 /// window manager.
 ///
-/// This option does nothing when `window-decoration` is false or when running
+/// This option does nothing when `window-decoration` is none or when running
 /// under macOS.
 @"gtk-titlebar": bool = true,
 
@@ -4443,6 +4472,23 @@ fn compatBoldIsBright(
     }
 
     return true;
+}
+
+fn compatMacOSDockDropBehavior(
+    self: *Config,
+    alloc: Allocator,
+    key: []const u8,
+    value: ?[]const u8,
+) bool {
+    _ = alloc;
+    assert(std.mem.eql(u8, key, "macos-dock-drop-behavior"));
+
+    if (std.mem.eql(u8, value orelse "", "window")) {
+        self.@"macos-dock-drop-behavior" = .@"new-window";
+        return true;
+    }
+
+    return false;
 }
 
 /// Add a diagnostic message to the config with the given string.
@@ -7414,6 +7460,10 @@ pub const ShellIntegrationFeatures = packed struct {
     path: bool = true,
 };
 
+pub const SplitPreserveZoom = packed struct {
+    navigation: bool = false,
+};
+
 pub const RepeatableCommand = struct {
     value: std.ArrayListUnmanaged(inputpkg.Command) = .empty,
 
@@ -7875,7 +7925,7 @@ pub const WindowNewTabPosition = enum {
 /// See macos-dock-drop-behavior
 pub const MacOSDockDropBehavior = enum {
     @"new-tab",
-    window,
+    @"new-window",
 };
 
 /// See window-show-tab-bar
@@ -8315,6 +8365,8 @@ pub const AutoUpdate = enum {
 pub const BackgroundBlur = union(enum) {
     false,
     true,
+    @"macos-glass-regular",
+    @"macos-glass-clear",
     radius: u8,
 
     pub fn parseCLI(self: *BackgroundBlur, input: ?[]const u8) !void {
@@ -8324,14 +8376,35 @@ pub const BackgroundBlur = union(enum) {
             return;
         };
 
-        self.* = if (cli.args.parseBool(input_)) |b|
-            if (b) .true else .false
-        else |_|
-            .{ .radius = std.fmt.parseInt(
-                u8,
-                input_,
-                0,
-            ) catch return error.InvalidValue };
+        // Try to parse normal bools
+        if (cli.args.parseBool(input_)) |b| {
+            self.* = if (b) .true else .false;
+            return;
+        } else |_| {}
+
+        // Try to parse enums
+        if (std.meta.stringToEnum(
+            std.meta.Tag(BackgroundBlur),
+            input_,
+        )) |v| switch (v) {
+            inline else => |tag| tag: {
+                // We can only parse void types
+                const info = std.meta.fieldInfo(BackgroundBlur, tag);
+                if (info.type != void) break :tag;
+                self.* = @unionInit(
+                    BackgroundBlur,
+                    @tagName(tag),
+                    {},
+                );
+                return;
+            },
+        };
+
+        self.* = .{ .radius = std.fmt.parseInt(
+            u8,
+            input_,
+            0,
+        ) catch return error.InvalidValue };
     }
 
     pub fn enabled(self: BackgroundBlur) bool {
@@ -8339,14 +8412,24 @@ pub const BackgroundBlur = union(enum) {
             .false => false,
             .true => true,
             .radius => |v| v > 0,
+
+            // We treat these as true because they both imply some blur!
+            // This has the effect of making the standard blur happen on
+            // Linux.
+            .@"macos-glass-regular", .@"macos-glass-clear" => true,
         };
     }
 
-    pub fn cval(self: BackgroundBlur) u8 {
+    pub fn cval(self: BackgroundBlur) i16 {
         return switch (self) {
             .false => 0,
             .true => 20,
             .radius => |v| v,
+            // I hate sentinel values like this but this is only for
+            // our macOS application currently. We can switch to a proper
+            // tagged union if we ever need to.
+            .@"macos-glass-regular" => -1,
+            .@"macos-glass-clear" => -2,
         };
     }
 
@@ -8358,6 +8441,8 @@ pub const BackgroundBlur = union(enum) {
             .false => try formatter.formatEntry(bool, false),
             .true => try formatter.formatEntry(bool, true),
             .radius => |v| try formatter.formatEntry(u8, v),
+            .@"macos-glass-regular" => try formatter.formatEntry([]const u8, "macos-glass-regular"),
+            .@"macos-glass-clear" => try formatter.formatEntry([]const u8, "macos-glass-clear"),
         }
     }
 
@@ -8376,6 +8461,12 @@ pub const BackgroundBlur = union(enum) {
 
         try v.parseCLI("42");
         try testing.expectEqual(42, v.radius);
+
+        try v.parseCLI("macos-glass-regular");
+        try testing.expectEqual(.@"macos-glass-regular", v);
+
+        try v.parseCLI("macos-glass-clear");
+        try testing.expectEqual(.@"macos-glass-clear", v);
 
         try testing.expectError(error.InvalidValue, v.parseCLI(""));
         try testing.expectError(error.InvalidValue, v.parseCLI("aaaa"));
@@ -9488,6 +9579,25 @@ test "compatibility: removed bold-is-bright" {
         try testing.expectEqual(
             BoldColor.bright,
             cfg.@"bold-color",
+        );
+    }
+}
+
+test "compatibility: window new-window" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    {
+        var cfg = try Config.default(alloc);
+        defer cfg.deinit();
+        var it: TestIterator = .{ .data = &.{
+            "--macos-dock-drop-behavior=window",
+        } };
+        try cfg.loadIter(alloc, &it);
+        try cfg.finalize();
+        try testing.expectEqual(
+            MacOSDockDropBehavior.@"new-window",
+            cfg.@"macos-dock-drop-behavior",
         );
     }
 }

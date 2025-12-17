@@ -479,10 +479,29 @@ fn actionCommands(action: Action.Key) []const Command {
             },
         },
 
+        .goto_window => comptime &.{
+            .{
+                .action = .{ .goto_window = .previous },
+                .title = "Focus Window: Previous",
+                .description = "Focus the previous window, if any.",
+            },
+            .{
+                .action = .{ .goto_window = .next },
+                .title = "Focus Window: Next",
+                .description = "Focus the next window, if any.",
+            },
+        },
+
         .toggle_split_zoom => comptime &.{.{
             .action = .toggle_split_zoom,
             .title = "Toggle Split Zoom",
             .description = "Toggle the zoom state of the current split.",
+        }},
+
+        .toggle_readonly => comptime &.{.{
+            .action = .toggle_readonly,
+            .title = "Toggle Read-Only Mode",
+            .description = "Toggle read-only mode for the current surface.",
         }},
 
         .equalize_splits => comptime &.{.{
@@ -597,6 +616,12 @@ fn actionCommands(action: Action.Key) []const Command {
             .action = .toggle_mouse_reporting,
             .title = "Toggle Mouse Reporting",
             .description = "Toggle whether mouse events are reported to terminal applications.",
+        }},
+
+        .toggle_background_opacity => comptime &.{.{
+            .action = .toggle_background_opacity,
+            .title = "Toggle Background Opacity",
+            .description = "Toggle the background opacity of a window that started transparent.",
         }},
 
         .check_for_updates => comptime &.{.{

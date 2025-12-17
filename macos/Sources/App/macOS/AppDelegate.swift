@@ -69,6 +69,7 @@ class AppDelegate: NSObject,
     @IBOutlet private var menuResetFontSize: NSMenuItem?
     @IBOutlet private var menuChangeTitle: NSMenuItem?
     @IBOutlet private var menuChangeTabTitle: NSMenuItem?
+    @IBOutlet private var menuReadonly: NSMenuItem?
     @IBOutlet private var menuQuickTerminal: NSMenuItem?
     @IBOutlet private var menuTerminalInspector: NSMenuItem?
     @IBOutlet private var menuCommandPalette: NSMenuItem?
@@ -98,11 +99,35 @@ class AppDelegate: NSObject,
     /// The global undo manager for app-level state such as window restoration.
     lazy var undoManager = ExpiringUndoManager()
 
+    /// The current state of the quick terminal.
+    private var quickTerminalControllerState: QuickTerminalState = .uninitialized
+
     /// Our quick terminal. This starts out uninitialized and only initializes if used.
-    private(set) lazy var quickController = QuickTerminalController(
-        ghostty,
-        position: derivedConfig.quickTerminalPosition
-    )
+    var quickController: QuickTerminalController {
+        switch quickTerminalControllerState {
+        case .initialized(let controller):
+            return controller
+            
+        case .pendingRestore(let state):
+            let controller = QuickTerminalController(
+                ghostty,
+                position: derivedConfig.quickTerminalPosition,
+                baseConfig: state.baseConfig,
+                restorationState: state
+            )
+            quickTerminalControllerState = .initialized(controller)
+            return controller
+            
+        case .uninitialized:
+            let controller = QuickTerminalController(
+                ghostty,
+                position: derivedConfig.quickTerminalPosition,
+                restorationState: nil
+            )
+            quickTerminalControllerState = .initialized(controller)
+            return controller
+        }
+    }
 
     /// Manages updates
     let updateController = UpdateController()
@@ -544,6 +569,7 @@ class AppDelegate: NSObject,
         self.menuQuickTerminal?.setImageIfDesired(systemSymbolName: "apple.terminal")
         self.menuChangeTabTitle?.setImageIfDesired(systemSymbolName: "pencil.line")
         self.menuTerminalInspector?.setImageIfDesired(systemSymbolName: "scope")
+        self.menuReadonly?.setImageIfDesired(systemSymbolName: "eye.fill")
         self.menuToggleFullScreen?.setImageIfDesired(systemSymbolName: "square.arrowtriangle.4.outward")
         self.menuToggleVisibility?.setImageIfDesired(systemSymbolName: "eye")
         self.menuZoomSplit?.setImageIfDesired(systemSymbolName: "arrow.up.left.and.arrow.down.right")
@@ -994,10 +1020,31 @@ class AppDelegate: NSObject,
 
     func application(_ app: NSApplication, willEncodeRestorableState coder: NSCoder) {
         Self.logger.debug("application will save window state")
+        
+        guard ghostty.config.windowSaveState != "never" else { return }
+        
+        // Encode our quick terminal state if we have it.
+        switch quickTerminalControllerState {
+        case .initialized(let controller) where controller.restorable:
+            let data = QuickTerminalRestorableState(from: controller)
+            data.encode(with: coder)
+            
+        case .pendingRestore(let state):
+            state.encode(with: coder)
+            
+        default:
+            break
+        }
     }
 
     func application(_ app: NSApplication, didDecodeRestorableState coder: NSCoder) {
         Self.logger.debug("application will restore window state")
+        
+        // Decode our quick terminal state.
+        if ghostty.config.windowSaveState != "never",
+            let state = QuickTerminalRestorableState(coder: coder) {
+            quickTerminalControllerState = .pendingRestore(state)
+        }
     }
 
     //MARK: - UNUserNotificationCenterDelegate
@@ -1269,6 +1316,16 @@ extension AppDelegate: NSMenuItemValidation {
             return true
         }
     }
+}
+
+/// Represents the state of the quick terminal controller.
+private enum QuickTerminalState {
+    /// Controller has not been initialized and has no pending restoration state.
+    case uninitialized
+    /// Restoration state is pending; controller will use this when first accessed.
+    case pendingRestore(QuickTerminalRestorableState)
+    /// Controller has been initialized.
+    case initialized(QuickTerminalController)
 }
 
 @globalActor

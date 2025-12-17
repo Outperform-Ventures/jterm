@@ -115,6 +115,11 @@ pub const Action = union(Key) {
     /// Toggle the visibility of all Ghostty terminal windows.
     toggle_visibility,
 
+    /// Toggle the window background opacity. This only has an effect
+    /// if the window started as transparent (non-opaque), and toggles
+    /// it between fully opaque and the configured background opacity.
+    toggle_background_opacity,
+
     /// Moves a tab by a relative offset.
     ///
     /// Adjusts the tab position based on `offset` (e.g., -1 for left, +1
@@ -128,6 +133,9 @@ pub const Action = union(Key) {
 
     /// Jump to a specific split.
     goto_split: GotoSplit,
+
+    /// Jump to next/previous window.
+    goto_window: GotoWindow,
 
     /// Resize the split in the given direction.
     resize_split: ResizeSplit,
@@ -314,6 +322,9 @@ pub const Action = union(Key) {
     /// The currently selected search match index (1-based).
     search_selected: SearchSelected,
 
+    /// The readonly state of the surface has changed.
+    readonly: Readonly,
+
     /// Sync with: ghostty_action_tag_e
     pub const Key = enum(c_int) {
         quit,
@@ -329,9 +340,11 @@ pub const Action = union(Key) {
         toggle_quick_terminal,
         toggle_command_palette,
         toggle_visibility,
+        toggle_background_opacity,
         move_tab,
         goto_tab,
         goto_split,
+        goto_window,
         resize_split,
         equalize_splits,
         toggle_split_zoom,
@@ -375,6 +388,7 @@ pub const Action = union(Key) {
         end_search,
         search_total,
         search_selected,
+        readonly,
     };
 
     /// Sync with: ghostty_action_u
@@ -470,6 +484,13 @@ pub const GotoSplit = enum(c_int) {
     right,
 };
 
+// This is made extern (c_int) to make interop easier with our embedded
+// runtime. The small size cost doesn't make a difference in our union.
+pub const GotoWindow = enum(c_int) {
+    previous,
+    next,
+};
+
 /// The amount to resize the split by and the direction to resize it in.
 pub const ResizeSplit = extern struct {
     amount: u16,
@@ -530,6 +551,11 @@ pub const Inspector = enum(c_int) {
 pub const QuitTimer = enum(c_int) {
     start,
     stop,
+};
+
+pub const Readonly = enum(c_int) {
+    off,
+    on,
 };
 
 pub const MouseVisibility = enum(c_int) {

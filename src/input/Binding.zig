@@ -545,12 +545,25 @@ pub const Action = union(enum) {
     /// (`previous` and `next`).
     goto_split: SplitFocusDirection,
 
+    /// Focus on either the previous window or the next one ('previous', 'next')
+    goto_window: GotoWindow,
+
     /// Zoom in or out of the current split.
     ///
     /// When a split is zoomed into, it will take up the entire space in
     /// the current tab, hiding other splits. The tab or tab bar would also
     /// reflect this by displaying an icon indicating the zoomed state.
     toggle_split_zoom,
+
+    /// Toggle read-only mode for the current surface.
+    ///
+    /// When a surface is in read-only mode:
+    ///   - No input is sent to the PTY (mouse events, key encoding)
+    ///   - Input can still be used at the terminal level to make selections,
+    ///     copy/paste (keybinds), scroll, etc.
+    ///   - Warn before quit is always enabled in this state even if an active
+    ///     process is not running
+    toggle_readonly,
 
     /// Resize the current split in the specified direction and amount in
     /// pixels. The two arguments should be joined with a comma (`,`),
@@ -742,6 +755,16 @@ pub const Action = union(enum) {
     /// Only implemented on macOS.
     toggle_visibility,
 
+    /// Toggle the window background opacity between transparent and opaque.
+    ///
+    /// This does nothing when `background-opacity` is set to 1 or above.
+    ///
+    /// When `background-opacity` is less than 1, this action will either make
+    /// the window transparent or not depending on its current transparency state.
+    ///
+    /// Only implemented on macOS.
+    toggle_background_opacity,
+
     /// Check for updates.
     ///
     /// Only implemented on macOS.
@@ -919,6 +942,11 @@ pub const Action = union(enum) {
         down,
         left,
         right,
+    };
+
+    pub const GotoWindow = enum {
+        previous,
+        next,
     };
 
     pub const SplitResizeParameter = struct {
@@ -1222,6 +1250,7 @@ pub const Action = union(enum) {
             .toggle_secure_input,
             .toggle_mouse_reporting,
             .toggle_command_palette,
+            .toggle_background_opacity,
             .show_on_screen_keyboard,
             .reset_window_size,
             .crash,
@@ -1240,7 +1269,9 @@ pub const Action = union(enum) {
             .toggle_tab_overview,
             .new_split,
             .goto_split,
+            .goto_window,
             .toggle_split_zoom,
+            .toggle_readonly,
             .resize_split,
             .equalize_splits,
             .inspector,
