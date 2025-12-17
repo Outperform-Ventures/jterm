@@ -715,6 +715,9 @@ class BaseTerminalController: NSWindowController,
         // We use a small delay to ensure this runs after any UI cleanup
         // (e.g., command palette restoring focus to its original surface).
         Ghostty.moveFocus(to: target, delay: 0.1)
+
+        // Show a brief highlight to help the user locate the presented terminal.
+        target.highlight()
     }
 
     // MARK: Local Events
