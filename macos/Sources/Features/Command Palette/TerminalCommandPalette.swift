@@ -18,63 +18,6 @@ struct TerminalCommandPaletteView: View {
     /// The callback when an action is submitted.
     var onAction: ((String) -> Void)
 
-    // The commands available to the command palette.
-    private var commandOptions: [CommandOption] {
-        var options: [CommandOption] = []
-        
-        // Add update command if an update is installable. This must always be the first so
-        // it is at the top.
-        if let updateViewModel, updateViewModel.state.isInstallable {
-            // We override the update available one only because we want to properly
-            // convey it'll go all the way through.
-            let title: String
-            if case .updateAvailable = updateViewModel.state {
-                title = "Update Ghostty and Restart"
-            } else {
-                title = updateViewModel.text
-            }
-            
-            options.append(CommandOption(
-                title: title,
-                description: updateViewModel.description,
-                leadingIcon: updateViewModel.iconName ?? "shippingbox.fill",
-                badge: updateViewModel.badge,
-                emphasis: true
-            ) {
-                (NSApp.delegate as? AppDelegate)?.updateController.installUpdate()
-            })
-        }
-        
-        // Add cancel/skip update command if the update is installable
-        if let updateViewModel, updateViewModel.state.isInstallable {
-            options.append(CommandOption(
-                title: "Cancel or Skip Update",
-                description: "Dismiss the current update process"
-            ) {
-                updateViewModel.state.cancel()
-            })
-        }
-        
-        // Add terminal commands
-        guard let surface = surfaceView.surfaceModel else { return options }
-        do {
-            let terminalCommands = try surface.commands().map { c in
-                return CommandOption(
-                    title: c.title,
-                    description: c.description,
-                    symbols: ghosttyConfig.keyboardShortcut(for: c.action)?.keyList,
-                ) {
-                    onAction(c.action)
-                }
-            }
-            options.append(contentsOf: terminalCommands)
-        } catch {
-            return options
-        }
-        
-        return options
-    }
-
     var body: some View {
         ZStack {
             if isPresented {
@@ -114,6 +57,69 @@ struct TerminalCommandPaletteView: View {
                     surfaceView.window?.makeFirstResponder(surfaceView)
                 }
             }
+        }
+    }
+    
+    /// All commands available in the command palette, combining update and terminal options.
+    private var commandOptions: [CommandOption] {
+        var options: [CommandOption] = []
+        options.append(contentsOf: updateOptions)
+        options.append(contentsOf: terminalOptions)
+        return options
+    }
+
+    /// Commands for installing or canceling available updates.
+    private var updateOptions: [CommandOption] {
+        var options: [CommandOption] = []
+
+        guard let updateViewModel, updateViewModel.state.isInstallable else {
+            return options
+        }
+
+        // We override the update available one only because we want to properly
+        // convey it'll go all the way through.
+        let title: String
+        if case .updateAvailable = updateViewModel.state {
+            title = "Update Ghostty and Restart"
+        } else {
+            title = updateViewModel.text
+        }
+
+        options.append(CommandOption(
+            title: title,
+            description: updateViewModel.description,
+            leadingIcon: updateViewModel.iconName ?? "shippingbox.fill",
+            badge: updateViewModel.badge,
+            emphasis: true
+        ) {
+            (NSApp.delegate as? AppDelegate)?.updateController.installUpdate()
+        })
+
+        options.append(CommandOption(
+            title: "Cancel or Skip Update",
+            description: "Dismiss the current update process"
+        ) {
+            updateViewModel.state.cancel()
+        })
+
+        return options
+    }
+
+    /// Commands exposed by the terminal surface.
+    private var terminalOptions: [CommandOption] {
+        guard let surface = surfaceView.surfaceModel else { return [] }
+        do {
+            return try surface.commands().map { c in
+                CommandOption(
+                    title: c.title,
+                    description: c.description,
+                    symbols: ghosttyConfig.keyboardShortcut(for: c.action)?.keyList,
+                ) {
+                    onAction(c.action)
+                }
+            }
+        } catch {
+            return []
         }
     }
 }
