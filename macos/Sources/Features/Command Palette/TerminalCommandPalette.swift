@@ -63,9 +63,16 @@ struct TerminalCommandPaletteView: View {
     /// All commands available in the command palette, combining update and terminal options.
     private var commandOptions: [CommandOption] {
         var options: [CommandOption] = []
+        // Updates always appear first
         options.append(contentsOf: updateOptions)
-        options.append(contentsOf: jumpOptions)
-        options.append(contentsOf: terminalOptions)
+        
+        // Sort the rest. We replace ":" with a character that sorts before space
+        // so that "Foo:" sorts before "Foo Bar:".
+        options.append(contentsOf: (jumpOptions + terminalOptions).sorted { a, b in
+            let aNormalized = a.title.replacingOccurrences(of: ":", with: "\t")
+            let bNormalized = b.title.replacingOccurrences(of: ":", with: "\t")
+            return aNormalized.localizedCaseInsensitiveCompare(bNormalized) == .orderedAscending
+        })
         return options
     }
 
