@@ -6,6 +6,7 @@ struct CommandOption: Identifiable, Hashable {
     let description: String?
     let symbols: [String]?
     let leadingIcon: String?
+    let leadingColor: Color?
     let badge: String?
     let emphasis: Bool
     let action: () -> Void
@@ -15,6 +16,7 @@ struct CommandOption: Identifiable, Hashable {
         description: String? = nil,
         symbols: [String]? = nil,
         leadingIcon: String? = nil,
+        leadingColor: Color? = nil,
         badge: String? = nil,
         emphasis: Bool = false,
         action: @escaping () -> Void
@@ -23,6 +25,7 @@ struct CommandOption: Identifiable, Hashable {
         self.description = description
         self.symbols = symbols
         self.leadingIcon = leadingIcon
+        self.leadingColor = leadingColor
         self.badge = badge
         self.emphasis = emphasis
         self.action = action
@@ -283,6 +286,12 @@ fileprivate struct CommandRow: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: 8) {
+                if let color = option.leadingColor {
+                    Circle()
+                        .fill(color)
+                        .frame(width: 8, height: 8)
+                }
+                
                 if let icon = option.leadingIcon {
                     Image(systemName: icon)
                         .foregroundStyle(option.emphasis ? Color.accentColor : .secondary)

@@ -62,7 +62,7 @@ struct TerminalCommandPaletteView: View {
                 return CommandOption(
                     title: c.title,
                     description: c.description,
-                    symbols: ghosttyConfig.keyboardShortcut(for: c.action)?.keyList
+                    symbols: ghosttyConfig.keyboardShortcut(for: c.action)?.keyList,
                 ) {
                     onAction(c.action)
                 }
