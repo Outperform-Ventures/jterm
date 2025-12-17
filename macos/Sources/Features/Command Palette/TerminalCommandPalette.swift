@@ -64,6 +64,7 @@ struct TerminalCommandPaletteView: View {
     private var commandOptions: [CommandOption] {
         var options: [CommandOption] = []
         options.append(contentsOf: updateOptions)
+        options.append(contentsOf: jumpOptions)
         options.append(contentsOf: terminalOptions)
         return options
     }
@@ -122,6 +123,34 @@ struct TerminalCommandPaletteView: View {
             return []
         }
     }
+
+    /// Commands for jumping to other terminal surfaces.
+    private var jumpOptions: [CommandOption] {
+        TerminalController.all.flatMap { controller -> [CommandOption] in
+            guard let window = controller.window else { return [] }
+
+            let color = (window as? TerminalWindow)?.tabColor
+            let displayColor = color != TerminalTabColor.none ? color : nil
+
+            return controller.surfaceTree.map { surface in
+                let title = surface.title.isEmpty ? window.title : surface.title
+                let displayTitle = title.isEmpty ? "Untitled" : title
+
+                return CommandOption(
+                    title: "Focus: \(displayTitle)",
+                    description: surface.pwd?.abbreviatedPath,
+                    leadingIcon: "rectangle.on.rectangle",
+                    leadingColor: displayColor?.displayColor.map { Color($0) }
+                ) {
+                    NotificationCenter.default.post(
+                        name: Ghostty.Notification.ghosttyPresentTerminal,
+                        object: surface
+                    )
+                }
+            }
+        }
+    }
+
 }
 
 /// This is done to ensure that the given view is in the responder chain.

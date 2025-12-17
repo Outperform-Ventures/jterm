@@ -709,9 +709,12 @@ class BaseTerminalController: NSWindowController,
         guard let target = notification.object as? Ghostty.SurfaceView else { return }
         guard surfaceTree.contains(target) else { return }
 
-        // Bring the window to front and focus the surface without activating the app
-        window?.orderFrontRegardless()
-        Ghostty.moveFocus(to: target)
+        // Bring the window to front and focus the surface.
+        window?.makeKeyAndOrderFront(nil)
+        
+        // We use a small delay to ensure this runs after any UI cleanup
+        // (e.g., command palette restoring focus to its original surface).
+        Ghostty.moveFocus(to: target, delay: 0.1)
     }
 
     // MARK: Local Events
