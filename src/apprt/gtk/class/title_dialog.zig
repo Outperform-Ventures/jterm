@@ -6,24 +6,44 @@ const gobject = @import("gobject");
 const gtk = @import("gtk");
 
 const gresource = @import("../build/gresource.zig");
+const i18n = @import("../../../os/main.zig").i18n;
 const ext = @import("../ext.zig");
 const Common = @import("../class.zig").Common;
+const Dialog = @import("dialog.zig").Dialog;
 
-const log = std.log.scoped(.gtk_ghostty_prompt_tab_title_dialog);
+const log = std.log.scoped(.gtk_ghostty_title_dialog);
 
-pub const PromptTabTitleDialog = extern struct {
+pub const TitleDialog = extern struct {
     const Self = @This();
     parent_instance: Parent,
     pub const Parent = adw.AlertDialog;
-    pub const getGObjectType = gobject.ext
-        .defineClass(Self, .{
-        .name = "GhosttyPromptTabTitleDialog",
+    pub const getGObjectType = gobject.ext.defineClass(Self, .{
+        .name = "GhosttyTitleDialog",
         .instanceInit = &init,
         .classInit = &Class.init,
         .parent_class = &Class.parent,
         .private = .{ .Type = Private, .offset = &Private.offset },
     });
+
     pub const properties = struct {
+        pub const target = struct {
+            pub const name = "target";
+            const impl = gobject.ext.defineProperty(
+                name,
+                Self,
+                Target,
+                .{
+                    .default = .surface,
+                    .accessor = gobject.ext
+                        .privateFieldAccessor(
+                        Self,
+                        Private,
+                        &Private.offset,
+                        "target",
+                    ),
+                },
+            );
+        };
         pub const @"initial-value" = struct {
             pub const name = "initial-value";
             pub const get = impl.get;
@@ -39,6 +59,7 @@ pub const PromptTabTitleDialog = extern struct {
             );
         };
     };
+
     pub const signals = struct {
         /// Set the title to the given value.
         pub const set = struct {
@@ -58,13 +79,20 @@ pub const PromptTabTitleDialog = extern struct {
         initial_value: ?[:0]const u8 = null,
 
         // Template bindings
+        target: Target,
         entry: *gtk.Entry,
 
         pub var offset: c_int = 0;
     };
+
     fn init(self: *Self, _: *Class) callconv(.c) void {
         gtk.Widget.initTemplate(self.as(gtk.Widget));
     }
+
+    pub fn new(target: Target, initial_value: ?[:0]const u8) *Self {
+        return gobject.ext.newInstance(Self, .{ .target = target, .@"initial-value" = initial_value });
+    }
+
     pub fn present(self: *Self, parent_: *gtk.Widget) void {
         // If we have a window we can attach to, we prefer that.
         const parent: *gtk.Widget = if (ext.getAncestor(
@@ -85,6 +113,9 @@ pub const PromptTabTitleDialog = extern struct {
         if (priv.initial_value) |v| {
             priv.entry.getBuffer().setText(v, -1);
         }
+
+        // Set the title for the dialog
+        self.as(Dialog.Parent).setHeading(priv.target.title());
 
         // Show it. We could also just use virtual methods to bind to
         // response but this is pretty simple.
@@ -159,7 +190,7 @@ pub const PromptTabTitleDialog = extern struct {
                 comptime gresource.blueprint(.{
                     .major = 1,
                     .minor = 5,
-                    .name = "prompt-tab-title-dialog",
+                    .name = "title-dialog",
                 }),
             );
 
@@ -172,6 +203,7 @@ pub const PromptTabTitleDialog = extern struct {
             // Properties
             gobject.ext.registerProperties(class, &.{
                 properties.@"initial-value".impl,
+                properties.target.impl,
             });
 
             // Virtual methods
@@ -183,4 +215,20 @@ pub const PromptTabTitleDialog = extern struct {
         pub const bindTemplateChildPrivate = C.Class.bindTemplateChildPrivate;
         pub const bindTemplateCallback = C.Class.bindTemplateCallback;
     };
+};
+
+pub const Target = enum(c_int) {
+    surface,
+    tab,
+    pub fn title(self: Target) [*:0]const u8 {
+        return switch (self) {
+            .surface => i18n._("Change Terminal Title"),
+            .tab => i18n._("Change Tab Title"),
+        };
+    }
+
+    pub const getGObjectType = gobject.ext.defineEnum(
+        Target,
+        .{ .name = "GhosttyTitleDialogTarget" },
+    );
 };

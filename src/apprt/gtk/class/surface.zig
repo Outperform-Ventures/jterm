@@ -28,7 +28,8 @@ const ResizeOverlay = @import("resize_overlay.zig").ResizeOverlay;
 const SearchOverlay = @import("search_overlay.zig").SearchOverlay;
 const ChildExited = @import("surface_child_exited.zig").SurfaceChildExited;
 const ClipboardConfirmationDialog = @import("clipboard_confirmation_dialog.zig").ClipboardConfirmationDialog;
-const TitleDialog = @import("surface_title_dialog.zig").SurfaceTitleDialog;
+const TitleDialog = @import("title_dialog.zig")
+    .TitleDialog;
 const Window = @import("window.zig").Window;
 const InspectorWindow = @import("inspector_window.zig").InspectorWindow;
 const i18n = @import("../../../os/i18n.zig");
@@ -1241,12 +1242,7 @@ pub const Surface = extern struct {
     /// Prompt for a manual title change for the surface.
     pub fn promptTitle(self: *Self) void {
         const priv = self.private();
-        const dialog = gobject.ext.newInstance(
-            TitleDialog,
-            .{
-                .@"initial-value" = priv.title_override orelse priv.title,
-            },
-        );
+        const dialog = TitleDialog.new(.surface, priv.title_override orelse priv.title);
         _ = TitleDialog.signals.set.connect(
             dialog,
             *Self,

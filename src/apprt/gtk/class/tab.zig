@@ -14,8 +14,8 @@ const Config = @import("config.zig").Config;
 const Application = @import("application.zig").Application;
 const SplitTree = @import("split_tree.zig").SplitTree;
 const Surface = @import("surface.zig").Surface;
-const TabDialog = @import("prompt_tab_title_dialog.zig")
-    .PromptTabTitleDialog;
+const TitleDialog = @import("title_dialog.zig")
+    .TitleDialog;
 
 const log = std.log.scoped(.gtk_ghostty_window);
 
@@ -233,8 +233,8 @@ pub const Tab = extern struct {
         if (title) |v| priv.title_override = glib.ext.dupeZ(u8, v);
         self.as(gobject.Object).notifyByPspec(properties.@"title-override".impl.param_spec);
     }
-    fn tabDialogSet(
-        _: *TabDialog,
+    fn titleDialogSet(
+        _: *TitleDialog,
         title_ptr: [*:0]const u8,
         self: *Self,
     ) callconv(.c) void {
@@ -243,16 +243,11 @@ pub const Tab = extern struct {
     }
     pub fn promptTabTitle(self: *Self) void {
         const priv = self.private();
-        const dialog = gobject.ext.newInstance(
-            TabDialog,
-            .{
-                .@"initial-value" = priv.title_override orelse priv.title,
-            },
-        );
-        _ = TabDialog.signals.set.connect(
+        const dialog = TitleDialog.new(.tab, priv.title_override orelse priv.title);
+        _ = TitleDialog.signals.set.connect(
             dialog,
             *Self,
-            tabDialogSet,
+            titleDialogSet,
             self,
             .{},
         );
