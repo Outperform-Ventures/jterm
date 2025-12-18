@@ -166,7 +166,6 @@ pub const DerivedConfig = struct {
     clipboard_write: configpkg.ClipboardAccess,
     enquiry_response: []const u8,
     conditional_state: configpkg.ConditionalState,
-    scroll_to_bottom: configpkg.Config.ScrollToBottom,
 
     pub fn init(
         alloc_gpa: Allocator,
@@ -208,7 +207,6 @@ pub const DerivedConfig = struct {
             .clipboard_write = config.@"clipboard-write",
             .enquiry_response = try alloc.dupe(u8, config.@"enquiry-response"),
             .conditional_state = config._conditional_state,
-            .scroll_to_bottom = config.@"scroll-to-bottom",
 
             // This has to be last so that we copy AFTER the arena allocations
             // above happen (Zig assigns in order).
@@ -303,7 +301,6 @@ pub fn init(self: *Termio, alloc: Allocator, opts: termio.Options) !void {
         .enquiry_response = opts.config.enquiry_response,
         .default_cursor_style = opts.config.cursor_style,
         .default_cursor_blink = opts.config.cursor_blink,
-        .scroll_to_bottom_on_output = opts.config.scroll_to_bottom.output,
     };
 
     const thread_enter_state = try ThreadEnterState.create(

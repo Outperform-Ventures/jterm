@@ -1076,8 +1076,6 @@ pub fn handleMessage(self: *Surface, msg: Message) !void {
             }, .unlocked);
         },
 
-        .report_color_scheme => |force| self.reportColorScheme(force),
-
         .present_surface => try self.presentSurface(),
 
         .password_input => |v| try self.passwordInput(v),
