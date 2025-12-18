@@ -982,9 +982,15 @@ class AppDelegate: NSObject,
             appIconName = (colorStrings + [config.macosIconFrame.rawValue])
                 .joined(separator: "_")
         }
-        // Only change the icon if it has actually changed
-        // from the current one
-        guard UserDefaults.standard.string(forKey: "CustomGhosttyIcon") != appIconName else {
+
+        // Only change the icon if it has actually changed from the current one,
+        // or if the app build has changed (e.g. after an update that reset the icon)
+        let cachedIconName = UserDefaults.standard.string(forKey: "CustomGhosttyIcon")
+        let cachedIconBuild = UserDefaults.standard.string(forKey: "CustomGhosttyIconBuild")
+        let currentBuild = Bundle.main.infoDictionary?["CFBundleVersion"] as? String
+        let buildChanged = cachedIconBuild != currentBuild
+
+        guard cachedIconName != appIconName || buildChanged else {
 #if DEBUG
             if appIcon == nil {
                 await MainActor.run {
@@ -1001,14 +1007,16 @@ class AppDelegate: NSObject,
         let newIcon = appIcon
 
         let appPath = Bundle.main.bundlePath
-        NSWorkspace.shared.setIcon(newIcon, forFile: appPath, options: [])
+        guard NSWorkspace.shared.setIcon(newIcon, forFile: appPath, options: []) else { return }
         NSWorkspace.shared.noteFileSystemChanged(appPath)
 
         await MainActor.run {
             self.appIcon = newIcon
             NSApplication.shared.applicationIconImage = newIcon
         }
+
         UserDefaults.standard.set(appIconName, forKey: "CustomGhosttyIcon")
+        UserDefaults.standard.set(currentBuild, forKey: "CustomGhosttyIconBuild")
     }
 
     //MARK: - Restorable State
