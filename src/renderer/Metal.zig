@@ -434,7 +434,7 @@ fn chooseDevice() error{NoMetalDevice}!objc.Object {
 }
 
 /// Determines the maximum 2D texture size supported by the device.
-/// We need to clamp our frame size to this if its larger.
+/// We need to clamp our frame size to this if it's larger.
 fn queryMaxTextureSize(device: objc.Object) u32 {
     // https://developer.apple.com/metal/Metal-Feature-Set-Tables.pdf
 
