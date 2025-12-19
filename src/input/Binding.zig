@@ -1505,6 +1505,10 @@ pub const Trigger = struct {
         /// codepoint. This is useful for binding to keys that don't have a
         /// registered keycode with Ghostty.
         unicode: u21,
+
+        /// A catch-all key that matches any key press that is otherwise
+        /// unbound.
+        catch_all,
     };
 
     /// The extern struct used for triggers in the C API.
@@ -1516,6 +1520,7 @@ pub const Trigger = struct {
         pub const Tag = enum(c_int) {
             physical,
             unicode,
+            catch_all,
         };
 
         pub const Key = extern union {
@@ -1608,6 +1613,13 @@ pub const Trigger = struct {
             // Look for a matching w3c name next.
             if (key.Key.fromW3C(part)) |w3c_key| {
                 result.key = .{ .physical = w3c_key };
+                continue :loop;
+            }
+
+            // Check for catch_all. We do this near the end since its unlikely
+            // in most cases that we're setting a catch-all key.
+            if (std.mem.eql(u8, part, "catch_all")) {
+                result.key = .catch_all;
                 continue :loop;
             }
 
@@ -1751,7 +1763,7 @@ pub const Trigger = struct {
     pub fn isKeyUnset(self: Trigger) bool {
         return switch (self.key) {
             .physical => |v| v == .unidentified,
-            else => false,
+            .unicode, .catch_all => false,
         };
     }
 
@@ -1771,6 +1783,7 @@ pub const Trigger = struct {
                 hasher,
                 foldedCodepoint(cp),
             ),
+            .catch_all => {},
         }
         std.hash.autoHash(hasher, self.mods.binding());
     }
@@ -1801,6 +1814,9 @@ pub const Trigger = struct {
             .key = switch (self.key) {
                 .physical => |v| .{ .physical = v },
                 .unicode => |v| .{ .unicode = @intCast(v) },
+                // catch_all has no associated value so its an error
+                // for a C consumer to look at it.
+                .catch_all => undefined,
             },
             .mods = self.mods,
         };
@@ -1821,6 +1837,7 @@ pub const Trigger = struct {
         switch (self.key) {
             .physical => |k| try writer.print("{t}", .{k}),
             .unicode => |c| try writer.print("{u}", .{c}),
+            .catch_all => try writer.writeAll("catch_all"),
         }
     }
 };
@@ -2213,6 +2230,14 @@ pub const Set = struct {
             if (self.get(trigger)) |v| return v;
         }
 
+        // Fallback to catch_all with modifiers first, then without modifiers.
+        trigger.key = .catch_all;
+        if (self.get(trigger)) |v| return v;
+        if (!trigger.mods.empty()) {
+            trigger.mods = .{};
+            if (self.get(trigger)) |v| return v;
+        }
+
         return null;
     }
 
@@ -2431,6 +2456,31 @@ test "parse: w3c key names" {
 
     // Case-sensitive
     try testing.expectError(Error.InvalidFormat, parseSingle("Keya=ignore"));
+}
+
+test "parse: catch_all" {
+    const testing = std.testing;
+
+    // Basic catch_all
+    try testing.expectEqual(
+        Binding{
+            .trigger = .{ .key = .catch_all },
+            .action = .{ .ignore = {} },
+        },
+        try parseSingle("catch_all=ignore"),
+    );
+
+    // catch_all with modifiers
+    try testing.expectEqual(
+        Binding{
+            .trigger = .{
+                .mods = .{ .ctrl = true },
+                .key = .catch_all,
+            },
+            .action = .{ .ignore = {} },
+        },
+        try parseSingle("ctrl+catch_all=ignore"),
+    );
 }
 
 test "parse: plus sign" {
@@ -3326,6 +3376,83 @@ test "set: getEvent codepoint case folding" {
             .mods = .{ .ctrl = true },
         });
         try testing.expect(action == null);
+    }
+}
+
+test "set: getEvent catch_all fallback" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s: Set = .{};
+    defer s.deinit(alloc);
+
+    try s.parseAndPut(alloc, "catch_all=ignore");
+
+    // Matches unbound key without modifiers
+    {
+        const action = s.getEvent(.{
+            .key = .key_a,
+            .mods = .{},
+        }).?.value_ptr.*.leaf;
+        try testing.expect(action.action == .ignore);
+    }
+
+    // Matches unbound key with modifiers (falls back to catch_all without mods)
+    {
+        const action = s.getEvent(.{
+            .key = .key_a,
+            .mods = .{ .ctrl = true },
+        }).?.value_ptr.*.leaf;
+        try testing.expect(action.action == .ignore);
+    }
+
+    // Specific binding takes precedence over catch_all
+    try s.parseAndPut(alloc, "ctrl+b=new_window");
+    {
+        const action = s.getEvent(.{
+            .key = .key_b,
+            .mods = .{ .ctrl = true },
+            .unshifted_codepoint = 'b',
+        }).?.value_ptr.*.leaf;
+        try testing.expect(action.action == .new_window);
+    }
+}
+
+test "set: getEvent catch_all with modifiers" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s: Set = .{};
+    defer s.deinit(alloc);
+
+    try s.parseAndPut(alloc, "ctrl+catch_all=close_surface");
+    try s.parseAndPut(alloc, "catch_all=ignore");
+
+    // Key with ctrl matches catch_all with ctrl modifier
+    {
+        const action = s.getEvent(.{
+            .key = .key_a,
+            .mods = .{ .ctrl = true },
+        }).?.value_ptr.*.leaf;
+        try testing.expect(action.action == .close_surface);
+    }
+
+    // Key without mods matches catch_all without mods
+    {
+        const action = s.getEvent(.{
+            .key = .key_a,
+            .mods = .{},
+        }).?.value_ptr.*.leaf;
+        try testing.expect(action.action == .ignore);
+    }
+
+    // Key with different mods falls back to catch_all without mods
+    {
+        const action = s.getEvent(.{
+            .key = .key_a,
+            .mods = .{ .alt = true },
+        }).?.value_ptr.*.leaf;
+        try testing.expect(action.action == .ignore);
     }
 }
 

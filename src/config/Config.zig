@@ -1477,6 +1477,13 @@ class: ?[:0]const u8 = null,
 /// so if you specify both `a` and `KeyA`, the physical key will always be used
 /// regardless of what order they are configured.
 ///
+/// The special key `catch_all` can be used to match any key that is not
+/// otherwise bound. This can be combined with modifiers, for example
+/// `ctrl+catch_all` will match any key pressed with `ctrl` that is not
+/// otherwise bound. When looking up a binding, Ghostty first tries to match
+/// `catch_all` with modifiers. If no match is found and the event has
+/// modifiers, it falls back to `catch_all` without modifiers.
+///
 /// Valid modifiers are `shift`, `ctrl` (alias: `control`), `alt` (alias: `opt`,
 /// `option`), and `super` (alias: `cmd`, `command`). You may use the modifier
 /// or the alias. When debugging keybinds, the non-aliased modifier will always
