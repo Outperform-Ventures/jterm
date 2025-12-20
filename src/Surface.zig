@@ -2794,25 +2794,39 @@ fn maybeHandleBinding(
 
     // Find an entry in the keybind set that matches our event.
     const entry: input.Binding.Set.Entry = entry: {
-        const set = self.keyboard.sequence_set orelse &self.config.keybind.set;
+        // Handle key sequences first.
+        if (self.keyboard.sequence_set) |set| {
+            // Get our entry from the set for the given event.
+            if (set.getEvent(event)) |v| break :entry v;
 
-        // Get our entry from the set for the given event.
-        if (set.getEvent(event)) |v| break :entry v;
+            // No entry found. We need to encode everything up to this
+            // point and send to the pty since we're in a sequence.
+            //
+            // We also ignore modifiers so that nested sequences such as
+            // ctrl+a>ctrl+b>c work.
+            if (!event.key.modifier()) {
+                // Encode everything up to this point
+                self.endKeySequence(.flush, .retain);
+            }
 
-        // No entry found. If we're not looking at the root set of the
-        // bindings we need to encode everything up to this point and
-        // send to the pty.
-        //
-        // We also ignore modifiers so that nested sequences such as
-        // ctrl+a>ctrl+b>c work.
-        if (self.keyboard.sequence_set != null and
-            !event.key.modifier())
-        {
-            // Encode everything up to this point
-            self.endKeySequence(.flush, .retain);
+            return null;
         }
 
-        return null;
+        // No currently active sequence, move on to tables. For tables,
+        // we search inner-most table to outer-most. The table stack does
+        // NOT include the root set.
+        const table_items = self.keyboard.table_stack.items;
+        if (table_items.len > 0) {
+            for (0..table_items.len) |i| {
+                const rev_i: usize = table_items.len - 1 - i;
+                const set = table_items[rev_i];
+                if (set.getEvent(event)) |v| break :entry v;
+            }
+        }
+
+        // No table, use our default set
+        break :entry self.config.keybind.set.getEvent(event) orelse
+            return null;
     };
 
     // Determine if this entry has an action or if its a leader key.
