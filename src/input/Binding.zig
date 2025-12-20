@@ -814,6 +814,11 @@ pub const Action = union(enum) {
     /// Same as activate_key_table, but the key table will only be active
     /// until the first valid keybinding from that table is used (including
     /// any defined `catch_all` bindings).
+    ///
+    /// The "once" check is only done if this is the currently active
+    /// key table. If another key table is activated later, then this
+    /// table will remain active until it pops back out to being the
+    /// active key table.
     activate_key_table_once: []const u8,
 
     /// Deactivate the currently active key table, if any. The next most

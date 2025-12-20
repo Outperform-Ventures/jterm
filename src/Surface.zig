@@ -267,7 +267,10 @@ pub const Keyboard = struct {
 
     /// The stack of tables that is currently active. The first value
     /// in this is the first activated table (NOT the default keybinding set).
-    table_stack: std.ArrayListUnmanaged(*const input.Binding.Set) = .empty,
+    table_stack: std.ArrayListUnmanaged(struct {
+        set: *const input.Binding.Set,
+        once: bool,
+    }) = .empty,
 
     /// The last handled binding. This is used to prevent encoding release
     /// events for handled bindings. We only need to keep track of one because
@@ -2819,8 +2822,19 @@ fn maybeHandleBinding(
         if (table_items.len > 0) {
             for (0..table_items.len) |i| {
                 const rev_i: usize = table_items.len - 1 - i;
-                const set = table_items[rev_i];
-                if (set.getEvent(event)) |v| break :entry v;
+                const table = table_items[rev_i];
+                if (table.set.getEvent(event)) |v| {
+                    // If this is a one-shot activation AND its the currently
+                    // active table, then we deactivate it after this.
+                    // Note: we may want to change the semantics here to
+                    // remove this table no matter where it is in the stack,
+                    // maybe.
+                    if (table.once and i == 0) _ = try self.performBindingAction(
+                        .deactivate_key_table,
+                    );
+
+                    break :entry v;
+                }
             }
         }
 
@@ -5594,15 +5608,15 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             // do nothing.
             if (self.keyboard.table_stack.items.len > 0) {
                 const items = self.keyboard.table_stack.items;
-                const active = items[items.len - 1];
+                const active = items[items.len - 1].set;
                 if (active == set) return false;
             }
 
             // Add the table to the stack.
-            try self.keyboard.table_stack.append(self.alloc, set);
-
-            // TODO: once
-            _ = tag;
+            try self.keyboard.table_stack.append(self.alloc, .{
+                .set = set,
+                .once = tag == .activate_key_table_once,
+            });
         },
 
         .deactivate_key_table => switch (self.keyboard.table_stack.items.len) {
