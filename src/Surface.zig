@@ -5569,6 +5569,49 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             {},
         ),
 
+        inline .activate_key_table,
+        .activate_key_table_once,
+        => |name, tag| {
+            // Look up the table in our config
+            const set = self.config.keybind.tables.getPtr(name) orelse
+                return false;
+
+            // If this is the same table as is currently active, then
+            // do nothing.
+            if (self.keyboard.table_stack.items.len > 0) {
+                const items = self.keyboard.table_stack.items;
+                const active = items[items.len - 1];
+                if (active == set) return false;
+            }
+
+            // Add the table to the stack.
+            try self.keyboard.table_stack.append(self.alloc, set);
+
+            // TODO: once
+            _ = tag;
+        },
+
+        .deactivate_key_table => switch (self.keyboard.table_stack.items.len) {
+            // No key table active. This does nothing.
+            0 => return false,
+
+            // Final key table active, clear our state.
+            1 => self.keyboard.table_stack.clearAndFree(self.alloc),
+
+            // Restore the prior key table. We don't free any memory in
+            // this case because we assume it will be freed later when
+            // we finish our key table.
+            else => _ = self.keyboard.table_stack.pop(),
+        },
+
+        .deactivate_all_key_tables => switch (self.keyboard.table_stack.items.len) {
+            // No key table active. This does nothing.
+            0 => return false,
+
+            // Clear the entire table stack.
+            else => self.keyboard.table_stack.clearAndFree(self.alloc),
+        },
+
         .crash => |location| switch (location) {
             .main => @panic("crash binding action, crashing intentionally"),
 
