@@ -317,12 +317,14 @@ typedef struct {
 typedef enum {
   GHOSTTY_TRIGGER_PHYSICAL,
   GHOSTTY_TRIGGER_UNICODE,
+  GHOSTTY_TRIGGER_CATCH_ALL,
 } ghostty_input_trigger_tag_e;
 
 typedef union {
   ghostty_input_key_e translated;
   ghostty_input_key_e physical;
   uint32_t unicode;
+  // catch_all has no payload
 } ghostty_input_trigger_key_u;
 
 typedef struct {
