@@ -265,6 +265,10 @@ pub const Keyboard = struct {
     /// length of a sequence.
     sequence_queued: std.ArrayListUnmanaged(termio.Message.WriteReq) = .empty,
 
+    /// The stack of tables that is currently active. The first value
+    /// in this is the first activated table (NOT the default keybinding set).
+    table_stack: std.ArrayListUnmanaged(*const input.Binding.Set) = .empty,
+
     /// The last handled binding. This is used to prevent encoding release
     /// events for handled bindings. We only need to keep track of one because
     /// at least at the time of writing this, its impossible for two keys of
@@ -793,6 +797,7 @@ pub fn deinit(self: *Surface) void {
     // Clean up our keyboard state
     for (self.keyboard.sequence_queued.items) |req| req.deinit();
     self.keyboard.sequence_queued.deinit(self.alloc);
+    self.keyboard.table_stack.deinit(self.alloc);
 
     // Clean up our font grid
     self.app.font_grid_set.deref(self.font_grid_key);
