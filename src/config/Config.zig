@@ -5822,6 +5822,7 @@ pub const Keybinds = struct {
         // allocated value). This isn't a memory leak because the arena
         // will be freed when the config is freed.
         self.set = .{};
+        self.tables = .empty;
 
         // keybinds for opening and reloading config
         try self.set.put(
@@ -6591,6 +6592,7 @@ pub const Keybinds = struct {
             // will be freed when the config is freed.
             log.info("config has 'keybind = clear', all keybinds cleared", .{});
             self.set = .{};
+            self.tables = .empty;
             return;
         }
 
@@ -7072,6 +7074,52 @@ pub const Keybinds = struct {
         const output = buf.written();
         try testing.expect(std.mem.indexOf(u8, output, "keybind = shift+b=csi:world\n") != null);
         try testing.expect(std.mem.indexOf(u8, output, "keybind = foo/shift+a=csi:hello\n") != null);
+    }
+
+    test "parseCLI clear clears tables" {
+        const testing = std.testing;
+        var arena = ArenaAllocator.init(testing.allocator);
+        defer arena.deinit();
+        const alloc = arena.allocator();
+
+        var keybinds: Keybinds = .{};
+
+        // Add bindings to root set and tables
+        try keybinds.parseCLI(alloc, "shift+a=copy_to_clipboard");
+        try keybinds.parseCLI(alloc, "foo/shift+b=paste_from_clipboard");
+        try keybinds.parseCLI(alloc, "bar/ctrl+c=close_window");
+
+        try testing.expectEqual(1, keybinds.set.bindings.count());
+        try testing.expectEqual(2, keybinds.tables.count());
+
+        // Clear all keybinds
+        try keybinds.parseCLI(alloc, "clear");
+
+        // Both root set and tables should be cleared
+        try testing.expectEqual(0, keybinds.set.bindings.count());
+        try testing.expectEqual(0, keybinds.tables.count());
+    }
+
+    test "parseCLI reset clears tables" {
+        const testing = std.testing;
+        var arena = ArenaAllocator.init(testing.allocator);
+        defer arena.deinit();
+        const alloc = arena.allocator();
+
+        var keybinds: Keybinds = .{};
+
+        // Add bindings to tables
+        try keybinds.parseCLI(alloc, "foo/shift+a=copy_to_clipboard");
+        try keybinds.parseCLI(alloc, "bar/shift+b=paste_from_clipboard");
+
+        try testing.expectEqual(2, keybinds.tables.count());
+
+        // Reset to defaults (empty value)
+        try keybinds.parseCLI(alloc, "");
+
+        // Tables should be cleared, root set has defaults
+        try testing.expectEqual(0, keybinds.tables.count());
+        try testing.expect(keybinds.set.bindings.count() > 0);
     }
 };
 

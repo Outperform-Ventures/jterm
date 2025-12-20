@@ -2569,14 +2569,22 @@ pub fn keyEventIsBinding(
         .press, .repeat => {},
     }
 
-    // Our keybinding set is either our current nested set (for
-    // sequences) or the root set.
-    const set = self.keyboard.sequence_set orelse &self.config.keybind.set;
+    // If we're in a sequence, check the sequence set
+    if (self.keyboard.sequence_set) |set| {
+        return set.getEvent(event) != null;
+    }
 
-    // log.warn("text keyEventIsBinding event={} match={}", .{ event, set.getEvent(event) != null });
+    // Check active key tables (inner-most to outer-most)
+    const table_items = self.keyboard.table_stack.items;
+    for (0..table_items.len) |i| {
+        const rev_i: usize = table_items.len - 1 - i;
+        if (table_items[rev_i].set.getEvent(event) != null) {
+            return true;
+        }
+    }
 
-    // If we have a keybinding for this event then we return true.
-    return set.getEvent(event) != null;
+    // Check the root set
+    return self.config.keybind.set.getEvent(event) != null;
 }
 
 /// Called for any key events. This handles keybindings, encoding and
