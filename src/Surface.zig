@@ -5609,15 +5609,20 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
         .activate_key_table_once,
         => |name, tag| {
             // Look up the table in our config
-            const set = self.config.keybind.tables.getPtr(name) orelse
+            const set = self.config.keybind.tables.getPtr(name) orelse {
+                log.debug("key table not found: {s}", .{name});
                 return false;
+            };
 
             // If this is the same table as is currently active, then
             // do nothing.
             if (self.keyboard.table_stack.items.len > 0) {
                 const items = self.keyboard.table_stack.items;
                 const active = items[items.len - 1].set;
-                if (active == set) return false;
+                if (active == set) {
+                    log.debug("ignoring duplicate activate table: {s}", .{name});
+                    return false;
+                }
             }
 
             // Add the table to the stack.
@@ -5625,6 +5630,8 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
                 .set = set,
                 .once = tag == .activate_key_table_once,
             });
+
+            log.debug("key table activated: {s}", .{name});
         },
 
         .deactivate_key_table => switch (self.keyboard.table_stack.items.len) {

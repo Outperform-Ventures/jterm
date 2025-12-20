@@ -6610,6 +6610,9 @@ pub const Keybinds = struct {
             // Get or create the table
             const gop = try self.tables.getOrPut(alloc, table_name);
             if (!gop.found_existing) {
+                // We need to copy our table name into the arena
+                // for valid lookups later.
+                gop.key_ptr.* = try alloc.dupe(u8, table_name);
                 gop.value_ptr.* = .{};
             }
 
@@ -6636,7 +6639,8 @@ pub const Keybinds = struct {
         try tables.ensureTotalCapacity(alloc, @intCast(self.tables.count()));
         var it = self.tables.iterator();
         while (it.next()) |entry| {
-            tables.putAssumeCapacity(entry.key_ptr.*, try entry.value_ptr.clone(alloc));
+            const key = try alloc.dupe(u8, entry.key_ptr.*);
+            tables.putAssumeCapacity(key, try entry.value_ptr.clone(alloc));
         }
 
         return .{
