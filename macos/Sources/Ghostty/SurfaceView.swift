@@ -770,10 +770,9 @@ extension Ghostty {
 
         var body: some View {
             Group {
-                if !keyTables.isEmpty {
+                if !keyTables.isEmpty || !keySequence.isEmpty {
                     content
-                    // Reset pointer style incase the mouse didn't move away
-                        .backport.pointerStyle(keyTables.isEmpty ? nil : .link)
+                        .backport.pointerStyle(!keyTables.isEmpty ? .link : nil)
                 }
             }
             .transition(.move(edge: position.transitionEdge).combined(with: .opacity))
@@ -812,25 +811,27 @@ extension Ghostty {
         private var indicatorContent: some View {
             HStack(alignment: .center, spacing: 8) {
                 // Key table indicator
-                HStack(spacing: 5) {
-                    Image(systemName: "keyboard.badge.ellipsis")
-                        .font(.system(size: 13))
-                        .foregroundStyle(.secondary)
+                if !keyTables.isEmpty {
+                    HStack(spacing: 5) {
+                        Image(systemName: "keyboard.badge.ellipsis")
+                            .font(.system(size: 13))
+                            .foregroundStyle(.secondary)
 
-                    // Show table stack with arrows between them
-                    ForEach(Array(keyTables.enumerated()), id: \.offset) { index, table in
-                        if index > 0 {
-                            Image(systemName: "chevron.right")
-                                .font(.system(size: 10, weight: .semibold))
-                                .foregroundStyle(.tertiary)
+                        // Show table stack with arrows between them
+                        ForEach(Array(keyTables.enumerated()), id: \.offset) { index, table in
+                            if index > 0 {
+                                Image(systemName: "chevron.right")
+                                    .font(.system(size: 10, weight: .semibold))
+                                    .foregroundStyle(.tertiary)
+                            }
+                            Text(verbatim: table)
+                                .font(.system(size: 13, weight: .medium, design: .rounded))
                         }
-                        Text(verbatim: table)
-                            .font(.system(size: 13, weight: .medium, design: .rounded))
                     }
                 }
 
                 // Separator when both are active
-                if !keySequence.isEmpty {
+                if !keyTables.isEmpty && !keySequence.isEmpty {
                     Divider()
                         .frame(height: 14)
                 }
