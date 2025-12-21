@@ -65,6 +65,9 @@ extension Ghostty {
         // The currently active key sequence. The sequence is not active if this is empty.
         @Published var keySequence: [KeyboardShortcut] = []
 
+        // The currently active key tables. Empty if no tables are active.
+        @Published var keyTables: [String] = []
+
         // The current search state. When non-nil, the search overlay should be shown.
         @Published var searchState: SearchState? = nil {
             didSet {
@@ -323,6 +326,11 @@ extension Ghostty {
                 self,
                 selector: #selector(ghosttyDidEndKeySequence),
                 name: Ghostty.Notification.didEndKeySequence,
+                object: self)
+            center.addObserver(
+                self,
+                selector: #selector(ghosttyDidChangeKeyTable),
+                name: Ghostty.Notification.didChangeKeyTable,
                 object: self)
             center.addObserver(
                 self,
@@ -677,6 +685,22 @@ extension Ghostty {
         @objc private func ghosttyDidEndKeySequence(notification: SwiftUI.Notification) {
             DispatchQueue.main.async { [weak self] in
                 self?.keySequence = []
+            }
+        }
+
+        @objc private func ghosttyDidChangeKeyTable(notification: SwiftUI.Notification) {
+            guard let action = notification.userInfo?[Ghostty.Notification.KeyTableKey] as? Ghostty.Action.KeyTable else { return }
+
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                switch action {
+                case .activate(let name):
+                    self.keyTables.append(name)
+                case .deactivate:
+                    _ = self.keyTables.popLast()
+                case .deactivateAll:
+                    self.keyTables.removeAll()
+                }
             }
         }
 

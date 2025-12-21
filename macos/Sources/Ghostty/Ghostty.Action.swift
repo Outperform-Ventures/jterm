@@ -141,6 +141,31 @@ extension Ghostty.Action {
             }
         }
     }
+
+    enum KeyTable {
+        case activate(name: String)
+        case deactivate
+        case deactivateAll
+
+        init?(c: ghostty_action_key_table_s) {
+            switch c.tag {
+            case GHOSTTY_KEY_TABLE_ACTIVATE:
+                let name = String(
+                    bytesNoCopy: UnsafeMutableRawPointer(mutating: c.value.activate.name),
+                    length: c.value.activate.len,
+                    encoding: .utf8,
+                    freeWhenDone: false
+                ) ?? ""
+                self = .activate(name: name)
+            case GHOSTTY_KEY_TABLE_DEACTIVATE:
+                self = .deactivate
+            case GHOSTTY_KEY_TABLE_DEACTIVATE_ALL:
+                self = .deactivateAll
+            default:
+                return nil
+            }
+        }
+    }
 }
 
 // Putting the initializer in an extension preserves the automatic one.

@@ -43,7 +43,10 @@ extension Ghostty {
         
         // The current search state. When non-nil, the search overlay should be shown.
         @Published var searchState: SearchState? = nil
-        
+
+        // The currently active key tables. Empty if no tables are active.
+        @Published var keyTables: [String] = []
+
         /// True when the surface is in readonly mode.
         @Published private(set) var readonly: Bool = false
         
