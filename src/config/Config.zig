@@ -3271,7 +3271,7 @@ else
 ///    more subtle border.
 @"gtk-toolbar-style": GtkToolbarStyle = .raised,
 
-/// The style of the GTK titlbar. Available values are `native` and `tabs`.
+/// The style of the GTK titlebar. Available values are `native` and `tabs`.
 ///
 /// The `native` titlebar style is a traditional titlebar with a title, a few
 /// buttons and window controls. A separate tab bar will show up below the
