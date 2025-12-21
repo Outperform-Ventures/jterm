@@ -124,12 +124,10 @@ extension Ghostty {
                 }
                 
                 // Show key state indicator for active key tables and/or pending key sequences
-                if !surfaceView.keyTables.isEmpty || !surfaceView.keySequence.isEmpty {
-                    KeyStateIndicator(
-                        keyTables: surfaceView.keyTables,
-                        keySequence: surfaceView.keySequence
-                    )
-                }
+                KeyStateIndicator(
+                    keyTables: surfaceView.keyTables,
+                    keySequence: surfaceView.keySequence
+                )
 #endif
 
                 // If we have a URL from hovering a link, we show that.
@@ -745,7 +743,6 @@ extension Ghostty {
         @State private var position: Position = .bottom
         @State private var dragOffset: CGSize = .zero
         @State private var isDragging = false
-        @State private var capsuleSize: CGSize = .zero
         
         private let padding: CGFloat = 8
         
@@ -765,82 +762,75 @@ extension Ghostty {
                 case .bottom: return .bottom
                 }
             }
-        }
-        
-        var body: some View {
-            GeometryReader { geo in
-                indicatorContent
-                    .background(
-                        GeometryReader { capsuleGeo in
-                            Color.clear.preference(
-                                key: CapsuleSizeKey.self,
-                                value: capsuleGeo.size
-                            )
-                        }
-                    )
-                    .offset(dragOffset)
-                    .padding(padding)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: position.alignment)
-                    .onPreferenceChange(CapsuleSizeKey.self) { size in
-                        capsuleSize = size
-                    }
-                    .highPriorityGesture(
-                        DragGesture(coordinateSpace: .local)
-                            .onChanged { value in
-                                isDragging = true
-                                dragOffset = CGSize(width: 0, height: value.translation.height)
-                            }
-                            .onEnded { value in
-                                isDragging = false
-                                let dragThreshold: CGFloat = 50
-                                
-                                withAnimation(.easeOut(duration: 0.2)) {
-                                    if position == .bottom && value.translation.height < -dragThreshold {
-                                        position = .top
-                                    } else if position == .top && value.translation.height > dragThreshold {
-                                        position = .bottom
-                                    }
-                                    dragOffset = .zero
-                                }
-                            }
-                    )
+
+            var transitionEdge: Edge {
+                popoverEdge
             }
-            .transition(.move(edge: .bottom).combined(with: .opacity))
+        }
+
+        var body: some View {
+            Group {
+                if !keyTables.isEmpty {
+                    content
+                    // Reset pointer style incase the mouse didn't move away
+                        .backport.pointerStyle(keyTables.isEmpty ? nil : .link)
+                }
+            }
+            .transition(.move(edge: position.transitionEdge).combined(with: .opacity))
             .animation(.spring(response: 0.3, dampingFraction: 0.8), value: keyTables)
             .animation(.spring(response: 0.3, dampingFraction: 0.8), value: keySequence.count)
         }
-        
-        private struct CapsuleSizeKey: PreferenceKey {
-            static var defaultValue: CGSize = .zero
-            static func reduce(value: inout CGSize, nextValue: () -> CGSize) {
-                value = nextValue()
-            }
+
+        var content: some View {
+            indicatorContent
+                .offset(dragOffset)
+                .padding(padding)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: position.alignment)
+                .highPriorityGesture(
+                    DragGesture(coordinateSpace: .local)
+                        .onChanged { value in
+                            isDragging = true
+                            dragOffset = CGSize(width: 0, height: value.translation.height)
+                        }
+                        .onEnded { value in
+                            isDragging = false
+                            let dragThreshold: CGFloat = 50
+
+                            withAnimation(.easeOut(duration: 0.2)) {
+                                if position == .bottom && value.translation.height < -dragThreshold {
+                                    position = .top
+                                } else if position == .top && value.translation.height > dragThreshold {
+                                    position = .bottom
+                                }
+                                dragOffset = .zero
+                            }
+                        }
+                )
         }
-        
+
+        @ViewBuilder
         private var indicatorContent: some View {
             HStack(alignment: .center, spacing: 8) {
                 // Key table indicator
-                if !keyTables.isEmpty {
-                    HStack(alignment: .firstTextBaseline, spacing: 5) {
-                        Image(systemName: "keyboard.badge.ellipsis")
-                            .font(.system(size: 13))
-                            .foregroundStyle(.secondary)
-                        
-                        // Show table stack with arrows between them
-                        ForEach(Array(keyTables.enumerated()), id: \.offset) { index, table in
-                            if index > 0 {
-                                Image(systemName: "chevron.right")
-                                    .font(.system(size: 10, weight: .semibold))
-                                    .foregroundStyle(.tertiary)
-                            }
-                            Text(verbatim: table)
-                                .font(.system(size: 13, weight: .medium, design: .rounded))
+                HStack(spacing: 5) {
+                    Image(systemName: "keyboard.badge.ellipsis")
+                        .font(.system(size: 13))
+                        .foregroundStyle(.secondary)
+
+                    // Show table stack with arrows between them
+                    ForEach(Array(keyTables.enumerated()), id: \.offset) { index, table in
+                        if index > 0 {
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundStyle(.tertiary)
                         }
+                        Text(verbatim: table)
+                            .font(.system(size: 13, weight: .medium, design: .rounded))
                     }
                 }
-                
+
                 // Separator when both are active
-                if !keyTables.isEmpty && !keySequence.isEmpty {
+                if !keySequence.isEmpty {
                     Divider()
                         .frame(height: 14)
                 }
@@ -853,11 +843,10 @@ extension Ghostty {
                         }
                         
                         // Animated ellipsis to indicate waiting for next key
-                        PendingIndicator()
+                        PendingIndicator(paused: isDragging)
                     }
                 }
             }
-            .frame(height: 18)
             .padding(.horizontal, 12)
             .padding(.vertical, 6)
             .background {
@@ -933,26 +922,27 @@ extension Ghostty {
         
         /// Animated dots to indicate waiting for the next key
         struct PendingIndicator: View {
-            @State private var animationPhase: Int = 0
-            
+            @State private var animationPhase: Double = 0
+            let paused: Bool
+
             var body: some View {
-                HStack(spacing: 2) {
-                    ForEach(0..<3, id: \.self) { index in
-                        Circle()
-                            .fill(Color.secondary)
-                            .frame(width: 4, height: 4)
-                            .opacity(dotOpacity(for: index))
+                TimelineView(.animation(paused: paused)) { context in
+                    HStack(spacing: 2) {
+                        ForEach(0..<3, id: \.self) { index in
+                            Circle()
+                                .fill(Color.secondary)
+                                .frame(width: 4, height: 4)
+                                .opacity(dotOpacity(for: index))
+                        }
                     }
-                }
-                .onAppear {
-                    withAnimation(.easeInOut(duration: 0.4).repeatForever(autoreverses: false)) {
-                        animationPhase = 3
+                    .onChange(of: context.date.timeIntervalSinceReferenceDate) { newValue in
+                        animationPhase = newValue
                     }
                 }
             }
             
             private func dotOpacity(for index: Int) -> Double {
-                let phase = Double(animationPhase)
+                let phase = animationPhase
                 let offset = Double(index) / 3.0
                 let wave = sin((phase + offset) * .pi * 2)
                 return 0.3 + 0.7 * ((wave + 1) / 2)
