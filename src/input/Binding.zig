@@ -799,6 +799,37 @@ pub const Action = union(enum) {
     /// be undone or redone.
     redo,
 
+    /// Activate a named key table (see `keybind` configuration documentation).
+    /// The named key table will remain active until `deactivate_key_table`
+    /// is called. If you want a one-shot key table activation, use the
+    /// `activate_key_table_once` action instead.
+    ///
+    /// If the named key table does not exist, this action has no effect
+    /// and performable will report false.
+    ///
+    /// If the named key table is already the currently active key table,
+    /// this action has no effect and performable will report false.
+    activate_key_table: []const u8,
+
+    /// Same as activate_key_table, but the key table will only be active
+    /// until the first valid keybinding from that table is used (including
+    /// any defined `catch_all` bindings).
+    ///
+    /// The "once" check is only done if this is the currently active
+    /// key table. If another key table is activated later, then this
+    /// table will remain active until it pops back out to being the
+    /// active key table.
+    activate_key_table_once: []const u8,
+
+    /// Deactivate the currently active key table, if any. The next most
+    /// recently activated key table (if any) will become active again.
+    /// If no key table is active, this action has no effect.
+    deactivate_key_table,
+
+    /// Deactivate all active key tables. If no active key table exists,
+    /// this will report performable as false.
+    deactivate_all_key_tables,
+
     /// Quit Ghostty.
     quit,
 
@@ -1253,6 +1284,10 @@ pub const Action = union(enum) {
             .toggle_background_opacity,
             .show_on_screen_keyboard,
             .reset_window_size,
+            .activate_key_table,
+            .activate_key_table_once,
+            .deactivate_key_table,
+            .deactivate_all_key_tables,
             .crash,
             => .surface,
 
