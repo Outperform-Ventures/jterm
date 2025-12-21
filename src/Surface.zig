@@ -49,6 +49,10 @@ const Renderer = rendererpkg.Renderer;
 const min_window_width_cells: u32 = 10;
 const min_window_height_cells: u32 = 4;
 
+/// The maximum number of key tables that can be active at any
+/// given time. `activate_key_table` calls after this are ignored.
+const max_active_key_tables = 8;
+
 /// Allocator
 alloc: Allocator,
 
@@ -267,6 +271,8 @@ pub const Keyboard = struct {
 
     /// The stack of tables that is currently active. The first value
     /// in this is the first activated table (NOT the default keybinding set).
+    ///
+    /// This is bounded by `max_active_key_tables`.
     table_stack: std.ArrayListUnmanaged(struct {
         set: *const input.Binding.Set,
         once: bool,
@@ -1737,6 +1743,14 @@ pub fn updateConfig(
     // If we are in the middle of a key sequence, clear it.
     self.endKeySequence(.drop, .free);
 
+    // Deactivate all key tables since they may have changed. Importantly,
+    // we store pointers into the config as part of our table stack so
+    // we can't keep them active across config changes. But this behavior
+    // also matches key sequences.
+    _ = self.deactivateAllKeyTables() catch |err| {
+        log.warn("failed to deactivate key tables err={}", .{err});
+    };
+
     // Before sending any other config changes, we give the renderer a new font
     // grid. We could check to see if there was an actual change to the font,
     // but this is easier and pretty rare so it's not a performance concern.
@@ -2965,6 +2979,30 @@ fn maybeHandleBinding(
     self.endKeySequence(.flush, .retain);
 
     return null;
+}
+
+fn deactivateAllKeyTables(self: *Surface) !bool {
+    switch (self.keyboard.table_stack.items.len) {
+        // No key table active. This does nothing.
+        0 => return false,
+
+        // Clear the entire table stack.
+        else => self.keyboard.table_stack.clearAndFree(self.alloc),
+    }
+
+    // Notify the UI.
+    _ = self.rt_app.performAction(
+        .{ .surface = self },
+        .key_table,
+        .deactivate_all,
+    ) catch |err| {
+        log.warn(
+            "failed to notify app of key table err={}",
+            .{err},
+        );
+    };
+
+    return true;
 }
 
 const KeySequenceQueued = enum { flush, drop };
@@ -5625,6 +5663,15 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
                 }
             }
 
+            // If we're already at the max, ignore it.
+            if (self.keyboard.table_stack.items.len >= max_active_key_tables) {
+                log.info(
+                    "ignoring activate table, max depth reached: {s}",
+                    .{name},
+                );
+                return false;
+            }
+
             // Add the table to the stack.
             try self.keyboard.table_stack.append(self.alloc, .{
                 .set = set,
@@ -5674,25 +5721,7 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
         },
 
         .deactivate_all_key_tables => {
-            switch (self.keyboard.table_stack.items.len) {
-                // No key table active. This does nothing.
-                0 => return false,
-
-                // Clear the entire table stack.
-                else => self.keyboard.table_stack.clearAndFree(self.alloc),
-            }
-
-            // Notify the UI.
-            _ = self.rt_app.performAction(
-                .{ .surface = self },
-                .key_table,
-                .deactivate_all,
-            ) catch |err| {
-                log.warn(
-                    "failed to notify app of key table err={}",
-                    .{err},
-                );
-            };
+            return try self.deactivateAllKeyTables();
         },
 
         .crash => |location| switch (location) {
