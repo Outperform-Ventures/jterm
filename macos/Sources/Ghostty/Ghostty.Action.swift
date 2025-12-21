@@ -150,12 +150,8 @@ extension Ghostty.Action {
         init?(c: ghostty_action_key_table_s) {
             switch c.tag {
             case GHOSTTY_KEY_TABLE_ACTIVATE:
-                let name = String(
-                    bytesNoCopy: UnsafeMutableRawPointer(mutating: c.value.activate.name),
-                    length: c.value.activate.len,
-                    encoding: .utf8,
-                    freeWhenDone: false
-                ) ?? ""
+                let data = Data(bytes: c.value.activate.name, count: c.value.activate.len)
+                let name = String(data: data, encoding: .utf8) ?? ""
                 self = .activate(name: name)
             case GHOSTTY_KEY_TABLE_DEACTIVATE:
                 self = .deactivate
