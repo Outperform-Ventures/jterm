@@ -5631,28 +5631,68 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
                 .once = tag == .activate_key_table_once,
             });
 
+            // Notify the UI.
+            _ = self.rt_app.performAction(
+                .{ .surface = self },
+                .key_table,
+                .{ .activate = name },
+            ) catch |err| {
+                log.warn(
+                    "failed to notify app of key table err={}",
+                    .{err},
+                );
+            };
+
             log.debug("key table activated: {s}", .{name});
         },
 
-        .deactivate_key_table => switch (self.keyboard.table_stack.items.len) {
-            // No key table active. This does nothing.
-            0 => return false,
+        .deactivate_key_table => {
+            switch (self.keyboard.table_stack.items.len) {
+                // No key table active. This does nothing.
+                0 => return false,
 
-            // Final key table active, clear our state.
-            1 => self.keyboard.table_stack.clearAndFree(self.alloc),
+                // Final key table active, clear our state.
+                1 => self.keyboard.table_stack.clearAndFree(self.alloc),
 
-            // Restore the prior key table. We don't free any memory in
-            // this case because we assume it will be freed later when
-            // we finish our key table.
-            else => _ = self.keyboard.table_stack.pop(),
+                // Restore the prior key table. We don't free any memory in
+                // this case because we assume it will be freed later when
+                // we finish our key table.
+                else => _ = self.keyboard.table_stack.pop(),
+            }
+
+            // Notify the UI.
+            _ = self.rt_app.performAction(
+                .{ .surface = self },
+                .key_table,
+                .deactivate,
+            ) catch |err| {
+                log.warn(
+                    "failed to notify app of key table err={}",
+                    .{err},
+                );
+            };
         },
 
-        .deactivate_all_key_tables => switch (self.keyboard.table_stack.items.len) {
-            // No key table active. This does nothing.
-            0 => return false,
+        .deactivate_all_key_tables => {
+            switch (self.keyboard.table_stack.items.len) {
+                // No key table active. This does nothing.
+                0 => return false,
 
-            // Clear the entire table stack.
-            else => self.keyboard.table_stack.clearAndFree(self.alloc),
+                // Clear the entire table stack.
+                else => self.keyboard.table_stack.clearAndFree(self.alloc),
+            }
+
+            // Notify the UI.
+            _ = self.rt_app.performAction(
+                .{ .surface = self },
+                .key_table,
+                .deactivate_all,
+            ) catch |err| {
+                log.warn(
+                    "failed to notify app of key table err={}",
+                    .{err},
+                );
+            };
         },
 
         .crash => |location| switch (location) {
