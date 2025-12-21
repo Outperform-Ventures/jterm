@@ -358,7 +358,8 @@ fn setupBash(
     if (std.fs.openFileAbsolute(script_path, .{})) |file| {
         file.close();
         try env.put("ENV", script_path);
-    } else |_| {
+    } else |err| {
+        log.warn("unable to open {s}: {}", .{ script_path, err });
         return null;
     }
 
@@ -578,7 +579,10 @@ fn setupXdgDataDirs(
         "{s}/shell-integration",
         .{resource_dir},
     );
-    var integ_dir = std.fs.openDirAbsolute(integ_path, .{}) catch return false;
+    var integ_dir = std.fs.openDirAbsolute(integ_path, .{}) catch |err| {
+        log.warn("unable to open {s}: {}", .{ integ_path, err });
+        return false;
+    };
     integ_dir.close();
 
     // Set an env var so we can remove this from XDG_DATA_DIRS later.
@@ -683,7 +687,10 @@ fn setupZsh(
         "{s}/shell-integration/zsh",
         .{resource_dir},
     );
-    var integ_dir = std.fs.openDirAbsolute(integ_path, .{}) catch return false;
+    var integ_dir = std.fs.openDirAbsolute(integ_path, .{}) catch |err| {
+        log.warn("unable to open {s}: {}", .{ integ_path, err });
+        return false;
+    };
     integ_dir.close();
     try env.put("ZDOTDIR", integ_path);
 
