@@ -1666,6 +1666,50 @@ class: ?[:0]const u8 = null,
 ///
 ///  - Notably, global shortcuts have not been implemented on wlroots-based
 ///    compositors like Sway (see [upstream issue](https://github.com/emersion/xdg-desktop-portal-wlr/issues/240)).
+///
+/// You may also create a named set of keybindings known as a "key table."
+/// A key table must be explicitly activated for the bindings to become
+/// available. This can be used to implement features such as a
+/// "copy mode", "vim mode", etc. Generically, this can implement modal
+/// keyboard input.
+///
+/// Key tables are defined using the syntax `<table>/<binding>`. The
+/// `<binding>` value is everything documented above for keybinds. The
+/// `<table>` value is the name of the key table. Table names can contain
+/// anything except `/` and `=`. For example `foo/ctrl+a=new_window`
+/// defines a binding within a table named `foo`.
+///
+/// Tables are activated and deactivated using the binding actions
+/// `activate_key_table:<name>` and `deactivate_key_table`. Other table
+/// related binding actions also exist; see the documentation for a full list.
+/// These are the primary way to interact with key tables.
+///
+/// Binding lookup proceeds from the innermost table outward, so keybinds in
+/// the default table remain available unless explicitly unbound in an inner
+/// table.
+///
+/// A key table has some special syntax and handling:
+///
+///   * `<name>/` (with no binding) defines and clears a table, resetting all
+///     of its keybinds and settings.
+///
+///   * You cannot activate a table that is already the innermost table; such
+///     attempts are ignored. However, the same table can appear multiple times
+///     in the stack as long as it is not innermost (e.g., `A -> B -> A -> B`
+///     is valid, but `A -> B -> B` is not).
+///
+///   * A table can be activated in one-shot mode using
+///     `activate_key_table_once:<name>`. A one-shot table is automatically
+///     deactivated when any non-catch-all binding is invoked.
+///
+///   * Key sequences work within tables: `foo/ctrl+a>ctrl+b=new_window`.
+///     If an invalid key is pressed, the sequence ends but the table remains
+///     active.
+///
+///   * Prefixes like `global:` work within tables:
+///     `foo/global:ctrl+a=new_window`.
+///
+/// Key tables are available since Ghostty 1.3.0.
 keybind: Keybinds = .{},
 
 /// Horizontal window padding. This applies padding between the terminal cells
