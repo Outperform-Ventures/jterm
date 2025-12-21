@@ -123,30 +123,12 @@ extension Ghostty {
                     }
                 }
                 
-                // If we are in the middle of a key sequence, then we show a visual element. We only
-                // support this on macOS currently although in theory we can support mobile with keyboards!
-                if !surfaceView.keySequence.isEmpty {
-                    let padding: CGFloat = 5
-                    VStack {
-                        Spacer()
-
-                        HStack {
-                            Text(verbatim: "Pending Key Sequence:")
-                            ForEach(0..<surfaceView.keySequence.count, id: \.description) { index in
-                                let key = surfaceView.keySequence[index]
-                                Text(verbatim: key.description)
-                                    .font(.system(.body, design: .monospaced))
-                                    .padding(3)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 5)
-                                            .fill(Color(NSColor.selectedTextBackgroundColor))
-                                    )
-                            }
-                        }
-                        .padding(.init(top: padding, leading: padding, bottom: padding, trailing: padding))
-                        .frame(maxWidth: .infinity)
-                        .background(.background)
-                    }
+                // Show key state indicator for active key tables and/or pending key sequences
+                if !surfaceView.keyTables.isEmpty || !surfaceView.keySequence.isEmpty {
+                    KeyStateIndicator(
+                        keyTables: surfaceView.keyTables,
+                        keySequence: surfaceView.keySequence
+                    )
                 }
 #endif
 
@@ -751,6 +733,233 @@ extension Ghostty {
             }
         }
     }
+
+#if canImport(AppKit)
+    /// Floating indicator that shows active key tables and pending key sequences.
+    /// Displayed as a compact draggable pill that can be positioned at the top or bottom.
+    struct KeyStateIndicator: View {
+        let keyTables: [String]
+        let keySequence: [KeyboardShortcut]
+        
+        @State private var isShowingPopover = false
+        @State private var position: Position = .bottom
+        @State private var dragOffset: CGSize = .zero
+        @State private var isDragging = false
+        @State private var capsuleSize: CGSize = .zero
+        
+        private let padding: CGFloat = 8
+        
+        enum Position {
+            case top, bottom
+            
+            var alignment: Alignment {
+                switch self {
+                case .top: return .top
+                case .bottom: return .bottom
+                }
+            }
+            
+            var popoverEdge: Edge {
+                switch self {
+                case .top: return .top
+                case .bottom: return .bottom
+                }
+            }
+        }
+        
+        var body: some View {
+            GeometryReader { geo in
+                indicatorContent
+                    .background(
+                        GeometryReader { capsuleGeo in
+                            Color.clear.preference(
+                                key: CapsuleSizeKey.self,
+                                value: capsuleGeo.size
+                            )
+                        }
+                    )
+                    .offset(dragOffset)
+                    .padding(padding)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: position.alignment)
+                    .onPreferenceChange(CapsuleSizeKey.self) { size in
+                        capsuleSize = size
+                    }
+                    .highPriorityGesture(
+                        DragGesture(coordinateSpace: .local)
+                            .onChanged { value in
+                                isDragging = true
+                                dragOffset = CGSize(width: 0, height: value.translation.height)
+                            }
+                            .onEnded { value in
+                                isDragging = false
+                                let dragThreshold: CGFloat = 50
+                                
+                                withAnimation(.easeOut(duration: 0.2)) {
+                                    if position == .bottom && value.translation.height < -dragThreshold {
+                                        position = .top
+                                    } else if position == .top && value.translation.height > dragThreshold {
+                                        position = .bottom
+                                    }
+                                    dragOffset = .zero
+                                }
+                            }
+                    )
+            }
+            .transition(.move(edge: .bottom).combined(with: .opacity))
+            .animation(.spring(response: 0.3, dampingFraction: 0.8), value: keyTables)
+            .animation(.spring(response: 0.3, dampingFraction: 0.8), value: keySequence.count)
+        }
+        
+        private struct CapsuleSizeKey: PreferenceKey {
+            static var defaultValue: CGSize = .zero
+            static func reduce(value: inout CGSize, nextValue: () -> CGSize) {
+                value = nextValue()
+            }
+        }
+        
+        private var indicatorContent: some View {
+            HStack(alignment: .center, spacing: 8) {
+                // Key table indicator
+                if !keyTables.isEmpty {
+                    HStack(alignment: .firstTextBaseline, spacing: 5) {
+                        Image(systemName: "keyboard.badge.ellipsis")
+                            .font(.system(size: 13))
+                            .foregroundStyle(.secondary)
+                        
+                        // Show table stack with arrows between them
+                        ForEach(Array(keyTables.enumerated()), id: \.offset) { index, table in
+                            if index > 0 {
+                                Image(systemName: "chevron.right")
+                                    .font(.system(size: 10, weight: .semibold))
+                                    .foregroundStyle(.tertiary)
+                            }
+                            Text(verbatim: table)
+                                .font(.system(size: 13, weight: .medium, design: .rounded))
+                        }
+                    }
+                }
+                
+                // Separator when both are active
+                if !keyTables.isEmpty && !keySequence.isEmpty {
+                    Divider()
+                        .frame(height: 14)
+                }
+                
+                // Key sequence indicator
+                if !keySequence.isEmpty {
+                    HStack(alignment: .center, spacing: 4) {
+                        ForEach(Array(keySequence.enumerated()), id: \.offset) { index, key in
+                            KeyCap(key.description)
+                        }
+                        
+                        // Animated ellipsis to indicate waiting for next key
+                        PendingIndicator()
+                    }
+                }
+            }
+            .frame(height: 18)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background {
+                Capsule()
+                    .fill(.regularMaterial)
+                    .overlay {
+                        Capsule()
+                            .strokeBorder(Color.primary.opacity(0.15), lineWidth: 1)
+                    }
+                    .shadow(color: .black.opacity(0.2), radius: 8, y: 2)
+            }
+            .contentShape(Capsule())
+            .backport.pointerStyle(.link)
+            .popover(isPresented: $isShowingPopover, arrowEdge: position.popoverEdge) {
+                VStack(alignment: .leading, spacing: 8) {
+                    if !keyTables.isEmpty {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Label("Key Table", systemImage: "keyboard.badge.ellipsis")
+                                .font(.headline)
+                            Text("A key table is a named set of keybindings, activated by some other key. Keys are interpreted using this table until it is deactivated.")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    
+                    if !keyTables.isEmpty && !keySequence.isEmpty {
+                        Divider()
+                    }
+                    
+                    if !keySequence.isEmpty {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Label("Key Sequence", systemImage: "character.cursor.ibeam")
+                                .font(.headline)
+                            Text("A key sequence is a series of key presses that trigger an action. A pending key sequence is currently active.")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                .padding()
+                .frame(maxWidth: 400)
+                .fixedSize(horizontal: false, vertical: true)
+            }
+            .onTapGesture {
+                isShowingPopover.toggle()
+            }
+        }
+        
+        /// A small keycap-style view for displaying keyboard shortcuts
+        struct KeyCap: View {
+            let text: String
+            
+            init(_ text: String) {
+                self.text = text
+            }
+            
+            var body: some View {
+                Text(verbatim: text)
+                    .font(.system(size: 12, weight: .medium, design: .rounded))
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 2)
+                    .background(
+                        RoundedRectangle(cornerRadius: 4)
+                            .fill(Color(NSColor.controlBackgroundColor))
+                            .shadow(color: .black.opacity(0.12), radius: 0.5, y: 0.5)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 4)
+                            .strokeBorder(Color.primary.opacity(0.15), lineWidth: 0.5)
+                    )
+            }
+        }
+        
+        /// Animated dots to indicate waiting for the next key
+        struct PendingIndicator: View {
+            @State private var animationPhase: Int = 0
+            
+            var body: some View {
+                HStack(spacing: 2) {
+                    ForEach(0..<3, id: \.self) { index in
+                        Circle()
+                            .fill(Color.secondary)
+                            .frame(width: 4, height: 4)
+                            .opacity(dotOpacity(for: index))
+                    }
+                }
+                .onAppear {
+                    withAnimation(.easeInOut(duration: 0.4).repeatForever(autoreverses: false)) {
+                        animationPhase = 3
+                    }
+                }
+            }
+            
+            private func dotOpacity(for index: Int) -> Double {
+                let phase = Double(animationPhase)
+                let offset = Double(index) / 3.0
+                let wave = sin((phase + offset) * .pi * 2)
+                return 0.3 + 0.7 * ((wave + 1) / 2)
+            }
+        }
+    }
+#endif
 
     /// Visual overlay that shows a border around the edges when the bell rings with border feature enabled.
     struct BellBorderOverlay: View {
