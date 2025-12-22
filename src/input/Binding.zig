@@ -2443,9 +2443,10 @@ pub const Set = struct {
                 // part of the reverse mapping, so we need to fix up the
                 // reverse map (possibly restoring another trigger for the
                 // same action).
-                if (!leaf.flags.performable) {
-                    parent.set.fixupReverseForAction(leaf.action);
-                }
+                parent.set.fixupReverseForAction(
+                    leaf.action,
+                    parent.key_ptr.*,
+                );
             },
         }
     }
@@ -2532,7 +2533,10 @@ pub const Set = struct {
             },
 
             // For an action we need to fix up the reverse mapping.
-            .leaf => |leaf| self.fixupReverseForAction(leaf.action),
+            .leaf => |leaf| self.fixupReverseForAction(
+                leaf.action,
+                t,
+            ),
 
             // Chained leaves are never in our reverse mapping so no
             // cleanup is required.
@@ -2550,19 +2554,35 @@ pub const Set = struct {
     /// to point to that binding. Otherwise, we remove the action from the
     /// reverse mapping entirely.
     ///
+    /// The `old` parameter is the trigger that was previously bound to this
+    /// action. It is used to check if the reverse mapping still points to
+    /// this trigger; if not, no fixup is needed since the reverse map already
+    /// points to a different trigger for this action.
+    ///
     /// Note: we'd LIKE to replace this with the most recent binding but
     /// our hash map obviously has no concept of ordering so we have to
     /// choose whatever. Maybe a switch to an array hash map here.
-    fn fixupReverseForAction(self: *Set, action: Action) void {
-        const action_hash = action.hash();
+    fn fixupReverseForAction(
+        self: *Set,
+        action: Action,
+        old: Trigger,
+    ) void {
+        const entry = self.reverse.getEntry(action) orelse return;
 
+        // If our value is not the same as the old trigger, we can
+        // ignore it because our reverse mapping points somewhere else.
+        if (!entry.value_ptr.eql(old)) return;
+
+        // It is the same trigger, so let's now go through our bindings
+        // and try to find another trigger that maps to the same action.
+        const action_hash = action.hash();
         var it = self.bindings.iterator();
         while (it.next()) |it_entry| {
             switch (it_entry.value_ptr.*) {
                 .leader, .leaf_chained => {},
                 .leaf => |leaf_search| {
                     if (leaf_search.action.hash() == action_hash) {
-                        self.reverse.putAssumeCapacity(action, it_entry.key_ptr.*);
+                        entry.value_ptr.* = it_entry.key_ptr.*;
                         return;
                     }
                 },
