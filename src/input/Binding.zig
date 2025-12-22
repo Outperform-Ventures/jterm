@@ -2370,6 +2370,52 @@ pub const Set = struct {
         assert(self.chain_parent.?.value_ptr.* == .leaf);
     }
 
+    /// Append a chained action to the prior set action.
+    ///
+    /// It is an error if there is no valid prior chain parent.
+    pub fn appendChain(
+        self: *Set,
+        alloc: Allocator,
+        action: Action,
+    ) (Allocator.Error || error{NoChainParent})!void {
+        const parent = self.chain_parent orelse return error.NoChainParent;
+        switch (parent.value_ptr.*) {
+            // Leader can never be a chain parent. Verified through various
+            // assertions and unit tests.
+            .leader => unreachable,
+
+            // If it is already a chained action, we just append the
+            // action. Easy!
+            .leaf_chained => |*leaf| try leaf.actions.append(
+                alloc,
+                action,
+            ),
+
+            // If it is a leaf, we need to convert it to a leaf_chained.
+            // We also need to be careful to remove any prior reverse
+            // mappings for this action since chained actions are not
+            // part of the reverse mapping.
+            .leaf => |leaf| {
+                // Setup our failable actions list first.
+                var actions: std.ArrayList(Action) = .empty;
+                try actions.ensureTotalCapacity(alloc, 2);
+                errdefer actions.deinit(alloc);
+                actions.appendAssumeCapacity(leaf.action);
+                actions.appendAssumeCapacity(action);
+
+                // Clean up our reverse mapping. We only do this if
+                // we're the chain parent because only the root set
+                // maintains reverse mappings.
+                // TODO
+
+                parent.value_ptr.* = .{ .leaf_chained = .{
+                    .actions = actions,
+                    .flags = leaf.flags,
+                } };
+            },
+        }
+    }
+
     /// Get a binding for a given trigger.
     pub fn get(self: Set, t: Trigger) ?Entry {
         return self.bindings.getEntry(t);
@@ -4068,4 +4114,81 @@ test "action: format" {
     defer buf.deinit();
     try a.format(&buf.writer);
     try testing.expectEqualStrings("text:\\xf0\\x9f\\x91\\xbb", buf.written());
+}
+
+test "set: appendChain with no parent returns error" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s: Set = .{};
+    defer s.deinit(alloc);
+
+    try testing.expectError(error.NoChainParent, s.appendChain(alloc, .{ .new_tab = {} }));
+}
+
+test "set: appendChain after put converts to leaf_chained" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s: Set = .{};
+    defer s.deinit(alloc);
+
+    try s.put(alloc, .{ .key = .{ .unicode = 'a' } }, .{ .new_window = {} });
+
+    // First appendChain converts leaf to leaf_chained and appends the new action
+    try s.appendChain(alloc, .{ .new_tab = {} });
+
+    const entry = s.get(.{ .key = .{ .unicode = 'a' } }).?;
+    try testing.expect(entry.value_ptr.* == .leaf_chained);
+
+    const chained = entry.value_ptr.*.leaf_chained;
+    try testing.expectEqual(@as(usize, 2), chained.actions.items.len);
+    try testing.expect(chained.actions.items[0] == .new_window);
+    try testing.expect(chained.actions.items[1] == .new_tab);
+}
+
+test "set: appendChain after putFlags preserves flags" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s: Set = .{};
+    defer s.deinit(alloc);
+
+    try s.putFlags(
+        alloc,
+        .{ .key = .{ .unicode = 'a' } },
+        .{ .new_window = {} },
+        .{ .consumed = false },
+    );
+    try s.appendChain(alloc, .{ .new_tab = {} });
+
+    const entry = s.get(.{ .key = .{ .unicode = 'a' } }).?;
+    try testing.expect(entry.value_ptr.* == .leaf_chained);
+
+    const chained = entry.value_ptr.*.leaf_chained;
+    try testing.expect(!chained.flags.consumed);
+    try testing.expectEqual(@as(usize, 2), chained.actions.items.len);
+    try testing.expect(chained.actions.items[0] == .new_window);
+    try testing.expect(chained.actions.items[1] == .new_tab);
+}
+
+test "set: appendChain multiple times" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s: Set = .{};
+    defer s.deinit(alloc);
+
+    try s.put(alloc, .{ .key = .{ .unicode = 'a' } }, .{ .new_window = {} });
+    try s.appendChain(alloc, .{ .new_tab = {} });
+    try s.appendChain(alloc, .{ .close_surface = {} });
+
+    const entry = s.get(.{ .key = .{ .unicode = 'a' } }).?;
+    try testing.expect(entry.value_ptr.* == .leaf_chained);
+
+    const chained = entry.value_ptr.*.leaf_chained;
+    try testing.expectEqual(@as(usize, 3), chained.actions.items.len);
+    try testing.expect(chained.actions.items[0] == .new_window);
+    try testing.expect(chained.actions.items[1] == .new_tab);
+    try testing.expect(chained.actions.items[2] == .close_surface);
 }
