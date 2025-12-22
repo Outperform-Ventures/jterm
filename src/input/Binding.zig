@@ -2166,6 +2166,7 @@ pub const Set = struct {
         // We use recursion so that we can utilize the stack as our state
         // for cleanup.
         const updated_set_ = self.parseAndPutRecurse(
+            self,
             alloc,
             &it,
         ) catch |err| err: {
@@ -2177,6 +2178,12 @@ pub const Set = struct {
                 // If our parser input was too short then the format
                 // is invalid because we handle all valid cases.
                 error.UnexpectedEndOfInput => return error.InvalidFormat,
+
+                // If we had a chain without a parent then the format is wrong.
+                error.NoChainParent => return error.InvalidFormat,
+
+                // If we had an invalid action for a chain (e.g. unbind).
+                error.InvalidChainAction => return error.InvalidFormat,
 
                 // Unrecoverable
                 error.OutOfMemory => return error.OutOfMemory,
@@ -2202,12 +2209,15 @@ pub const Set = struct {
 
     const ParseAndPutRecurseError = Allocator.Error || error{
         SequenceUnbind,
+        NoChainParent,
         UnexpectedEndOfInput,
+        InvalidChainAction,
     };
 
     /// Returns the set that was ultimately updated if a binding was
     /// added. Unbind does not return a set since nothing was added.
     fn parseAndPutRecurse(
+        root: *Set,
         set: *Set,
         alloc: Allocator,
         it: *Parser,
@@ -2225,7 +2235,7 @@ pub const Set = struct {
                 if (old) |entry| switch (entry) {
                     // We have an existing leader for this key already
                     // so recurse into this set.
-                    .leader => |s| return parseAndPutRecurse(
+                    .leader => |s| return root.parseAndPutRecurse(
                         s,
                         alloc,
                         it,
@@ -2238,7 +2248,9 @@ pub const Set = struct {
                             return error.SequenceUnbind;
                         } else null,
 
+                        error.NoChainParent,
                         error.UnexpectedEndOfInput,
+                        error.InvalidChainAction,
                         error.OutOfMemory,
                         => err,
                     },
@@ -2260,7 +2272,7 @@ pub const Set = struct {
                 try set.bindings.put(alloc, t, .{ .leader = next });
 
                 // Recurse
-                return parseAndPutRecurse(next, alloc, it) catch |err| switch (err) {
+                return root.parseAndPutRecurse(next, alloc, it) catch |err| switch (err) {
                     // If our action was to unbind, we restore the old
                     // action if we have it.
                     error.SequenceUnbind => {
@@ -2279,7 +2291,9 @@ pub const Set = struct {
                         return null;
                     },
 
+                    error.NoChainParent,
                     error.UnexpectedEndOfInput,
+                    error.InvalidChainAction,
                     error.OutOfMemory,
                     => return err,
                 };
@@ -2302,8 +2316,12 @@ pub const Set = struct {
                 },
             },
 
-            .chain => {
-                // TODO: Do this, ignore for now.
+            .chain => |action| {
+                // Chains can only happen on the root.
+                assert(set == root);
+                // Unbind is not valid for chains.
+                if (action == .unbind) return error.InvalidChainAction;
+                try set.appendChain(alloc, action);
                 return set;
             },
         }
@@ -2405,6 +2423,9 @@ pub const Set = struct {
         alloc: Allocator,
         action: Action,
     ) (Allocator.Error || error{NoChainParent})!void {
+        // Unbind is not a valid chain action; callers must check this.
+        assert(action != .unbind);
+
         const parent = self.chain_parent orelse return error.NoChainParent;
         switch (parent.value_ptr.*) {
             // Leader can never be a chain parent. Verified through various
@@ -3879,30 +3900,142 @@ test "set: consumed state" {
     try testing.expect(s.get(.{ .key = .{ .unicode = 'a' } }).?.value_ptr.*.leaf.flags.consumed);
 }
 
-// test "set: parseAndPut chain" {
-//     const testing = std.testing;
-//     const alloc = testing.allocator;
-//
-//     var s: Set = .{};
-//     defer s.deinit(alloc);
-//
-//     try s.parseAndPut(alloc, "a=new_window");
-//     try s.parseAndPut(alloc, "chain=new_tab");
-//
-//     // Creates forward mapping
-//     {
-//         const action = s.get(.{ .key = .{ .unicode = 'a' } }).?.value_ptr.*.leaf;
-//         try testing.expect(action.action == .new_window);
-//         try testing.expectEqual(Flags{}, action.flags);
-//     }
-//
-//     // Does not create reverse mapping, because reverse mappings are only for
-//     // non-chain actions.
-//     {
-//         const trigger = s.getTrigger(.new_window);
-//         try testing.expect(trigger == null);
-//     }
-// }
+test "set: parseAndPut chain" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s: Set = .{};
+    defer s.deinit(alloc);
+
+    try s.parseAndPut(alloc, "a=new_window");
+    try s.parseAndPut(alloc, "chain=new_tab");
+
+    // Creates forward mapping as leaf_chained
+    {
+        const entry = s.get(.{ .key = .{ .unicode = 'a' } }).?.value_ptr.*;
+        try testing.expect(entry == .leaf_chained);
+        const chained = entry.leaf_chained;
+        try testing.expectEqual(@as(usize, 2), chained.actions.items.len);
+        try testing.expect(chained.actions.items[0] == .new_window);
+        try testing.expect(chained.actions.items[1] == .new_tab);
+    }
+
+    // Does not create reverse mapping, because reverse mappings are only for
+    // non-chained actions.
+    {
+        try testing.expect(s.getTrigger(.{ .new_window = {} }) == null);
+    }
+}
+
+test "set: parseAndPut chain without parent is error" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s: Set = .{};
+    defer s.deinit(alloc);
+
+    // Chain without a prior binding should fail
+    try testing.expectError(error.InvalidFormat, s.parseAndPut(alloc, "chain=new_tab"));
+}
+
+test "set: parseAndPut chain multiple times" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s: Set = .{};
+    defer s.deinit(alloc);
+
+    try s.parseAndPut(alloc, "a=new_window");
+    try s.parseAndPut(alloc, "chain=new_tab");
+    try s.parseAndPut(alloc, "chain=close_surface");
+
+    // Should have 3 actions chained
+    {
+        const entry = s.get(.{ .key = .{ .unicode = 'a' } }).?.value_ptr.*;
+        try testing.expect(entry == .leaf_chained);
+        const chained = entry.leaf_chained;
+        try testing.expectEqual(@as(usize, 3), chained.actions.items.len);
+        try testing.expect(chained.actions.items[0] == .new_window);
+        try testing.expect(chained.actions.items[1] == .new_tab);
+        try testing.expect(chained.actions.items[2] == .close_surface);
+    }
+}
+
+test "set: parseAndPut chain preserves flags" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s: Set = .{};
+    defer s.deinit(alloc);
+
+    try s.parseAndPut(alloc, "unconsumed:a=new_window");
+    try s.parseAndPut(alloc, "chain=new_tab");
+
+    // Should preserve unconsumed flag
+    {
+        const entry = s.get(.{ .key = .{ .unicode = 'a' } }).?.value_ptr.*;
+        try testing.expect(entry == .leaf_chained);
+        const chained = entry.leaf_chained;
+        try testing.expect(!chained.flags.consumed);
+        try testing.expectEqual(@as(usize, 2), chained.actions.items.len);
+    }
+}
+
+test "set: parseAndPut chain after unbind is error" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s: Set = .{};
+    defer s.deinit(alloc);
+
+    try s.parseAndPut(alloc, "a=new_window");
+    try s.parseAndPut(alloc, "a=unbind");
+
+    // Chain after unbind should fail because chain_parent is cleared
+    try testing.expectError(error.InvalidFormat, s.parseAndPut(alloc, "chain=new_tab"));
+}
+
+test "set: parseAndPut chain on sequence" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s: Set = .{};
+    defer s.deinit(alloc);
+
+    try s.parseAndPut(alloc, "a>b=new_window");
+    try s.parseAndPut(alloc, "chain=new_tab");
+
+    // Navigate to the inner set
+    const a_entry = s.get(.{ .key = .{ .unicode = 'a' } }).?.value_ptr.*;
+    try testing.expect(a_entry == .leader);
+    const inner_set = a_entry.leader;
+
+    // Check the chained binding
+    const b_entry = inner_set.get(.{ .key = .{ .unicode = 'b' } }).?.value_ptr.*;
+    try testing.expect(b_entry == .leaf_chained);
+    const chained = b_entry.leaf_chained;
+    try testing.expectEqual(@as(usize, 2), chained.actions.items.len);
+    try testing.expect(chained.actions.items[0] == .new_window);
+    try testing.expect(chained.actions.items[1] == .new_tab);
+}
+
+test "set: parseAndPut chain with unbind is error" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s: Set = .{};
+    defer s.deinit(alloc);
+
+    try s.parseAndPut(alloc, "a=new_window");
+
+    // chain=unbind is not valid
+    try testing.expectError(error.InvalidFormat, s.parseAndPut(alloc, "chain=unbind"));
+
+    // Original binding should still exist
+    const entry = s.get(.{ .key = .{ .unicode = 'a' } }).?.value_ptr.*;
+    try testing.expect(entry == .leaf);
+    try testing.expect(entry.leaf.action == .new_window);
+}
 
 test "set: getEvent physical" {
     const testing = std.testing;
