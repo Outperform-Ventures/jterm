@@ -2093,6 +2093,21 @@ pub const Set = struct {
         actions: std.ArrayList(Action),
         flags: Flags,
 
+        pub fn clone(
+            self: LeafChained,
+            alloc: Allocator,
+        ) Allocator.Error!LeafChained {
+            var cloned_actions = try self.actions.clone(alloc);
+            errdefer cloned_actions.deinit(alloc);
+            for (cloned_actions.items) |*action| {
+                action.* = try action.clone(alloc);
+            }
+            return .{
+                .actions = cloned_actions,
+                .flags = self.flags,
+            };
+        }
+
         pub fn deinit(self: *LeafChained, alloc: Allocator) void {
             self.actions.deinit(alloc);
         }
@@ -2630,7 +2645,7 @@ pub const Set = struct {
                 // contain allocated strings).
                 .leaf => |*s| s.* = try s.clone(alloc),
 
-                .leaf_chained => @panic("TODO"),
+                .leaf_chained => |*s| s.* = try s.clone(alloc),
 
                 // Must be deep cloned.
                 .leader => |*s| {
@@ -3617,6 +3632,64 @@ test "set: clone produces null chain_parent" {
 
     // But should have the binding
     try testing.expect(cloned.get(.{ .key = .{ .unicode = 'a' } }) != null);
+}
+
+test "set: clone with leaf_chained" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s: Set = .{};
+    defer s.deinit(alloc);
+
+    // Create a chained binding using parseAndPut with chain=
+    try s.parseAndPut(alloc, "a=new_window");
+    try s.parseAndPut(alloc, "chain=new_tab");
+
+    // Verify we have a leaf_chained
+    const entry = s.get(.{ .key = .{ .unicode = 'a' } }).?;
+    try testing.expect(entry.value_ptr.* == .leaf_chained);
+    try testing.expectEqual(@as(usize, 2), entry.value_ptr.leaf_chained.actions.items.len);
+
+    // Clone the set
+    var cloned = try s.clone(alloc);
+    defer cloned.deinit(alloc);
+
+    // Verify the cloned set has the leaf_chained with same actions
+    const cloned_entry = cloned.get(.{ .key = .{ .unicode = 'a' } }).?;
+    try testing.expect(cloned_entry.value_ptr.* == .leaf_chained);
+    try testing.expectEqual(@as(usize, 2), cloned_entry.value_ptr.leaf_chained.actions.items.len);
+    try testing.expect(cloned_entry.value_ptr.leaf_chained.actions.items[0] == .new_window);
+    try testing.expect(cloned_entry.value_ptr.leaf_chained.actions.items[1] == .new_tab);
+}
+
+test "set: clone with leaf_chained containing allocated data" {
+    const testing = std.testing;
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    var s: Set = .{};
+
+    // Create a chained binding with text actions (which have allocated strings)
+    try s.parseAndPut(alloc, "a=text:hello");
+    try s.parseAndPut(alloc, "chain=text:world");
+
+    // Verify we have a leaf_chained
+    const entry = s.get(.{ .key = .{ .unicode = 'a' } }).?;
+    try testing.expect(entry.value_ptr.* == .leaf_chained);
+
+    // Clone the set
+    const cloned = try s.clone(alloc);
+
+    // Verify the cloned set has independent copies of the text
+    const cloned_entry = cloned.get(.{ .key = .{ .unicode = 'a' } }).?;
+    try testing.expect(cloned_entry.value_ptr.* == .leaf_chained);
+    try testing.expectEqualStrings("hello", cloned_entry.value_ptr.leaf_chained.actions.items[0].text);
+    try testing.expectEqualStrings("world", cloned_entry.value_ptr.leaf_chained.actions.items[1].text);
+
+    // Verify the pointers are different (truly cloned, not shared)
+    try testing.expect(entry.value_ptr.leaf_chained.actions.items[0].text.ptr !=
+        cloned_entry.value_ptr.leaf_chained.actions.items[0].text.ptr);
 }
 
 test "set: parseAndPut sequence" {
