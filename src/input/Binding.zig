@@ -1944,8 +1944,21 @@ pub const Set = struct {
     reverse: ReverseMap = .{},
 
     /// The chain parent is the information necessary to attach a chained
-    /// action to the proper location in our mapping.
-    chain_parent: ?HashMap.Entry = null,
+    /// action to the proper location in our mapping. It tracks both the
+    /// entry in the hashmap and the set it belongs to, which is needed
+    /// to properly update reverse mappings when converting a leaf to
+    /// a chained action.
+    chain_parent: ?ChainParent = null,
+
+    /// Information about a chain parent entry, including which set it
+    /// belongs to. This is needed because reverse mappings are only
+    /// maintained in the root set, but the chain parent entry may be
+    /// in a nested set (for leader key sequences).
+    const ChainParent = struct {
+        key_ptr: *Trigger,
+        value_ptr: *Value,
+        set: *Set,
+    };
 
     /// The entry type for the forward mapping of trigger to action.
     pub const Value = union(enum) {
@@ -2318,6 +2331,7 @@ pub const Set = struct {
         self.chain_parent = .{
             .key_ptr = gop.key_ptr,
             .value_ptr = gop.value_ptr,
+            .set = self,
         };
         errdefer {
             // If we have any errors we can't trust our values here. And
@@ -2403,15 +2417,22 @@ pub const Set = struct {
                 actions.appendAssumeCapacity(leaf.action);
                 actions.appendAssumeCapacity(action);
 
-                // Clean up our reverse mapping. We only do this if
-                // we're the chain parent because only the root set
-                // maintains reverse mappings.
-                // TODO
-
+                // Convert to leaf_chained first, before fixing up reverse
+                // mapping. This is important because fixupReverseForAction
+                // searches for other bindings with the same action, and we
+                // don't want to find this entry (which is now chained).
                 parent.value_ptr.* = .{ .leaf_chained = .{
                     .actions = actions,
                     .flags = leaf.flags,
                 } };
+
+                // Clean up our reverse mapping. Chained actions are not
+                // part of the reverse mapping, so we need to fix up the
+                // reverse map (possibly restoring another trigger for the
+                // same action).
+                if (!leaf.flags.performable) {
+                    parent.set.fixupReverseForAction(leaf.action);
+                }
             },
         }
     }
@@ -2498,29 +2519,7 @@ pub const Set = struct {
             },
 
             // For an action we need to fix up the reverse mapping.
-            // Note: we'd LIKE to replace this with the most recent binding but
-            // our hash map obviously has no concept of ordering so we have to
-            // choose whatever. Maybe a switch to an array hash map here.
-            .leaf => |leaf| {
-                const action_hash = leaf.action.hash();
-
-                var it = self.bindings.iterator();
-                while (it.next()) |it_entry| {
-                    switch (it_entry.value_ptr.*) {
-                        .leader, .leaf_chained => {},
-                        .leaf => |leaf_search| {
-                            if (leaf_search.action.hash() == action_hash) {
-                                self.reverse.putAssumeCapacity(leaf.action, it_entry.key_ptr.*);
-                                break;
-                            }
-                        },
-                    }
-                } else {
-                    // No other trigger points to this action so we remove
-                    // the reverse mapping completely.
-                    _ = self.reverse.remove(leaf.action);
-                }
-            },
+            .leaf => |leaf| self.fixupReverseForAction(leaf.action),
 
             // Chained leaves are never in our reverse mapping so no
             // cleanup is required.
@@ -2528,6 +2527,38 @@ pub const Set = struct {
                 l.deinit(alloc);
             },
         }
+    }
+
+    /// Fix up the reverse mapping after removing an action.
+    ///
+    /// When an action is removed from a binding (either by removal or by
+    /// converting to a chained action), we need to update the reverse mapping.
+    /// If another binding has the same action, we update the reverse mapping
+    /// to point to that binding. Otherwise, we remove the action from the
+    /// reverse mapping entirely.
+    ///
+    /// Note: we'd LIKE to replace this with the most recent binding but
+    /// our hash map obviously has no concept of ordering so we have to
+    /// choose whatever. Maybe a switch to an array hash map here.
+    fn fixupReverseForAction(self: *Set, action: Action) void {
+        const action_hash = action.hash();
+
+        var it = self.bindings.iterator();
+        while (it.next()) |it_entry| {
+            switch (it_entry.value_ptr.*) {
+                .leader, .leaf_chained => {},
+                .leaf => |leaf_search| {
+                    if (leaf_search.action.hash() == action_hash) {
+                        self.reverse.putAssumeCapacity(action, it_entry.key_ptr.*);
+                        return;
+                    }
+                },
+            }
+        }
+
+        // No other trigger points to this action so we remove
+        // the reverse mapping completely.
+        _ = self.reverse.remove(action);
     }
 
     /// Deep clone the set.
@@ -4191,4 +4222,79 @@ test "set: appendChain multiple times" {
     try testing.expect(chained.actions.items[0] == .new_window);
     try testing.expect(chained.actions.items[1] == .new_tab);
     try testing.expect(chained.actions.items[2] == .close_surface);
+}
+
+test "set: appendChain removes reverse mapping" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s: Set = .{};
+    defer s.deinit(alloc);
+
+    try s.put(alloc, .{ .key = .{ .unicode = 'a' } }, .{ .new_window = {} });
+
+    // Verify reverse mapping exists before chaining
+    try testing.expect(s.getTrigger(.{ .new_window = {} }) != null);
+
+    // Chaining should remove the reverse mapping
+    try s.appendChain(alloc, .{ .new_tab = {} });
+
+    // Reverse mapping should be gone since chained actions are not in reverse map
+    try testing.expect(s.getTrigger(.{ .new_window = {} }) == null);
+}
+
+test "set: appendChain with performable does not affect reverse mapping" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s: Set = .{};
+    defer s.deinit(alloc);
+
+    // Add a non-performable binding first
+    try s.put(alloc, .{ .key = .{ .unicode = 'b' } }, .{ .new_window = {} });
+    try testing.expect(s.getTrigger(.{ .new_window = {} }) != null);
+
+    // Add a performable binding (not in reverse map) and chain it
+    try s.putFlags(
+        alloc,
+        .{ .key = .{ .unicode = 'a' } },
+        .{ .close_surface = {} },
+        .{ .performable = true },
+    );
+
+    // close_surface was performable, so not in reverse map
+    try testing.expect(s.getTrigger(.{ .close_surface = {} }) == null);
+
+    // Chaining the performable binding should not crash or affect anything
+    try s.appendChain(alloc, .{ .new_tab = {} });
+
+    // The non-performable new_window binding should still be in reverse map
+    try testing.expect(s.getTrigger(.{ .new_window = {} }) != null);
+}
+
+test "set: appendChain restores next valid reverse mapping" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s: Set = .{};
+    defer s.deinit(alloc);
+
+    // Add two bindings for the same action
+    try s.put(alloc, .{ .key = .{ .unicode = 'a' } }, .{ .new_window = {} });
+    try s.put(alloc, .{ .key = .{ .unicode = 'b' } }, .{ .new_window = {} });
+
+    // Reverse mapping should point to 'b' (most recent)
+    {
+        const trigger = s.getTrigger(.{ .new_window = {} }).?;
+        try testing.expect(trigger.key.unicode == 'b');
+    }
+
+    // Chain an action to 'b', which should restore 'a' in the reverse map
+    try s.appendChain(alloc, .{ .new_tab = {} });
+
+    // Now reverse mapping should point to 'a'
+    {
+        const trigger = s.getTrigger(.{ .new_window = {} }).?;
+        try testing.expect(trigger.key.unicode == 'a');
+    }
 }
