@@ -2052,7 +2052,19 @@ pub const Set = struct {
                     try formatter.formatEntry([]const u8, buffer.buffer[0..buffer.end]);
                 },
 
-                .leaf_chained => @panic("TODO"),
+                .leaf_chained => |leaf| {
+                    const pos = buffer.end;
+                    for (leaf.actions.items, 0..) |action, i| {
+                        if (i == 0) {
+                            buffer.print("={f}", .{action}) catch return error.OutOfMemory;
+                        } else {
+                            buffer.end = 0;
+                            buffer.print("chain={f}", .{action}) catch return error.OutOfMemory;
+                        }
+                        try formatter.formatEntry([]const u8, buffer.buffer[0..buffer.end]);
+                        buffer.end = pos;
+                    }
+                },
             }
         }
     };
@@ -4614,4 +4626,107 @@ test "set: appendChain restores next valid reverse mapping" {
         const trigger = s.getTrigger(.{ .new_window = {} }).?;
         try testing.expect(trigger.key.unicode == 'a');
     }
+}
+
+test "set: formatEntries leaf_chained" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const formatterpkg = @import("../config/formatter.zig");
+
+    var s: Set = .{};
+    defer s.deinit(alloc);
+
+    // Create a chained binding
+    try s.parseAndPut(alloc, "a=new_window");
+    try s.parseAndPut(alloc, "chain=new_tab");
+
+    // Verify it's a leaf_chained
+    const entry = s.get(.{ .key = .{ .unicode = 'a' } }).?;
+    try testing.expect(entry.value_ptr.* == .leaf_chained);
+
+    // Format the entries
+    var output: std.Io.Writer.Allocating = .init(alloc);
+    defer output.deinit();
+
+    var buf: [1024]u8 = undefined;
+    var writer: std.Io.Writer = .fixed(&buf);
+
+    // Write the trigger first (as formatEntry in Config.zig does)
+    try entry.key_ptr.format(&writer);
+    try entry.value_ptr.formatEntries(&writer, formatterpkg.entryFormatter("keybind", &output.writer));
+
+    const expected =
+        \\keybind = a=new_window
+        \\keybind = chain=new_tab
+        \\
+    ;
+    try testing.expectEqualStrings(expected, output.written());
+}
+
+test "set: formatEntries leaf_chained multiple chains" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const formatterpkg = @import("../config/formatter.zig");
+
+    var s: Set = .{};
+    defer s.deinit(alloc);
+
+    // Create a chained binding with 3 actions
+    try s.parseAndPut(alloc, "ctrl+a=new_window");
+    try s.parseAndPut(alloc, "chain=new_tab");
+    try s.parseAndPut(alloc, "chain=close_surface");
+
+    // Verify it's a leaf_chained with 3 actions
+    const entry = s.get(.{ .key = .{ .unicode = 'a' }, .mods = .{ .ctrl = true } }).?;
+    try testing.expect(entry.value_ptr.* == .leaf_chained);
+    try testing.expectEqual(@as(usize, 3), entry.value_ptr.leaf_chained.actions.items.len);
+
+    // Format the entries
+    var output: std.Io.Writer.Allocating = .init(alloc);
+    defer output.deinit();
+
+    var buf: [1024]u8 = undefined;
+    var writer: std.Io.Writer = .fixed(&buf);
+
+    try entry.key_ptr.format(&writer);
+    try entry.value_ptr.formatEntries(&writer, formatterpkg.entryFormatter("keybind", &output.writer));
+
+    const expected =
+        \\keybind = ctrl+a=new_window
+        \\keybind = chain=new_tab
+        \\keybind = chain=close_surface
+        \\
+    ;
+    try testing.expectEqualStrings(expected, output.written());
+}
+
+test "set: formatEntries leaf_chained with text action" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const formatterpkg = @import("../config/formatter.zig");
+
+    var s: Set = .{};
+    defer s.deinit(alloc);
+
+    // Create a chained binding with text actions
+    try s.parseAndPut(alloc, "a=text:hello");
+    try s.parseAndPut(alloc, "chain=text:world");
+
+    // Format the entries
+    var output: std.Io.Writer.Allocating = .init(alloc);
+    defer output.deinit();
+
+    var buf: [1024]u8 = undefined;
+    var writer: std.Io.Writer = .fixed(&buf);
+
+    const entry = s.get(.{ .key = .{ .unicode = 'a' } }).?;
+    try entry.key_ptr.format(&writer);
+    try entry.value_ptr.formatEntries(&writer, formatterpkg.entryFormatter("keybind", &output.writer));
+
+    const expected =
+        \\keybind = a=text:hello
+        \\keybind = chain=text:world
+        \\
+    ;
+    try testing.expectEqualStrings(expected, output.written());
 }
