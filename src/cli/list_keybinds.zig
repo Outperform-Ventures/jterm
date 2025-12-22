@@ -326,7 +326,6 @@ fn iterateBindings(
 
         switch (bind.value_ptr.*) {
             .leader => |leader| {
-
                 // Recursively iterate on the set of bindings for this leader key
                 var n_iter = leader.bindings.iterator();
                 const sub_bindings, const max_width = try iterateBindings(alloc, &n_iter, win);
@@ -352,6 +351,9 @@ fn iterateBindings(
                     .triggers = .{ .first = &node.node },
                     .action = leaf.action,
                 });
+            },
+            .leaf_chained => {
+                // TODO: Show these.
             },
         }
     }

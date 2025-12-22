@@ -155,7 +155,7 @@ pub const App = struct {
         while (it.next()) |entry| {
             switch (entry.value_ptr.*) {
                 .leader => {},
-                .leaf => |leaf| if (leaf.flags.global) return true,
+                inline .leaf, .leaf_chained => |leaf| if (leaf.flags.global) return true,
             }
         }
 

@@ -212,7 +212,7 @@ const SequenceIterator = struct {
 
     /// Returns true if there are no more triggers to parse.
     pub fn done(self: *const SequenceIterator) bool {
-        return self.i >= self.input.len;
+        return self.i > self.input.len;
     }
 };
 
@@ -1953,6 +1953,9 @@ pub const Set = struct {
         /// to take along with the flags that may define binding behavior.
         leaf: Leaf,
 
+        /// A set of actions to take in response to a trigger.
+        leaf_chained: LeafChained,
+
         /// Implements the formatter for the fmt package. This encodes the
         /// action back into the format used by parse.
         pub fn format(
@@ -2018,6 +2021,8 @@ pub const Set = struct {
                     buffer.print("={f}", .{leaf.action}) catch return error.OutOfMemory;
                     try formatter.formatEntry([]const u8, buffer.buffer[0..buffer.end]);
                 },
+
+                .leaf_chained => @panic("TODO"),
             }
         }
     };
@@ -2044,6 +2049,47 @@ pub const Set = struct {
             std.hash.autoHash(&hasher, self.flags);
             return hasher.final();
         }
+
+        pub fn generic(self: *const Leaf) GenericLeaf {
+            return .{
+                .flags = self.flags,
+                .actions = .{ .single = .{self.action} },
+            };
+        }
+    };
+
+    /// Leaf node of a set that triggers multiple actions in sequence.
+    pub const LeafChained = struct {
+        actions: std.ArrayList(Action),
+        flags: Flags,
+
+        pub fn deinit(self: *LeafChained, alloc: Allocator) void {
+            self.actions.deinit(alloc);
+        }
+
+        pub fn generic(self: *const LeafChained) GenericLeaf {
+            return .{
+                .flags = self.flags,
+                .actions = .{ .many = self.actions.items },
+            };
+        }
+    };
+
+    /// A generic leaf node that can be used to unify the handling of
+    /// leaf and leaf_chained.
+    pub const GenericLeaf = struct {
+        flags: Flags,
+        actions: union(enum) {
+            single: [1]Action,
+            many: []const Action,
+        },
+
+        pub fn actionsSlice(self: *const GenericLeaf) []const Action {
+            return switch (self.actions) {
+                .single => |*arr| arr,
+                .many => |slice| slice,
+            };
+        }
     };
 
     /// A full key-value entry for the set.
@@ -2057,6 +2103,9 @@ pub const Set = struct {
                 s.deinit(alloc);
                 alloc.destroy(s);
             },
+
+            .leaf_chained => |*l| l.deinit(alloc),
+
             .leaf => {},
         };
 
@@ -2133,7 +2182,7 @@ pub const Set = struct {
                         error.OutOfMemory => return error.OutOfMemory,
                     },
 
-                    .leaf => {
+                    .leaf, .leaf_chained => {
                         // Remove the existing action. Fallthrough as if
                         // we don't have a leader.
                         set.remove(alloc, t);
@@ -2163,6 +2212,7 @@ pub const Set = struct {
                                 leaf.action,
                                 leaf.flags,
                             ) catch {},
+                            .leaf_chained => @panic("TODO"),
                         };
                     },
 
@@ -2184,7 +2234,9 @@ pub const Set = struct {
                 ),
             },
 
-            .chain => @panic("TODO"),
+            .chain => {
+                // TODO: Do this, ignore for now.
+            },
         }
     }
 
@@ -2235,6 +2287,12 @@ pub const Set = struct {
                         break :it;
                     }
                 }
+            },
+
+            // Chained leaves aren't in the reverse mapping so we just
+            // clear it out.
+            .leaf_chained => |*l| {
+                l.deinit(alloc);
             },
         };
 
@@ -2312,7 +2370,7 @@ pub const Set = struct {
     }
 
     fn removeExact(self: *Set, alloc: Allocator, t: Trigger) void {
-        const entry = self.bindings.get(t) orelse return;
+        var entry = self.bindings.get(t) orelse return;
         _ = self.bindings.remove(t);
 
         switch (entry) {
@@ -2334,7 +2392,7 @@ pub const Set = struct {
                 var it = self.bindings.iterator();
                 while (it.next()) |it_entry| {
                     switch (it_entry.value_ptr.*) {
-                        .leader => {},
+                        .leader, .leaf_chained => {},
                         .leaf => |leaf_search| {
                             if (leaf_search.action.hash() == action_hash) {
                                 self.reverse.putAssumeCapacity(leaf.action, it_entry.key_ptr.*);
@@ -2347,6 +2405,12 @@ pub const Set = struct {
                     // the reverse mapping completely.
                     _ = self.reverse.remove(leaf.action);
                 }
+            },
+
+            // Chained leaves are never in our reverse mapping so no
+            // cleanup is required.
+            .leaf_chained => |*l| {
+                l.deinit(alloc);
             },
         }
     }
@@ -2365,6 +2429,8 @@ pub const Set = struct {
                 // Leaves could have data to clone (i.e. text actions
                 // contain allocated strings).
                 .leaf => |*s| s.* = try s.clone(alloc),
+
+                .leaf_chained => @panic("TODO"),
 
                 // Must be deep cloned.
                 .leader => |*s| {
@@ -3355,6 +3421,31 @@ test "set: consumed state" {
     try testing.expect(s.get(.{ .key = .{ .unicode = 'a' } }).?.value_ptr.* == .leaf);
     try testing.expect(s.get(.{ .key = .{ .unicode = 'a' } }).?.value_ptr.*.leaf.flags.consumed);
 }
+
+// test "set: parseAndPut chain" {
+//     const testing = std.testing;
+//     const alloc = testing.allocator;
+//
+//     var s: Set = .{};
+//     defer s.deinit(alloc);
+//
+//     try s.parseAndPut(alloc, "a=new_window");
+//     try s.parseAndPut(alloc, "chain=new_tab");
+//
+//     // Creates forward mapping
+//     {
+//         const action = s.get(.{ .key = .{ .unicode = 'a' } }).?.value_ptr.*.leaf;
+//         try testing.expect(action.action == .new_window);
+//         try testing.expectEqual(Flags{}, action.flags);
+//     }
+//
+//     // Does not create reverse mapping, because reverse mappings are only for
+//     // non-chain actions.
+//     {
+//         const trigger = s.getTrigger(.new_window);
+//         try testing.expect(trigger == null);
+//     }
+// }
 
 test "set: getEvent physical" {
     const testing = std.testing;
