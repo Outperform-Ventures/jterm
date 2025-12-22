@@ -177,7 +177,8 @@ pub const GlobalShortcuts = extern struct {
 
             // We only allow global keybinds that map to exactly a single
             // action for now. TODO: remove this restriction
-            if (leaf.actions.len != 1) continue;
+            const actions = leaf.actionsSlice();
+            if (actions.len != 1) continue;
 
             const trigger = if (key.xdgShortcutFromTrigger(
                 &trigger_buf,
@@ -200,7 +201,7 @@ pub const GlobalShortcuts = extern struct {
             try priv.map.put(
                 alloc,
                 try alloc.dupeZ(u8, trigger),
-                leaf.actions[0],
+                actions[0],
             );
         }
 
