@@ -2300,7 +2300,25 @@ pub const Set = struct {
                                 leaf.action,
                                 leaf.flags,
                             ) catch {},
-                            .leaf_chained => @panic("TODO"),
+
+                            .leaf_chained => |leaf| chain: {
+                                // Rebuild our chain
+                                set.putFlags(
+                                    alloc,
+                                    t,
+                                    leaf.actions.items[0],
+                                    leaf.flags,
+                                ) catch break :chain;
+                                for (leaf.actions.items[1..]) |action| {
+                                    set.appendChain(
+                                        alloc,
+                                        action,
+                                    ) catch {
+                                        set.remove(alloc, t);
+                                        break :chain;
+                                    };
+                                }
+                            },
                         };
 
                         return null;
