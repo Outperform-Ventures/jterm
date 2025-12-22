@@ -1870,6 +1870,19 @@ pub const Trigger = struct {
         return array;
     }
 
+    /// Returns true if two triggers are equal.
+    pub fn eql(self: Trigger, other: Trigger) bool {
+        if (self.mods != other.mods) return false;
+        const self_tag = std.meta.activeTag(self.key);
+        const other_tag = std.meta.activeTag(other.key);
+        if (self_tag != other_tag) return false;
+        return switch (self.key) {
+            .physical => |v| v == other.key.physical,
+            .unicode => |v| v == other.key.unicode,
+            .catch_all => true,
+        };
+    }
+
     /// Convert the trigger to a C API compatible trigger.
     pub fn cval(self: Trigger) C {
         return .{
@@ -2971,6 +2984,66 @@ test "parse: all triggers" {
     {
         var p = try Parser.init("all:a>b=ignore");
         try testing.expectError(Error.InvalidFormat, p.next());
+    }
+}
+
+test "Trigger: eql" {
+    const testing = std.testing;
+
+    // Equal physical keys
+    {
+        const t1: Trigger = .{ .key = .{ .physical = .arrow_up }, .mods = .{ .ctrl = true } };
+        const t2: Trigger = .{ .key = .{ .physical = .arrow_up }, .mods = .{ .ctrl = true } };
+        try testing.expect(t1.eql(t2));
+    }
+
+    // Different physical keys
+    {
+        const t1: Trigger = .{ .key = .{ .physical = .arrow_up }, .mods = .{ .ctrl = true } };
+        const t2: Trigger = .{ .key = .{ .physical = .arrow_down }, .mods = .{ .ctrl = true } };
+        try testing.expect(!t1.eql(t2));
+    }
+
+    // Different mods
+    {
+        const t1: Trigger = .{ .key = .{ .physical = .arrow_up }, .mods = .{ .ctrl = true } };
+        const t2: Trigger = .{ .key = .{ .physical = .arrow_up }, .mods = .{ .shift = true } };
+        try testing.expect(!t1.eql(t2));
+    }
+
+    // Equal unicode keys
+    {
+        const t1: Trigger = .{ .key = .{ .unicode = 'a' }, .mods = .{} };
+        const t2: Trigger = .{ .key = .{ .unicode = 'a' }, .mods = .{} };
+        try testing.expect(t1.eql(t2));
+    }
+
+    // Different unicode keys
+    {
+        const t1: Trigger = .{ .key = .{ .unicode = 'a' }, .mods = .{} };
+        const t2: Trigger = .{ .key = .{ .unicode = 'b' }, .mods = .{} };
+        try testing.expect(!t1.eql(t2));
+    }
+
+    // Different key types
+    {
+        const t1: Trigger = .{ .key = .{ .unicode = 'a' }, .mods = .{} };
+        const t2: Trigger = .{ .key = .{ .physical = .key_a }, .mods = .{} };
+        try testing.expect(!t1.eql(t2));
+    }
+
+    // catch_all
+    {
+        const t1: Trigger = .{ .key = .catch_all, .mods = .{} };
+        const t2: Trigger = .{ .key = .catch_all, .mods = .{} };
+        try testing.expect(t1.eql(t2));
+    }
+
+    // catch_all with different mods
+    {
+        const t1: Trigger = .{ .key = .catch_all, .mods = .{} };
+        const t2: Trigger = .{ .key = .catch_all, .mods = .{ .alt = true } };
+        try testing.expect(!t1.eql(t2));
     }
 }
 
