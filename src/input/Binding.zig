@@ -52,6 +52,7 @@ pub const Parser = struct {
     trigger_it: SequenceIterator,
     action: Action,
     flags: Flags = .{},
+    chain: bool,
 
     pub const Elem = union(enum) {
         /// A leader trigger in a sequence.
@@ -59,6 +60,12 @@ pub const Parser = struct {
 
         /// The final trigger and action in a sequence.
         binding: Binding,
+
+        /// A chained action `chain=<action>` that should be appended
+        /// to the previous binding. Note that any action is parsed, including
+        /// invalid actions for chains such as `unbind`. We expect downstream
+        /// consumers to validate that the action is valid for chaining.
+        chain: Action,
     };
 
     pub fn init(raw_input: []const u8) Error!Parser {
@@ -95,12 +102,23 @@ pub const Parser = struct {
             return Error.InvalidFormat;
         };
 
+        // Detect chains. Chains must not have flags.
+        const chain = std.mem.eql(u8, input[0..eql_idx], "chain");
+        if (chain and start_idx > 0) return Error.InvalidFormat;
+
         // Sequence iterator goes up to the equal, action is after. We can
         // parse the action now.
         return .{
-            .trigger_it = .{ .input = input[0..eql_idx] },
+            .trigger_it = .{
+                // This is kind of hacky but we put a dummy trigger
+                // for chained inputs. The `next` will never yield this
+                // because we have chain set. When we find a nicer way to
+                // do this we can remove it, the e2e is tested.
+                .input = if (chain) "a" else input[0..eql_idx],
+            },
             .action = try .parse(input[eql_idx + 1 ..]),
             .flags = flags,
+            .chain = chain,
         };
     }
 
@@ -156,6 +174,9 @@ pub const Parser = struct {
             return .{ .leader = trigger };
         }
 
+        // If we're a chain then return it as-is.
+        if (self.chain) return .{ .chain = self.action };
+
         // Out of triggers, yield the final action.
         return .{ .binding = .{
             .trigger = trigger,
@@ -191,19 +212,26 @@ const SequenceIterator = struct {
 
     /// Returns true if there are no more triggers to parse.
     pub fn done(self: *const SequenceIterator) bool {
-        return self.i > self.input.len;
+        return self.i >= self.input.len;
     }
 };
 
 /// Parse a single, non-sequenced binding. To support sequences you must
 /// use parse. This is a convenience function for single bindings aimed
 /// primarily at tests.
-fn parseSingle(raw_input: []const u8) (Error || error{UnexpectedSequence})!Binding {
+///
+/// This doesn't support `chain` either, since chaining requires some
+/// stateful concept of a prior binding.
+fn parseSingle(raw_input: []const u8) (Error || error{
+    UnexpectedChain,
+    UnexpectedSequence,
+})!Binding {
     var p = try Parser.init(raw_input);
     const elem = (try p.next()) orelse return Error.InvalidFormat;
     return switch (elem) {
         .leader => error.UnexpectedSequence,
         .binding => elem.binding,
+        .chain => error.UnexpectedChain,
     };
 }
 
@@ -2155,6 +2183,8 @@ pub const Set = struct {
                     b.flags,
                 ),
             },
+
+            .chain => @panic("TODO"),
         }
     }
 
@@ -2885,6 +2915,29 @@ test "parse: action with a tuple" {
 
     // invalid type
     try testing.expectError(Error.InvalidFormat, parseSingle("a=resize_split:up,four"));
+}
+
+test "parse: chain" {
+    const testing = std.testing;
+
+    // Valid
+    {
+        var p = try Parser.init("chain=new_tab");
+        try testing.expectEqual(Parser.Elem{
+            .chain = .new_tab,
+        }, try p.next());
+        try testing.expect(try p.next() == null);
+    }
+
+    // Chain can't have flags
+    try testing.expectError(error.InvalidFormat, Parser.init("global:chain=ignore"));
+
+    // Chain can't be part of a sequence
+    {
+        var p = try Parser.init("a>chain=ignore");
+        _ = try p.next();
+        try testing.expectError(error.InvalidFormat, p.next());
+    }
 }
 
 test "sequence iterator" {
