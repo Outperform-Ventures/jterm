@@ -1910,6 +1910,7 @@ extension Ghostty.SurfaceView: NSTextInputClient {
     /// 1. Prevents an audible NSBeep for unimplemented actions.
     /// 2. Allows us to properly encode super+key input events that we don't handle
     override func doCommand(by selector: Selector) {
+		guard let surfaceModel else { return }
         // If we are being processed by performKeyEquivalent with a command binding,
         // we send it back through the event system so it can be encoded.
         if let lastPerformKeyEvent,
@@ -1923,9 +1924,9 @@ extension Ghostty.SurfaceView: NSTextInputClient {
         // Process MacOS native scroll events
         switch selector {
         case #selector(moveToBeginningOfDocument(_:)):
-            surfaceModel!.perform(action: "scroll_to_top")
+            _ = surfaceModel.perform(action: "scroll_to_top")
         case #selector(moveToEndOfDocument(_:)):
-            surfaceModel!.perform(action: "scroll_to_bottom")
+            _ = surfaceModel.perform(action: "scroll_to_bottom")
         default:
             break
         }
