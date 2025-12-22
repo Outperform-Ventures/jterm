@@ -2941,8 +2941,8 @@ fn maybeHandleBinding(
         // actions perform.
         var performed: bool = false;
         for (actions) |action| {
-            if (self.performBindingAction(action)) |_| {
-                performed = true;
+            if (self.performBindingAction(action)) |performed_| {
+                performed = performed or performed_;
             } else |err| {
                 log.info(
                     "key binding action failed action={t} err={}",
