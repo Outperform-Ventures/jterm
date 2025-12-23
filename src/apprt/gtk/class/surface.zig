@@ -617,6 +617,10 @@ pub const Surface = extern struct {
         vscroll_policy: gtk.ScrollablePolicy = .natural,
         vadj_signal_group: ?*gobject.SignalGroup = null,
 
+        // Key state tracking for key sequences and tables
+        key_sequence: std.ArrayListUnmanaged([:0]const u8) = .empty,
+        key_tables: std.ArrayListUnmanaged([:0]const u8) = .empty,
+
         // Template binds
         child_exited_overlay: *ChildExited,
         context_menu: *gtk.PopoverMenu,
@@ -776,6 +780,66 @@ pub const Surface = extern struct {
     pub fn redrawInspector(self: *Self) void {
         const priv = self.private();
         if (priv.inspector) |v| v.queueRender();
+    }
+
+    /// Handle a key sequence action from the apprt.
+    pub fn keySequenceAction(
+        self: *Self,
+        value: apprt.action.KeySequence,
+    ) Allocator.Error!void {
+        const priv = self.private();
+        const alloc = Application.default().allocator();
+
+        switch (value) {
+            .trigger => |trigger| {
+                // Convert the trigger to a human-readable label
+                var buf: std.Io.Writer.Allocating = .init(alloc);
+                defer buf.deinit();
+                if (gtk_key.labelFromTrigger(&buf.writer, trigger)) |success| {
+                    if (!success) return;
+                } else |_| return error.OutOfMemory;
+
+                // Make space
+                try priv.key_sequence.ensureUnusedCapacity(alloc, 1);
+
+                // Copy and append
+                const duped = try buf.toOwnedSliceSentinel(0);
+                errdefer alloc.free(duped);
+                priv.key_sequence.appendAssumeCapacity(duped);
+            },
+            .end => {
+                // Free all the stored strings and clear
+                for (priv.key_sequence.items) |s| alloc.free(s);
+                priv.key_sequence.clearAndFree(alloc);
+            },
+        }
+    }
+
+    /// Handle a key table action from the apprt.
+    pub fn keyTableAction(
+        self: *Self,
+        value: apprt.action.KeyTable,
+    ) Allocator.Error!void {
+        const priv = self.private();
+        const alloc = Application.default().allocator();
+
+        switch (value) {
+            .activate => |name| {
+                // Duplicate the name string and push onto stack
+                const duped = try alloc.dupeZ(u8, name);
+                errdefer alloc.free(duped);
+                try priv.key_tables.append(alloc, duped);
+            },
+            .deactivate => {
+                // Pop and free the top table
+                if (priv.key_tables.pop()) |s| alloc.free(s);
+            },
+            .deactivate_all => {
+                // Free all tables and clear
+                for (priv.key_tables.items) |s| alloc.free(s);
+                priv.key_tables.clearAndFree(alloc);
+            },
+        }
     }
 
     pub fn showOnScreenKeyboard(self: *Self, event: ?*gdk.Event) bool {
@@ -1787,6 +1851,14 @@ pub const Surface = extern struct {
             glib.free(@ptrCast(@constCast(v)));
             priv.title_override = null;
         }
+
+        // Clean up key sequence and key table state
+        const alloc = Application.default().allocator();
+        for (priv.key_sequence.items) |s| alloc.free(s);
+        priv.key_sequence.deinit(alloc);
+        for (priv.key_tables.items) |s| alloc.free(s);
+        priv.key_tables.deinit(alloc);
+
         self.clearCgroup();
 
         gobject.Object.virtual_methods.finalize.call(
