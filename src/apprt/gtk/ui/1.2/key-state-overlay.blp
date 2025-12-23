@@ -2,7 +2,7 @@ using Gtk 4.0;
 using Adw 1;
 
 template $GhosttyKeyStateOverlay: Adw.Bin {
-  visible: bind template.active;
+  visible: bind $has_state(template.has-tables, template.has-sequence) as <bool>;
   valign-target: end;
   halign: center;
   valign: bind template.valign-target;
@@ -30,7 +30,7 @@ template $GhosttyKeyStateOverlay: Adw.Bin {
 
       Label tables_label {
         visible: bind template.has-tables;
-        label: bind template.tables-text;
+        label: bind $tables_text(template.tables) as <string>;
         xalign: 0.0;
       }
 
@@ -45,13 +45,13 @@ template $GhosttyKeyStateOverlay: Adw.Bin {
 
       Label sequence_label {
         visible: bind template.has-sequence;
-        label: bind template.sequence-text;
+        label: bind $sequence_text(template.sequence) as <string>;
         xalign: 0.0;
       }
 
       Spinner pending_spinner {
-        visible: bind template.pending;
-        spinning: bind template.pending;
+        visible: bind template.has-sequence;
+        spinning: bind template.has-sequence;
       }
     }
   }

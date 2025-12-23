@@ -832,6 +832,10 @@ pub const Surface = extern struct {
         const priv = self.private();
         const alloc = Application.default().allocator();
 
+        self.as(gobject.Object).freezeNotify();
+        defer self.as(gobject.Object).thawNotify();
+        self.as(gobject.Object).notifyByPspec(properties.@"key-sequence".impl.param_spec);
+
         switch (value) {
             .trigger => |trigger| {
                 // Convert the trigger to a human-readable label
@@ -864,6 +868,10 @@ pub const Surface = extern struct {
     ) Allocator.Error!void {
         const priv = self.private();
         const alloc = Application.default().allocator();
+
+        self.as(gobject.Object).freezeNotify();
+        defer self.as(gobject.Object).thawNotify();
+        self.as(gobject.Object).notifyByPspec(properties.@"key-table".impl.param_spec);
 
         switch (value) {
             .activate => |name| {

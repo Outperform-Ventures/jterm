@@ -1,10 +1,12 @@
 const std = @import("std");
 const adw = @import("adw");
+const glib = @import("glib");
 const gobject = @import("gobject");
 const gtk = @import("gtk");
 
 const ext = @import("../ext.zig");
 const gresource = @import("../build/gresource.zig");
+const Application = @import("application.zig").Application;
 const Common = @import("../class.zig").Common;
 
 const log = std.log.scoped(.gtk_ghostty_key_state_overlay);
@@ -25,19 +27,6 @@ pub const KeyStateOverlay = extern struct {
     });
 
     pub const properties = struct {
-        pub const active = struct {
-            pub const name = "active";
-            const impl = gobject.ext.defineProperty(
-                name,
-                Self,
-                bool,
-                .{
-                    .default = false,
-                    .accessor = C.privateShallowFieldAccessor("active"),
-                },
-            );
-        };
-
         pub const tables = struct {
             pub const name = "tables";
             const impl = gobject.ext.defineProperty(
@@ -50,7 +39,7 @@ pub const KeyStateOverlay = extern struct {
                         ?*ext.StringList,
                         .{
                             .getter = getTables,
-                            .getter_transfer = .full,
+                            .getter_transfer = .none,
                             .setter = setTables,
                             .setter_transfer = .full,
                         },
@@ -88,7 +77,7 @@ pub const KeyStateOverlay = extern struct {
                         ?*ext.StringList,
                         .{
                             .getter = getSequence,
-                            .getter_transfer = .full,
+                            .getter_transfer = .none,
                             .setter = setSequence,
                             .setter_transfer = .full,
                         },
@@ -114,19 +103,6 @@ pub const KeyStateOverlay = extern struct {
             );
         };
 
-        pub const pending = struct {
-            pub const name = "pending";
-            const impl = gobject.ext.defineProperty(
-                name,
-                Self,
-                bool,
-                .{
-                    .default = false,
-                    .accessor = C.privateShallowFieldAccessor("pending"),
-                },
-            );
-        };
-
         pub const @"valign-target" = struct {
             pub const name = "valign-target";
             const impl = gobject.ext.defineProperty(
@@ -142,17 +118,11 @@ pub const KeyStateOverlay = extern struct {
     };
 
     const Private = struct {
-        /// Whether the overlay is active/visible.
-        active: bool = false,
-
         /// The key table stack.
         tables: ?*ext.StringList = null,
 
         /// The key sequence.
         sequence: ?*ext.StringList = null,
-
-        /// Whether we're waiting for more keys in a sequence.
-        pending: bool = false,
 
         /// Target vertical alignment for the overlay.
         valign_target: gtk.Align = .end,
@@ -165,19 +135,11 @@ pub const KeyStateOverlay = extern struct {
     }
 
     fn getTables(self: *Self) ?*ext.StringList {
-        const priv = self.private();
-        if (priv.tables) |tables| {
-            return ext.StringList.create(tables.allocator(), tables.strings) catch null;
-        }
-        return null;
+        return self.private().tables;
     }
 
     fn getSequence(self: *Self) ?*ext.StringList {
-        const priv = self.private();
-        if (priv.sequence) |sequence| {
-            return ext.StringList.create(sequence.allocator(), sequence.strings) catch null;
-        }
-        return null;
+        return self.private().sequence;
     }
 
     fn setTables(self: *Self, value: ?*ext.StringList) void {
@@ -186,8 +148,11 @@ pub const KeyStateOverlay = extern struct {
             old.destroy();
             priv.tables = null;
         }
+        if (value) |v| {
+            priv.tables = v;
+        }
 
-        priv.tables = value;
+        self.as(gobject.Object).notifyByPspec(properties.tables.impl.param_spec);
         self.as(gobject.Object).notifyByPspec(properties.@"has-tables".impl.param_spec);
     }
 
@@ -197,17 +162,22 @@ pub const KeyStateOverlay = extern struct {
             old.destroy();
             priv.sequence = null;
         }
+        if (value) |v| {
+            priv.sequence = v;
+        }
 
-        priv.sequence = value;
+        self.as(gobject.Object).notifyByPspec(properties.sequence.impl.param_spec);
         self.as(gobject.Object).notifyByPspec(properties.@"has-sequence".impl.param_spec);
     }
 
     fn getHasTables(self: *Self) bool {
-        return self.private().tables != null;
+        const v = self.private().tables orelse return false;
+        return v.strings.len > 0;
     }
 
     fn getHasSequence(self: *Self) bool {
-        return self.private().sequence != null;
+        const v = self.private().sequence orelse return false;
+        return v.strings.len > 0;
     }
 
     fn closureShowChevron(
@@ -216,6 +186,50 @@ pub const KeyStateOverlay = extern struct {
         has_sequence: bool,
     ) callconv(.c) c_int {
         return if (has_tables and has_sequence) 1 else 0;
+    }
+
+    fn closureHasState(
+        _: *Self,
+        has_tables: bool,
+        has_sequence: bool,
+    ) callconv(.c) c_int {
+        return if (has_tables or has_sequence) 1 else 0;
+    }
+
+    fn closureTablesText(
+        _: *Self,
+        tables: ?*ext.StringList,
+    ) callconv(.c) ?[*:0]const u8 {
+        const list = tables orelse return null;
+        if (list.strings.len == 0) return null;
+
+        var buf: std.Io.Writer.Allocating = .init(Application.default().allocator());
+        defer buf.deinit();
+
+        for (list.strings, 0..) |s, i| {
+            if (i > 0) buf.writer.writeAll(" > ") catch return null;
+            buf.writer.writeAll(s) catch return null;
+        }
+
+        return glib.ext.dupeZ(u8, buf.written());
+    }
+
+    fn closureSequenceText(
+        _: *Self,
+        sequence: ?*ext.StringList,
+    ) callconv(.c) ?[*:0]const u8 {
+        const list = sequence orelse return null;
+        if (list.strings.len == 0) return null;
+
+        var buf: std.Io.Writer.Allocating = .init(Application.default().allocator());
+        defer buf.deinit();
+
+        for (list.strings, 0..) |s, i| {
+            if (i > 0) buf.writer.writeAll(" ") catch return null;
+            buf.writer.writeAll(s) catch return null;
+        }
+
+        return glib.ext.dupeZ(u8, buf.written());
     }
 
     //---------------------------------------------------------------
@@ -303,15 +317,16 @@ pub const KeyStateOverlay = extern struct {
             // Template Callbacks
             class.bindTemplateCallback("on_drag_end", &onDragEnd);
             class.bindTemplateCallback("show_chevron", &closureShowChevron);
+            class.bindTemplateCallback("has_state", &closureHasState);
+            class.bindTemplateCallback("tables_text", &closureTablesText);
+            class.bindTemplateCallback("sequence_text", &closureSequenceText);
 
             // Properties
             gobject.ext.registerProperties(class, &.{
-                properties.active.impl,
                 properties.tables.impl,
                 properties.@"has-tables".impl,
                 properties.sequence.impl,
                 properties.@"has-sequence".impl,
-                properties.pending.impl,
                 properties.@"valign-target".impl,
             });
 
