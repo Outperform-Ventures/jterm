@@ -26,6 +26,7 @@ const Application = @import("application.zig").Application;
 const Config = @import("config.zig").Config;
 const ResizeOverlay = @import("resize_overlay.zig").ResizeOverlay;
 const SearchOverlay = @import("search_overlay.zig").SearchOverlay;
+const KeyStateOverlay = @import("key_state_overlay.zig").KeyStateOverlay;
 const ChildExited = @import("surface_child_exited.zig").SurfaceChildExited;
 const ClipboardConfirmationDialog = @import("clipboard_confirmation_dialog.zig").ClipboardConfirmationDialog;
 const TitleDialog = @import("surface_title_dialog.zig").SurfaceTitleDialog;
@@ -552,6 +553,9 @@ pub const Surface = extern struct {
 
         /// The search overlay
         search_overlay: *SearchOverlay,
+
+        /// The key state overlay
+        key_state_overlay: *KeyStateOverlay,
 
         /// The apprt Surface.
         rt_surface: ApprtSurface = undefined,
@@ -3308,6 +3312,7 @@ pub const Surface = extern struct {
         fn init(class: *Class) callconv(.c) void {
             gobject.ext.ensureType(ResizeOverlay);
             gobject.ext.ensureType(SearchOverlay);
+            gobject.ext.ensureType(KeyStateOverlay);
             gobject.ext.ensureType(ChildExited);
             gtk.Widget.Class.setTemplateFromResource(
                 class.as(gtk.Widget.Class),
@@ -3328,6 +3333,7 @@ pub const Surface = extern struct {
             class.bindTemplateChildPrivate("progress_bar_overlay", .{});
             class.bindTemplateChildPrivate("resize_overlay", .{});
             class.bindTemplateChildPrivate("search_overlay", .{});
+            class.bindTemplateChildPrivate("key_state_overlay", .{});
             class.bindTemplateChildPrivate("terminal_page", .{});
             class.bindTemplateChildPrivate("drop_target", .{});
             class.bindTemplateChildPrivate("im_context", .{});
