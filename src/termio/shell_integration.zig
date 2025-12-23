@@ -70,7 +70,6 @@ pub fn setup(
         exe,
     );
 
-    // Setup our feature env vars
     try setupFeatures(env, features);
 
     return result;
@@ -168,6 +167,29 @@ test "force shell" {
     }
 }
 
+test "shell integration failure" {
+    const testing = std.testing;
+
+    var arena = ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    var env = EnvMap.init(alloc);
+    defer env.deinit();
+
+    const result = try setup(
+        alloc,
+        "/nonexistent",
+        .{ .shell = "sh" },
+        &env,
+        null,
+        .{ .cursor = true, .title = false, .path = false },
+    );
+
+    try testing.expect(result == null);
+    try testing.expectEqualStrings("cursor", env.get("GHOSTTY_SHELL_FEATURES").?);
+}
+
 /// Set up the shell integration features environment variable.
 pub fn setupFeatures(
     env: *EnvMap,
@@ -234,7 +256,7 @@ test "setup features" {
         var env = EnvMap.init(alloc);
         defer env.deinit();
 
-        try setupFeatures(&env, .{ .cursor = false, .sudo = false, .title = false, .@"ssh-env" = false, .@"ssh-terminfo" = false, .path = false });
+        try setupFeatures(&env, std.mem.zeroes(config.ShellIntegrationFeatures));
         try testing.expect(env.get("GHOSTTY_SHELL_FEATURES") == null);
     }
 
