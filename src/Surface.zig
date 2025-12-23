@@ -2941,8 +2941,8 @@ fn maybeHandleBinding(
         // actions perform.
         var performed: bool = false;
         for (actions) |action| {
-            if (self.performBindingAction(action)) |performed_| {
-                performed = performed or performed_;
+            if (self.performBindingAction(action)) |v| {
+                performed = performed or v;
             } else |err| {
                 log.info(
                     "key binding action failed action={t} err={}",
@@ -2991,8 +2991,18 @@ fn maybeHandleBinding(
         // Store our last trigger so we don't encode the release event
         self.keyboard.last_trigger = event.bindingHash();
 
-        // TODO: Inspector must support chained events
-        if (insp_ev) |ev| ev.binding = actions[0];
+        if (insp_ev) |ev| {
+            ev.binding = self.alloc.dupe(
+                input.Binding.Action,
+                actions,
+            ) catch |err| binding: {
+                log.warn(
+                    "error allocating binding action for inspector err={}",
+                    .{err},
+                );
+                break :binding &.{};
+            };
+        }
         return .consumed;
     }
 
