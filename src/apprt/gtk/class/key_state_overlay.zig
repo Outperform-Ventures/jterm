@@ -1,10 +1,9 @@
 const std = @import("std");
 const adw = @import("adw");
-const glib = @import("glib");
 const gobject = @import("gobject");
-const gdk = @import("gdk");
 const gtk = @import("gtk");
 
+const ext = @import("../ext.zig");
 const gresource = @import("../build/gresource.zig");
 const Common = @import("../class.zig").Common;
 
@@ -39,15 +38,23 @@ pub const KeyStateOverlay = extern struct {
             );
         };
 
-        pub const @"tables-text" = struct {
-            pub const name = "tables-text";
+        pub const tables = struct {
+            pub const name = "tables";
             const impl = gobject.ext.defineProperty(
                 name,
                 Self,
-                ?[:0]const u8,
+                ?*ext.StringList,
                 .{
-                    .default = null,
-                    .accessor = C.privateStringFieldAccessor("tables_text"),
+                    .accessor = gobject.ext.typedAccessor(
+                        Self,
+                        ?*ext.StringList,
+                        .{
+                            .getter = getTables,
+                            .getter_transfer = .full,
+                            .setter = setTables,
+                            .setter_transfer = .full,
+                        },
+                    ),
                 },
             );
         };
@@ -69,15 +76,23 @@ pub const KeyStateOverlay = extern struct {
             );
         };
 
-        pub const @"sequence-text" = struct {
-            pub const name = "sequence-text";
+        pub const sequence = struct {
+            pub const name = "sequence";
             const impl = gobject.ext.defineProperty(
                 name,
                 Self,
-                ?[:0]const u8,
+                ?*ext.StringList,
                 .{
-                    .default = null,
-                    .accessor = C.privateStringFieldAccessor("sequence_text"),
+                    .accessor = gobject.ext.typedAccessor(
+                        Self,
+                        ?*ext.StringList,
+                        .{
+                            .getter = getSequence,
+                            .getter_transfer = .full,
+                            .setter = setSequence,
+                            .setter_transfer = .full,
+                        },
+                    ),
                 },
             );
         };
@@ -130,11 +145,11 @@ pub const KeyStateOverlay = extern struct {
         /// Whether the overlay is active/visible.
         active: bool = false,
 
-        /// The formatted key table stack text (e.g., "default › vim").
-        tables_text: ?[:0]const u8 = null,
+        /// The key table stack.
+        tables: ?*ext.StringList = null,
 
-        /// The formatted key sequence text (e.g., "Ctrl+A B").
-        sequence_text: ?[:0]const u8 = null,
+        /// The key sequence.
+        sequence: ?*ext.StringList = null,
 
         /// Whether we're waiting for more keys in a sequence.
         pending: bool = false,
@@ -147,30 +162,52 @@ pub const KeyStateOverlay = extern struct {
 
     fn init(self: *Self, _: *Class) callconv(.c) void {
         gtk.Widget.initTemplate(self.as(gtk.Widget));
+    }
 
-        // Set dummy data for UI iteration
+    fn getTables(self: *Self) ?*ext.StringList {
         const priv = self.private();
-        priv.active = true;
-        priv.tables_text = glib.ext.dupeZ(u8, "default › vim");
-        priv.sequence_text = glib.ext.dupeZ(u8, "Ctrl+A");
-        priv.pending = true;
+        if (priv.tables) |tables| {
+            return ext.StringList.create(tables.allocator(), tables.strings) catch null;
+        }
+        return null;
+    }
 
-        // Notify property changes so bindings update
-        const obj = self.as(gobject.Object);
-        obj.notifyByPspec(properties.active.impl.param_spec);
-        obj.notifyByPspec(properties.@"tables-text".impl.param_spec);
-        obj.notifyByPspec(properties.@"has-tables".impl.param_spec);
-        obj.notifyByPspec(properties.@"sequence-text".impl.param_spec);
-        obj.notifyByPspec(properties.@"has-sequence".impl.param_spec);
-        obj.notifyByPspec(properties.pending.impl.param_spec);
+    fn getSequence(self: *Self) ?*ext.StringList {
+        const priv = self.private();
+        if (priv.sequence) |sequence| {
+            return ext.StringList.create(sequence.allocator(), sequence.strings) catch null;
+        }
+        return null;
+    }
+
+    fn setTables(self: *Self, value: ?*ext.StringList) void {
+        const priv = self.private();
+        if (priv.tables) |old| {
+            old.destroy();
+            priv.tables = null;
+        }
+
+        priv.tables = value;
+        self.as(gobject.Object).notifyByPspec(properties.@"has-tables".impl.param_spec);
+    }
+
+    fn setSequence(self: *Self, value: ?*ext.StringList) void {
+        const priv = self.private();
+        if (priv.sequence) |old| {
+            old.destroy();
+            priv.sequence = null;
+        }
+
+        priv.sequence = value;
+        self.as(gobject.Object).notifyByPspec(properties.@"has-sequence".impl.param_spec);
     }
 
     fn getHasTables(self: *Self) bool {
-        return self.private().tables_text != null;
+        return self.private().tables != null;
     }
 
     fn getHasSequence(self: *Self) bool {
-        return self.private().sequence_text != null;
+        return self.private().sequence != null;
     }
 
     fn closureShowChevron(
@@ -229,11 +266,11 @@ pub const KeyStateOverlay = extern struct {
     fn finalize(self: *Self) callconv(.c) void {
         const priv = self.private();
 
-        if (priv.tables_text) |v| {
-            glib.free(@ptrCast(@constCast(v)));
+        if (priv.tables) |v| {
+            v.destroy();
         }
-        if (priv.sequence_text) |v| {
-            glib.free(@ptrCast(@constCast(v)));
+        if (priv.sequence) |v| {
+            v.destroy();
         }
 
         gobject.Object.virtual_methods.finalize.call(
@@ -270,9 +307,9 @@ pub const KeyStateOverlay = extern struct {
             // Properties
             gobject.ext.registerProperties(class, &.{
                 properties.active.impl,
-                properties.@"tables-text".impl,
+                properties.tables.impl,
                 properties.@"has-tables".impl,
-                properties.@"sequence-text".impl,
+                properties.sequence.impl,
                 properties.@"has-sequence".impl,
                 properties.pending.impl,
                 properties.@"valign-target".impl,

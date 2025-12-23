@@ -36,6 +36,11 @@ pub const StringList = struct {
         alloc.destroy(self);
     }
 
+    /// Returns the general-purpose allocator used by this StringList.
+    pub fn allocator(self: *const StringList) Allocator {
+        return self.arena.child_allocator;
+    }
+
     pub const getGObjectType = gobject.ext.defineBoxed(
         StringList,
         .{
