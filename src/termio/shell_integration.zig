@@ -44,7 +44,6 @@ pub fn setup(
     command: config.Command,
     env: *EnvMap,
     force_shell: ?Shell,
-    features: config.ShellIntegrationFeatures,
 ) !?ShellIntegration {
     const exe = if (force_shell) |shell| switch (shell) {
         .bash => "bash",
@@ -69,8 +68,6 @@ pub fn setup(
         env,
         exe,
     );
-
-    try setupFeatures(env, features);
 
     return result;
 }
@@ -161,7 +158,6 @@ test "force shell" {
             .{ .shell = "sh" },
             &env,
             shell,
-            .{},
         );
         try testing.expectEqual(shell, result.?.shell);
     }
@@ -183,11 +179,10 @@ test "shell integration failure" {
         .{ .shell = "sh" },
         &env,
         null,
-        .{ .cursor = true, .title = false, .path = false },
     );
 
     try testing.expect(result == null);
-    try testing.expectEqualStrings("cursor", env.get("GHOSTTY_SHELL_FEATURES").?);
+    try testing.expectEqual(0, env.count());
 }
 
 /// Set up the shell integration features environment variable.
@@ -756,7 +751,7 @@ const TmpResourcesDir = struct {
     path: []const u8,
     shell_path: []const u8,
 
-    fn init(allocator: std.mem.Allocator, shell: Shell) !TmpResourcesDir {
+    fn init(allocator: Allocator, shell: Shell) !TmpResourcesDir {
         var tmp_dir = std.testing.tmpDir(.{});
         errdefer tmp_dir.cleanup();
 
