@@ -2866,7 +2866,7 @@ fn maybeHandleBinding(
     };
 
     // Determine if this entry has an action or if its a leader key.
-    const leaf: input.Binding.Set.Leaf = switch (entry.value_ptr.*) {
+    const leaf: input.Binding.Set.GenericLeaf = switch (entry.value_ptr.*) {
         .leader => |set| {
             // Setup the next set we'll look at.
             self.keyboard.sequence_set = set;
@@ -2893,9 +2893,8 @@ fn maybeHandleBinding(
             return .consumed;
         },
 
-        .leaf => |leaf| leaf,
+        inline .leaf, .leaf_chained => |leaf| leaf.generic(),
     };
-    const action = leaf.action;
 
     // consumed determines if the input is consumed or if we continue
     // encoding the key (if we have a key to encode).
@@ -2917,36 +2916,58 @@ fn maybeHandleBinding(
     // An action also always resets the sequence set.
     self.keyboard.sequence_set = null;
 
+    // Setup our actions
+    const actions = leaf.actionsSlice();
+
     // Attempt to perform the action
-    log.debug("key event binding flags={} action={f}", .{
+    log.debug("key event binding flags={} action={any}", .{
         leaf.flags,
-        action,
+        actions,
     });
     const performed = performed: {
         // If this is a global or all action, then we perform it on
         // the app and it applies to every surface.
         if (leaf.flags.global or leaf.flags.all) {
-            try self.app.performAllAction(self.rt_app, action);
+            self.app.performAllChainedAction(
+                self.rt_app,
+                actions,
+            );
 
             // "All" actions are always performed since they are global.
             break :performed true;
         }
 
-        break :performed try self.performBindingAction(action);
+        // Perform each action. We are performed if ANY of the chained
+        // actions perform.
+        var performed: bool = false;
+        for (actions) |action| {
+            if (self.performBindingAction(action)) |v| {
+                performed = performed or v;
+            } else |err| {
+                log.info(
+                    "key binding action failed action={t} err={}",
+                    .{ action, err },
+                );
+            }
+        }
+
+        break :performed performed;
     };
 
     if (performed) {
         // If we performed an action and it was a closing action,
         // our "self" pointer is not safe to use anymore so we need to
         // just exit immediately.
-        if (closingAction(action)) {
+        for (actions) |action| if (closingAction(action)) {
             log.debug("key binding is a closing binding, halting key event processing", .{});
             return .closed;
-        }
+        };
 
         // If our action was "ignore" then we return the special input
         // effect of "ignored".
-        if (action == .ignore) return .ignored;
+        for (actions) |action| if (action == .ignore) {
+            return .ignored;
+        };
     }
 
     // If we have the performable flag and the action was not performed,
@@ -2970,7 +2991,18 @@ fn maybeHandleBinding(
         // Store our last trigger so we don't encode the release event
         self.keyboard.last_trigger = event.bindingHash();
 
-        if (insp_ev) |ev| ev.binding = action;
+        if (insp_ev) |ev| {
+            ev.binding = self.alloc.dupe(
+                input.Binding.Action,
+                actions,
+            ) catch |err| binding: {
+                log.warn(
+                    "error allocating binding action for inspector err={}",
+                    .{err},
+                );
+                break :binding &.{};
+            };
+        }
         return .consumed;
     }
 
