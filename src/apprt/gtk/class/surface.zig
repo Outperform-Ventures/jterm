@@ -361,6 +361,44 @@ pub const Surface = extern struct {
                 },
             );
         };
+
+        pub const @"key-sequence" = struct {
+            pub const name = "key-sequence";
+            const impl = gobject.ext.defineProperty(
+                name,
+                Self,
+                ?*ext.StringList,
+                .{
+                    .accessor = gobject.ext.typedAccessor(
+                        Self,
+                        ?*ext.StringList,
+                        .{
+                            .getter = getKeySequence,
+                            .getter_transfer = .full,
+                        },
+                    ),
+                },
+            );
+        };
+
+        pub const @"key-table" = struct {
+            pub const name = "key-table";
+            const impl = gobject.ext.defineProperty(
+                name,
+                Self,
+                ?*ext.StringList,
+                .{
+                    .accessor = gobject.ext.typedAccessor(
+                        Self,
+                        ?*ext.StringList,
+                        .{
+                            .getter = getKeyTable,
+                            .getter_transfer = .full,
+                        },
+                    ),
+                },
+            );
+        };
     };
 
     pub const signals = struct {
@@ -1949,6 +1987,20 @@ pub const Surface = extern struct {
         self.as(gobject.Object).notifyByPspec(properties.@"default-size".impl.param_spec);
     }
 
+    /// Get the key sequence list. Full transfer.
+    fn getKeySequence(self: *Self) ?*ext.StringList {
+        const priv = self.private();
+        const alloc = Application.default().allocator();
+        return ext.StringList.create(alloc, priv.key_sequence.items) catch null;
+    }
+
+    /// Get the key table list. Full transfer.
+    fn getKeyTable(self: *Self) ?*ext.StringList {
+        const priv = self.private();
+        const alloc = Application.default().allocator();
+        return ext.StringList.create(alloc, priv.key_tables.items) catch null;
+    }
+
     /// Return the min size, if set.
     pub fn getMinSize(self: *Self) ?*Size {
         const priv = self.private();
@@ -3385,6 +3437,8 @@ pub const Surface = extern struct {
                 properties.@"error".impl,
                 properties.@"font-size-request".impl,
                 properties.focused.impl,
+                properties.@"key-sequence".impl,
+                properties.@"key-table".impl,
                 properties.@"min-size".impl,
                 properties.@"mouse-shape".impl,
                 properties.@"mouse-hidden".impl,
