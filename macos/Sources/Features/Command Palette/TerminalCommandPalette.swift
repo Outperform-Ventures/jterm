@@ -64,7 +64,7 @@ struct TerminalCommandPaletteView: View {
         // Sort the rest. We replace ":" with a character that sorts before space
         // so that "Foo:" sorts before "Foo Bar:". Use sortKey as a tie-breaker
         // for stable ordering when titles are equal.
-        options.append(contentsOf: (jumpOptions + terminalOptions).sorted { a, b in
+        options.append(contentsOf: (jumpOptions + terminalOptions + customEntries).sorted { a, b in
             let aNormalized = a.title.replacingOccurrences(of: ":", with: "\t")
             let bNormalized = b.title.replacingOccurrences(of: ":", with: "\t")
             let comparison = aNormalized.localizedCaseInsensitiveCompare(bNormalized)
@@ -132,6 +132,19 @@ struct TerminalCommandPaletteView: View {
             }
         } catch {
             return []
+        }
+    }
+
+    /// Custom commands from the command-palette-entry configuration.
+    private var customEntries: [CommandOption] {
+        guard let appDelegate = NSApp.delegate as? AppDelegate else { return [] }
+        return appDelegate.ghostty.config.commandPaletteEntries.map { c in
+            CommandOption(
+                title: c.title,
+                description: c.description
+            ) {
+                onAction(c.action)
+            }
         }
     }
 
