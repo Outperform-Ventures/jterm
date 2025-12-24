@@ -2826,13 +2826,20 @@ fn maybeHandleBinding(
 
             // No entry found. We need to encode everything up to this
             // point and send to the pty since we're in a sequence.
-            //
-            // We also ignore modifiers so that nested sequences such as
+
+            // We ignore modifiers so that nested sequences such as
             // ctrl+a>ctrl+b>c work.
-            if (!event.key.modifier()) {
-                // Encode everything up to this point
-                self.endKeySequence(.flush, .retain);
+            if (event.key.modifier()) return null;
+
+            // If we have a catch-all of ignore, then we special case our
+            // invalid sequence handling to ignore it.
+            if (self.catchAllIsIgnore()) {
+                self.endKeySequence(.drop, .retain);
+                return .ignored;
             }
+
+            // Encode everything up to this point
+            self.endKeySequence(.flush, .retain);
 
             return null;
         }
@@ -3037,6 +3044,34 @@ fn deactivateAllKeyTables(self: *Surface) !bool {
     return true;
 }
 
+/// This checks if the current keybinding sets have a catch_all binding
+/// with `ignore`. This is used to determine some special input cases.
+fn catchAllIsIgnore(self: *Surface) bool {
+    // Get our catch all
+    const entry: input.Binding.Set.Entry = entry: {
+        const trigger: input.Binding.Trigger = .{ .key = .catch_all };
+
+        const table_items = self.keyboard.table_stack.items;
+        for (0..table_items.len) |i| {
+            const rev_i: usize = table_items.len - 1 - i;
+            const entry = table_items[rev_i].set.get(trigger) orelse continue;
+            break :entry entry;
+        }
+
+        break :entry self.config.keybind.set.get(trigger) orelse
+            return false;
+    };
+
+    // We have a catch-all entry, see if its an ignore
+    return switch (entry.value_ptr.*) {
+        .leader => false,
+        .leaf => |leaf| leaf.action == .ignore,
+        .leaf_chained => |leaf| chained: for (leaf.actions.items) |action| {
+            if (action == .ignore) break :chained true;
+        } else false,
+    };
+}
+
 const KeySequenceQueued = enum { flush, drop };
 const KeySequenceMemory = enum { retain, free };
 
@@ -3065,23 +3100,26 @@ fn endKeySequence(
     // the set we look at to the root set.
     self.keyboard.sequence_set = null;
 
-    if (self.keyboard.sequence_queued.items.len > 0) {
-        switch (action) {
-            .flush => for (self.keyboard.sequence_queued.items) |write_req| {
-                self.queueIo(switch (write_req) {
-                    .small => |v| .{ .write_small = v },
-                    .stable => |v| .{ .write_stable = v },
-                    .alloc => |v| .{ .write_alloc = v },
-                }, .unlocked);
-            },
+    // If we have no queued data, there is nothing else to do.
+    if (self.keyboard.sequence_queued.items.len == 0) return;
 
-            .drop => for (self.keyboard.sequence_queued.items) |req| req.deinit(),
-        }
+    // Run the proper action first
+    switch (action) {
+        .flush => for (self.keyboard.sequence_queued.items) |write_req| {
+            self.queueIo(switch (write_req) {
+                .small => |v| .{ .write_small = v },
+                .stable => |v| .{ .write_stable = v },
+                .alloc => |v| .{ .write_alloc = v },
+            }, .unlocked);
+        },
 
-        switch (mem) {
-            .free => self.keyboard.sequence_queued.clearAndFree(self.alloc),
-            .retain => self.keyboard.sequence_queued.clearRetainingCapacity(),
-        }
+        .drop => for (self.keyboard.sequence_queued.items) |req| req.deinit(),
+    }
+
+    // Memory handling of the sequence after the action
+    switch (mem) {
+        .free => self.keyboard.sequence_queued.clearAndFree(self.alloc),
+        .retain => self.keyboard.sequence_queued.clearRetainingCapacity(),
     }
 }
 

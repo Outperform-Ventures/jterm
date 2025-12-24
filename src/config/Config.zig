@@ -1521,6 +1521,11 @@ class: ?[:0]const u8 = null,
 ///     specifically output that key (e.g. `ctrl+a>ctrl+a=text:foo`) or
 ///     press an unbound key which will send both keys to the program.
 ///
+///   * If an unbound key is pressed during a sequence and a `catch_all`
+///     binding exists that would `ignore` the input, the entire sequence
+///     is dropped and nothing happens. Otherwise, the entire sequence is
+///     encoded and sent to the running program as if no keybind existed.
+///
 ///   * If a prefix in a sequence is previously bound, the sequence will
 ///     override the previous binding. For example, if `ctrl+a` is bound to
 ///     `new_window` and `ctrl+a>n` is bound to `new_tab`, pressing `ctrl+a`
