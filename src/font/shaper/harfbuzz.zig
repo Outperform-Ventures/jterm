@@ -150,10 +150,19 @@ pub const Shaper = struct {
                 .cluster = info_v.cluster,
             };
 
+            // Under both FreeType and CoreText the harfbuzz scale is
+            // in 26.6 fixed point units, so we round to the nearest
+            // whole value here.
+            const x_offset = cell_offset.x + ((pos_v.x_offset + 0b100_000) >> 6);
+            const y_offset = cell_offset.y + ((pos_v.y_offset + 0b100_000) >> 6);
+
+            // For debugging positions, turn this on:
+            //debugPositions(cell_offset, pos_v);
+
             try self.cell_buf.append(self.alloc, .{
                 .x = @intCast(info_v.cluster),
-                .x_offset = @intCast(cell_offset.x),
-                .y_offset = @intCast(cell_offset.y),
+                .x_offset = @intCast(x_offset),
+                .y_offset = @intCast(y_offset),
                 .glyph_index = info_v.codepoint,
             });
 
@@ -195,6 +204,36 @@ pub const Shaper = struct {
             self.shaper.hb_buf.guessSegmentProperties();
         }
     };
+
+    fn debugPositions(
+        cell_offset: anytype,
+        pos_v: harfbuzz.GlyphPosition,
+    ) void {
+        const x_offset = cell_offset.x + ((pos_v.x_offset + 0b100_000) >> 6);
+        const y_offset = cell_offset.y + ((pos_v.y_offset + 0b100_000) >> 6);
+        const advance_x_offset = cell_offset.x;
+        const advance_y_offset = cell_offset.y;
+        const x_offset_diff = x_offset - advance_x_offset;
+        const y_offset_diff = y_offset - advance_y_offset;
+
+        // It'd be nice if we could log the original codepoints that went in to
+        // shaping this glyph, but at this point HarfBuzz has replaced
+        // `info_v.codepoint` with the glyph index (and that's only one of the
+        // codepoints anyway). We could have some way to map the cluster back
+        // to the original codepoints, but since that would only be used for
+        // debugging, we don't do that.
+        if (@abs(x_offset_diff) > 0 or @abs(y_offset_diff) > 0) {
+            log.warn("position differs from advance: cluster={d} pos=({d},{d}) adv=({d},{d}) diff=({d},{d})", .{
+                cell_offset.cluster,
+                x_offset,
+                y_offset,
+                advance_x_offset,
+                advance_y_offset,
+                x_offset_diff,
+                y_offset_diff,
+            });
+        }
+    }
 };
 
 test "run iterator" {
