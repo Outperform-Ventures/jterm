@@ -8041,15 +8041,37 @@ pub const SplitPreserveZoom = packed struct {
 };
 
 pub const RepeatableCommand = struct {
-    value: std.ArrayListUnmanaged(inputpkg.Command) = .empty,
+    const Self = @This();
 
-    pub fn init(self: *RepeatableCommand, alloc: Allocator) !void {
+    value: std.ArrayListUnmanaged(inputpkg.Command) = .empty,
+    value_c: std.ArrayListUnmanaged(inputpkg.Command.C) = .empty,
+
+    /// ghostty_config_command_list_s
+    pub const C = extern struct {
+        commands: [*]inputpkg.Command.C,
+        len: usize,
+    };
+
+    pub fn cval(self: *const Self) C {
+        return .{
+            .commands = self.value_c.items.ptr,
+            .len = self.value_c.items.len,
+        };
+    }
+
+    pub fn init(self: *Self, alloc: Allocator) !void {
         self.value = .empty;
+        self.value_c = .empty;
+        errdefer {
+            self.value.deinit(alloc);
+            self.value_c.deinit(alloc);
+        }
         try self.value.appendSlice(alloc, inputpkg.command.defaults);
+        try self.value_c.appendSlice(alloc, inputpkg.command.defaultsC);
     }
 
     pub fn parseCLI(
-        self: *RepeatableCommand,
+        self: *Self,
         alloc: Allocator,
         input_: ?[]const u8,
     ) !void {
@@ -8057,8 +8079,13 @@ pub const RepeatableCommand = struct {
         const input = input_ orelse "";
         if (input.len == 0) {
             self.value.clearRetainingCapacity();
+            self.value_c.clearRetainingCapacity();
             return;
         }
+
+        // Reserve space in our lists
+        try self.value.ensureUnusedCapacity(alloc, 1);
+        try self.value_c.ensureUnusedCapacity(alloc, 1);
 
         const cmd = try cli.args.parseAutoStruct(
             inputpkg.Command,
@@ -8066,17 +8093,22 @@ pub const RepeatableCommand = struct {
             input,
             null,
         );
-        try self.value.append(alloc, cmd);
+        const cmd_c = try cmd.cval(alloc);
+        self.value.appendAssumeCapacity(cmd);
+        self.value_c.appendAssumeCapacity(cmd_c);
     }
 
     /// Deep copy of the struct. Required by Config.
-    pub fn clone(self: *const RepeatableCommand, alloc: Allocator) Allocator.Error!RepeatableCommand {
+    pub fn clone(self: *const Self, alloc: Allocator) Allocator.Error!Self {
         const value = try self.value.clone(alloc);
         for (value.items) |*item| {
             item.* = try item.clone(alloc);
         }
 
-        return .{ .value = value };
+        return .{
+            .value = value,
+            .value_c = try self.value_c.clone(alloc),
+        };
     }
 
     /// Compare if two of our value are equal. Required by Config.
@@ -8231,6 +8263,50 @@ pub const RepeatableCommand = struct {
             try testing.expect(item.action == .text);
             try testing.expectEqualStrings("kurwa", item.action.text);
         }
+    }
+
+    test "RepeatableCommand cval" {
+        const testing = std.testing;
+
+        var arena = ArenaAllocator.init(testing.allocator);
+        defer arena.deinit();
+        const alloc = arena.allocator();
+
+        var list: RepeatableCommand = .{};
+        try list.parseCLI(alloc, "title:Foo,action:ignore");
+        try list.parseCLI(alloc, "title:Bar,description:bobr,action:text:ale bydle");
+
+        try testing.expectEqual(@as(usize, 2), list.value.items.len);
+        try testing.expectEqual(@as(usize, 2), list.value_c.items.len);
+
+        const cv = list.cval();
+        try testing.expectEqual(@as(usize, 2), cv.len);
+
+        // First entry
+        try testing.expectEqualStrings("Foo", std.mem.sliceTo(cv.commands[0].title, 0));
+        try testing.expectEqualStrings("ignore", std.mem.sliceTo(cv.commands[0].action_key, 0));
+        try testing.expectEqualStrings("ignore", std.mem.sliceTo(cv.commands[0].action, 0));
+
+        // Second entry
+        try testing.expectEqualStrings("Bar", std.mem.sliceTo(cv.commands[1].title, 0));
+        try testing.expectEqualStrings("bobr", std.mem.sliceTo(cv.commands[1].description, 0));
+        try testing.expectEqualStrings("text", std.mem.sliceTo(cv.commands[1].action_key, 0));
+        try testing.expectEqualStrings("text:ale bydle", std.mem.sliceTo(cv.commands[1].action, 0));
+    }
+
+    test "RepeatableCommand cval cleared" {
+        const testing = std.testing;
+
+        var arena = ArenaAllocator.init(testing.allocator);
+        defer arena.deinit();
+        const alloc = arena.allocator();
+
+        var list: RepeatableCommand = .{};
+        try list.parseCLI(alloc, "title:Foo,action:ignore");
+        try testing.expectEqual(@as(usize, 1), list.cval().len);
+
+        try list.parseCLI(alloc, "");
+        try testing.expectEqual(@as(usize, 0), list.cval().len);
     }
 };
 

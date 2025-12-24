@@ -454,6 +454,12 @@ typedef struct {
   size_t len;
 } ghostty_config_color_list_s;
 
+// config.RepeatableCommand
+typedef struct {
+  const ghostty_command_s* commands;
+  size_t len;
+} ghostty_config_command_list_s;
+
 // config.Palette
 typedef struct {
   ghostty_config_color_s colors[256];
