@@ -658,17 +658,9 @@ extension Ghostty.Config {
             case 0:
                 self = .disabled
             case -1:
-                if #available(macOS 26.0, *) {
-                    self = .macosGlassRegular
-                } else {
-                    self = .disabled
-                }
+                self = .macosGlassRegular
             case -2:
-                if #available(macOS 26.0, *) {
-                    self = .macosGlassClear
-                } else {
-                    self = .disabled
-                }
+                self = .macosGlassClear
             default:
                 self = .radius(Int(value))
             }
