@@ -1222,7 +1222,7 @@ fn childExited(self: *Surface, info: apprt.surface.Message.ChildExited) void {
             break :gui false;
         }) return;
 
-        // If a native GUI notification was not showm. update our terminal to
+        // If a native GUI notification was not shown, update our terminal to
         // note the abnormal exit.
         self.childExitedAbnormally(info) catch |err| {
             log.err("error handling abnormal child exit err={}", .{err});
@@ -1232,7 +1232,7 @@ fn childExited(self: *Surface, info: apprt.surface.Message.ChildExited) void {
         return;
     }
 
-    // We output a message so that the user knows whats going on and
+    // We output a message so that the user knows what's going on and
     // doesn't think their terminal just froze. We show this unconditionally
     // on close even if `wait_after_command` is false and the surface closes
     // immediately because if a user does an `undo` to restore a closed
