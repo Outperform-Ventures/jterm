@@ -1298,7 +1298,7 @@ extension BaseTerminalController: NSMenuItemValidation {
         } else {
             scheme = GHOSTTY_COLOR_SCHEME_LIGHT
         }
-        guard scheme != appliedColorScheme else {
+        guard scheme != appliedColorScheme, !surfaceTree.isEmpty else {
             return
         }
         for surfaceView in surfaceTree {
