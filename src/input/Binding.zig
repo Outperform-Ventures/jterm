@@ -2020,7 +2020,7 @@ pub const Set = struct {
         ///
         /// `buffer_stream` is a FixedBufferStream used for temporary storage
         /// that is shared between calls to nested levels of the set.
-        /// For example, 'a>b>c=x' and 'a>b>d=y' will re-use the 'a>b' written
+        /// For example, 'a>b>c=x' and 'a>b>d=y' will reuse the 'a>b' written
         /// to the buffer before flushing it to the formatter with 'c=x' and 'd=y'.
         pub fn formatEntries(
             self: Value,
