@@ -26,6 +26,13 @@ class TerminalViewContainer<ViewModel: TerminalViewModel>: NSView {
         fatalError("init(coder:) has not been implemented")
     }
 
+    /// To make ``TerminalController/DefaultSize/contentIntrinsicSize``
+    /// work in ``TerminalController/windowDidLoad()``,
+    /// we override this to provide the correct size.
+    override var intrinsicContentSize: NSSize {
+        terminalView.intrinsicContentSize
+    }
+
     private func setup() {
         addSubview(terminalView)
         terminalView.translatesAutoresizingMaskIntoConstraints = false
