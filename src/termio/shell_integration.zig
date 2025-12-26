@@ -339,6 +339,28 @@ fn setupBash(
             try cmd.appendArg(arg);
         }
     }
+
+    // Preserve an existing ENV value. We're about to overwrite it.
+    if (env.get("ENV")) |v| {
+        try env.put("GHOSTTY_BASH_ENV", v);
+    }
+
+    // Set our new ENV to point to our integration script.
+    var script_path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    const script_path = try std.fmt.bufPrint(
+        &script_path_buf,
+        "{s}/shell-integration/bash/ghostty.bash",
+        .{resource_dir},
+    );
+    if (std.fs.openFileAbsolute(script_path, .{})) |file| {
+        file.close();
+        try env.put("ENV", script_path);
+    } else |err| {
+        log.warn("unable to open {s}: {}", .{ script_path, err });
+        env.remove("GHOSTTY_BASH_ENV");
+        return null;
+    }
+
     try env.put("GHOSTTY_BASH_INJECT", buf[0..inject.end]);
     if (rcfile) |v| {
         try env.put("GHOSTTY_BASH_RCFILE", v);
@@ -358,26 +380,6 @@ fn setupBash(
             try env.put("HISTFILE", histfile);
             try env.put("GHOSTTY_BASH_UNEXPORT_HISTFILE", "1");
         }
-    }
-
-    // Preserve an existing ENV value. We're about to overwrite it.
-    if (env.get("ENV")) |v| {
-        try env.put("GHOSTTY_BASH_ENV", v);
-    }
-
-    // Set our new ENV to point to our integration script.
-    var script_path_buf: [std.fs.max_path_bytes]u8 = undefined;
-    const script_path = try std.fmt.bufPrint(
-        &script_path_buf,
-        "{s}/shell-integration/bash/ghostty.bash",
-        .{resource_dir},
-    );
-    if (std.fs.openFileAbsolute(script_path, .{})) |file| {
-        file.close();
-        try env.put("ENV", script_path);
-    } else |err| {
-        log.warn("unable to open {s}: {}", .{ script_path, err });
-        return null;
     }
 
     // Get the command string from the builder, then copy it to the arena
@@ -432,9 +434,7 @@ test "bash: unsupported options" {
         defer env.deinit();
 
         try testing.expect(try setupBash(alloc, .{ .shell = cmdline }, res.path, &env) == null);
-        try testing.expect(env.get("GHOSTTY_BASH_INJECT") == null);
-        try testing.expect(env.get("GHOSTTY_BASH_RCFILE") == null);
-        try testing.expect(env.get("GHOSTTY_BASH_UNEXPORT_HISTFILE") == null);
+        try testing.expectEqual(0, env.count());
     }
 }
 
@@ -576,6 +576,25 @@ test "bash: additional arguments" {
     }
 }
 
+test "bash: missing resources" {
+    const testing = std.testing;
+    var arena = ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    var tmp_dir = testing.tmpDir(.{});
+    defer tmp_dir.cleanup();
+
+    const resources_dir = try tmp_dir.dir.realpathAlloc(alloc, ".");
+    defer alloc.free(resources_dir);
+
+    var env = EnvMap.init(alloc);
+    defer env.deinit();
+
+    try testing.expect(try setupBash(alloc, .{ .shell = "bash" }, resources_dir, &env) == null);
+    try testing.expectEqual(0, env.count());
+}
+
 /// Setup automatic shell integration for shells that include
 /// their modules from paths in `XDG_DATA_DIRS` env variable.
 ///
@@ -685,6 +704,25 @@ test "xdg: existing XDG_DATA_DIRS" {
     );
 }
 
+test "xdg: missing resources" {
+    const testing = std.testing;
+    var arena = ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    var tmp_dir = testing.tmpDir(.{});
+    defer tmp_dir.cleanup();
+
+    const resources_dir = try tmp_dir.dir.realpathAlloc(alloc, ".");
+    defer alloc.free(resources_dir);
+
+    var env = EnvMap.init(alloc);
+    defer env.deinit();
+
+    try testing.expect(!try setupXdgDataDirs(alloc, resources_dir, &env));
+    try testing.expectEqual(0, env.count());
+}
+
 /// Setup the zsh automatic shell integration. This works by setting
 /// ZDOTDIR to our resources dir so that zsh will load our config. This
 /// config then loads the true user config.
@@ -742,6 +780,25 @@ test "zsh: ZDOTDIR" {
     try testing.expect(try setupZsh(res.path, &env));
     try testing.expectEqualStrings(res.shell_path, env.get("ZDOTDIR").?);
     try testing.expectEqualStrings("$HOME/.config/zsh", env.get("GHOSTTY_ZSH_ZDOTDIR").?);
+}
+
+test "zsh: missing resources" {
+    const testing = std.testing;
+    var arena = ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    var tmp_dir = testing.tmpDir(.{});
+    defer tmp_dir.cleanup();
+
+    const resources_dir = try tmp_dir.dir.realpathAlloc(alloc, ".");
+    defer alloc.free(resources_dir);
+
+    var env = EnvMap.init(alloc);
+    defer env.deinit();
+
+    try testing.expect(!try setupZsh(resources_dir, &env));
+    try testing.expectEqual(0, env.count());
 }
 
 /// Test helper that creates a temporary resources directory with shell integration paths.
