@@ -64,7 +64,7 @@ struct TerminalCommandPaletteView: View {
         // Sort the rest. We replace ":" with a character that sorts before space
         // so that "Foo:" sorts before "Foo Bar:". Use sortKey as a tie-breaker
         // for stable ordering when titles are equal.
-        options.append(contentsOf: (jumpOptions + terminalOptions + customEntries).sorted { a, b in
+        options.append(contentsOf: (jumpOptions + terminalOptions).sorted { a, b in
             let aNormalized = a.title.replacingOccurrences(of: ":", with: "\t")
             let bNormalized = b.title.replacingOccurrences(of: ":", with: "\t")
             let comparison = aNormalized.localizedCaseInsensitiveCompare(bNormalized)
@@ -83,11 +83,11 @@ struct TerminalCommandPaletteView: View {
     /// Commands for installing or canceling available updates.
     private var updateOptions: [CommandOption] {
         var options: [CommandOption] = []
-
+        
         guard let updateViewModel, updateViewModel.state.isInstallable else {
             return options
         }
-
+        
         // We override the update available one only because we want to properly
         // convey it'll go all the way through.
         let title: String
@@ -96,7 +96,7 @@ struct TerminalCommandPaletteView: View {
         } else {
             title = updateViewModel.text
         }
-
+        
         options.append(CommandOption(
             title: title,
             description: updateViewModel.description,
@@ -106,37 +106,19 @@ struct TerminalCommandPaletteView: View {
         ) {
             (NSApp.delegate as? AppDelegate)?.updateController.installUpdate()
         })
-
+        
         options.append(CommandOption(
             title: "Cancel or Skip Update",
             description: "Dismiss the current update process"
         ) {
             updateViewModel.state.cancel()
         })
-
+        
         return options
     }
 
-    /// Commands exposed by the terminal surface.
-    private var terminalOptions: [CommandOption] {
-        guard let surface = surfaceView.surfaceModel else { return [] }
-        do {
-            return try surface.commands().map { c in
-                CommandOption(
-                    title: c.title,
-                    description: c.description,
-                    symbols: ghosttyConfig.keyboardShortcut(for: c.action)?.keyList,
-                ) {
-                    onAction(c.action)
-                }
-            }
-        } catch {
-            return []
-        }
-    }
-
     /// Custom commands from the command-palette-entry configuration.
-    private var customEntries: [CommandOption] {
+    private var terminalOptions: [CommandOption] {
         guard let appDelegate = NSApp.delegate as? AppDelegate else { return [] }
         return appDelegate.ghostty.config.commandPaletteEntries.map { c in
             CommandOption(
