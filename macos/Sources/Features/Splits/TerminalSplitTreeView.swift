@@ -73,34 +73,25 @@ struct TerminalSplitLeaf: View {
     @State private var dropState: DropState = .idle
     
     var body: some View {
-        Ghostty.InspectableSurface(
-            surfaceView: surfaceView,
-            isSplit: isSplit)
-        .background {
-            // We use background for the drop delegate and overlay for the visual indicator
-            // so that we don't block mouse events from reaching the surface view. The
-            // background receives drop events while the overlay (with allowsHitTesting
-            // disabled) only provides visual feedback.
-            GeometryReader { geometry in
-                Color.clear
-                    .onDrop(of: [.ghosttySurfaceId], delegate: SplitDropDelegate(
-                        dropState: $dropState,
-                        viewSize: geometry.size,
-                        destinationSurface: surfaceView,
-                        onDrop: onDrop
-                    ))
-            }
-        }
-        .overlay {
-            if case .dropping(let zone) = dropState {
-                GeometryReader { geometry in
+        GeometryReader { geometry in
+            Ghostty.InspectableSurface(
+                surfaceView: surfaceView,
+                isSplit: isSplit)
+            .onDrop(of: [.ghosttySurfaceId], delegate: SplitDropDelegate(
+                dropState: $dropState,
+                viewSize: geometry.size,
+                destinationSurface: surfaceView,
+                onDrop: onDrop
+            ))
+            .overlay {
+                if case .dropping(let zone) = dropState {
                     zone.overlay(in: geometry)
+                        .allowsHitTesting(false)
                 }
-                .allowsHitTesting(false)
             }
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel("Terminal pane")
         }
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("Terminal pane")
     }
     
     private enum DropState: Equatable {
