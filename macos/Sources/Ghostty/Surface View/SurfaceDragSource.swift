@@ -129,10 +129,8 @@ extension Ghostty {
         override func mouseDragged(with event: NSEvent) {
             guard !isTracking, let surfaceView = surfaceView else { return }
             
-            // Create the pasteboard item with the surface ID
-            let data = withUnsafeBytes(of: surfaceView.id.uuid) { Data($0) }
-            let pasteboardItem = NSPasteboardItem()
-            pasteboardItem.setData(data, forType: .ghosttySurfaceId)
+            // Create our dragging item from our transferable
+            guard let pasteboardItem = surfaceView.pasteboardItem() else { return }
             let item = NSDraggingItem(pasteboardWriter: pasteboardItem)
             
             // Create a scaled preview image from the surface snapshot

@@ -169,6 +169,7 @@
 				"Helpers/Extensions/NSView+Extension.swift",
 				"Helpers/Extensions/NSWindow+Extension.swift",
 				"Helpers/Extensions/NSWorkspace+Extension.swift",
+				"Helpers/Extensions/Transferable+Extension.swift",
 				"Helpers/Extensions/UndoManager+Extension.swift",
 				"Helpers/Extensions/View+Extension.swift",
 				Helpers/Fullscreen.swift,
