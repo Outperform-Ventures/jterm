@@ -1,18 +1,37 @@
 import SwiftUI
 import os
 
+enum TerminalSplitOperation {
+    case resize(Resize)
+    case drop(Drop)
+    
+    struct Resize {
+        let node: SplitTree<Ghostty.SurfaceView>.Node
+        let ratio: Double
+    }
+    
+    struct Drop {
+        /// The surface being dragged.
+        let payload: Ghostty.SurfaceView
+        
+        /// The surface it was dragged onto
+        let destination: Ghostty.SurfaceView
+        
+        /// The zone it was dropped to determine how to split the destination.
+        let zone: TerminalSplitDropZone
+    }
+}
+
 struct TerminalSplitTreeView: View {
     let tree: SplitTree<Ghostty.SurfaceView>
-    let onResize: (SplitTree<Ghostty.SurfaceView>.Node, Double) -> Void
-    let onDrop: (_ source: Ghostty.SurfaceView, _ destination: Ghostty.SurfaceView, TerminalSplitDropZone) -> Void
+    let action: (TerminalSplitOperation) -> Void
 
     var body: some View {
         if let node = tree.zoomed ?? tree.root {
             TerminalSplitSubtreeView(
                 node: node,
                 isRoot: node == tree.root,
-                onResize: onResize,
-                onDrop: onDrop)
+                action: action)
             // This is necessary because we can't rely on SwiftUI's implicit
             // structural identity to detect changes to this view. Due to
             // the tree structure of splits it could result in bad behaviors.
@@ -27,13 +46,12 @@ struct TerminalSplitSubtreeView: View {
 
     let node: SplitTree<Ghostty.SurfaceView>.Node
     var isRoot: Bool = false
-    let onResize: (SplitTree<Ghostty.SurfaceView>.Node, Double) -> Void
-    let onDrop: (_ source: Ghostty.SurfaceView, _ destination: Ghostty.SurfaceView, TerminalSplitDropZone) -> Void
+    let action: (TerminalSplitOperation) -> Void
 
     var body: some View {
         switch (node) {
         case .leaf(let leafView):
-            TerminalSplitLeaf(surfaceView: leafView, isSplit: !isRoot, onDrop: onDrop)
+            TerminalSplitLeaf(surfaceView: leafView, isSplit: !isRoot, action: action)
 
         case .split(let split):
             let splitViewDirection: SplitViewDirection = switch (split.direction) {
@@ -46,15 +64,15 @@ struct TerminalSplitSubtreeView: View {
                 .init(get: {
                     CGFloat(split.ratio)
                 }, set: {
-                    onResize(node, $0)
+                    action(.resize(.init(node: node, ratio: $0)))
                 }),
                 dividerColor: ghostty.config.splitDividerColor,
                 resizeIncrements: .init(width: 1, height: 1),
                 left: {
-                    TerminalSplitSubtreeView(node: split.left, onResize: onResize, onDrop: onDrop)
+                    TerminalSplitSubtreeView(node: split.left, action: action)
                 },
                 right: {
-                    TerminalSplitSubtreeView(node: split.right, onResize: onResize, onDrop: onDrop)
+                    TerminalSplitSubtreeView(node: split.right, action: action)
                 },
                 onEqualize: {
                     guard let surface = node.leftmostLeaf().surface else { return }
@@ -68,7 +86,7 @@ struct TerminalSplitSubtreeView: View {
 struct TerminalSplitLeaf: View {
     let surfaceView: Ghostty.SurfaceView
     let isSplit: Bool
-    let onDrop: (_ source: Ghostty.SurfaceView, _ destination: Ghostty.SurfaceView, TerminalSplitDropZone) -> Void
+    let action: (TerminalSplitOperation) -> Void
     
     @State private var dropState: DropState = .idle
     
@@ -81,7 +99,7 @@ struct TerminalSplitLeaf: View {
                 dropState: $dropState,
                 viewSize: geometry.size,
                 destinationSurface: surfaceView,
-                onDrop: onDrop
+                action: action
             ))
             .overlay {
                 if case .dropping(let zone) = dropState {
@@ -103,7 +121,7 @@ struct TerminalSplitLeaf: View {
         @Binding var dropState: DropState
         let viewSize: CGSize
         let destinationSurface: Ghostty.SurfaceView
-        let onDrop: (_ source: Ghostty.SurfaceView, _ destination: Ghostty.SurfaceView, TerminalSplitDropZone) -> Void
+        let action: (TerminalSplitOperation) -> Void
         
         func validateDrop(info: DropInfo) -> Bool {
             info.hasItemsConforming(to: [.ghosttySurfaceId])
@@ -133,6 +151,8 @@ struct TerminalSplitLeaf: View {
             // Load the dropped surface asynchronously using Transferable
             let providers = info.itemProviders(for: [.ghosttySurfaceId])
             guard let provider = providers.first else { return false }
+            
+            // Capture action before the async closure
             _ = provider.loadTransferable(type: Ghostty.SurfaceView.self) { [weak destinationSurface] result in
                 switch result {
                 case .success(let sourceSurface):
@@ -140,7 +160,7 @@ struct TerminalSplitLeaf: View {
                         // Don't allow dropping on self
                         guard let destinationSurface else { return }
                         guard sourceSurface !== destinationSurface else { return }
-                        onDrop(sourceSurface, destinationSurface, zone)
+                        action(.drop(.init(payload: sourceSurface, destination: destinationSurface, zone: zone)))
                     }
                     
                 case .failure:

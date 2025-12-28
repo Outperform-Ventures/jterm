@@ -817,17 +817,25 @@ class BaseTerminalController: NSWindowController,
         self.window?.contentResizeIncrements = to
     }
 
-    func splitDidResize(node: SplitTree<Ghostty.SurfaceView>.Node, to newRatio: Double) {
+    func performSplitAction(_ action: TerminalSplitOperation) {
+        switch action {
+        case .resize(let resize):
+            splitDidResize(node: resize.node, to: resize.ratio)
+        case .drop(let drop):
+            splitDidDrop(source: drop.payload, destination: drop.destination, zone: drop.zone)
+        }
+    }
+
+    private func splitDidResize(node: SplitTree<Ghostty.SurfaceView>.Node, to newRatio: Double) {
         let resizedNode = node.resize(to: newRatio)
         do {
             surfaceTree = try surfaceTree.replace(node: node, with: resizedNode)
         } catch {
             Ghostty.logger.warning("failed to replace node during split resize: \(error)")
-            return
         }
     }
 
-    func splitDidDrop(source: Ghostty.SurfaceView, destination: Ghostty.SurfaceView, zone: TerminalSplitDropZone) {
+    private func splitDidDrop(source: Ghostty.SurfaceView, destination: Ghostty.SurfaceView, zone: TerminalSplitDropZone) {
         // Map drop zone to split direction
         let direction: SplitTree<Ghostty.SurfaceView>.NewDirection = switch zone {
         case .top: .up
@@ -851,7 +859,7 @@ class BaseTerminalController: NSWindowController,
             } catch {
                 Ghostty.logger.warning("failed to insert surface during drop: \(error)")
             }
-            
+
             return
         }
 
@@ -872,7 +880,7 @@ class BaseTerminalController: NSWindowController,
             Ghostty.logger.warning("source surface not found in any window during drop")
             return
         }
-        
+
         // TODO: Undo for cross window move.
 
         // Remove from source controller's tree
