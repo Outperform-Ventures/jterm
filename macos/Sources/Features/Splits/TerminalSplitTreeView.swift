@@ -92,6 +92,7 @@ fileprivate struct TerminalSplitLeaf: View {
     let action: (TerminalSplitOperation) -> Void
     
     @State private var dropState: DropState = .idle
+    @State private var isSelfDragging: Bool = false
     
     var body: some View {
         GeometryReader { geometry in
@@ -105,10 +106,14 @@ fileprivate struct TerminalSplitLeaf: View {
                 action: action
             ))
             .overlay {
-                if case .dropping(let zone) = dropState {
+                if !isSelfDragging, case .dropping(let zone) = dropState {
                     zone.overlay(in: geometry)
                         .allowsHitTesting(false)
                 }
+            }
+            .onPreferenceChange(Ghostty.DraggingSurfaceKey.self) { value in
+                Ghostty.logger.warning("BABY WE DRAGGING \(String(describing: value))")
+                isSelfDragging = value == surfaceView.id
             }
             .accessibilityElement(children: .contain)
             .accessibilityLabel("Terminal pane")

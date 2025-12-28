@@ -1,6 +1,16 @@
 import SwiftUI
 
 extension Ghostty {
+    /// A preference key that propagates the ID of the SurfaceView currently being dragged,
+    /// or nil if no surface is being dragged.
+    struct DraggingSurfaceKey: PreferenceKey {
+        static var defaultValue: SurfaceView.ID? = nil
+        
+        static func reduce(value: inout SurfaceView.ID?, nextValue: () -> SurfaceView.ID?) {
+            value = nextValue() ?? value
+        }
+    }
+    
     /// A grab handle overlay at the top of the surface for dragging the window.
     /// Only appears when hovering in the top region of the surface.
     struct SurfaceGrabHandle: View {
@@ -38,6 +48,7 @@ extension Ghostty {
             .draggable(surfaceView) {
                 SurfaceDragPreview(surfaceView: surfaceView, scale: previewScale)
             }
+            .preference(key: DraggingSurfaceKey.self, value: isDragging ? surfaceView.id : nil)
         }
     }
     
