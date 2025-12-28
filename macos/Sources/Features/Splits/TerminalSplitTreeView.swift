@@ -1,6 +1,9 @@
 import SwiftUI
-import os
 
+/// A single operation within the split tree.
+///
+/// Rather than binding the split tree (which is immutable), any mutable operations are
+/// exposed via this enum to the embedder to handle.
 enum TerminalSplitOperation {
     case resize(Resize)
     case drop(Drop)
@@ -41,7 +44,7 @@ struct TerminalSplitTreeView: View {
     }
 }
 
-struct TerminalSplitSubtreeView: View {
+fileprivate struct TerminalSplitSubtreeView: View {
     @EnvironmentObject var ghostty: Ghostty.App
 
     let node: SplitTree<Ghostty.SurfaceView>.Node
@@ -83,7 +86,7 @@ struct TerminalSplitSubtreeView: View {
     }
 }
 
-struct TerminalSplitLeaf: View {
+fileprivate struct TerminalSplitLeaf: View {
     let surfaceView: Ghostty.SurfaceView
     let isSplit: Bool
     let action: (TerminalSplitOperation) -> Void
