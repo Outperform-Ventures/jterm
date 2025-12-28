@@ -50,7 +50,9 @@ extension UTType {
     static let ghosttySurfaceId = UTType(exportedAs: "com.mitchellh.ghosttySurfaceId")
 }
 
+#if canImport(AppKit)
 extension NSPasteboard.PasteboardType {
     /// Pasteboard type for dragging surface IDs.
     static let ghosttySurfaceId = NSPasteboard.PasteboardType(UTType.ghosttySurfaceId.identifier)
 }
+#endif
