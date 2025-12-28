@@ -9,7 +9,7 @@ extension Ghostty {
     /// The NSView implementation for a terminal surface.
     class SurfaceView: OSView, ObservableObject, Codable, Identifiable {
         typealias ID = UUID
-        
+
         /// Unique ID per surface
         let id: UUID
 
@@ -44,14 +44,14 @@ extension Ghostty {
 
         // The hovered URL string
         @Published var hoverUrl: String? = nil
-        
+
         // The progress report (if any)
         @Published var progressReport: Action.ProgressReport? = nil {
             didSet {
                 // Cancel any existing timer
                 progressReportTimer?.invalidate()
                 progressReportTimer = nil
-                
+
                 // If we have a new progress report, start a timer to remove it after 15 seconds
                 if progressReport != nil {
                     progressReportTimer = Timer.scheduledTimer(withTimeInterval: 15.0, repeats: false) { [weak self] _ in
@@ -64,6 +64,9 @@ extension Ghostty {
 
         // The currently active key sequence. The sequence is not active if this is empty.
         @Published var keySequence: [KeyboardShortcut] = []
+
+        // The currently active key tables. Empty if no tables are active.
+        @Published var keyTables: [String] = []
 
         // The current search state. When non-nil, the search overlay should be shown.
         @Published var searchState: SearchState? = nil {
@@ -98,7 +101,7 @@ extension Ghostty {
                 }
             }
         }
-        
+
         // Cancellable for search state needle changes
         private var searchNeedleCancellable: AnyCancellable?
 
@@ -125,6 +128,9 @@ extension Ghostty {
 
         /// True when the surface is in readonly mode.
         @Published private(set) var readonly: Bool = false
+
+        /// True when the surface should show a highlight effect (e.g., when presented via goto_split).
+        @Published private(set) var highlighted: Bool = false
 
         // An initial size to request for a window. This will only affect
         // then the view is moved to a new window.
@@ -213,7 +219,7 @@ extension Ghostty {
 
         // A timer to fallback to ghost emoji if no title is set within the grace period
         private var titleFallbackTimer: Timer?
-        
+
         // Timer to remove progress report after 15 seconds
         private var progressReportTimer: Timer?
 
@@ -323,6 +329,11 @@ extension Ghostty {
                 object: self)
             center.addObserver(
                 self,
+                selector: #selector(ghosttyDidChangeKeyTable),
+                name: Ghostty.Notification.didChangeKeyTable,
+                object: self)
+            center.addObserver(
+                self,
                 selector: #selector(ghosttyConfigDidChange(_:)),
                 name: .ghosttyConfigDidChange,
                 object: self)
@@ -407,7 +418,7 @@ extension Ghostty {
             // Remove any notifications associated with this surface
             let identifiers = Array(self.notificationIdentifiers)
             UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: identifiers)
-            
+
             // Cancel progress report timer
             progressReportTimer?.invalidate()
         }
@@ -544,16 +555,16 @@ extension Ghostty {
             // Add buttons
             alert.addButton(withTitle: "OK")
             alert.addButton(withTitle: "Cancel")
-            
+
             // Make the text field the first responder so it gets focus
             alert.window.initialFirstResponder = textField
-            
+
             let completionHandler: (NSApplication.ModalResponse) -> Void = { [weak self] response in
                 guard let self else { return }
-                
+
                 // Check if the user clicked "OK"
                 guard response == .alertFirstButtonReturn  else { return }
-                
+
                 // Get the input text
                 let newTitle = textField.stringValue
                 if newTitle.isEmpty {
@@ -674,6 +685,22 @@ extension Ghostty {
         @objc private func ghosttyDidEndKeySequence(notification: SwiftUI.Notification) {
             DispatchQueue.main.async { [weak self] in
                 self?.keySequence = []
+            }
+        }
+
+        @objc private func ghosttyDidChangeKeyTable(notification: SwiftUI.Notification) {
+            guard let action = notification.userInfo?[Ghostty.Notification.KeyTableKey] as? Ghostty.Action.KeyTable else { return }
+
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                switch action {
+                case .activate(let name):
+                    self.keyTables.append(name)
+                case .deactivate:
+                    _ = self.keyTables.popLast()
+                case .deactivateAll:
+                    self.keyTables.removeAll()
+                }
             }
         }
 
@@ -961,7 +988,7 @@ extension Ghostty {
             var x = event.scrollingDeltaX
             var y = event.scrollingDeltaY
             let precision = event.hasPreciseScrollingDeltas
-            
+
             if precision {
                 // We do a 2x speed multiplier. This is subjective, it "feels" better to me.
                 x *= 2;
@@ -1323,7 +1350,7 @@ extension Ghostty {
 
             var key_ev = event.ghosttyKeyEvent(action, translationMods: translationEvent?.modifierFlags)
             key_ev.composing = composing
-            
+
             // For text, we only encode UTF8 if we don't have a single control
             // character. Control characters are encoded by Ghostty itself.
             // Without this, `ctrl+enter` does the wrong thing.
@@ -1482,7 +1509,7 @@ extension Ghostty {
                 AppDelegate.logger.warning("action failed action=\(action)")
             }
         }
-        
+
         @IBAction func find(_ sender: Any?) {
             guard let surface = self.surface else { return }
             let action = "start_search"
@@ -1490,7 +1517,7 @@ extension Ghostty {
                 AppDelegate.logger.warning("action failed action=\(action)")
             }
         }
-        
+
         @IBAction func findNext(_ sender: Any?) {
             guard let surface = self.surface else { return }
             let action = "search:next"
@@ -1506,7 +1533,7 @@ extension Ghostty {
                 AppDelegate.logger.warning("action failed action=\(action)")
             }
         }
-        
+
         @IBAction func findHide(_ sender: Any?) {
             guard let surface = self.surface else { return }
             let action = "end_search"
@@ -1520,6 +1547,14 @@ extension Ghostty {
             let action = "toggle_readonly"
             if (!ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8)))) {
                 AppDelegate.logger.warning("action failed action=\(action)")
+            }
+        }
+
+        /// Triggers a brief highlight animation on this surface.
+        func highlight() {
+            highlighted = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+                self?.highlighted = false
             }
         }
 
@@ -1558,7 +1593,7 @@ extension Ghostty {
                 AppDelegate.logger.warning("action failed action=\(action)")
             }
         }
-        
+
         @IBAction func changeTitle(_ sender: Any) {
             promptTitle()
         }
@@ -1668,7 +1703,7 @@ extension Ghostty {
             let isUserSetTitle = try container.decodeIfPresent(Bool.self, forKey: .isUserSetTitle) ?? false
 
             self.init(app, baseConfig: config, uuid: uuid)
-            
+
             // Restore the saved title after initialization
             if let title = savedTitle {
                 self.title = title
@@ -1885,6 +1920,17 @@ extension Ghostty.SurfaceView: NSTextInputClient {
             return
         }
 
+		guard let surfaceModel else { return }
+        // Process MacOS native scroll events
+        switch selector {
+        case #selector(moveToBeginningOfDocument(_:)):
+            _ = surfaceModel.perform(action: "scroll_to_top")
+        case #selector(moveToEndOfDocument(_:)):
+            _ = surfaceModel.perform(action: "scroll_to_bottom")
+        default:
+            break
+        }
+
         print("SEL: \(selector)")
     }
 
@@ -1925,14 +1971,14 @@ extension Ghostty.SurfaceView: NSServicesMenuRequestor {
         // The "COMBINATION" bit is key: we might get sent a string (we can handle that)
         // but get requested an image (we can't handle that at the time of writing this),
         // so we must bubble up.
-        
+
         // Types we can receive
         let receivable: [NSPasteboard.PasteboardType] = [.string, .init("public.utf8-plain-text")]
-        
+
         // Types that we can send. Currently the same as receivable but I'm separating
         // this out so we can modify this in the future.
         let sendable: [NSPasteboard.PasteboardType] = receivable
-        
+
         // The sendable types that require a selection (currently all)
         let sendableRequiresSelection = sendable
 
@@ -1949,7 +1995,7 @@ extension Ghostty.SurfaceView: NSServicesMenuRequestor {
                     return super.validRequestor(forSendType: sendType, returnType: returnType)
                 }
             }
-            
+
             return self
         }
 
@@ -1995,7 +2041,7 @@ extension Ghostty.SurfaceView: NSMenuItemValidation {
             let pb = NSPasteboard.ghosttySelection
             guard let str = pb.getOpinionatedStringContents() else { return false }
             return !str.isEmpty
-            
+
         case #selector(findHide):
             return searchState != nil
 
@@ -2100,7 +2146,7 @@ extension Ghostty.SurfaceView {
     override func accessibilitySelectedTextRange() -> NSRange {
         return selectedRange()
     }
-    
+
     /// Returns the currently selected text as a string.
     /// This allows assistive technologies to read the selected content.
     override func accessibilitySelectedText() -> String? {
@@ -2114,21 +2160,21 @@ extension Ghostty.SurfaceView {
         let str = String(cString: text.text)
         return str.isEmpty ? nil : str
     }
-    
+
     /// Returns the number of characters in the terminal content.
     /// This helps assistive technologies understand the size of the content.
     override func accessibilityNumberOfCharacters() -> Int {
         let content = cachedScreenContents.get()
         return content.count
     }
-    
+
     /// Returns the visible character range for the terminal.
     /// For terminals, we typically show all content as visible.
     override func accessibilityVisibleCharacterRange() -> NSRange {
         let content = cachedScreenContents.get()
         return NSRange(location: 0, length: content.count)
     }
-    
+
     /// Returns the line number for a given character index.
     /// This helps assistive technologies navigate by line.
     override func accessibilityLine(for index: Int) -> Int {
@@ -2136,7 +2182,7 @@ extension Ghostty.SurfaceView {
         let substring = String(content.prefix(index))
         return substring.components(separatedBy: .newlines).count - 1
     }
-    
+
     /// Returns a substring for the given range.
     /// This allows assistive technologies to read specific portions of the content.
     override func accessibilityString(for range: NSRange) -> String? {
@@ -2144,7 +2190,7 @@ extension Ghostty.SurfaceView {
         guard let swiftRange = Range(range, in: content) else { return nil }
         return String(content[swiftRange])
     }
-    
+
     /// Returns an attributed string for the given range.
     ///
     /// Note: right now this only applies font information. One day it'd be nice to extend
@@ -2155,9 +2201,9 @@ extension Ghostty.SurfaceView {
     override func accessibilityAttributedString(for range: NSRange) -> NSAttributedString? {
         guard let surface = self.surface else { return nil }
         guard let plainString = accessibilityString(for: range) else { return nil }
-        
+
         var attributes: [NSAttributedString.Key: Any] = [:]
-        
+
         // Try to get the font from the surface
         if let fontRaw = ghostty_surface_quicklook_font(surface) {
             let font = Unmanaged<CTFont>.fromOpaque(fontRaw)

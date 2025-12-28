@@ -49,6 +49,10 @@ const Renderer = rendererpkg.Renderer;
 const min_window_width_cells: u32 = 10;
 const min_window_height_cells: u32 = 4;
 
+/// The maximum number of key tables that can be active at any
+/// given time. `activate_key_table` calls after this are ignored.
+const max_active_key_tables = 8;
+
 /// Allocator
 alloc: Allocator,
 
@@ -253,18 +257,9 @@ const Mouse = struct {
 
 /// Keyboard state for the surface.
 pub const Keyboard = struct {
-    /// The currently active keybindings for the surface. This is used to
-    /// implement sequences: as leader keys are pressed, the active bindings
-    /// set is updated to reflect the current leader key sequence. If this is
-    /// null then the root bindings are used.
-    bindings: ?*const input.Binding.Set = null,
-
-    /// The last handled binding. This is used to prevent encoding release
-    /// events for handled bindings. We only need to keep track of one because
-    /// at least at the time of writing this, its impossible for two keys of
-    /// a combination to be handled by different bindings before the release
-    /// of the prior (namely since you can't bind modifier-only).
-    last_trigger: ?u64 = null,
+    /// The currently active key sequence for the surface. If this is null
+    /// then we're not currently in a key sequence.
+    sequence_set: ?*const input.Binding.Set = null,
 
     /// The queued keys when we're in the middle of a sequenced binding.
     /// These are flushed when the sequence is completed and unconsumed or
@@ -272,7 +267,23 @@ pub const Keyboard = struct {
     ///
     /// This is naturally bounded due to the configuration maximum
     /// length of a sequence.
-    queued: std.ArrayListUnmanaged(termio.Message.WriteReq) = .{},
+    sequence_queued: std.ArrayListUnmanaged(termio.Message.WriteReq) = .empty,
+
+    /// The stack of tables that is currently active. The first value
+    /// in this is the first activated table (NOT the default keybinding set).
+    ///
+    /// This is bounded by `max_active_key_tables`.
+    table_stack: std.ArrayListUnmanaged(struct {
+        set: *const input.Binding.Set,
+        once: bool,
+    }) = .empty,
+
+    /// The last handled binding. This is used to prevent encoding release
+    /// events for handled bindings. We only need to keep track of one because
+    /// at least at the time of writing this, its impossible for two keys of
+    /// a combination to be handled by different bindings before the release
+    /// of the prior (namely since you can't bind modifier-only).
+    last_trigger: ?u64 = null,
 };
 
 /// The configuration that a surface has, this is copied from the main
@@ -793,8 +804,9 @@ pub fn deinit(self: *Surface) void {
     }
 
     // Clean up our keyboard state
-    for (self.keyboard.queued.items) |req| req.deinit();
-    self.keyboard.queued.deinit(self.alloc);
+    for (self.keyboard.sequence_queued.items) |req| req.deinit();
+    self.keyboard.sequence_queued.deinit(self.alloc);
+    self.keyboard.table_stack.deinit(self.alloc);
 
     // Clean up our font grid
     self.app.font_grid_set.deref(self.font_grid_key);
@@ -1210,7 +1222,7 @@ fn childExited(self: *Surface, info: apprt.surface.Message.ChildExited) void {
             break :gui false;
         }) return;
 
-        // If a native GUI notification was not showm. update our terminal to
+        // If a native GUI notification was not shown, update our terminal to
         // note the abnormal exit.
         self.childExitedAbnormally(info) catch |err| {
             log.err("error handling abnormal child exit err={}", .{err});
@@ -1220,7 +1232,7 @@ fn childExited(self: *Surface, info: apprt.surface.Message.ChildExited) void {
         return;
     }
 
-    // We output a message so that the user knows whats going on and
+    // We output a message so that the user knows what's going on and
     // doesn't think their terminal just froze. We show this unconditionally
     // on close even if `wait_after_command` is false and the surface closes
     // immediately because if a user does an `undo` to restore a closed
@@ -1730,6 +1742,14 @@ pub fn updateConfig(
 
     // If we are in the middle of a key sequence, clear it.
     self.endKeySequence(.drop, .free);
+
+    // Deactivate all key tables since they may have changed. Importantly,
+    // we store pointers into the config as part of our table stack so
+    // we can't keep them active across config changes. But this behavior
+    // also matches key sequences.
+    _ = self.deactivateAllKeyTables() catch |err| {
+        log.warn("failed to deactivate key tables err={}", .{err});
+    };
 
     // Before sending any other config changes, we give the renderer a new font
     // grid. We could check to see if there was an actual change to the font,
@@ -2563,14 +2583,22 @@ pub fn keyEventIsBinding(
         .press, .repeat => {},
     }
 
-    // Our keybinding set is either our current nested set (for
-    // sequences) or the root set.
-    const set = self.keyboard.bindings orelse &self.config.keybind.set;
+    // If we're in a sequence, check the sequence set
+    if (self.keyboard.sequence_set) |set| {
+        return set.getEvent(event) != null;
+    }
 
-    // log.warn("text keyEventIsBinding event={} match={}", .{ event, set.getEvent(event) != null });
+    // Check active key tables (inner-most to outer-most)
+    const table_items = self.keyboard.table_stack.items;
+    for (0..table_items.len) |i| {
+        const rev_i: usize = table_items.len - 1 - i;
+        if (table_items[rev_i].set.getEvent(event) != null) {
+            return true;
+        }
+    }
 
-    // If we have a keybinding for this event then we return true.
-    return set.getEvent(event) != null;
+    // Check the root set
+    return self.config.keybind.set.getEvent(event) != null;
 }
 
 /// Called for any key events. This handles keybindings, encoding and
@@ -2791,38 +2819,70 @@ fn maybeHandleBinding(
 
     // Find an entry in the keybind set that matches our event.
     const entry: input.Binding.Set.Entry = entry: {
-        const set = self.keyboard.bindings orelse &self.config.keybind.set;
+        // Handle key sequences first.
+        if (self.keyboard.sequence_set) |set| {
+            // Get our entry from the set for the given event.
+            if (set.getEvent(event)) |v| break :entry v;
 
-        // Get our entry from the set for the given event.
-        if (set.getEvent(event)) |v| break :entry v;
+            // No entry found. We need to encode everything up to this
+            // point and send to the pty since we're in a sequence.
 
-        // No entry found. If we're not looking at the root set of the
-        // bindings we need to encode everything up to this point and
-        // send to the pty.
-        //
-        // We also ignore modifiers so that nested sequences such as
-        // ctrl+a>ctrl+b>c work.
-        if (self.keyboard.bindings != null and
-            !event.key.modifier())
-        {
+            // We ignore modifiers so that nested sequences such as
+            // ctrl+a>ctrl+b>c work.
+            if (event.key.modifier()) return null;
+
+            // If we have a catch-all of ignore, then we special case our
+            // invalid sequence handling to ignore it.
+            if (self.catchAllIsIgnore()) {
+                self.endKeySequence(.drop, .retain);
+                return .ignored;
+            }
+
             // Encode everything up to this point
             self.endKeySequence(.flush, .retain);
+
+            return null;
         }
 
-        return null;
+        // No currently active sequence, move on to tables. For tables,
+        // we search inner-most table to outer-most. The table stack does
+        // NOT include the root set.
+        const table_items = self.keyboard.table_stack.items;
+        if (table_items.len > 0) {
+            for (0..table_items.len) |i| {
+                const rev_i: usize = table_items.len - 1 - i;
+                const table = table_items[rev_i];
+                if (table.set.getEvent(event)) |v| {
+                    // If this is a one-shot activation AND its the currently
+                    // active table, then we deactivate it after this.
+                    // Note: we may want to change the semantics here to
+                    // remove this table no matter where it is in the stack,
+                    // maybe.
+                    if (table.once and i == 0) _ = try self.performBindingAction(
+                        .deactivate_key_table,
+                    );
+
+                    break :entry v;
+                }
+            }
+        }
+
+        // No table, use our default set
+        break :entry self.config.keybind.set.getEvent(event) orelse
+            return null;
     };
 
     // Determine if this entry has an action or if its a leader key.
-    const leaf: input.Binding.Set.Leaf = switch (entry.value_ptr.*) {
+    const leaf: input.Binding.Set.GenericLeaf = switch (entry.value_ptr.*) {
         .leader => |set| {
             // Setup the next set we'll look at.
-            self.keyboard.bindings = set;
+            self.keyboard.sequence_set = set;
 
             // Store this event so that we can drain and encode on invalid.
             // We don't need to cap this because it is naturally capped by
             // the config validation.
             if (try self.encodeKey(event, insp_ev)) |req| {
-                try self.keyboard.queued.append(self.alloc, req);
+                try self.keyboard.sequence_queued.append(self.alloc, req);
             }
 
             // Start or continue our key sequence
@@ -2840,9 +2900,8 @@ fn maybeHandleBinding(
             return .consumed;
         },
 
-        .leaf => |leaf| leaf,
+        inline .leaf, .leaf_chained => |leaf| leaf.generic(),
     };
-    const action = leaf.action;
 
     // consumed determines if the input is consumed or if we continue
     // encoding the key (if we have a key to encode).
@@ -2861,39 +2920,61 @@ fn maybeHandleBinding(
     // perform an action (below)
     self.keyboard.last_trigger = null;
 
-    // An action also always resets the binding set.
-    self.keyboard.bindings = null;
+    // An action also always resets the sequence set.
+    self.keyboard.sequence_set = null;
+
+    // Setup our actions
+    const actions = leaf.actionsSlice();
 
     // Attempt to perform the action
-    log.debug("key event binding flags={} action={f}", .{
+    log.debug("key event binding flags={} action={any}", .{
         leaf.flags,
-        action,
+        actions,
     });
     const performed = performed: {
         // If this is a global or all action, then we perform it on
         // the app and it applies to every surface.
         if (leaf.flags.global or leaf.flags.all) {
-            try self.app.performAllAction(self.rt_app, action);
+            self.app.performAllChainedAction(
+                self.rt_app,
+                actions,
+            );
 
             // "All" actions are always performed since they are global.
             break :performed true;
         }
 
-        break :performed try self.performBindingAction(action);
+        // Perform each action. We are performed if ANY of the chained
+        // actions perform.
+        var performed: bool = false;
+        for (actions) |action| {
+            if (self.performBindingAction(action)) |v| {
+                performed = performed or v;
+            } else |err| {
+                log.info(
+                    "key binding action failed action={t} err={}",
+                    .{ action, err },
+                );
+            }
+        }
+
+        break :performed performed;
     };
 
     if (performed) {
         // If we performed an action and it was a closing action,
         // our "self" pointer is not safe to use anymore so we need to
         // just exit immediately.
-        if (closingAction(action)) {
+        for (actions) |action| if (closingAction(action)) {
             log.debug("key binding is a closing binding, halting key event processing", .{});
             return .closed;
-        }
+        };
 
         // If our action was "ignore" then we return the special input
         // effect of "ignored".
-        if (action == .ignore) return .ignored;
+        for (actions) |action| if (action == .ignore) {
+            return .ignored;
+        };
     }
 
     // If we have the performable flag and the action was not performed,
@@ -2917,7 +2998,18 @@ fn maybeHandleBinding(
         // Store our last trigger so we don't encode the release event
         self.keyboard.last_trigger = event.bindingHash();
 
-        if (insp_ev) |ev| ev.binding = action;
+        if (insp_ev) |ev| {
+            ev.binding = self.alloc.dupe(
+                input.Binding.Action,
+                actions,
+            ) catch |err| binding: {
+                log.warn(
+                    "error allocating binding action for inspector err={}",
+                    .{err},
+                );
+                break :binding &.{};
+            };
+        }
         return .consumed;
     }
 
@@ -2926,6 +3018,58 @@ fn maybeHandleBinding(
     self.endKeySequence(.flush, .retain);
 
     return null;
+}
+
+fn deactivateAllKeyTables(self: *Surface) !bool {
+    switch (self.keyboard.table_stack.items.len) {
+        // No key table active. This does nothing.
+        0 => return false,
+
+        // Clear the entire table stack.
+        else => self.keyboard.table_stack.clearAndFree(self.alloc),
+    }
+
+    // Notify the UI.
+    _ = self.rt_app.performAction(
+        .{ .surface = self },
+        .key_table,
+        .deactivate_all,
+    ) catch |err| {
+        log.warn(
+            "failed to notify app of key table err={}",
+            .{err},
+        );
+    };
+
+    return true;
+}
+
+/// This checks if the current keybinding sets have a catch_all binding
+/// with `ignore`. This is used to determine some special input cases.
+fn catchAllIsIgnore(self: *Surface) bool {
+    // Get our catch all
+    const entry: input.Binding.Set.Entry = entry: {
+        const trigger: input.Binding.Trigger = .{ .key = .catch_all };
+
+        const table_items = self.keyboard.table_stack.items;
+        for (0..table_items.len) |i| {
+            const rev_i: usize = table_items.len - 1 - i;
+            const entry = table_items[rev_i].set.get(trigger) orelse continue;
+            break :entry entry;
+        }
+
+        break :entry self.config.keybind.set.get(trigger) orelse
+            return false;
+    };
+
+    // We have a catch-all entry, see if its an ignore
+    return switch (entry.value_ptr.*) {
+        .leader => false,
+        .leaf => |leaf| leaf.action == .ignore,
+        .leaf_chained => |leaf| chained: for (leaf.actions.items) |action| {
+            if (action == .ignore) break :chained true;
+        } else false,
+    };
 }
 
 const KeySequenceQueued = enum { flush, drop };
@@ -2952,27 +3096,30 @@ fn endKeySequence(
         );
     };
 
-    // No matter what we clear our current binding set. This restores
+    // No matter what we clear our current sequence set. This restores
     // the set we look at to the root set.
-    self.keyboard.bindings = null;
+    self.keyboard.sequence_set = null;
 
-    if (self.keyboard.queued.items.len > 0) {
-        switch (action) {
-            .flush => for (self.keyboard.queued.items) |write_req| {
-                self.queueIo(switch (write_req) {
-                    .small => |v| .{ .write_small = v },
-                    .stable => |v| .{ .write_stable = v },
-                    .alloc => |v| .{ .write_alloc = v },
-                }, .unlocked);
-            },
+    // If we have no queued data, there is nothing else to do.
+    if (self.keyboard.sequence_queued.items.len == 0) return;
 
-            .drop => for (self.keyboard.queued.items) |req| req.deinit(),
-        }
+    // Run the proper action first
+    switch (action) {
+        .flush => for (self.keyboard.sequence_queued.items) |write_req| {
+            self.queueIo(switch (write_req) {
+                .small => |v| .{ .write_small = v },
+                .stable => |v| .{ .write_stable = v },
+                .alloc => |v| .{ .write_alloc = v },
+            }, .unlocked);
+        },
 
-        switch (mem) {
-            .free => self.keyboard.queued.clearAndFree(self.alloc),
-            .retain => self.keyboard.queued.clearRetainingCapacity(),
-        }
+        .drop => for (self.keyboard.sequence_queued.items) |req| req.deinit(),
+    }
+
+    // Memory handling of the sequence after the action
+    switch (mem) {
+        .free => self.keyboard.sequence_queued.clearAndFree(self.alloc),
+        .retain => self.keyboard.sequence_queued.clearRetainingCapacity(),
     }
 }
 
@@ -5565,6 +5712,87 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             .close_window,
             {},
         ),
+
+        inline .activate_key_table,
+        .activate_key_table_once,
+        => |name, tag| {
+            // Look up the table in our config
+            const set = self.config.keybind.tables.getPtr(name) orelse {
+                log.debug("key table not found: {s}", .{name});
+                return false;
+            };
+
+            // If this is the same table as is currently active, then
+            // do nothing.
+            if (self.keyboard.table_stack.items.len > 0) {
+                const items = self.keyboard.table_stack.items;
+                const active = items[items.len - 1].set;
+                if (active == set) {
+                    log.debug("ignoring duplicate activate table: {s}", .{name});
+                    return false;
+                }
+            }
+
+            // If we're already at the max, ignore it.
+            if (self.keyboard.table_stack.items.len >= max_active_key_tables) {
+                log.info(
+                    "ignoring activate table, max depth reached: {s}",
+                    .{name},
+                );
+                return false;
+            }
+
+            // Add the table to the stack.
+            try self.keyboard.table_stack.append(self.alloc, .{
+                .set = set,
+                .once = tag == .activate_key_table_once,
+            });
+
+            // Notify the UI.
+            _ = self.rt_app.performAction(
+                .{ .surface = self },
+                .key_table,
+                .{ .activate = name },
+            ) catch |err| {
+                log.warn(
+                    "failed to notify app of key table err={}",
+                    .{err},
+                );
+            };
+
+            log.debug("key table activated: {s}", .{name});
+        },
+
+        .deactivate_key_table => {
+            switch (self.keyboard.table_stack.items.len) {
+                // No key table active. This does nothing.
+                0 => return false,
+
+                // Final key table active, clear our state.
+                1 => self.keyboard.table_stack.clearAndFree(self.alloc),
+
+                // Restore the prior key table. We don't free any memory in
+                // this case because we assume it will be freed later when
+                // we finish our key table.
+                else => _ = self.keyboard.table_stack.pop(),
+            }
+
+            // Notify the UI.
+            _ = self.rt_app.performAction(
+                .{ .surface = self },
+                .key_table,
+                .deactivate,
+            ) catch |err| {
+                log.warn(
+                    "failed to notify app of key table err={}",
+                    .{err},
+                );
+            };
+        },
+
+        .deactivate_all_key_tables => {
+            return try self.deactivateAllKeyTables();
+        },
 
         .crash => |location| switch (location) {
             .main => @panic("crash binding action, crashing intentionally"),

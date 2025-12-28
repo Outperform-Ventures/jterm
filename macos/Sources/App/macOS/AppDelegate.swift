@@ -685,6 +685,18 @@ class AppDelegate: NSObject,
     }
 
     private func localEventKeyDown(_ event: NSEvent) -> NSEvent? {
+        // If the tab overview is visible and escape is pressed, close it.
+        // This can't POSSIBLY be right and is probably a FirstResponder problem
+        // that we should handle elsewhere in our program. But this works and it
+        // is guarded by the tab overview currently showing.
+        if event.keyCode == 0x35, // Escape key
+           let window = NSApp.keyWindow,
+           let tabGroup = window.tabGroup,
+           tabGroup.isOverviewVisible {
+            window.toggleTabOverview(nil)
+            return nil
+        }
+
         // If we have a main window then we don't process any of the keys
         // because we let it capture and propagate.
         guard NSApp.mainWindow == nil else { return event }
@@ -982,9 +994,15 @@ class AppDelegate: NSObject,
             appIconName = (colorStrings + [config.macosIconFrame.rawValue])
                 .joined(separator: "_")
         }
-        // Only change the icon if it has actually changed
-        // from the current one
-        guard UserDefaults.standard.string(forKey: "CustomGhosttyIcon") != appIconName else {
+
+        // Only change the icon if it has actually changed from the current one,
+        // or if the app build has changed (e.g. after an update that reset the icon)
+        let cachedIconName = UserDefaults.standard.string(forKey: "CustomGhosttyIcon")
+        let cachedIconBuild = UserDefaults.standard.string(forKey: "CustomGhosttyIconBuild")
+        let currentBuild = Bundle.main.infoDictionary?["CFBundleVersion"] as? String
+        let buildChanged = cachedIconBuild != currentBuild
+
+        guard cachedIconName != appIconName || buildChanged else {
 #if DEBUG
             if appIcon == nil {
                 await MainActor.run {
@@ -1001,14 +1019,16 @@ class AppDelegate: NSObject,
         let newIcon = appIcon
 
         let appPath = Bundle.main.bundlePath
-        NSWorkspace.shared.setIcon(newIcon, forFile: appPath, options: [])
+        guard NSWorkspace.shared.setIcon(newIcon, forFile: appPath, options: []) else { return }
         NSWorkspace.shared.noteFileSystemChanged(appPath)
 
         await MainActor.run {
             self.appIcon = newIcon
             NSApplication.shared.applicationIconImage = newIcon
         }
+
         UserDefaults.standard.set(appIconName, forKey: "CustomGhosttyIcon")
+        UserDefaults.standard.set(currentBuild, forKey: "CustomGhosttyIconBuild")
     }
 
     //MARK: - Restorable State

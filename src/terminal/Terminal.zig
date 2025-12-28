@@ -675,7 +675,7 @@ fn printCell(
 
             // TODO: this case was not handled in the old terminal implementation
             // but it feels like we should do something. investigate other
-            // terminals (xterm mainly) and see whats up.
+            // terminals (xterm mainly) and see what's up.
             .spacer_head => {},
         }
     }
@@ -9058,7 +9058,7 @@ test "Terminal: insertBlanks shift graphemes" {
     var t = try init(alloc, .{ .rows = 5, .cols = 5 });
     defer t.deinit(alloc);
 
-    // Disable grapheme clustering
+    // Enable grapheme clustering
     t.modes.set(.grapheme_cluster, true);
 
     try t.printString("A");
