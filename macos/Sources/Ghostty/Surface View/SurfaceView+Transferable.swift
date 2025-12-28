@@ -49,3 +49,8 @@ extension UTType {
     /// a way to look up a surface by ID.
     static let ghosttySurfaceId = UTType(exportedAs: "com.mitchellh.ghosttySurfaceId")
 }
+
+extension NSPasteboard.PasteboardType {
+    /// Pasteboard type for dragging surface IDs.
+    static let ghosttySurfaceId = NSPasteboard.PasteboardType(UTType.ghosttySurfaceId.identifier)
+}

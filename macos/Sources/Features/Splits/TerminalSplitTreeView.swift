@@ -112,7 +112,6 @@ fileprivate struct TerminalSplitLeaf: View {
                 }
             }
             .onPreferenceChange(Ghostty.DraggingSurfaceKey.self) { value in
-                Ghostty.logger.warning("BABY WE DRAGGING \(String(describing: value))")
                 isSelfDragging = value == surfaceView.id
             }
             .accessibilityElement(children: .contain)
