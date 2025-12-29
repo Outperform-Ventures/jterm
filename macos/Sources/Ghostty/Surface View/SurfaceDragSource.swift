@@ -149,8 +149,17 @@ extension Ghostty {
                 )
                 scaledImage.unlockFocus()
                 
+                // Position the drag image so the mouse is at the center of the image.
+                // I personally like the top middle or top left corner best but
+                // this matches macOS native tab dragging behavior (at least, as of
+                // macOS 26.2 on Dec 29, 2025).
+                let mouseLocation = convert(event.locationInWindow, from: nil)
+                let origin = NSPoint(
+                    x: mouseLocation.x - imageSize.width / 2,
+                    y: mouseLocation.y - imageSize.height / 2
+                )
                 item.setDraggingFrame(
-                    NSRect(origin: .zero, size: imageSize),
+                    NSRect(origin: origin, size: imageSize),
                     contents: scaledImage
                 )
             }
