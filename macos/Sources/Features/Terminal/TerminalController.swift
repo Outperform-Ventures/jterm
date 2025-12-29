@@ -671,7 +671,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
     /// Closes the current window (including any other tabs) immediately and without
     /// confirmation. This will setup proper undo state so the action can be undone.
-    private func closeWindowImmediately() {
+    func closeWindowImmediately() {
         guard let window = window else { return }
 
         registerUndoForCloseWindow()

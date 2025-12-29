@@ -2216,6 +2216,7 @@ extension Ghostty.SurfaceView {
 
         return NSAttributedString(string: plainString, attributes: attributes)
     }
+    
 }
 
 /// Caches a value for some period of time, evicting it automatically when that time expires.
