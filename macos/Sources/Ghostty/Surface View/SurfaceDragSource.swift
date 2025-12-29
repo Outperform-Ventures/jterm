@@ -177,7 +177,11 @@ extension Ghostty {
             }
             
             onDragStateChanged?(true)
-            beginDraggingSession(with: [item], event: event, source: self)
+            let session = beginDraggingSession(with: [item], event: event, source: self)
+            
+            // We need to disable this so that endedAt happens immediately for our
+            // drags outside of any targets.
+            session.animatesToStartingPositionsOnCancelOrFail = false
         }
         
         // MARK: NSDraggingSource
@@ -229,7 +233,8 @@ extension Ghostty {
                 if !endsInWindow {
                     NotificationCenter.default.post(
                         name: .ghosttySurfaceDragEndedNoTarget,
-                        object: surfaceView
+                        object: surfaceView,
+                        userInfo: [Foundation.Notification.Name.ghosttySurfaceDragEndedNoTargetPointKey: screenPoint]
                     )
                 }
             }
@@ -245,4 +250,7 @@ extension Notification.Name {
     /// released outside a valid drop target) and was not cancelled by the user
     /// pressing escape. The notification's object is the SurfaceView that was dragged.
     static let ghosttySurfaceDragEndedNoTarget = Notification.Name("ghosttySurfaceDragEndedNoTarget")
+    
+    /// Key for the screen point where the drag ended in the userInfo dictionary.
+    static let ghosttySurfaceDragEndedNoTargetPointKey = "endedAtPoint"
 }

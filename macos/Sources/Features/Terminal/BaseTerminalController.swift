@@ -734,6 +734,9 @@ class BaseTerminalController: NSWindowController,
         // it is already a single split.
         guard surfaceTree.isSplit else { return }
 
+        // Extract the drop position from the notification
+        let dropPoint = notification.userInfo?[Notification.Name.ghosttySurfaceDragEndedNoTargetPointKey] as? NSPoint
+
         // Remove the surface from our tree
         let removedTree = surfaceTree.remove(targetNode)
 
@@ -748,7 +751,7 @@ class BaseTerminalController: NSWindowController,
         }
         
         replaceSurfaceTree(removedTree, moveFocusFrom: focusedSurface)
-        _ = TerminalController.newWindow(ghostty, tree: newTree)
+        _ = TerminalController.newWindow(ghostty, tree: newTree, position: dropPoint)
     }
 
     // MARK: Local Events
