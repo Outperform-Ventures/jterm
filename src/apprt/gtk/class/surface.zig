@@ -1666,8 +1666,8 @@ pub const Surface = extern struct {
         self: *Self,
         clipboard_type: apprt.Clipboard,
         state: apprt.ClipboardRequest,
-    ) !void {
-        try Clipboard.request(
+    ) !bool {
+        return try Clipboard.request(
             self,
             clipboard_type,
             state,
@@ -3623,16 +3623,30 @@ const Clipboard = struct {
     /// Request data from the clipboard (read the clipboard). This
     /// completes asynchronously and will call the `completeClipboardRequest`
     /// core surface API when done.
+    ///
+    /// Returns true if the request was started, false if the clipboard
+    /// doesn't contain text (allowing performable keybinds to pass through).
     pub fn request(
         self: *Surface,
         clipboard_type: apprt.Clipboard,
         state: apprt.ClipboardRequest,
-    ) Allocator.Error!void {
+    ) Allocator.Error!bool {
         // Get our requested clipboard
         const clipboard = get(
             self.private().gl_area.as(gtk.Widget),
             clipboard_type,
-        ) orelse return;
+        ) orelse return false;
+
+        // For paste requests, check if clipboard has text format available.
+        // This is a synchronous check that allows performable keybinds to
+        // pass through when the clipboard contains non-text content (e.g., images).
+        if (state == .paste) {
+            const formats = clipboard.getFormats();
+            if (formats.containGtype(gobject.ext.types.string) == 0) {
+                log.debug("clipboard has no text format, not starting paste request", .{});
+                return false;
+            }
+        }
 
         // Allocate our userdata
         const alloc = Application.default().allocator();
@@ -3652,6 +3666,8 @@ const Clipboard = struct {
             clipboardReadText,
             ud,
         );
+
+        return true;
     }
 
     /// Paste explicit text directly into the surface, regardless of the
