@@ -99,12 +99,20 @@ fileprivate struct TerminalSplitLeaf: View {
             Ghostty.InspectableSurface(
                 surfaceView: surfaceView,
                 isSplit: isSplit)
-            .onDrop(of: [.ghosttySurfaceId], delegate: SplitDropDelegate(
-                dropState: $dropState,
-                viewSize: geometry.size,
-                destinationSurface: surfaceView,
-                action: action
-            ))
+            .background {
+                // If we're dragging ourself, we hide the entire drop zone. This makes
+                // it so that a released drop animates back to its source properly
+                // so it is a proper invalid drop zone.
+                if !isSelfDragging {
+                    Color.clear
+                        .onDrop(of: [.ghosttySurfaceId], delegate: SplitDropDelegate(
+                            dropState: $dropState,
+                            viewSize: geometry.size,
+                            destinationSurface: surfaceView,
+                            action: action
+                        ))
+                }
+            }
             .overlay {
                 if !isSelfDragging, case .dropping(let zone) = dropState {
                     zone.overlay(in: geometry)
@@ -113,6 +121,9 @@ fileprivate struct TerminalSplitLeaf: View {
             }
             .onPreferenceChange(Ghostty.DraggingSurfaceKey.self) { value in
                 isSelfDragging = value == surfaceView.id
+                if isSelfDragging {
+                    dropState = .idle
+                }
             }
             .accessibilityElement(children: .contain)
             .accessibilityLabel("Terminal pane")
