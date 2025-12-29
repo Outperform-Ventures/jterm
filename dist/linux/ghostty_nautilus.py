@@ -21,13 +21,10 @@ from gi.repository import Nautilus, GObject, Gio
 
 
 class OpenInGhosttyAction(GObject.GObject, Nautilus.MenuProvider):
-    def _open_terminal(self, path):
-        cmd = ['ghostty', f'--working-directory={path}', '--gtk-single-instance=false']
-        Gio.Subprocess.new(cmd, Gio.SubprocessFlags.NONE)
-
     def _menu_item_activated(self, _menu, paths):
         for path in paths:
-            self._open_terminal(path)
+            cmd = ['ghostty', f'--working-directory={path}', '--gtk-single-instance=false']
+            Gio.Subprocess.new(cmd, Gio.SubprocessFlags.NONE)
 
     def _make_item(self, name, paths):
         item = Nautilus.MenuItem(name=name, label='Open in Ghostty',
