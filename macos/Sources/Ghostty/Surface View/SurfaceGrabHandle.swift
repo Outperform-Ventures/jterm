@@ -19,9 +19,9 @@ extension Ghostty {
                     .frame(height: handleHeight)
                     .overlay(alignment: .center) {
                         if isHovering || isDragging {
-                            Capsule()
-                                .fill(Color.white.opacity(0.4))
-                                .frame(width: 40, height: 4)
+                            Image(systemName: "ellipsis")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundColor(.white.opacity(0.5))
                         }
                     }
                     .contentShape(Rectangle())
