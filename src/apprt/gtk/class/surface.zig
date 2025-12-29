@@ -3642,9 +3642,7 @@ const Clipboard = struct {
         // pass through when the clipboard contains non-text content (e.g., images).
         if (state == .paste) {
             const formats = clipboard.getFormats();
-            // G_TYPE_STRING = G_TYPE_MAKE_FUNDAMENTAL(16) = (16 << 2) = 64
-            const G_TYPE_STRING: usize = 64;
-            if (formats.containGtype(G_TYPE_STRING) == 0) {
+            if (formats.containGtype(gobject.ext.types.string) == 0) {
                 log.debug("clipboard has no text format, not starting paste request", .{});
                 return false;
             }
