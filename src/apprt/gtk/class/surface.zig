@@ -3814,21 +3814,34 @@ const Clipboard = struct {
         const self = req.self;
         defer self.unref();
 
+        const surface = self.private().core_surface orelse return;
+
         var gerr: ?*glib.Error = null;
         const cstr_ = clipboard.readTextFinish(res, &gerr);
+
+        // If clipboard has no text (error, null, or empty), pass through the
+        // original keypress so applications can handle their own clipboard
+        // (e.g., reading images via wl-paste). We send raw Ctrl+V (0x16)
+        // directly using the text action to bypass bracketed paste encoding.
         if (gerr) |err| {
             defer err.free();
-            log.warn(
-                "failed to read clipboard err={s}",
-                .{err.f_message orelse "(no message)"},
-            );
+            log.debug("clipboard has no text format: {s}", .{err.f_message orelse "(no message)"});
+            passthroughKeypress(surface);
             return;
         }
-        const cstr = cstr_ orelse return;
+
+        const cstr = cstr_ orelse {
+            passthroughKeypress(surface);
+            return;
+        };
         defer glib.free(cstr);
         const str = std.mem.sliceTo(cstr, 0);
 
-        const surface = self.private().core_surface orelse return;
+        if (str.len == 0) {
+            passthroughKeypress(surface);
+            return;
+        }
+
         surface.completeClipboardRequest(
             req.state,
             str,
@@ -3860,6 +3873,15 @@ const Clipboard = struct {
             .{},
             null,
         );
+    }
+
+    /// Send raw Ctrl+V (ASCII 22) to the terminal, bypassing paste encoding.
+    /// This allows applications to handle their own clipboard reading
+    /// (e.g., for image paste via wl-paste on Wayland).
+    fn passthroughKeypress(surface: *CoreSurface) void {
+        _ = surface.performBindingAction(.{ .text = "\\x16" }) catch |err| {
+            log.warn("error sending passthrough keypress: {}", .{err});
+        };
     }
 
     /// The request we send as userdata to the clipboard read.
