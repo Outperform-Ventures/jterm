@@ -200,6 +200,11 @@ class BaseTerminalController: NSWindowController,
             selector: #selector(ghosttyDidPresentTerminal(_:)),
             name: Ghostty.Notification.ghosttyPresentTerminal,
             object: nil)
+        center.addObserver(
+            self,
+            selector: #selector(ghosttySurfaceDragEndedNoTarget(_:)),
+            name: .ghosttySurfaceDragEndedNoTarget,
+            object: nil)
 
         // Listen for local events that we need to know of outside of
         // single surface handlers.
@@ -719,6 +724,31 @@ class BaseTerminalController: NSWindowController,
 
         // Show a brief highlight to help the user locate the presented terminal.
         target.highlight()
+    }
+
+    @objc private func ghosttySurfaceDragEndedNoTarget(_ notification: Notification) {
+        guard let target = notification.object as? Ghostty.SurfaceView else { return }
+        guard let targetNode = surfaceTree.root?.node(view: target) else { return }
+        
+        // If our tree isn't split, then we never create a new window, because
+        // it is already a single split.
+        guard surfaceTree.isSplit else { return }
+
+        // Remove the surface from our tree
+        let removedTree = surfaceTree.remove(targetNode)
+
+        // Create a new tree with the dragged surface and open a new window
+        let newTree = SplitTree<Ghostty.SurfaceView>(view: target)
+        
+        // Treat our undo below as a full group.
+        undoManager?.beginUndoGrouping()
+        undoManager?.setActionName("Move Split")
+        defer {
+            undoManager?.endUndoGrouping()
+        }
+        
+        replaceSurfaceTree(removedTree, moveFocusFrom: focusedSurface)
+        _ = TerminalController.newWindow(ghostty, tree: newTree)
     }
 
     // MARK: Local Events
