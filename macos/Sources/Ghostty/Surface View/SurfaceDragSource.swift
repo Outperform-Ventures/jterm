@@ -99,6 +99,18 @@ extension Ghostty {
         /// and either mouseUp or drag initiation). Used to determine cursor state.
         private var isTracking: Bool = false
         
+        /// Local event monitor to detect escape key presses during drag.
+        private var escapeMonitor: Any?
+        
+        /// Whether the current drag was cancelled by pressing escape.
+        private var dragCancelledByEscape: Bool = false
+        
+        deinit {
+            if let escapeMonitor {
+                NSEvent.removeMonitor(escapeMonitor)
+            }
+        }
+        
         override func updateTrackingAreas() {
             super.updateTrackingAreas()
             
@@ -182,6 +194,15 @@ extension Ghostty {
             willBeginAt screenPoint: NSPoint
         ) {
             isTracking = true
+            
+            // Reset our escape tracking
+            dragCancelledByEscape = false
+            escapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                if event.keyCode == 53 { // Escape key
+                    self?.dragCancelledByEscape = true
+                }
+                return event
+            }
         }
         
         func draggingSession(
@@ -196,8 +217,32 @@ extension Ghostty {
             endedAt screenPoint: NSPoint,
             operation: NSDragOperation
         ) {
+            if let escapeMonitor {
+                NSEvent.removeMonitor(escapeMonitor)
+                self.escapeMonitor = nil
+            }
+            
+            if operation == [] && !dragCancelledByEscape {
+                let endsInWindow = NSApplication.shared.windows.contains { window in
+                    window.isVisible && window.frame.contains(screenPoint)
+                }
+                if !endsInWindow {
+                    NotificationCenter.default.post(
+                        name: .ghosttySurfaceDragEndedNoTarget,
+                        object: surfaceView
+                    )
+                }
+            }
+            
             isTracking = false
             onDragStateChanged?(false)
         }
     }
+}
+
+extension Notification.Name {
+    /// Posted when a surface drag session ends with no operation (the drag was
+    /// released outside a valid drop target) and was not cancelled by the user
+    /// pressing escape. The notification's object is the SurfaceView that was dragged.
+    static let ghosttySurfaceDragEndedNoTarget = Notification.Name("ghosttySurfaceDragEndedNoTarget")
 }
