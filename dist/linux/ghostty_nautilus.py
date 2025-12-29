@@ -53,7 +53,7 @@ def get_items_for_files(name, files):
         return []
 
 
-class OpenInGhosttyAction(GObject.GObject, Nautilus.MenuProvider):
+class GhosttyMenuProvider(GObject.GObject, Nautilus.MenuProvider):
     def get_file_items(self, *args):
         # Nautilus 3.0 API passes args (window, files), 4.0 API just passes files
         files = args[0] if len(args) == 1 else args[1]
