@@ -652,7 +652,7 @@ pub const Surface = struct {
         self: *Surface,
         clipboard_type: apprt.Clipboard,
         state: apprt.ClipboardRequest,
-    ) !void {
+    ) !bool {
         // We need to allocate to get a pointer to store our clipboard request
         // so that it is stable until the read_clipboard callback and call
         // complete_clipboard_request. This sucks but clipboard requests aren't
@@ -667,6 +667,10 @@ pub const Surface = struct {
             @intCast(@intFromEnum(clipboard_type)),
             state_ptr,
         );
+
+        // Embedded apprt can't synchronously check clipboard content types,
+        // so we always return true to indicate the request was started.
+        return true;
     }
 
     fn completeClipboardRequest(

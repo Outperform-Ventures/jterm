@@ -1666,8 +1666,8 @@ pub const Surface = extern struct {
         self: *Self,
         clipboard_type: apprt.Clipboard,
         state: apprt.ClipboardRequest,
-    ) !void {
-        try Clipboard.request(
+    ) !bool {
+        return try Clipboard.request(
             self,
             clipboard_type,
             state,
@@ -3623,16 +3623,34 @@ const Clipboard = struct {
     /// Request data from the clipboard (read the clipboard). This
     /// completes asynchronously and will call the `completeClipboardRequest`
     /// core surface API when done.
+    ///
+    /// Returns true if the request was started, false if the clipboard
+    /// doesn't contain text (allowing performable keybinds to pass through).
     pub fn request(
         self: *Surface,
         clipboard_type: apprt.Clipboard,
         state: apprt.ClipboardRequest,
-    ) Allocator.Error!void {
+    ) Allocator.Error!bool {
         // Get our requested clipboard
         const clipboard = get(
             self.private().gl_area.as(gtk.Widget),
             clipboard_type,
-        ) orelse return;
+        ) orelse return false;
+
+        // For paste requests, check if clipboard has text format available.
+        // This is a synchronous check that allows performable keybinds to
+        // pass through when the clipboard contains non-text content (e.g., images).
+        if (state == .paste) {
+            const formats = clipboard.getFormats();
+            if (formats.containMimeType("text/plain") == 0 and
+                formats.containMimeType("UTF8_STRING") == 0 and
+                formats.containMimeType("TEXT") == 0 and
+                formats.containMimeType("STRING") == 0)
+            {
+                log.debug("clipboard has no text format, not starting paste request", .{});
+                return false;
+            }
+        }
 
         // Allocate our userdata
         const alloc = Application.default().allocator();
@@ -3652,6 +3670,8 @@ const Clipboard = struct {
             clipboardReadText,
             ud,
         );
+
+        return true;
     }
 
     /// Paste explicit text directly into the surface, regardless of the
@@ -3814,34 +3834,21 @@ const Clipboard = struct {
         const self = req.self;
         defer self.unref();
 
-        const surface = self.private().core_surface orelse return;
-
         var gerr: ?*glib.Error = null;
         const cstr_ = clipboard.readTextFinish(res, &gerr);
-
-        // If clipboard has no text (error, null, or empty), pass through the
-        // original keypress so applications can handle their own clipboard
-        // (e.g., reading images via wl-paste). We send raw Ctrl+V (0x16)
-        // directly using the text action to bypass bracketed paste encoding.
         if (gerr) |err| {
             defer err.free();
-            log.debug("clipboard has no text format: {s}", .{err.f_message orelse "(no message)"});
-            passthroughKeypress(surface);
+            log.warn(
+                "failed to read clipboard err={s}",
+                .{err.f_message orelse "(no message)"},
+            );
             return;
         }
-
-        const cstr = cstr_ orelse {
-            passthroughKeypress(surface);
-            return;
-        };
+        const cstr = cstr_ orelse return;
         defer glib.free(cstr);
         const str = std.mem.sliceTo(cstr, 0);
 
-        if (str.len == 0) {
-            passthroughKeypress(surface);
-            return;
-        }
-
+        const surface = self.private().core_surface orelse return;
         surface.completeClipboardRequest(
             req.state,
             str,
@@ -3873,15 +3880,6 @@ const Clipboard = struct {
             .{},
             null,
         );
-    }
-
-    /// Send raw Ctrl+V (ASCII 22) to the terminal, bypassing paste encoding.
-    /// This allows applications to handle their own clipboard reading
-    /// (e.g., for image paste via wl-paste on Wayland).
-    fn passthroughKeypress(surface: *CoreSurface) void {
-        _ = surface.performBindingAction(.{ .text = "\\x16" }) catch |err| {
-            log.warn("error sending passthrough keypress: {}", .{err});
-        };
     }
 
     /// The request we send as userdata to the clipboard read.
