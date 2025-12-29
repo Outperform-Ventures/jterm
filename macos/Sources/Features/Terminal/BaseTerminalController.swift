@@ -893,18 +893,19 @@ class BaseTerminalController: NSWindowController,
         if let sourceNode = surfaceTree.root?.node(view: source) {
             // Source is in our tree - same window move
             let treeWithoutSource = surfaceTree.remove(sourceNode)
-            
+            let newTree: SplitTree<Ghostty.SurfaceView>
             do {
-                let newTree = try treeWithoutSource.insert(view: source, at: destination, direction: direction)
-                replaceSurfaceTree(
-                    newTree,
-                    moveFocusTo: source,
-                    moveFocusFrom: focusedSurface,
-                    undoAction: "Move Split")
+                newTree = try treeWithoutSource.insert(view: source, at: destination, direction: direction)
             } catch {
                 Ghostty.logger.warning("failed to insert surface during drop: \(error)")
+                return
             }
             
+            replaceSurfaceTree(
+                newTree,
+                moveFocusTo: source,
+                moveFocusFrom: focusedSurface,
+                undoAction: "Move Split")
             return
         }
         
@@ -938,17 +939,6 @@ class BaseTerminalController: NSWindowController,
             return
         }
         
-        // If our old sourceTree became empty, disable undo, because this will
-        // close the window and we don't have a way to restore that currently.
-        if sourceTreeWithoutNode.isEmpty {
-            undoManager?.disableUndoRegistration()
-        }
-        defer {
-            if sourceTreeWithoutNode.isEmpty {
-                undoManager?.enableUndoRegistration()
-            }
-        }
-        
         // Treat our undo below as a full group.
         undoManager?.beginUndoGrouping()
         undoManager?.setActionName("Move Split")
@@ -956,8 +946,28 @@ class BaseTerminalController: NSWindowController,
             undoManager?.endUndoGrouping()
         }
         
-        sourceController.replaceSurfaceTree(
-            sourceTreeWithoutNode)
+        if sourceTreeWithoutNode.isEmpty {
+            // If our source tree is becoming empty, then we're closing this terminal.
+            // We need to handle this carefully to get undo to work properly. If the
+            // controller is a TerminalController this is easy because it has a way
+            // to do this.
+            if let c = sourceController as? TerminalController {
+                c.closeWindowImmediately()
+            } else {
+                // Not a TerminalController so we always undo into a new window.
+                _ = TerminalController.newWindow(
+                    sourceController.ghostty,
+                    tree: sourceController.surfaceTree,
+                    confirmUndo: false)
+            }
+        } else {
+            // The source isn't empty so we can do a simple replace which will handle
+            // the undo properly.
+            sourceController.replaceSurfaceTree(
+                sourceTreeWithoutNode)
+        }
+        
+        // Add in the surface to our tree
         replaceSurfaceTree(
             newTree,
             moveFocusTo: source,
