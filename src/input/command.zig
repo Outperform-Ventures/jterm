@@ -696,6 +696,7 @@ fn actionCommands(action: Action.Key) []const Command {
         .activate_key_table_once,
         .deactivate_key_table,
         .deactivate_all_key_tables,
+        .end_key_sequence,
         .crash,
         => comptime &.{},
 

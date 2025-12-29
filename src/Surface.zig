@@ -5794,6 +5794,14 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             return try self.deactivateAllKeyTables();
         },
 
+        .end_key_sequence => {
+            // End the key sequence and flush queued keys to the terminal,
+            // but don't encode the key that triggered this action. This
+            // will do that because leaf keys (keys with bindings) aren't
+            // in the queued encoding list.
+            self.endKeySequence(.flush, .retain);
+        },
+
         .crash => |location| switch (location) {
             .main => @panic("crash binding action, crashing intentionally"),
 
