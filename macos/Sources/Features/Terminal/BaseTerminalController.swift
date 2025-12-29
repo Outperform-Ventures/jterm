@@ -734,7 +734,9 @@ class BaseTerminalController: NSWindowController,
         // it is already a single split.
         guard surfaceTree.isSplit else { return }
         
-        // If we are removing our focused surface then we move it.
+        // If we are removing our focused surface then we move it. We need to
+        // keep track of our old one so undo sends focus back to the right place.
+        let oldFocusedSurface = focusedSurface
         if focusedSurface == target {
             focusedSurface = findNextFocusTargetAfterClosing(node: targetNode)
         }
@@ -752,11 +754,12 @@ class BaseTerminalController: NSWindowController,
             undoManager?.endUndoGrouping()
         }
         
-        replaceSurfaceTree(removedTree, moveFocusFrom: focusedSurface)
+        replaceSurfaceTree(removedTree, moveFocusFrom: oldFocusedSurface)
         _ = TerminalController.newWindow(
             ghostty,
             tree: newTree,
-            position: notification.userInfo?[Notification.Name.ghosttySurfaceDragEndedNoTargetPointKey] as? NSPoint)
+            position: notification.userInfo?[Notification.Name.ghosttySurfaceDragEndedNoTargetPointKey] as? NSPoint,
+            confirmUndo: false)
     }
 
     // MARK: Local Events

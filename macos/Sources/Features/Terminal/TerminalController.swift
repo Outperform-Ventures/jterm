@@ -285,7 +285,8 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     static func newWindow(
         _ ghostty: Ghostty.App,
         tree: SplitTree<Ghostty.SurfaceView>,
-        position: NSPoint? = nil
+        position: NSPoint? = nil,
+        confirmUndo: Bool = true,
     ) -> TerminalController {
         let c = TerminalController.init(ghostty, withSurfaceTree: tree)
 
@@ -321,7 +322,11 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
                 expiresAfter: c.undoExpiration
             ) { target in
                 undoManager.disableUndoRegistration {
-                    target.closeWindow(nil)
+                    if confirmUndo {
+                        target.closeWindow(nil)
+                    } else {
+                        target.closeWindowImmediately()
+                    }
                 }
 
                 undoManager.registerUndo(
