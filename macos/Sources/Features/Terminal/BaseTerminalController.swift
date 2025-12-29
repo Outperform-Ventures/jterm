@@ -200,6 +200,11 @@ class BaseTerminalController: NSWindowController,
             selector: #selector(ghosttyDidPresentTerminal(_:)),
             name: Ghostty.Notification.ghosttyPresentTerminal,
             object: nil)
+        center.addObserver(
+            self,
+            selector: #selector(ghosttySurfaceDragEndedNoTarget(_:)),
+            name: .ghosttySurfaceDragEndedNoTarget,
+            object: nil)
 
         // Listen for local events that we need to know of outside of
         // single surface handlers.
@@ -721,6 +726,42 @@ class BaseTerminalController: NSWindowController,
         target.highlight()
     }
 
+    @objc private func ghosttySurfaceDragEndedNoTarget(_ notification: Notification) {
+        guard let target = notification.object as? Ghostty.SurfaceView else { return }
+        guard let targetNode = surfaceTree.root?.node(view: target) else { return }
+        
+        // If our tree isn't split, then we never create a new window, because
+        // it is already a single split.
+        guard surfaceTree.isSplit else { return }
+        
+        // If we are removing our focused surface then we move it. We need to
+        // keep track of our old one so undo sends focus back to the right place.
+        let oldFocusedSurface = focusedSurface
+        if focusedSurface == target {
+            focusedSurface = findNextFocusTargetAfterClosing(node: targetNode)
+        }
+
+        // Remove the surface from our tree
+        let removedTree = surfaceTree.remove(targetNode)
+
+        // Create a new tree with the dragged surface and open a new window
+        let newTree = SplitTree<Ghostty.SurfaceView>(view: target)
+        
+        // Treat our undo below as a full group.
+        undoManager?.beginUndoGrouping()
+        undoManager?.setActionName("Move Split")
+        defer {
+            undoManager?.endUndoGrouping()
+        }
+        
+        replaceSurfaceTree(removedTree, moveFocusFrom: oldFocusedSurface)
+        _ = TerminalController.newWindow(
+            ghostty,
+            tree: newTree,
+            position: notification.userInfo?[Notification.Name.ghosttySurfaceDragEndedNoTargetPointKey] as? NSPoint,
+            confirmUndo: false)
+    }
+
     // MARK: Local Events
 
     private func localEventHandler(_ event: NSEvent) -> NSEvent? {
@@ -1172,6 +1213,15 @@ class BaseTerminalController: NSWindowController,
     }
 
     func windowDidBecomeKey(_ notification: Notification) {
+        // If when we become key our first responder is the window itself, then we
+        // want to move focus to our focused terminal surface. This works around
+        // various weirdness with moving surfaces around.
+        if let window, window.firstResponder == window, let focusedSurface {
+            DispatchQueue.main.async {
+                Ghostty.moveFocus(to: focusedSurface)
+            }
+        }
+
         // Becoming/losing key means we have to notify our surface(s) that we have focus
         // so things like cursors blink, pty events are sent, etc.
         self.syncFocusToSurfaceTree()
