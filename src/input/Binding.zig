@@ -827,6 +827,20 @@ pub const Action = union(enum) {
     /// be undone or redone.
     redo,
 
+    /// End the currently active key sequence, if any, and flush the
+    /// keys up to this point to the terminal, excluding the key that
+    /// triggered this action.
+    ///
+    /// For example: `ctrl+w>escape=end_key_sequence` would encode
+    /// `ctrl+w` to the terminal and exit the key sequence.
+    ///
+    /// Normally, an invalid sequence will reset the key sequence and
+    /// flush all data including the invalid key. This action allows
+    /// you to flush only the prior keys, which is useful when you want
+    /// to bind something like a control key (`ctrl+w`) but not send
+    /// additional inputs.
+    end_key_sequence,
+
     /// Activate a named key table (see `keybind` configuration documentation).
     /// The named key table will remain active until `deactivate_key_table`
     /// is called. If you want a one-shot key table activation, use the
@@ -1316,6 +1330,7 @@ pub const Action = union(enum) {
             .activate_key_table_once,
             .deactivate_key_table,
             .deactivate_all_key_tables,
+            .end_key_sequence,
             .crash,
             => .surface,
 
