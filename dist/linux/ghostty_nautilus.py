@@ -42,27 +42,24 @@ def get_paths_to_open(files):
         return paths
 
 
-class OpenInGhosttyAction(GObject.GObject, Nautilus.MenuProvider):
-    def _make_item(self, name, paths):
+def get_items_for_files(name, files):
+    paths = get_paths_to_open(files)
+    if paths:
         item = Nautilus.MenuItem(name=name, label='Open in Ghostty',
             icon='com.mitchellh.ghostty')
         item.connect('activate', open_in_ghostty_activated, paths)
-        return item
+        return [item]
+    else:
+        return []
 
+
+class OpenInGhosttyAction(GObject.GObject, Nautilus.MenuProvider):
     def get_file_items(self, *args):
         # Nautilus 3.0 API passes args (window, files), 4.0 API just passes files
         files = args[0] if len(args) == 1 else args[1]
-        paths = get_paths_to_open(files)
-        if paths:
-            return [self._make_item(name='GhosttyNautilus::open_in_ghostty', paths=paths)]
-        else:
-            return []
+        return get_items_for_files('GhosttyNautilus::open_in_ghostty', files)
 
     def get_background_items(self, *args):
         # Nautilus 3.0 API passes args (window, file), 4.0 API just passes file
         file = args[0] if len(args) == 1 else args[1]
-        paths = get_paths_to_open([file])
-        if paths:
-            return [self._make_item(name='GhosttyNautilus::open_folder_in_ghostty', paths=paths)]
-        else:
-            return []
+        return get_items_for_files('GhosttyNautilus::open_folder_in_ghostty', [file])
