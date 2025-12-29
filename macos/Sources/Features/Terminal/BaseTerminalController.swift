@@ -733,9 +733,11 @@ class BaseTerminalController: NSWindowController,
         // If our tree isn't split, then we never create a new window, because
         // it is already a single split.
         guard surfaceTree.isSplit else { return }
-
-        // Extract the drop position from the notification
-        let dropPoint = notification.userInfo?[Notification.Name.ghosttySurfaceDragEndedNoTargetPointKey] as? NSPoint
+        
+        // If we are removing our focused surface then we move it.
+        if focusedSurface == target {
+            focusedSurface = findNextFocusTargetAfterClosing(node: targetNode)
+        }
 
         // Remove the surface from our tree
         let removedTree = surfaceTree.remove(targetNode)
@@ -751,7 +753,10 @@ class BaseTerminalController: NSWindowController,
         }
         
         replaceSurfaceTree(removedTree, moveFocusFrom: focusedSurface)
-        _ = TerminalController.newWindow(ghostty, tree: newTree, position: dropPoint)
+        _ = TerminalController.newWindow(
+            ghostty,
+            tree: newTree,
+            position: notification.userInfo?[Notification.Name.ghosttySurfaceDragEndedNoTargetPointKey] as? NSPoint)
     }
 
     // MARK: Local Events
@@ -1205,6 +1210,15 @@ class BaseTerminalController: NSWindowController,
     }
 
     func windowDidBecomeKey(_ notification: Notification) {
+        // If when we become key our first responder is the window itself, then we
+        // want to move focus to our focused terminal surface. This works around
+        // various weirdness with moving surfaces around.
+        if let window, window.firstResponder == window, let focusedSurface {
+            DispatchQueue.main.async {
+                Ghostty.moveFocus(to: focusedSurface)
+            }
+        }
+
         // Becoming/losing key means we have to notify our surface(s) that we have focus
         // so things like cursors blink, pty events are sent, etc.
         self.syncFocusToSurfaceTree()
