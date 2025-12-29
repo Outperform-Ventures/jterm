@@ -275,6 +275,56 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         return c
     }
 
+    /// Create a new window with an existing split tree.
+    /// The window will be sized to match the tree's current view bounds if available.
+    static func newWindow(
+        _ ghostty: Ghostty.App,
+        tree: SplitTree<Ghostty.SurfaceView>
+    ) -> TerminalController {
+        let c = TerminalController.init(ghostty, withSurfaceTree: tree)
+
+        // Calculate the target frame based on the tree's view bounds
+        let treeSize: CGSize? = tree.root?.viewBounds()
+
+        DispatchQueue.main.async {
+            if let window = c.window {
+                // If we have a tree size, resize the window's content to match
+                if let treeSize, treeSize.width > 0, treeSize.height > 0 {
+                    window.setContentSize(treeSize)
+                    window.constrainToScreen()
+                }
+
+                if !window.styleMask.contains(.fullScreen) {
+                    Self.lastCascadePoint = window.cascadeTopLeft(from: Self.lastCascadePoint)
+                }
+            }
+
+            c.showWindow(self)
+        }
+
+        // Setup our undo
+        if let undoManager = c.undoManager {
+            undoManager.setActionName("New Window")
+            undoManager.registerUndo(
+                withTarget: c,
+                expiresAfter: c.undoExpiration
+            ) { target in
+                undoManager.disableUndoRegistration {
+                    target.closeWindow(nil)
+                }
+
+                undoManager.registerUndo(
+                    withTarget: ghostty,
+                    expiresAfter: target.undoExpiration
+                ) { ghostty in
+                    _ = TerminalController.newWindow(ghostty, tree: tree)
+                }
+            }
+        }
+
+        return c
+    }
+
     static func newTab(
         _ ghostty: Ghostty.App,
         from parent: NSWindow? = nil,
@@ -397,7 +447,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
         return controller
     }
-
+    
     //MARK: - Methods
 
     @objc private func ghosttyConfigDidChange(_ notification: Notification) {
