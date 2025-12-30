@@ -8,6 +8,7 @@ class TerminalViewContainer<ViewModel: TerminalViewModel>: NSView {
 
     /// Glass effect view for liquid glass background when transparency is enabled
     private var glassEffectView: NSView?
+    private var glassTopConstraint: NSLayoutConstraint?
     private var derivedConfig: DerivedConfig
 
     init(ghostty: Ghostty.App, viewModel: ViewModel, delegate: (any TerminalViewDelegate)? = nil) {
@@ -54,6 +55,12 @@ class TerminalViewContainer<ViewModel: TerminalViewModel>: NSView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         updateGlassEffectIfNeeded()
+        updateGlassEffectTopInsetIfNeeded()
+    }
+
+    override func layout() {
+        super.layout()
+        updateGlassEffectTopInsetIfNeeded()
     }
 
     @objc private func ghosttyConfigDidChange(_ notification: Notification) {
@@ -74,6 +81,7 @@ private extension TerminalViewContainer {
     @available(macOS 26.0, *)
     func addGlassEffectViewIfNeeded() -> NSGlassEffectView? {
         if let existed = glassEffectView as? NSGlassEffectView {
+            updateGlassEffectTopInsetIfNeeded()
             return existed
         }
         guard let themeFrameView = window?.contentView?.superview else {
@@ -82,12 +90,18 @@ private extension TerminalViewContainer {
         let effectView = NSGlassEffectView()
         addSubview(effectView, positioned: .below, relativeTo: terminalView)
         effectView.translatesAutoresizingMaskIntoConstraints = false
-        NSLayoutConstraint.activate([
-            effectView.topAnchor.constraint(equalTo: topAnchor, constant: -themeFrameView.safeAreaInsets.top),
-            effectView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            effectView.bottomAnchor.constraint(equalTo: bottomAnchor),
-            effectView.trailingAnchor.constraint(equalTo: trailingAnchor),
-        ])
+        glassTopConstraint = effectView.topAnchor.constraint(
+            equalTo: topAnchor,
+            constant: -themeFrameView.safeAreaInsets.top
+        )
+        if let glassTopConstraint {
+            NSLayoutConstraint.activate([
+                glassTopConstraint,
+                effectView.leadingAnchor.constraint(equalTo: leadingAnchor),
+                effectView.bottomAnchor.constraint(equalTo: bottomAnchor),
+                effectView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            ])
+        }
         glassEffectView = effectView
         return effectView
     }
@@ -98,6 +112,7 @@ private extension TerminalViewContainer {
         guard #available(macOS 26.0, *), derivedConfig.backgroundBlur.isGlassStyle else {
             glassEffectView?.removeFromSuperview()
             glassEffectView = nil
+            glassTopConstraint = nil
             return
         }
         guard let effectView = addGlassEffectViewIfNeeded() else {
@@ -117,6 +132,17 @@ private extension TerminalViewContainer {
         if let window, window.responds(to: Selector(("_cornerRadius"))), let cornerRadius = window.value(forKey: "_cornerRadius") as? CGFloat {
             effectView.cornerRadius = cornerRadius
         }
+#endif // compiler(>=6.2)
+    }
+
+    func updateGlassEffectTopInsetIfNeeded() {
+#if compiler(>=6.2)
+        guard #available(macOS 26.0, *), derivedConfig.backgroundBlur.isGlassStyle else {
+            return
+        }
+        guard glassEffectView != nil else { return }
+        guard let themeFrameView = window?.contentView?.superview else { return }
+        glassTopConstraint?.constant = -themeFrameView.safeAreaInsets.top
 #endif // compiler(>=6.2)
     }
 
