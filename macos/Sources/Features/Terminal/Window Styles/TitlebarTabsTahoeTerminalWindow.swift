@@ -85,7 +85,7 @@ class TitlebarTabsTahoeTerminalWindow: TransparentTitlebarTerminalWindow, NSTool
             return
         }
         
-        guard let tabBarView = findTabBar() else {
+        guard let tabBarView else {
             super.sendEvent(event)
             return
         }
@@ -176,8 +176,8 @@ class TitlebarTabsTahoeTerminalWindow: TransparentTitlebarTerminalWindow, NSTool
         guard tabBarObserver == nil else { return }
 
         guard
-            let titlebarView = findTitlebarView(),
-            let tabBar = findTabBar()
+            let titlebarView,
+            let tabBarView = self.tabBarView
         else { return }
 
         // View model updates must happen on their own ticks.
@@ -186,13 +186,13 @@ class TitlebarTabsTahoeTerminalWindow: TransparentTitlebarTerminalWindow, NSTool
         }
 
         // Find our clip view
-        guard let clipView = tabBar.firstSuperview(withClassName: "NSTitlebarAccessoryClipView") else { return }
+        guard let clipView = tabBarView.firstSuperview(withClassName: "NSTitlebarAccessoryClipView") else { return }
         guard let accessoryView = clipView.subviews[safe: 0] else { return }
         guard let toolbarView = titlebarView.firstDescendant(withClassName: "NSToolbarView") else { return }
         
         // Make sure tabBar's height won't be stretched
         guard let newTabButton = titlebarView.firstDescendant(withClassName: "NSTabBarNewTabButton") else { return }
-        tabBar.frame.size.height = newTabButton.frame.width
+        tabBarView.frame.size.height = newTabButton.frame.width
 
         // The container is the view that we'll constrain our tab bar within.
         let container = toolbarView
@@ -228,10 +228,10 @@ class TitlebarTabsTahoeTerminalWindow: TransparentTitlebarTerminalWindow, NSTool
         // other events occur, the tab bar can resize and clear our constraints. When this
         // happens, we need to remove our custom constraints and re-apply them once the
         // tab bar has proper dimensions again to avoid constraint conflicts.
-        tabBar.postsFrameChangedNotifications = true
+        tabBarView.postsFrameChangedNotifications = true
         tabBarObserver = NotificationCenter.default.addObserver(
             forName: NSView.frameDidChangeNotification,
-            object: tabBar,
+            object: tabBarView,
             queue: .main
         ) { [weak self] _ in
             guard let self else { return }

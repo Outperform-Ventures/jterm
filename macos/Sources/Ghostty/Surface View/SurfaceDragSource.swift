@@ -214,6 +214,9 @@ extension Ghostty {
             movedTo screenPoint: NSPoint
         ) {
             NSCursor.closedHand.set()
+            
+            // Handle hovering over a tab bar.
+            detectTabBarHover(at: screenPoint)
         }
         
         func draggingSession(
@@ -225,6 +228,8 @@ extension Ghostty {
                 NSEvent.removeMonitor(escapeMonitor)
                 self.escapeMonitor = nil
             }
+            
+            hoveredTabState = nil
             
             if operation == [] && !dragCancelledByEscape {
                 let endsInWindow = NSApplication.shared.windows.contains { window in
@@ -241,6 +246,79 @@ extension Ghostty {
             
             isTracking = false
             onDragStateChanged?(false)
+        }
+        
+        // MARK: Hovered Native Tabs
+        
+        /// The currently hovered tab, tracked to detect when hover changes.
+        private var hoveredTabState: HoveredTabState?
+        
+        /// This detects if the drag hover is over a native tab bar in our app. If it is then
+        /// we start a timer to focus that tab if the drag remains over it.
+        private func detectTabBarHover(at screenPoint: NSPoint) {
+            for window in NSApplication.shared.windows {
+                if let index = window.tabIndex(atScreenPoint: screenPoint) {
+                    let state: HoveredTabState = .init(window: window, index: index)
+                    guard hoveredTabState != state else {
+                        // We already are tracking this.
+                        return
+                    }
+                    
+                    // Stop our prior state since we've changed tabs.
+                    hoveredTabState = nil
+                    
+                    // Grab our window and ensure that it isn't the key window. If
+                    // it is already key then the tab is already focused so we don't
+                    // need to do it again.
+                    guard let targetWindow = window.tabbedWindows?[safe: index] else { return }
+                    guard !targetWindow.isKeyWindow else { return }
+                    
+                    // Start our timer to focus it and store our state.
+                    state.startTimer()
+                    hoveredTabState = state
+                    return
+                }
+            }
+            
+            hoveredTabState = nil
+        }
+        
+        fileprivate class HoveredTabState: Equatable {
+            let window: NSWindow
+            let index: Int
+            var focusTimer: Timer?
+            
+            /// Duration to hover over a tab before it becomes focused.
+            private static let hoverDelay: TimeInterval = 0.5
+            
+            init(window: NSWindow, index: Int) {
+                self.window = window
+                self.index = index
+            }
+            
+            deinit {
+                focusTimer?.invalidate()
+            }
+            
+            func startTimer() {
+                focusTimer?.invalidate()
+                focusTimer = Timer.scheduledTimer(
+                    withTimeInterval: Self.hoverDelay,
+                    repeats: false) { [weak self] _ in
+                    self?.focus()
+                }
+            }
+            
+            private func focus() {
+                guard let targetWindow = window.tabbedWindows?[safe: index] else { return }
+                targetWindow.makeKeyAndOrderFront(nil)
+            }
+            
+            static func == (lhs: HoveredTabState, rhs: HoveredTabState) -> Bool {
+                return
+                    lhs.window == rhs.window &&
+                    lhs.index == rhs.index
+            }
         }
     }
 }
