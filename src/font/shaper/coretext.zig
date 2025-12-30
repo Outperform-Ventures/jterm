@@ -103,15 +103,9 @@ pub const Shaper = struct {
         }
     };
 
-    const RunOffset = struct {
-        x: f64 = 0,
-        y: f64 = 0,
-    };
-
     const CellOffset = struct {
         cluster: u32 = 0,
         x: f64 = 0,
-        y: f64 = 0,
     };
 
     /// Create a CoreFoundation Dictionary suitable for
@@ -388,15 +382,15 @@ pub const Shaper = struct {
         const line = typesetter.createLine(.{ .location = 0, .length = 0 });
         self.cf_release_pool.appendAssumeCapacity(line);
 
-        // This keeps track of the current offsets within a run.
-        var run_offset: RunOffset = .{};
+        // This keeps track of the current x offset within a run.
+        var run_offset_x: f64 = 0.0;
 
-        // This keeps track of the current offsets within a cell.
+        // This keeps track of the current x offset and cluster for a cell.
         var cell_offset: CellOffset = .{};
 
         // For debugging positions, turn this on:
-        //var start_index: usize = 0;
-        //var end_index: usize = 0;
+        //var run_offset_y: f64 = 0.0;
+        //var cell_offset_y: f64 = 0.0;
 
         // Clear our cell buf and make sure we have enough room for the whole
         // line of glyphs, so that we can just assume capacity when appending
@@ -450,39 +444,31 @@ pub const Shaper = struct {
 
                     cell_offset = .{
                         .cluster = cluster,
-                        .x = run_offset.x,
-                        .y = run_offset.y,
+                        .x = run_offset_x,
                     };
 
                     // For debugging positions, turn this on:
-                    //    start_index = index;
-                    //    end_index = index;
-                    //} else {
-                    //    if (index < start_index) {
-                    //        start_index = index;
-                    //    }
-                    //    if (index > end_index) {
-                    //        end_index = index;
-                    //    }
+                    //cell_offset_y = run_offset_y;
                 }
 
                 // For debugging positions, turn this on:
-                //try self.debugPositions(alloc, run_offset, cell_offset, position, start_index, end_index, index);
+                //try self.debugPositions(alloc, run_offset_x, run_offset_y, cell_offset, cell_offset_y, position, index);
 
                 const x_offset = position.x - cell_offset.x;
-                const y_offset = position.y - cell_offset.y;
 
                 self.cell_buf.appendAssumeCapacity(.{
                     .x = @intCast(cluster),
                     .x_offset = @intFromFloat(@round(x_offset)),
-                    .y_offset = @intFromFloat(@round(y_offset)),
+                    .y_offset = @intFromFloat(@round(position.y)),
                     .glyph_index = glyph,
                 });
 
                 // Add our advances to keep track of our run offsets.
                 // Advances apply to the NEXT cell.
-                run_offset.x += advance.width;
-                run_offset.y += advance.height;
+                run_offset_x += advance.width;
+
+                // For debugging positions, turn this on:
+                //run_offset_y += advance.height;
             }
         }
 
@@ -655,33 +641,38 @@ pub const Shaper = struct {
     fn debugPositions(
         self: *Shaper,
         alloc: Allocator,
-        run_offset: RunOffset,
+        run_offset_x: f64,
+        run_offset_y: f64,
         cell_offset: CellOffset,
+        cell_offset_y: f64,
         position: macos.graphics.Point,
-        start_index: usize,
-        end_index: usize,
         index: usize,
     ) !void {
         const state = &self.run_state;
         const x_offset = position.x - cell_offset.x;
-        const y_offset = position.y - cell_offset.y;
-        const advance_x_offset = run_offset.x - cell_offset.x;
-        const advance_y_offset = run_offset.y - cell_offset.y;
+        const advance_x_offset = run_offset_x - cell_offset.x;
+        const advance_y_offset = run_offset_y - cell_offset_y;
         const x_offset_diff = x_offset - advance_x_offset;
-        const y_offset_diff = y_offset - advance_y_offset;
+        const y_offset_diff = position.y - advance_y_offset;
 
         if (@abs(x_offset_diff) > 0.0001 or @abs(y_offset_diff) > 0.0001) {
             var allocating = std.Io.Writer.Allocating.init(alloc);
             const writer = &allocating.writer;
-            const codepoints = state.codepoints.items[start_index .. end_index + 1];
+            const codepoints = state.codepoints.items;
             for (codepoints) |cp| {
-                if (cp.codepoint == 0) continue; // Skip surrogate pair padding
-                try writer.print("\\u{{{x}}}", .{cp.codepoint});
+                if (cp.cluster == cell_offset.cluster and
+                    cp.codepoint != 0 // Skip surrogate pair padding
+                ) {
+                    try writer.print("\\u{{{x}}}", .{cp.codepoint});
+                }
             }
             try writer.writeAll(" → ");
             for (codepoints) |cp| {
-                if (cp.codepoint == 0) continue; // Skip surrogate pair padding
-                try writer.print("{u}", .{@as(u21, @intCast(cp.codepoint))});
+                if (cp.cluster == cell_offset.cluster and
+                    cp.codepoint != 0 // Skip surrogate pair padding
+                ) {
+                    try writer.print("{u}", .{@as(u21, @intCast(cp.codepoint))});
+                }
             }
             const formatted_cps = try allocating.toOwnedSlice();
 
@@ -698,7 +689,7 @@ pub const Shaper = struct {
             log.warn("position differs from advance: cluster={d} pos=({d:.2},{d:.2}) adv=({d:.2},{d:.2}) diff=({d:.2},{d:.2}) current cp={x}, cps={s}", .{
                 cell_offset.cluster,
                 x_offset,
-                y_offset,
+                position.y,
                 advance_x_offset,
                 advance_y_offset,
                 x_offset_diff,
