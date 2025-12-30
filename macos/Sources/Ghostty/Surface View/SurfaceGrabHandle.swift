@@ -15,13 +15,13 @@ extension Ghostty {
         var body: some View {
             VStack(spacing: 0) {
                 Rectangle()
-                    .fill(Color.white.opacity(isHovering || isDragging ? 0.15 : 0))
+                    .fill(Color.primary.opacity(isHovering || isDragging ? 0.15 : 0))
                     .frame(height: handleHeight)
                     .overlay(alignment: .center) {
                         if isHovering || isDragging {
                             Image(systemName: "ellipsis")
                                 .font(.system(size: 14, weight: .semibold))
-                                .foregroundColor(.white.opacity(0.5))
+                                .foregroundColor(.primary.opacity(0.5))
                         }
                     }
                     .contentShape(Rectangle())
