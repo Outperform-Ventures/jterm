@@ -32,6 +32,14 @@ pub const Shaper = struct {
     /// The features to use for shaping.
     hb_feats: []harfbuzz.Feature,
 
+    // For debugging positions, turn this on:
+    debug_codepoints: std.ArrayListUnmanaged(DebugCodepoint) = .{},
+
+    const DebugCodepoint = struct {
+        cluster: u32,
+        codepoint: u32,
+    };
+
     const CellBuf = std.ArrayListUnmanaged(font.shape.Cell);
 
     /// The cell_buf argument is the buffer to use for storing shaped results.
@@ -74,6 +82,9 @@ pub const Shaper = struct {
         self.hb_buf.destroy();
         self.cell_buf.deinit(self.alloc);
         self.alloc.free(self.hb_feats);
+
+        // For debugging positions, turn this on:
+        self.debug_codepoints.deinit(self.alloc);
     }
 
     pub fn endFrame(self: *const Shaper) void {
@@ -157,7 +168,7 @@ pub const Shaper = struct {
             const y_offset = cell_offset.y + ((pos_v.y_offset + 0b100_000) >> 6);
 
             // For debugging positions, turn this on:
-            //debugPositions(cell_offset, pos_v);
+            try self.debugPositions(cell_offset, pos_v);
 
             try self.cell_buf.append(self.alloc, .{
                 .x = @intCast(info_v.cluster),
@@ -198,6 +209,12 @@ pub const Shaper = struct {
         pub fn addCodepoint(self: RunIteratorHook, cp: u32, cluster: u32) !void {
             // log.warn("cluster={} cp={x}", .{ cluster, cp });
             self.shaper.hb_buf.add(cp, cluster);
+
+            // For debugging positions, turn this on:
+            try self.shaper.debug_codepoints.append(self.shaper.alloc, .{
+                .cluster = cluster,
+                .codepoint = cp,
+            });
         }
 
         pub fn finalize(self: RunIteratorHook) !void {
@@ -206,9 +223,10 @@ pub const Shaper = struct {
     };
 
     fn debugPositions(
+        self: *Shaper,
         cell_offset: anytype,
         pos_v: harfbuzz.GlyphPosition,
-    ) void {
+    ) !void {
         const x_offset = cell_offset.x + ((pos_v.x_offset + 0b100_000) >> 6);
         const y_offset = cell_offset.y + ((pos_v.y_offset + 0b100_000) >> 6);
         const advance_x_offset = cell_offset.x;
@@ -216,14 +234,24 @@ pub const Shaper = struct {
         const x_offset_diff = x_offset - advance_x_offset;
         const y_offset_diff = y_offset - advance_y_offset;
 
-        // It'd be nice if we could log the original codepoints that went in to
-        // shaping this glyph, but at this point HarfBuzz has replaced
-        // `info_v.codepoint` with the glyph index (and that's only one of the
-        // codepoints anyway). We could have some way to map the cluster back
-        // to the original codepoints, but since that would only be used for
-        // debugging, we don't do that.
         if (@abs(x_offset_diff) > 0 or @abs(y_offset_diff) > 0) {
-            log.warn("position differs from advance: cluster={d} pos=({d},{d}) adv=({d},{d}) diff=({d},{d})", .{
+            var allocating = std.Io.Writer.Allocating.init(self.alloc);
+            defer allocating.deinit();
+            const writer = &allocating.writer;
+            const codepoints = self.debug_codepoints.items;
+            for (codepoints) |cp| {
+                if (cp.cluster == cell_offset.cluster) {
+                    try writer.print("\\u{{{x}}}", .{cp.codepoint});
+                }
+            }
+            try writer.writeAll(" → ");
+            for (codepoints) |cp| {
+                if (cp.cluster == cell_offset.cluster) {
+                    try writer.print("{u}", .{@as(u21, @intCast(cp.codepoint))});
+                }
+            }
+            const formatted_cps = try allocating.toOwnedSlice();
+            log.warn("position differs from advance: cluster={d} pos=({d},{d}) adv=({d},{d}) diff=({d},{d}) cps={s}", .{
                 cell_offset.cluster,
                 x_offset,
                 y_offset,
@@ -231,6 +259,7 @@ pub const Shaper = struct {
                 advance_y_offset,
                 x_offset_diff,
                 y_offset_diff,
+                formatted_cps,
             });
         }
     }
