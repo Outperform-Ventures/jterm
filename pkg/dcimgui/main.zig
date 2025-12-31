@@ -21,6 +21,13 @@ pub extern fn ImGui_ImplOSX_Init(*anyopaque) callconv(.c) bool;
 pub extern fn ImGui_ImplOSX_Shutdown() callconv(.c) void;
 pub extern fn ImGui_ImplOSX_NewFrame(*anyopaque) callconv(.c) void;
 
+// Internal API functions from dcimgui_internal.h
+// We declare these manually because the internal header contains bitfields
+// that Zig's cImport cannot translate.
+pub extern fn ImGui_DockBuilderDockWindow(window_name: [*:0]const u8, node_id: c.ImGuiID) callconv(.c) void;
+pub extern fn ImGui_DockBuilderSplitNode(node_id: c.ImGuiID, split_dir: c.ImGuiDir, size_ratio_for_node_at_dir: f32, out_id_at_dir: *c.ImGuiID, out_id_at_opposite_dir: *c.ImGuiID) callconv(.c) c.ImGuiID;
+pub extern fn ImGui_DockBuilderFinish(node_id: c.ImGuiID) callconv(.c) void;
+
 test {
     _ = c;
 }

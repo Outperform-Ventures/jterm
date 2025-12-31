@@ -479,15 +479,17 @@ pub fn add(
     }
 
     // cimgui
-    if (b.lazyDependency("cimgui", .{
+    if (b.lazyDependency("dcimgui", .{
         .target = target,
         .optimize = optimize,
-    })) |cimgui_dep| {
-        step.root_module.addImport("cimgui", cimgui_dep.module("cimgui"));
-        step.linkLibrary(cimgui_dep.artifact("cimgui"));
+        .@"backend-metal" = target.result.os.tag.isDarwin(),
+        .@"backend-osx" = target.result.os.tag == .macos,
+    })) |dep| {
+        step.root_module.addImport("dcimgui", dep.module("dcimgui"));
+        step.linkLibrary(dep.artifact("dcimgui"));
         try static_libs.append(
             b.allocator,
-            cimgui_dep.artifact("cimgui").getEmittedBin(),
+            dep.artifact("dcimgui").getEmittedBin(),
         );
     }
 
