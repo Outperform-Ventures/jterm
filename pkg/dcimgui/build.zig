@@ -133,6 +133,11 @@ pub fn build(b: *std.Build) !void {
             },
             .flags = flags.items,
         });
+        lib.addCSourceFiles(.{
+            .root = b.path(""),
+            .files = &.{"ext.cpp"},
+            .flags = flags.items,
+        });
 
         lib.installHeadersDirectory(
             upstream.path(""),

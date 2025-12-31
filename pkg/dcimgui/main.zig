@@ -28,6 +28,12 @@ pub extern fn ImGui_DockBuilderDockWindow(window_name: [*:0]const u8, node_id: c
 pub extern fn ImGui_DockBuilderSplitNode(node_id: c.ImGuiID, split_dir: c.ImGuiDir, size_ratio_for_node_at_dir: f32, out_id_at_dir: *c.ImGuiID, out_id_at_opposite_dir: *c.ImGuiID) callconv(.c) c.ImGuiID;
 pub extern fn ImGui_DockBuilderFinish(node_id: c.ImGuiID) callconv(.c) void;
 
+// Extension functions from ext.cpp
+pub const ext = struct {
+    pub extern fn ImFontConfig_ImFontConfig(self: *c.ImFontConfig) callconv(.c) void;
+    pub extern fn ImGuiStyle_ImGuiStyle(self: *c.ImGuiStyle) callconv(.c) void;
+};
+
 test {
     _ = c;
 }

@@ -255,8 +255,11 @@ pub const ImguiWidget = extern struct {
         io.DisplaySize = .{ .x = @floatFromInt(width), .y = @floatFromInt(height) };
         io.DisplayFramebufferScale = .{ .x = 1, .y = 1 };
 
-        // Setup a new style and scale it appropriately.
-        var style: cimgui.c.ImGuiStyle = .{};
+        // Setup a new style and scale it appropriately. We must use the
+        // ImGuiStyle constructor to get proper default values (e.g.,
+        // CurveTessellationTol) rather than zero-initialized values.
+        var style: cimgui.c.ImGuiStyle = undefined;
+        cimgui.ext.ImGuiStyle_ImGuiStyle(&style);
         cimgui.c.ImGuiStyle_ScaleAllSizes(&style, @floatFromInt(scale_factor));
         const active_style = cimgui.c.ImGui_GetStyle();
         active_style.* = style;

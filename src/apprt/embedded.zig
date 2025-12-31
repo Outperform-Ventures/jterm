@@ -1070,8 +1070,11 @@ pub const Inspector = struct {
         // Cache our scale because we use it for cursor position calculations.
         self.content_scale = x;
 
-        // Setup a new style and scale it appropriately.
-        var style: cimgui.c.ImGuiStyle = .{};
+        // Setup a new style and scale it appropriately. We must use the
+        // ImGuiStyle constructor to get proper default values (e.g.,
+        // CurveTessellationTol) rather than zero-initialized values.
+        var style: cimgui.c.ImGuiStyle = undefined;
+        cimgui.ext.ImGuiStyle_ImGuiStyle(&style);
         cimgui.c.ImGuiStyle_ScaleAllSizes(&style, @floatCast(x));
         const active_style = cimgui.c.ImGui_GetStyle();
         active_style.* = style;
