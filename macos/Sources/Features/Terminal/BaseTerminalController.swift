@@ -952,7 +952,7 @@ class BaseTerminalController: NSWindowController,
             // controller is a TerminalController this is easy because it has a way
             // to do this.
             if let c = sourceController as? TerminalController {
-                c.closeWindowImmediately()
+                c.closeTabImmediately()
             } else {
                 // Not a TerminalController so we always undo into a new window.
                 _ = TerminalController.newWindow(
