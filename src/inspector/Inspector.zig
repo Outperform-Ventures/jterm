@@ -138,24 +138,24 @@ pub fn setup() void {
     io.IniFilename = null;
     io.LogFilename = null;
 
-    // // Use our own embedded font
-    // {
-    //     // TODO: This will have to be recalculated for different screen DPIs.
-    //     // This is currently hardcoded to a 2x content scale.
-    //     const font_size = 16 * 2;
-    //
-    //     var font_config: cimgui.c.ImFontConfig = .{};
-    //     cimgui.ext.ImFontConfig_ImFontConfig(&font_config);
-    //     font_config.FontDataOwnedByAtlas = false;
-    //     _ = cimgui.c.ImFontAtlas_AddFontFromMemoryTTF(
-    //         io.Fonts,
-    //         @ptrCast(@constCast(font.embedded.regular.ptr)),
-    //         @intCast(font.embedded.regular.len),
-    //         font_size,
-    //         &font_config,
-    //         null,
-    //     );
-    // }
+    // Use our own embedded font
+    {
+        // TODO: This will have to be recalculated for different screen DPIs.
+        // This is currently hardcoded to a 2x content scale.
+        const font_size = 16 * 2;
+
+        var font_config: cimgui.c.ImFontConfig = undefined;
+        cimgui.ext.ImFontConfig_ImFontConfig(&font_config);
+        font_config.FontDataOwnedByAtlas = false;
+        _ = cimgui.c.ImFontAtlas_AddFontFromMemoryTTF(
+            io.Fonts,
+            @ptrCast(@constCast(font.embedded.regular.ptr)),
+            @intCast(font.embedded.regular.len),
+            font_size,
+            &font_config,
+            null,
+        );
+    }
 }
 
 pub fn init(surface: *Surface) !Inspector {
