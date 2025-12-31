@@ -4,12 +4,14 @@ const NativeTargetInfo = std.zig.system.NativeTargetInfo;
 pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
+    const freetype = b.option(bool, "freetype", "Use Freetype") orelse false;
     const backend_opengl3 = b.option(bool, "backend-opengl3", "OpenGL3 backend") orelse false;
     const backend_metal = b.option(bool, "backend-metal", "Metal backend") orelse false;
     const backend_osx = b.option(bool, "backend-osx", "OSX backend") orelse false;
 
     // Build options
     const options = b.addOptions();
+    options.addOption(bool, "freetype", freetype);
     options.addOption(bool, "backend_opengl3", backend_opengl3);
     options.addOption(bool, "backend_metal", backend_metal);
     options.addOption(bool, "backend_osx", backend_osx);
@@ -50,6 +52,9 @@ pub fn build(b: *std.Build) !void {
         "-DIMGUI_USE_WCHAR32=1",
         "-DIMGUI_DISABLE_OBSOLETE_FUNCTIONS=1",
     });
+    if (freetype) try flags.appendSlice(b.allocator, &.{
+        "-DIMGUI_ENABLE_FREETYPE=1",
+    });
     if (target.result.os.tag == .windows) {
         try flags.appendSlice(b.allocator, &.{
             "-DIMGUI_IMPL_API=extern\t\"C\"\t__declspec(dllexport)",
@@ -83,6 +88,30 @@ pub fn build(b: *std.Build) !void {
             "",
             .{ .include_extensions = &.{".h"} },
         );
+
+        if (freetype) {
+            lib.addCSourceFile(.{
+                .file = upstream.path("misc/freetype/imgui_freetype.cpp"),
+                .flags = flags.items,
+            });
+
+            if (b.systemIntegrationOption("freetype", .{})) {
+                lib.linkSystemLibrary2("freetype2", dynamic_link_opts);
+            } else {
+                const freetype_dep = b.dependency("freetype", .{
+                    .target = target,
+                    .optimize = optimize,
+                    .@"enable-libpng" = true,
+                });
+                lib.linkLibrary(freetype_dep.artifact("freetype"));
+                if (freetype_dep.builder.lazyDependency(
+                    "freetype",
+                    .{},
+                )) |freetype_upstream| {
+                    mod.addIncludePath(freetype_upstream.path("include"));
+                }
+            }
+        }
 
         if (backend_metal) {
             lib.addCSourceFiles(.{
@@ -160,3 +189,11 @@ pub fn build(b: *std.Build) !void {
     const test_step = b.step("test", "Run tests");
     test_step.dependOn(&tests_run.step);
 }
+
+// For dynamic linking, we prefer dynamic linking and to search by
+// mode first. Mode first will search all paths for a dynamic library
+// before falling back to static.
+const dynamic_link_opts: std.Build.Module.LinkSystemLibraryOptions = .{
+    .preferred_link_mode = .dynamic,
+    .search_strategy = .mode_first,
+};
