@@ -947,7 +947,7 @@ pub const Surface = struct {
 /// Inspector is the state required for the terminal inspector. A terminal
 /// inspector is 1:1 with a Surface.
 pub const Inspector = struct {
-    const cimgui = @import("cimgui");
+    const cimgui = @import("dcimgui");
 
     surface: *Surface,
     ig_ctx: *cimgui.c.ImGuiContext,
@@ -968,10 +968,10 @@ pub const Inspector = struct {
     };
 
     pub fn init(surface: *Surface) !Inspector {
-        const ig_ctx = cimgui.c.igCreateContext(null) orelse return error.OutOfMemory;
-        errdefer cimgui.c.igDestroyContext(ig_ctx);
-        cimgui.c.igSetCurrentContext(ig_ctx);
-        const io: *cimgui.c.ImGuiIO = cimgui.c.igGetIO();
+        const ig_ctx = cimgui.c.ImGui_CreateContext(null) orelse return error.OutOfMemory;
+        errdefer cimgui.c.ImGui_DestroyContext(ig_ctx);
+        cimgui.c.ImGui_SetCurrentContext(ig_ctx);
+        const io: *cimgui.c.ImGuiIO = cimgui.c.ImGui_GetIO();
         io.BackendPlatformName = "ghostty_embedded";
 
         // Setup our core inspector
@@ -988,9 +988,9 @@ pub const Inspector = struct {
 
     pub fn deinit(self: *Inspector) void {
         self.surface.core_surface.deactivateInspector();
-        cimgui.c.igSetCurrentContext(self.ig_ctx);
+        cimgui.c.ImGui_SetCurrentContext(self.ig_ctx);
         if (self.backend) |v| v.deinit();
-        cimgui.c.igDestroyContext(self.ig_ctx);
+        cimgui.c.ImGui_DestroyContext(self.ig_ctx);
     }
 
     /// Queue a render for the next frame.
@@ -1001,7 +1001,7 @@ pub const Inspector = struct {
     /// Initialize the inspector for a metal backend.
     pub fn initMetal(self: *Inspector, device: objc.Object) bool {
         defer device.msgSend(void, objc.sel("release"), .{});
-        cimgui.c.igSetCurrentContext(self.ig_ctx);
+        cimgui.c.ImGui_SetCurrentContext(self.ig_ctx);
 
         if (self.backend) |v| {
             v.deinit();
@@ -1036,7 +1036,7 @@ pub const Inspector = struct {
         for (0..2) |_| {
             cimgui.ImGui_ImplMetal_NewFrame(desc.value);
             try self.newFrame();
-            cimgui.c.igNewFrame();
+            cimgui.c.ImGui_NewFrame();
 
             // Build our UI
             render: {
@@ -1046,7 +1046,7 @@ pub const Inspector = struct {
             }
 
             // Render
-            cimgui.c.igRender();
+            cimgui.c.ImGui_Render();
         }
 
         // MTLRenderCommandEncoder
@@ -1057,7 +1057,7 @@ pub const Inspector = struct {
         );
         defer encoder.msgSend(void, objc.sel("endEncoding"), .{});
         cimgui.ImGui_ImplMetal_RenderDrawData(
-            cimgui.c.igGetDrawData(),
+            cimgui.c.ImGui_GetDrawData(),
             command_buffer.value,
             encoder.value,
         );
@@ -1065,22 +1065,24 @@ pub const Inspector = struct {
 
     pub fn updateContentScale(self: *Inspector, x: f64, y: f64) void {
         _ = y;
-        cimgui.c.igSetCurrentContext(self.ig_ctx);
+        cimgui.c.ImGui_SetCurrentContext(self.ig_ctx);
 
         // Cache our scale because we use it for cursor position calculations.
         self.content_scale = x;
 
-        // Setup a new style and scale it appropriately.
-        const style = cimgui.c.ImGuiStyle_ImGuiStyle();
-        defer cimgui.c.ImGuiStyle_destroy(style);
-        cimgui.c.ImGuiStyle_ScaleAllSizes(style, @floatCast(x));
-        const active_style = cimgui.c.igGetStyle();
-        active_style.* = style.*;
+        // Setup a new style and scale it appropriately. We must use the
+        // ImGuiStyle constructor to get proper default values (e.g.,
+        // CurveTessellationTol) rather than zero-initialized values.
+        var style: cimgui.c.ImGuiStyle = undefined;
+        cimgui.ext.ImGuiStyle_ImGuiStyle(&style);
+        cimgui.c.ImGuiStyle_ScaleAllSizes(&style, @floatCast(x));
+        const active_style = cimgui.c.ImGui_GetStyle();
+        active_style.* = style;
     }
 
     pub fn updateSize(self: *Inspector, width: u32, height: u32) void {
-        cimgui.c.igSetCurrentContext(self.ig_ctx);
-        const io: *cimgui.c.ImGuiIO = cimgui.c.igGetIO();
+        cimgui.c.ImGui_SetCurrentContext(self.ig_ctx);
+        const io: *cimgui.c.ImGuiIO = cimgui.c.ImGui_GetIO();
         io.DisplaySize = .{ .x = @floatFromInt(width), .y = @floatFromInt(height) };
     }
 
@@ -1093,8 +1095,8 @@ pub const Inspector = struct {
         _ = mods;
 
         self.queueRender();
-        cimgui.c.igSetCurrentContext(self.ig_ctx);
-        const io: *cimgui.c.ImGuiIO = cimgui.c.igGetIO();
+        cimgui.c.ImGui_SetCurrentContext(self.ig_ctx);
+        const io: *cimgui.c.ImGuiIO = cimgui.c.ImGui_GetIO();
 
         const imgui_button = switch (button) {
             .left => cimgui.c.ImGuiMouseButton_Left,
@@ -1115,8 +1117,8 @@ pub const Inspector = struct {
         _ = mods;
 
         self.queueRender();
-        cimgui.c.igSetCurrentContext(self.ig_ctx);
-        const io: *cimgui.c.ImGuiIO = cimgui.c.igGetIO();
+        cimgui.c.ImGui_SetCurrentContext(self.ig_ctx);
+        const io: *cimgui.c.ImGuiIO = cimgui.c.ImGui_GetIO();
         cimgui.c.ImGuiIO_AddMouseWheelEvent(
             io,
             @floatCast(xoff),
@@ -1126,8 +1128,8 @@ pub const Inspector = struct {
 
     pub fn cursorPosCallback(self: *Inspector, x: f64, y: f64) void {
         self.queueRender();
-        cimgui.c.igSetCurrentContext(self.ig_ctx);
-        const io: *cimgui.c.ImGuiIO = cimgui.c.igGetIO();
+        cimgui.c.ImGui_SetCurrentContext(self.ig_ctx);
+        const io: *cimgui.c.ImGuiIO = cimgui.c.ImGui_GetIO();
         cimgui.c.ImGuiIO_AddMousePosEvent(
             io,
             @floatCast(x * self.content_scale),
@@ -1137,15 +1139,15 @@ pub const Inspector = struct {
 
     pub fn focusCallback(self: *Inspector, focused: bool) void {
         self.queueRender();
-        cimgui.c.igSetCurrentContext(self.ig_ctx);
-        const io: *cimgui.c.ImGuiIO = cimgui.c.igGetIO();
+        cimgui.c.ImGui_SetCurrentContext(self.ig_ctx);
+        const io: *cimgui.c.ImGuiIO = cimgui.c.ImGui_GetIO();
         cimgui.c.ImGuiIO_AddFocusEvent(io, focused);
     }
 
     pub fn textCallback(self: *Inspector, text: [:0]const u8) void {
         self.queueRender();
-        cimgui.c.igSetCurrentContext(self.ig_ctx);
-        const io: *cimgui.c.ImGuiIO = cimgui.c.igGetIO();
+        cimgui.c.ImGui_SetCurrentContext(self.ig_ctx);
+        const io: *cimgui.c.ImGuiIO = cimgui.c.ImGui_GetIO();
         cimgui.c.ImGuiIO_AddInputCharactersUTF8(io, text.ptr);
     }
 
@@ -1156,8 +1158,8 @@ pub const Inspector = struct {
         mods: input.Mods,
     ) !void {
         self.queueRender();
-        cimgui.c.igSetCurrentContext(self.ig_ctx);
-        const io: *cimgui.c.ImGuiIO = cimgui.c.igGetIO();
+        cimgui.c.ImGui_SetCurrentContext(self.ig_ctx);
+        const io: *cimgui.c.ImGuiIO = cimgui.c.ImGui_GetIO();
 
         // Update all our modifiers
         cimgui.c.ImGuiIO_AddKeyEvent(io, cimgui.c.ImGuiKey_LeftShift, mods.shift);
@@ -1176,7 +1178,7 @@ pub const Inspector = struct {
     }
 
     fn newFrame(self: *Inspector) !void {
-        const io: *cimgui.c.ImGuiIO = cimgui.c.igGetIO();
+        const io: *cimgui.c.ImGuiIO = cimgui.c.ImGui_GetIO();
 
         // Determine our delta time
         const now = try std.time.Instant.now();
