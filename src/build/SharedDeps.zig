@@ -484,6 +484,7 @@ pub fn add(
         .optimize = optimize,
         .@"backend-metal" = target.result.os.tag.isDarwin(),
         .@"backend-osx" = target.result.os.tag == .macos,
+        .@"backend-opengl3" = target.result.os.tag != .macos,
     })) |dep| {
         step.root_module.addImport("dcimgui", dep.module("dcimgui"));
         step.linkLibrary(dep.artifact("dcimgui"));

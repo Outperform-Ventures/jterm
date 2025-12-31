@@ -1,7 +1,7 @@
 const std = @import("std");
 const assert = @import("../../../quirks.zig").inlineAssert;
 
-const cimgui = @import("cimgui");
+const cimgui = @import("dcimgui");
 const gl = @import("opengl");
 const adw = @import("adw");
 const gdk = @import("gdk");
