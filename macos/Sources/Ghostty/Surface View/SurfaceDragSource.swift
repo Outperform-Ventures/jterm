@@ -104,7 +104,11 @@ extension Ghostty {
         
         /// Whether the current drag was cancelled by pressing escape.
         private var dragCancelledByEscape: Bool = false
-        
+
+        /// Original value of `window.isMovable` to restore
+        /// when the mouse exits.
+        private var isWindowMovable: Bool?
+
         deinit {
             if let escapeMonitor {
                 NSEvent.removeMonitor(escapeMonitor)
@@ -131,10 +135,18 @@ extension Ghostty {
         }
         
         override func mouseEntered(with event: NSEvent) {
+            // Temporarily disable `isMovable` to fix
+            // https://github.com/ghostty-org/ghostty/issues/10110
+            isWindowMovable = window?.isMovable
+            window?.isMovable = false
             onHoverChanged?(true)
         }
         
         override func mouseExited(with event: NSEvent) {
+            if let isWindowMovable {
+                window?.isMovable = isWindowMovable
+                self.isWindowMovable = nil
+            }
             onHoverChanged?(false)
         }
         
