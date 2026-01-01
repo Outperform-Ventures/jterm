@@ -5819,3 +5819,57 @@ test "Page codepoint_map empty map" {
     const output = builder.writer.buffered();
     try testing.expectEqualStrings("hello world", output);
 }
+
+test "Page VT background color on trailing blank cells" {
+    // This test reproduces a bug where trailing cells with background color
+    // but no text are emitted as plain spaces without SGR sequences.
+    // This causes TUIs like htop to lose background colors on rehydration.
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var builder: std.Io.Writer.Allocating = .init(alloc);
+    defer builder.deinit();
+
+    var t = try Terminal.init(alloc, .{
+        .cols = 20,
+        .rows = 5,
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+
+    // Simulate a TUI row: "CPU:" with text, then trailing cells with red background
+    // to end of line (no text after the colored region).
+    // \x1b[41m sets red background, then EL fills rest of row with that bg.
+    try s.nextSlice("CPU:\x1b[41m\x1b[K");
+    // Reset colors and move to next line with different content
+    try s.nextSlice("\x1b[0m\r\nline2");
+
+    const pages = &t.screens.active.pages;
+    const page = &pages.pages.last.?.data;
+
+    var formatter: PageFormatter = .init(page, .vt);
+    formatter.opts.trim = false; // Don't trim so we can see the trailing behavior
+
+    try formatter.format(&builder.writer);
+    const output = builder.writer.buffered();
+
+    // The output should preserve the red background SGR for trailing cells on line 1.
+    // Bug: the first row outputs "CPU:\r\n" only - losing the background color fill.
+    // The red background should appear BEFORE the newline, not after.
+
+    // Find position of CRLF
+    const crlf_pos = std.mem.indexOf(u8, output, "\r\n") orelse {
+        // No CRLF found, fail the test
+        return error.TestUnexpectedResult;
+    };
+
+    // Check that red background (48;5;1) appears BEFORE the newline (on line 1)
+    const line1 = output[0..crlf_pos];
+    const has_red_bg_line1 = std.mem.indexOf(u8, line1, "\x1b[41m") != null or
+        std.mem.indexOf(u8, line1, "\x1b[48;5;1m") != null;
+
+    // This should be true but currently fails due to the bug
+    try testing.expect(has_red_bg_line1);
+}
