@@ -1181,16 +1181,9 @@ extension Ghostty {
 
         /// Special case handling for some control keys
         override func performKeyEquivalent(with event: NSEvent) -> Bool {
-            switch (event.type) {
-            case .keyDown:
-                // Continue, we care about key down events
-                break
-
-            default:
-                // Any other key event we don't care about. I don't think its even
-                // possible to receive any other event type.
-                return false
-            }
+            // We only care about key down events. It might not even be possible
+            // to receive any other event type here.
+            guard event.type == .keyDown else { return false }
 
             // Only process events if we're focused. Some key events like C-/ macOS
             // appears to send to the first view in the hierarchy rather than the
