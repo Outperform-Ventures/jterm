@@ -2783,6 +2783,22 @@ keybind: Keybinds = .{},
 ///    the same time as the `iTime` uniform, allowing you to compute the
 ///    time since the change by subtracting this from `iTime`.
 ///
+///  * `float iTimeFocus` - Timestamp when the surface last gained iFocus.
+///
+///    When the surface gains focus, this is set to the current value of
+///    `iTime`, similar to how `iTimeCursorChange` works. This allows you
+///    to compute the time since focus was gained or lost by calculating
+///    `iTime - iTimeFocus`. Use this to create animations that restart
+///    when the terminal regains focus.
+///
+///  * `int iFocus` - Current focus state of the surface.
+///
+///    Set to 1.0 when the surface is focused, 0.0 when unfocused. This
+///    allows shaders to detect unfocused state and avoid animation artifacts
+///    from large time deltas caused by infrequent "deceptive frames"
+///    (e.g., modifier key presses, link hover events in unfocused split panes).
+///    Check `iFocus > 0` to determine if the surface is currently focused.
+///
 /// If the shader fails to compile, the shader will be ignored. Any errors
 /// related to shader compilation will not show up as configuration errors
 /// and only show up in the log, since shader compilation happens after
