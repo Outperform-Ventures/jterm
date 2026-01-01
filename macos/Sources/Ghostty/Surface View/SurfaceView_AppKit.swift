@@ -1195,7 +1195,15 @@ extension Ghostty {
                 return false
             }
 
-            // If this event as-is would result in a key binding then we send it.
+            // Let the menu system handle this event if we're not in a key sequence or key table.
+            // This allows the menu bar to flash for shortcuts like Command+V.
+            if keySequence.isEmpty && keyTables.isEmpty {
+                if let menu = NSApp.mainMenu, menu.performKeyEquivalent(with: event) {
+                    return true
+                }
+            }
+
+            // If the menu didn't handle it, check Ghostty bindings for custom shortcuts.
             if let surface {
                 var ghosttyEvent = event.ghosttyKeyEvent(GHOSTTY_ACTION_PRESS)
                 let match = (event.characters ?? "").withCString { ptr in
@@ -2209,7 +2217,7 @@ extension Ghostty.SurfaceView {
 
         return NSAttributedString(string: plainString, attributes: attributes)
     }
-    
+
 }
 
 /// Caches a value for some period of time, evicting it automatically when that time expires.
