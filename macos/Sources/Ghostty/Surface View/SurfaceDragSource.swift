@@ -105,22 +105,30 @@ extension Ghostty {
         /// Whether the current drag was cancelled by pressing escape.
         private var dragCancelledByEscape: Bool = false
 
-        /// Original value of `window.isMovable` to restore
-        /// when the mouse exits.
-        private var isWindowMovable: Bool?
-
         deinit {
             if let escapeMonitor {
                 NSEvent.removeMonitor(escapeMonitor)
             }
         }
-        
+
+        override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+            // Ensure this view gets the mouse event before window dragging handlers
+            return true
+        }
+
+        override func mouseDown(with event: NSEvent) {
+            // Consume the mouseDown event to prevent it from propagating to the
+            // window's drag handler. This fixes issue #10110 where grab handles
+            // would drag the window instead of initiating pane drags.
+            // Don't call super - the drag will be initiated in mouseDragged.
+        }
+
         override func updateTrackingAreas() {
             super.updateTrackingAreas()
-            
+
             // To update our tracking area we just recreate it all.
             trackingAreas.forEach { removeTrackingArea($0) }
-            
+
             // Add our tracking area for mouse events
             addTrackingArea(NSTrackingArea(
                 rect: bounds,
@@ -135,18 +143,10 @@ extension Ghostty {
         }
         
         override func mouseEntered(with event: NSEvent) {
-            // Temporarily disable `isMovable` to fix
-            // https://github.com/ghostty-org/ghostty/issues/10110
-            isWindowMovable = window?.isMovable
-            window?.isMovable = false
             onHoverChanged?(true)
         }
         
         override func mouseExited(with event: NSEvent) {
-            if let isWindowMovable {
-                window?.isMovable = isWindowMovable
-                self.isWindowMovable = nil
-            }
             onHoverChanged?(false)
         }
         
@@ -237,7 +237,7 @@ extension Ghostty {
                 NSEvent.removeMonitor(escapeMonitor)
                 self.escapeMonitor = nil
             }
-            
+
             if operation == [] && !dragCancelledByEscape {
                 let endsInWindow = NSApplication.shared.windows.contains { window in
                     window.isVisible && window.frame.contains(screenPoint)
@@ -250,7 +250,7 @@ extension Ghostty {
                     )
                 }
             }
-            
+
             isTracking = false
             onDragStateChanged?(false)
         }
