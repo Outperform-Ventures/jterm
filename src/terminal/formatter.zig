@@ -1042,6 +1042,13 @@ pub const PageFormatter = struct {
             }
 
             if (blank_rows > 0) {
+                // Reset style before emitting newlines to prevent background
+                // colors from bleeding into the next line's leading cells.
+                if (!style.default()) {
+                    try self.formatStyleClose(writer);
+                    style = .{};
+                }
+
                 const sequence: []const u8 = switch (self.opts.emit) {
                     // Plaintext just uses standard newlines because newlines
                     // on their own usually move the cursor back in anywhere
