@@ -1113,12 +1113,16 @@ pub const PageFormatter = struct {
 
                 // If we have a zero value, then we accumulate a counter. We
                 // only want to turn zero values into spaces if we have a non-zero
-                // char sometime later.
-                if (!cell.hasText()) {
+                // char sometime later. However, for styled formats (VT, HTML), if
+                // the cell has styling (e.g., background color), we must emit it
+                // to preserve the visual appearance.
+                const dominated_by_style = self.opts.emit.styled() and
+                    (!cell.isEmpty() or cell.hasStyling());
+                if (!dominated_by_style and !cell.hasText()) {
                     blank_cells += 1;
                     continue;
                 }
-                if (cell.codepoint() == ' ' and self.opts.trim) {
+                if (cell.codepoint() == ' ' and self.opts.trim and !dominated_by_style) {
                     blank_cells += 1;
                     continue;
                 }
@@ -1215,24 +1219,46 @@ pub const PageFormatter = struct {
                             }
                         }
 
-                        try self.writeCell(tag, writer, cell);
+                        // For styled cells without text, emit a space to carry the styling
+                        if (cell.hasText()) {
+                            try self.writeCell(tag, writer, cell);
+                        } else {
+                            try writer.writeByte(' ');
+                        }
 
                         // If we have a point map, all codepoints map to this
                         // cell.
                         if (self.point_map) |*map| {
-                            var discarding: std.Io.Writer.Discarding = .init(&.{});
-                            try self.writeCell(tag, &discarding.writer, cell);
-                            for (0..discarding.count) |_| map.map.append(map.alloc, .{
+                            const byte_count: usize = if (cell.hasText()) count: {
+                                var discarding: std.Io.Writer.Discarding = .init(&.{});
+                                try self.writeCell(tag, &discarding.writer, cell);
+                                break :count discarding.count;
+                            } else 1;
+                            for (0..byte_count) |_| map.map.append(map.alloc, .{
                                 .x = x,
                                 .y = y,
                             }) catch return error.WriteFailed;
                         }
                     },
 
-                    // Unreachable since we do hasText() above
-                    .bg_color_palette,
-                    .bg_color_rgb,
-                    => unreachable,
+                    // Cells with only background color (no text). Emit a space
+                    // with the appropriate background color SGR sequence.
+                    .bg_color_palette => {
+                        const index = cell.content.color_palette;
+                        try self.emitBgColorSgr(writer, index, null, &style);
+                        try writer.writeByte(' ');
+                        if (self.point_map) |*map| {
+                            map.map.append(map.alloc, .{ .x = x, .y = y }) catch return error.WriteFailed;
+                        }
+                    },
+                    .bg_color_rgb => {
+                        const rgb = cell.content.color_rgb;
+                        try self.emitBgColorSgr(writer, null, rgb, &style);
+                        try writer.writeByte(' ');
+                        if (self.point_map) |*map| {
+                            map.map.append(map.alloc, .{ .x = x, .y = y }) catch return error.WriteFailed;
+                        }
+                    },
                 }
             }
         }
@@ -1344,6 +1370,55 @@ pub const PageFormatter = struct {
                         }
                     },
                 }
+            },
+        }
+    }
+
+    /// Emit background color SGR sequence for bg_color_* content tags.
+    /// Updates the style tracking to reflect the emitted background.
+    fn emitBgColorSgr(
+        self: PageFormatter,
+        writer: *std.Io.Writer,
+        palette_index: ?u8,
+        rgb: ?Cell.RGB,
+        style: *Style,
+    ) std.Io.Writer.Error!void {
+        switch (self.opts.emit) {
+            .plain => {},
+            .vt => {
+                // Close previous style if non-default
+                if (!style.default()) try writer.writeAll("\x1b[0m");
+                // Emit background color
+                if (palette_index) |idx| {
+                    try writer.print("\x1b[48;5;{d}m", .{idx});
+                } else if (rgb) |c| {
+                    try writer.print("\x1b[48;2;{d};{d};{d}m", .{ c.r, c.g, c.b });
+                }
+                // Update style tracking - set bg_color so we know to reset later
+                style.* = .{};
+                style.bg_color = if (palette_index) |idx|
+                    .{ .palette = idx }
+                else if (rgb) |c|
+                    .{ .rgb = .{ .r = c.r, .g = c.g, .b = c.b } }
+                else
+                    .none;
+            },
+            .html => {
+                // Close previous tag if needed
+                if (!style.default()) try writer.writeAll("</div>");
+                // Emit background color as inline style
+                if (palette_index) |idx| {
+                    try writer.print("<div style=\"display: inline;background-color: var(--vt-palette-{d});\">", .{idx});
+                } else if (rgb) |c| {
+                    try writer.print("<div style=\"display: inline;background-color: #{x:0>2}{x:0>2}{x:0>2};\">", .{ c.r, c.g, c.b });
+                }
+                style.* = .{};
+                style.bg_color = if (palette_index) |idx|
+                    .{ .palette = idx }
+                else if (rgb) |c|
+                    .{ .rgb = .{ .r = c.r, .g = c.g, .b = c.b } }
+                else
+                    .none;
             },
         }
     }
