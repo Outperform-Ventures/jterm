@@ -34,7 +34,9 @@ pub fn main() !void {
     var buf: [4096]u8 = undefined;
     var stdout = std.fs.File.stdout().writer(&buf);
     try t.writeZig(&stdout.interface);
-    try stdout.end();
+    // Use flush instead of end because stdout is a pipe when captured by
+    // the build system, and pipes cannot be truncated (especially on Windows).
+    try stdout.interface.flush();
 
     // Uncomment when manually debugging to see our table sizes.
     // std.log.warn("stage1={} stage2={} stage3={}", .{
