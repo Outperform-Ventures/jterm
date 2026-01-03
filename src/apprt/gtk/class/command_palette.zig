@@ -192,10 +192,14 @@ pub const CommandPalette = extern struct {
             // for GTK.
             if (!isActionSupportedOnGtk(command.action)) continue;
 
-            const cmd = Command.new(config, command);
+            const cmd = Command.new(config, command) catch |err| {
+                log.warn("failed to create command: {}", .{err});
+                continue;
+            };
+            errdefer cmd.unref();
+
             commands.append(alloc, cmd) catch |err| {
                 log.warn("failed to add command to list: {}", .{err});
-                cmd.unref();
                 continue;
             };
         }
@@ -227,21 +231,11 @@ pub const CommandPalette = extern struct {
         const app = Application.default();
         const alloc = app.allocator();
 
-        // Collect all surfaces from all windows
-        var surfaces = app.collectAllSurfaces(alloc) catch |err| {
-            log.warn("failed to collect surfaces for jump commands: {}", .{err});
-            return;
-        };
-        defer {
-            for (surfaces.items) |info| {
-                info.surface.unref();
-                info.window.unref();
-            }
-            surfaces.deinit(alloc);
-        }
-
-        for (surfaces.items) |info| {
-            const cmd = Command.newJump(config, info.surface, info.window);
+        // Get all surfaces from the core app
+        const core_app = app.core();
+        for (core_app.surfaces.items) |apprt_surface| {
+            const surface = apprt_surface.gobj();
+            const cmd = Command.newJump(config, surface);
             errdefer cmd.unref();
             try commands.append(alloc, cmd);
         }
@@ -361,8 +355,7 @@ pub const CommandPalette = extern struct {
         // Handle jump commands differently
         if (cmd.isJump()) {
             const surface = cmd.getJumpSurface() orelse return;
-            const window = cmd.getJumpWindow() orelse return;
-            focusSurface(surface, window);
+            surface.present();
             return;
         }
 
@@ -565,23 +558,20 @@ const Command = extern struct {
 
         pub const JumpData = struct {
             surface: *Surface,
-            window: *Window,
             title: ?[:0]const u8 = null,
             description: ?[:0]const u8 = null,
             sort_key: usize,
         };
     };
 
-    pub fn new(config: *Config, command: input.Command) *Self {
+    pub fn new(config: *Config, command: input.Command) Allocator.Error!*Self {
         const self = gobject.ext.newInstance(Self, .{
             .config = config,
         });
+        errdefer self.unref();
 
         const priv = self.private();
-        const cloned = command.clone(priv.arena.allocator()) catch {
-            self.unref();
-            return undefined;
-        };
+        const cloned = try command.clone(priv.arena.allocator());
 
         priv.data = .{
             .regular = .{
@@ -593,7 +583,7 @@ const Command = extern struct {
     }
 
     /// Create a new jump command that focuses a specific surface.
-    pub fn newJump(config: *Config, surface: *Surface, window: *Window) *Self {
+    pub fn newJump(config: *Config, surface: *Surface) *Self {
         const self = gobject.ext.newInstance(Self, .{
             .config = config,
         });
@@ -602,7 +592,6 @@ const Command = extern struct {
         priv.data = .{
             .jump = .{
                 .surface = surface.ref(),
-                .window = window.ref(),
                 .sort_key = @intFromPtr(surface),
             },
         };
@@ -631,7 +620,6 @@ const Command = extern struct {
             .regular => {},
             .jump => |*j| {
                 j.surface.unref();
-                j.window.unref();
             },
         }
 
@@ -774,15 +762,6 @@ const Command = extern struct {
         };
     }
 
-    /// Get the jump window.
-    pub fn getJumpWindow(self: *Self) ?*Window {
-        const priv = self.private();
-        return switch (priv.data) {
-            .regular => null,
-            .jump => |*j| j.window,
-        };
-    }
-
     //---------------------------------------------------------------
 
     const C = Common(Self, Private);
@@ -810,43 +789,3 @@ const Command = extern struct {
         }
     };
 };
-
-/// Focus a surface in a window, bringing the window to front and switching
-/// to the appropriate tab if needed.
-fn focusSurface(surface: *Surface, window: *Window) void {
-    window.as(gtk.Window).present();
-
-    // Find the tab containing this surface
-    const tab_view = window.getTabView();
-    const n = tab_view.getNPages();
-    if (n < 0) return;
-
-    for (0..@intCast(n)) |i| {
-        const page = tab_view.getNthPage(@intCast(i));
-        const child = page.getChild();
-        const tab = gobject.ext.cast(Tab, child) orelse continue;
-
-        // Check if this tab contains the surface
-        const tree = tab.getSurfaceTree() orelse continue;
-        var it = tree.iterator();
-        var found = false;
-        while (it.next()) |entry| {
-            if (entry.view == surface) {
-                found = true;
-                break;
-            }
-        }
-
-        if (found) {
-            // Switch to this tab
-            tab_view.setSelectedPage(page);
-
-            // Look up the split tree and update last focused surface
-            const split_tree = tab.getSplitTree();
-            split_tree.setLastFocusedSurface(surface);
-
-            surface.grabFocus();
-            break;
-        }
-    }
-}

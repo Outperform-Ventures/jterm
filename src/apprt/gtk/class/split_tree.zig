@@ -478,12 +478,6 @@ pub const SplitTree = extern struct {
         return surface;
     }
 
-    /// Sets the last focused surface in the tree. This is used to track
-    /// which surface should be considered "active" for the split tree.
-    pub fn setLastFocusedSurface(self: *Self, surface: ?*Surface) void {
-        self.private().last_focused.set(surface);
-    }
-
     /// Returns whether any of the surfaces in the tree have a parent.
     /// This is important because we can only rebuild the widget tree
     /// when every surface has no parent.

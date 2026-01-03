@@ -1176,36 +1176,6 @@ pub const Application = extern struct {
         return self.private().config.ref();
     }
 
-    /// Collect all surfaces from all windows in the application.
-    /// The caller must unref each surface and window and deinit the list.
-    pub fn collectAllSurfaces(
-        self: *Self,
-        alloc: Allocator,
-    ) !std.ArrayList(Window.SurfaceInfo) {
-        var all_surfaces: std.ArrayList(Window.SurfaceInfo) = .{};
-        errdefer {
-            for (all_surfaces.items) |info| {
-                info.surface.unref();
-                info.window.unref();
-            }
-            all_surfaces.deinit(alloc);
-        }
-
-        const windows = self.as(gtk.Application).getWindows();
-        var it: ?*glib.List = windows;
-        while (it) |node| : (it = node.f_next) {
-            const window_widget = @as(*gtk.Window, @ptrCast(@alignCast(node.f_data)));
-            const window = gobject.ext.cast(Window, window_widget) orelse continue;
-
-            var window_surfaces = try window.collectSurfaces(alloc);
-            defer window_surfaces.deinit(alloc);
-
-            try all_surfaces.appendSlice(alloc, window_surfaces.items);
-        }
-
-        return all_surfaces;
-    }
-
     /// Set the configuration for this application. The reference count
     /// is increased on the new configuration and the old one is
     /// unreferenced.
