@@ -804,6 +804,58 @@ pub const Window = extern struct {
         return self.private().config;
     }
 
+    /// Information about a surface in a window.
+    pub const SurfaceInfo = struct {
+        surface: *Surface,
+        window: *Window,
+    };
+
+    /// Collect all surfaces from all tabs in this window.
+    /// The caller must unref each surface and window when done.
+    pub fn collectSurfaces(
+        self: *Self,
+        alloc: std.mem.Allocator,
+    ) !std.ArrayList(SurfaceInfo) {
+        var surfaces: std.ArrayList(SurfaceInfo) = .{};
+        errdefer {
+            for (surfaces.items) |info| {
+                info.surface.unref();
+                info.window.unref();
+            }
+            surfaces.deinit(alloc);
+        }
+
+        const priv = self.private();
+        const n = priv.tab_view.getNPages();
+        if (n < 0) return surfaces;
+
+        for (0..@intCast(n)) |i| {
+            const page = priv.tab_view.getNthPage(@intCast(i));
+            const child = page.getChild();
+            const tab = gobject.ext.cast(Tab, child) orelse {
+                log.warn("unexpected non-Tab child in tab view", .{});
+                continue;
+            };
+
+            const tree = tab.getSurfaceTree() orelse continue;
+
+            var it = tree.iterator();
+            while (it.next()) |entry| {
+                try surfaces.append(alloc, .{
+                    .surface = entry.view.ref(),
+                    .window = self.ref(),
+                });
+            }
+        }
+
+        return surfaces;
+    }
+
+    /// Get the tab view for this window.
+    pub fn getTabView(self: *Self) *adw.TabView {
+        return self.private().tab_view;
+    }
+
     /// Get the current window decoration value for this window.
     pub fn getWindowDecoration(self: *Self) configpkg.WindowDecoration {
         const priv = self.private();
