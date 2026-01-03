@@ -88,7 +88,8 @@ pub fn main() !void {
     var stdout = std.fs.File.stdout().writer(&buf);
     try t.writeZig(&stdout.interface);
     // Use flush instead of end because stdout is a pipe when captured by
-    // the build system, and pipes cannot be truncated (especially on Windows).
+    // the build system, and pipes cannot be truncated (Windows returns
+    // INVALID_PARAMETER, Linux returns EINVAL).
     try stdout.interface.flush();
 
     // Uncomment when manually debugging to see our table sizes.
