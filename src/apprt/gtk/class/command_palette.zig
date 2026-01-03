@@ -708,15 +708,7 @@ const Command = extern struct {
                 if (j.title) |title| return title;
 
                 const alloc = priv.arena.allocator();
-
-                var val = gobject.ext.Value.new(?[:0]const u8);
-                defer val.unset();
-                gobject.Object.getProperty(
-                    j.surface.as(gobject.Object),
-                    "title",
-                    &val,
-                );
-                const surface_title = gobject.ext.Value.get(&val, ?[:0]const u8) orelse "Untitled";
+                const surface_title = j.surface.getTitle() orelse "Untitled";
 
                 j.title = std.fmt.allocPrintSentinel(
                     alloc,
@@ -740,23 +732,8 @@ const Command = extern struct {
 
                 const alloc = priv.arena.allocator();
 
-                var title_val = gobject.ext.Value.new(?[:0]const u8);
-                defer title_val.unset();
-                gobject.Object.getProperty(
-                    j.surface.as(gobject.Object),
-                    "title",
-                    &title_val,
-                );
-                const title = gobject.ext.Value.get(&title_val, ?[:0]const u8) orelse "Untitled";
-
-                var pwd_val = gobject.ext.Value.new(?[:0]const u8);
-                defer pwd_val.unset();
-                gobject.Object.getProperty(
-                    j.surface.as(gobject.Object),
-                    "pwd",
-                    &pwd_val,
-                );
-                const pwd = gobject.ext.Value.get(&pwd_val, ?[:0]const u8);
+                const title = j.surface.getTitle() orelse "Untitled";
+                const pwd = j.surface.getPwd();
 
                 if (pwd) |p| {
                     if (std.mem.indexOf(u8, title, p) == null) {
