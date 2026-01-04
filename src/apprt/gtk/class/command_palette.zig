@@ -10,6 +10,7 @@ const gtk = @import("gtk");
 const input = @import("../../../input.zig");
 const gresource = @import("../build/gresource.zig");
 const key = @import("../key.zig");
+const WeakRef = @import("../weak_ref.zig").WeakRef;
 const Common = @import("../class.zig").Common;
 const Application = @import("application.zig").Application;
 const Window = @import("window.zig").Window;
@@ -355,6 +356,7 @@ pub const CommandPalette = extern struct {
         // Handle jump commands differently
         if (cmd.isJump()) {
             const surface = cmd.getJumpSurface() orelse return;
+            defer surface.unref();
             surface.present();
             return;
         }
@@ -557,7 +559,7 @@ const Command = extern struct {
         };
 
         pub const JumpData = struct {
-            surface: *Surface,
+            surface: WeakRef(Surface) = .empty,
             title: ?[:0]const u8 = null,
             description: ?[:0]const u8 = null,
             sort_key: usize,
@@ -591,10 +593,10 @@ const Command = extern struct {
         const priv = self.private();
         priv.data = .{
             .jump = .{
-                .surface = surface.ref(),
                 .sort_key = @intFromPtr(surface),
             },
         };
+        priv.data.jump.surface.set(surface);
 
         return self;
     }
@@ -619,7 +621,7 @@ const Command = extern struct {
         switch (priv.data) {
             .regular => {},
             .jump => |*j| {
-                j.surface.unref();
+                j.surface.set(null);
             },
         }
 
@@ -695,8 +697,11 @@ const Command = extern struct {
             .jump => |*j| {
                 if (j.title) |title| return title;
 
+                const surface = j.surface.get() orelse return null;
+                defer surface.unref();
+
                 const alloc = priv.arena.allocator();
-                const surface_title = j.surface.getTitle() orelse "Untitled";
+                const surface_title = surface.getTitle() orelse "Untitled";
 
                 j.title = std.fmt.allocPrintSentinel(
                     alloc,
@@ -718,10 +723,13 @@ const Command = extern struct {
             .jump => |*j| {
                 if (j.description) |desc| return desc;
 
+                const surface = j.surface.get() orelse return null;
+                defer surface.unref();
+
                 const alloc = priv.arena.allocator();
 
-                const title = j.surface.getTitle() orelse "Untitled";
-                const pwd = j.surface.getPwd();
+                const title = surface.getTitle() orelse "Untitled";
+                const pwd = surface.getPwd();
 
                 if (pwd) |p| {
                     if (std.mem.indexOf(u8, title, p) == null) {
@@ -753,12 +761,13 @@ const Command = extern struct {
         return priv.data == .jump;
     }
 
-    /// Get the jump surface.
+    /// Get the jump surface. Returns a strong reference that the caller
+    /// must unref when done, or null if the surface has been destroyed.
     pub fn getJumpSurface(self: *Self) ?*Surface {
         const priv = self.private();
         return switch (priv.data) {
             .regular => null,
-            .jump => |*j| j.surface,
+            .jump => |*j| j.surface.get(),
         };
     }
 
