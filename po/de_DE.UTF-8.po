@@ -3,6 +3,7 @@
 # Copyright (C) 2025 Mitchell Hashimoto, Ghostty contributors
 # This file is distributed under the same license as the com.mitchellh.ghostty package.
 # Robin Pfäffle <r@rpfaeffle.com>, 2025.
+# Jan Klass <kissaki@posteo.de>, 2026.
 #
 msgid ""
 msgstr ""
@@ -320,4 +321,4 @@ msgstr "Ghostty-Entwickler"
 
 #: src/apprt/gtk/inspector.zig:144
 msgid "Ghostty: Terminal Inspector"
-msgstr ""
+msgstr "Ghostty: Terminal Inspektor"
