@@ -390,8 +390,8 @@ pub const Shaper = struct {
         var cell_offset: CellOffset = .{};
 
         // For debugging positions, turn this on:
-        var run_offset_y: f64 = 0.0;
-        var cell_offset_y: f64 = 0.0;
+        //var run_offset_y: f64 = 0.0;
+        //var cell_offset_y: f64 = 0.0;
 
         // Clear our cell buf and make sure we have enough room for the whole
         // line of glyphs, so that we can just assume capacity when appending
@@ -449,11 +449,11 @@ pub const Shaper = struct {
                     };
 
                     // For debugging positions, turn this on:
-                    cell_offset_y = run_offset_y;
+                    //cell_offset_y = run_offset_y;
                 }
 
                 // For debugging positions, turn this on:
-                try self.debugPositions(alloc, run_offset_x, run_offset_y, cell_offset, cell_offset_y, position, index);
+                //try self.debugPositions(alloc, run_offset_x, run_offset_y, cell_offset, cell_offset_y, position, index);
 
                 const x_offset = position.x - cell_offset.x;
 
@@ -469,7 +469,7 @@ pub const Shaper = struct {
                 run_offset_x += advance.width;
 
                 // For debugging positions, turn this on:
-                run_offset_y += advance.height;
+                //run_offset_y += advance.height;
             }
         }
 
