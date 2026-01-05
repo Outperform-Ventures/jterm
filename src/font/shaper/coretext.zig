@@ -382,15 +382,16 @@ pub const Shaper = struct {
         const line = typesetter.createLine(.{ .location = 0, .length = 0 });
         self.cf_release_pool.appendAssumeCapacity(line);
 
-        // This keeps track of the current x offset within a run.
+        // This keeps track of the current x offset (sum of advance.width) for
+        // a run.
         var run_offset_x: f64 = 0.0;
 
-        // This keeps track of the current x offset and cluster for a cell.
+        // This keeps track of the cell starting x and cluster.
         var cell_offset: CellOffset = .{};
 
         // For debugging positions, turn this on:
-        //var run_offset_y: f64 = 0.0;
-        //var cell_offset_y: f64 = 0.0;
+        var run_offset_y: f64 = 0.0;
+        var cell_offset_y: f64 = 0.0;
 
         // Clear our cell buf and make sure we have enough room for the whole
         // line of glyphs, so that we can just assume capacity when appending
@@ -448,11 +449,11 @@ pub const Shaper = struct {
                     };
 
                     // For debugging positions, turn this on:
-                    //cell_offset_y = run_offset_y;
+                    cell_offset_y = run_offset_y;
                 }
 
                 // For debugging positions, turn this on:
-                //try self.debugPositions(alloc, run_offset_x, run_offset_y, cell_offset, cell_offset_y, position, index);
+                try self.debugPositions(alloc, run_offset_x, run_offset_y, cell_offset, cell_offset_y, position, index);
 
                 const x_offset = position.x - cell_offset.x;
 
@@ -468,7 +469,7 @@ pub const Shaper = struct {
                 run_offset_x += advance.width;
 
                 // For debugging positions, turn this on:
-                //run_offset_y += advance.height;
+                run_offset_y += advance.height;
             }
         }
 
@@ -654,21 +655,31 @@ pub const Shaper = struct {
         const advance_y_offset = run_offset_y - cell_offset_y;
         const x_offset_diff = x_offset - advance_x_offset;
         const y_offset_diff = position.y - advance_y_offset;
+        const positions_differ = @abs(x_offset_diff) > 0.0001 or @abs(y_offset_diff) > 0.0001;
+        const old_offset_y = position.y - cell_offset_y;
+        const position_y_differs = @abs(cell_offset_y) > 0.0001;
 
-        if (@abs(x_offset_diff) > 0.0001 or @abs(y_offset_diff) > 0.0001) {
+        if (positions_differ or position_y_differs) {
             var allocating = std.Io.Writer.Allocating.init(alloc);
             const writer = &allocating.writer;
             const codepoints = state.codepoints.items;
+            var last_cluster: ?u32 = null;
             for (codepoints) |cp| {
-                if (cp.cluster == cell_offset.cluster and
+                if ((cp.cluster == cell_offset.cluster or cp.cluster == cell_offset.cluster - 1 or cp.cluster == cell_offset.cluster + 1) and
                     cp.codepoint != 0 // Skip surrogate pair padding
                 ) {
+                    if (last_cluster) |last| {
+                        if (cp.cluster != last) {
+                            try writer.writeAll(" ");
+                        }
+                    }
                     try writer.print("\\u{{{x}}}", .{cp.codepoint});
+                    last_cluster = cp.cluster;
                 }
             }
             try writer.writeAll(" → ");
             for (codepoints) |cp| {
-                if (cp.cluster == cell_offset.cluster and
+                if ((cp.cluster == cell_offset.cluster or cp.cluster == cell_offset.cluster - 1 or cp.cluster == cell_offset.cluster + 1) and
                     cp.codepoint != 0 // Skip surrogate pair padding
                 ) {
                     try writer.print("{u}", .{@as(u21, @intCast(cp.codepoint))});
@@ -676,27 +687,34 @@ pub const Shaper = struct {
             }
             const formatted_cps = try allocating.toOwnedSlice();
 
-            // Note that the codepoints from `start_index .. end_index + 1`
-            // might not include all the codepoints being shaped. Sometimes a
-            // codepoint gets represented in a glyph with a later codepoint
-            // such that the index for the former codepoint is skipped and just
-            // the index for the latter codepoint is used. Additionally, this
-            // gets called as we iterate through the glyphs, so it won't
-            // include the codepoints that come later that might be affecting
-            // positions for the current glyph. Usually though, for that case
-            // the positions of the later glyphs will also be affected and show
-            // up in the logs.
-            log.warn("position differs from advance: cluster={d} pos=({d:.2},{d:.2}) adv=({d:.2},{d:.2}) diff=({d:.2},{d:.2}) current cp={x}, cps={s}", .{
-                cell_offset.cluster,
-                x_offset,
-                position.y,
-                advance_x_offset,
-                advance_y_offset,
-                x_offset_diff,
-                y_offset_diff,
-                state.codepoints.items[index].codepoint,
-                formatted_cps,
-            });
+            if (positions_differ) {
+                log.warn("position differs from advance: cluster={d} pos=({d:.2},{d:.2}) adv=({d:.2},{d:.2}) diff=({d:.2},{d:.2}) current cp={x}, cps={s}", .{
+                    cell_offset.cluster,
+                    x_offset,
+                    position.y,
+                    advance_x_offset,
+                    advance_y_offset,
+                    x_offset_diff,
+                    y_offset_diff,
+                    state.codepoints.items[index].codepoint,
+                    formatted_cps,
+                });
+            }
+
+            if (position_y_differs) {
+                log.warn("position.y differs from old offset.y: cluster={d} pos=({d:.2},{d:.2}) run_offset=({d:.2},{d:.2}) cell_offset=({d:.2},{d:.2}) old offset.y={d:.2} current cp={x}, cps={s}", .{
+                    cell_offset.cluster,
+                    x_offset,
+                    position.y,
+                    run_offset_x,
+                    run_offset_y,
+                    cell_offset.x,
+                    cell_offset_y,
+                    old_offset_y,
+                    state.codepoints.items[index].codepoint,
+                    formatted_cps,
+                });
+            }
         }
     }
 };
