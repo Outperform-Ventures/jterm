@@ -1,7 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
-const cimgui = @import("cimgui");
+const cimgui = @import("dcimgui");
 const OptionAsAlt = @import("config.zig").OptionAsAlt;
 
 /// A generic key input event. This is the information that is necessary
@@ -696,7 +696,7 @@ pub const Key = enum(c_int) {
     }
 
     /// Returns the cimgui key constant for this key.
-    pub fn imguiKey(self: Key) ?c_uint {
+    pub fn imguiKey(self: Key) ?c_int {
         return switch (self) {
             .key_a => cimgui.c.ImGuiKey_A,
             .key_b => cimgui.c.ImGuiKey_B,

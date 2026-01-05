@@ -63,7 +63,7 @@
         },
 
         // C libs
-        .cimgui = .{ .path = "./pkg/cimgui", .lazy = true },
+        .dcimgui = .{ .path = "./pkg/dcimgui", .lazy = true },
         .fontconfig = .{ .path = "./pkg/fontconfig", .lazy = true },
         .freetype = .{ .path = "./pkg/freetype", .lazy = true },
         .gtk4_layer_shell = .{ .path = "./pkg/gtk4-layer-shell", .lazy = true },

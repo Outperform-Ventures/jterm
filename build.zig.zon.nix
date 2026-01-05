@@ -83,6 +83,14 @@
 in
   linkFarm name [
     {
+      name = "N-V-__8AANT61wB--nJ95Gj_ctmzAtcjloZ__hRqNw5lC1Kr";
+      path = fetchZigArtifact {
+        name = "bindings";
+        url = "https://deps.files.ghostty.org/DearBindings_v0.17_ImGui_v1.92.5-docking.tar.gz";
+        hash = "sha256-i/7FAOAJJvZ5hT7iPWfMOS08MYFzPKRwRzhlHT9wuqM=";
+      };
+    }
+    {
       name = "N-V-__8AALw2uwF_03u4JRkZwRLc3Y9hakkYV7NKRR9-RIZJ";
       path = fetchZigArtifact {
         name = "breakpad";
@@ -155,11 +163,11 @@ in
       };
     }
     {
-      name = "N-V-__8AAH0GaQC8a52s6vfIxg88OZgFgEW6DFxfSK4lX_l3";
+      name = "N-V-__8AAEbOfQBnvcFcCX2W5z7tDaN8vaNZGamEQtNOe0UI";
       path = fetchZigArtifact {
         name = "imgui";
-        url = "https://deps.files.ghostty.org/imgui-1220bc6b9daceaf7c8c60f3c3998058045ba0c5c5f48ae255ff97776d9cd8bfc6402.tar.gz";
-        hash = "sha256-oF/QHgTPEat4Hig4fGIdLkIPHmBEyOJ6JeYD6pnveGA=";
+        url = "https://github.com/ocornut/imgui/archive/refs/tags/v1.92.5-docking.tar.gz";
+        hash = "sha256-yBbCDox18+Fa6Gc1DnmSVQLRpqhZOLsac7iSfl8x+cs=";
       };
     }
     {

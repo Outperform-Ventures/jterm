@@ -135,29 +135,28 @@ pub fn add(
     // Every exe needs the terminal options
     self.config.terminalOptions().add(b, step.root_module);
 
-    // Freetype
+    // Freetype. We always include this even if our font backend doesn't
+    // use it because Dear Imgui uses Freetype.
     _ = b.systemIntegrationOption("freetype", .{}); // Shows it in help
-    if (self.config.font_backend.hasFreetype()) {
-        if (b.lazyDependency("freetype", .{
-            .target = target,
-            .optimize = optimize,
-            .@"enable-libpng" = true,
-        })) |freetype_dep| {
-            step.root_module.addImport(
-                "freetype",
-                freetype_dep.module("freetype"),
-            );
+    if (b.lazyDependency("freetype", .{
+        .target = target,
+        .optimize = optimize,
+        .@"enable-libpng" = true,
+    })) |freetype_dep| {
+        step.root_module.addImport(
+            "freetype",
+            freetype_dep.module("freetype"),
+        );
 
-            if (b.systemIntegrationOption("freetype", .{})) {
-                step.linkSystemLibrary2("bzip2", dynamic_link_opts);
-                step.linkSystemLibrary2("freetype2", dynamic_link_opts);
-            } else {
-                step.linkLibrary(freetype_dep.artifact("freetype"));
-                try static_libs.append(
-                    b.allocator,
-                    freetype_dep.artifact("freetype").getEmittedBin(),
-                );
-            }
+        if (b.systemIntegrationOption("freetype", .{})) {
+            step.linkSystemLibrary2("bzip2", dynamic_link_opts);
+            step.linkSystemLibrary2("freetype2", dynamic_link_opts);
+        } else {
+            step.linkLibrary(freetype_dep.artifact("freetype"));
+            try static_libs.append(
+                b.allocator,
+                freetype_dep.artifact("freetype").getEmittedBin(),
+            );
         }
     }
 
@@ -479,15 +478,19 @@ pub fn add(
     }
 
     // cimgui
-    if (b.lazyDependency("cimgui", .{
+    if (b.lazyDependency("dcimgui", .{
         .target = target,
         .optimize = optimize,
-    })) |cimgui_dep| {
-        step.root_module.addImport("cimgui", cimgui_dep.module("cimgui"));
-        step.linkLibrary(cimgui_dep.artifact("cimgui"));
+        .freetype = true,
+        .@"backend-metal" = target.result.os.tag.isDarwin(),
+        .@"backend-osx" = target.result.os.tag == .macos,
+        .@"backend-opengl3" = target.result.os.tag != .macos,
+    })) |dep| {
+        step.root_module.addImport("dcimgui", dep.module("dcimgui"));
+        step.linkLibrary(dep.artifact("dcimgui"));
         try static_libs.append(
             b.allocator,
-            cimgui_dep.artifact("cimgui").getEmittedBin(),
+            dep.artifact("dcimgui").getEmittedBin(),
         );
     }
 
