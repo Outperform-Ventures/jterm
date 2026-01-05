@@ -382,8 +382,7 @@ pub const Shaper = struct {
         const line = typesetter.createLine(.{ .location = 0, .length = 0 });
         self.cf_release_pool.appendAssumeCapacity(line);
 
-        // This keeps track of the current x offset (sum of advance.width) for
-        // a run.
+        // This keeps track of the current x offset (sum of advance.width)
         var run_offset_x: f64 = 0.0;
 
         // This keeps track of the cell starting x and cluster.
