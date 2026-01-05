@@ -663,6 +663,7 @@ pub const Shaper = struct {
             var allocating = std.Io.Writer.Allocating.init(alloc);
             const writer = &allocating.writer;
             const codepoints = state.codepoints.items;
+            const current_cp = state.codepoints.items[index].codepoint;
             var last_cluster: ?u32 = null;
             for (codepoints) |cp| {
                 if ((cp.cluster == cell_offset.cluster or cp.cluster == cell_offset.cluster - 1 or cp.cluster == cell_offset.cluster + 1) and
@@ -672,6 +673,9 @@ pub const Shaper = struct {
                         if (cp.cluster != last) {
                             try writer.writeAll(" ");
                         }
+                    }
+                    if (cp.cluster == cell_offset.cluster and cp.codepoint == current_cp) {
+                        try writer.writeAll("▸");
                     }
                     try writer.print("\\u{{{x}}}", .{cp.codepoint});
                     last_cluster = cp.cluster;
@@ -688,7 +692,7 @@ pub const Shaper = struct {
             const formatted_cps = try allocating.toOwnedSlice();
 
             if (positions_differ) {
-                log.warn("position differs from advance: cluster={d} pos=({d:.2},{d:.2}) adv=({d:.2},{d:.2}) diff=({d:.2},{d:.2}) current cp={x}, cps={s}", .{
+                log.warn("position differs from advance: cluster={d} pos=({d:.2},{d:.2}) adv=({d:.2},{d:.2}) diff=({d:.2},{d:.2}) cps = {s}", .{
                     cell_offset.cluster,
                     x_offset,
                     position.y,
@@ -696,13 +700,12 @@ pub const Shaper = struct {
                     advance_y_offset,
                     x_offset_diff,
                     y_offset_diff,
-                    state.codepoints.items[index].codepoint,
                     formatted_cps,
                 });
             }
 
             if (position_y_differs) {
-                log.warn("position.y differs from old offset.y: cluster={d} pos=({d:.2},{d:.2}) run_offset=({d:.2},{d:.2}) cell_offset=({d:.2},{d:.2}) old offset.y={d:.2} current cp={x}, cps={s}", .{
+                log.warn("position.y differs from old offset.y: cluster={d} pos=({d:.2},{d:.2}) run_offset=({d:.2},{d:.2}) cell_offset=({d:.2},{d:.2}) old offset.y={d:.2} cps = {s}", .{
                     cell_offset.cluster,
                     x_offset,
                     position.y,
@@ -711,7 +714,6 @@ pub const Shaper = struct {
                     cell_offset.x,
                     cell_offset_y,
                     old_offset_y,
-                    state.codepoints.items[index].codepoint,
                     formatted_cps,
                 });
             }
