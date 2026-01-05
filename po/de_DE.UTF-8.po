@@ -321,4 +321,4 @@ msgstr "Ghostty-Entwickler"
 
 #: src/apprt/gtk/inspector.zig:144
 msgid "Ghostty: Terminal Inspector"
-msgstr "Ghostty: Terminal Inspektor"
+msgstr "Ghostty: Terminalinspektor"
