@@ -916,5 +916,3 @@ pub const SearchSelected = struct {
         };
     }
 };
-
-
