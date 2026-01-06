@@ -810,6 +810,11 @@ typedef struct {
   ssize_t selected;
 } ghostty_action_search_selected_s;
 
+// apprt.action.SelectionForSearch
+typedef struct {
+  const char* text;
+} ghostty_action_selection_for_search_s;
+
 // terminal.Scrollbar
 typedef struct {
   uint64_t total;
@@ -878,11 +883,12 @@ typedef enum {
   GHOSTTY_ACTION_SHOW_ON_SCREEN_KEYBOARD,
   GHOSTTY_ACTION_COMMAND_FINISHED,
   GHOSTTY_ACTION_START_SEARCH,
+  GHOSTTY_ACTION_SELECTION_FOR_SEARCH,
   GHOSTTY_ACTION_END_SEARCH,
   GHOSTTY_ACTION_SEARCH_TOTAL,
   GHOSTTY_ACTION_SEARCH_SELECTED,
   GHOSTTY_ACTION_READONLY,
-  } ghostty_action_tag_e;
+} ghostty_action_tag_e;
 
 typedef union {
   ghostty_action_split_direction_e new_split;
@@ -919,6 +925,7 @@ typedef union {
   ghostty_action_progress_report_s progress_report;
   ghostty_action_command_finished_s command_finished;
   ghostty_action_start_search_s start_search;
+  ghostty_action_selection_for_search_s selection_for_search;
   ghostty_action_search_total_s search_total;
   ghostty_action_search_selected_s search_selected;
   ghostty_action_readonly_e readonly;

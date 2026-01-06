@@ -1383,7 +1383,11 @@ class BaseTerminalController: NSWindowController,
     @IBAction func find(_ sender: Any) {
         focusedSurface?.find(sender)
     }
-    
+
+    @IBAction func selectionForFind(_ sender: Any) {
+        focusedSurface?.selectionForFind(sender)
+    }
+
     @IBAction func findNext(_ sender: Any) {
         focusedSurface?.findNext(sender)
     }
