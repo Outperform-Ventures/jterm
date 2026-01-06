@@ -6446,6 +6446,12 @@ pub const Keybinds = struct {
                 .{ .key = .{ .physical = .page_down }, .mods = .{ .super = true } },
                 .{ .scroll_page_down = {} },
             );
+            try self.set.putFlags(
+                alloc,
+                .{ .key = .{ .unicode = 'j' }, .mods = .{ .super = true } },
+                .{ .scroll_to_selection = {} },
+                .{ .performable = true },
+            );
 
             // Semantic prompts
             try self.set.put(

@@ -1388,6 +1388,10 @@ class BaseTerminalController: NSWindowController,
         focusedSurface?.selectionForFind(sender)
     }
 
+    @IBAction func scrollToSelection(_ sender: Any) {
+        focusedSurface?.scrollToSelection(sender)
+    }
+
     @IBAction func findNext(_ sender: Any) {
         focusedSurface?.findNext(sender)
     }
