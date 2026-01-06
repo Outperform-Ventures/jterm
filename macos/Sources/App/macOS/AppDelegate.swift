@@ -46,6 +46,7 @@ class AppDelegate: NSObject,
     @IBOutlet private var menuSelectAll: NSMenuItem?
     @IBOutlet private var menuFindParent: NSMenuItem?
     @IBOutlet private var menuFind: NSMenuItem?
+    @IBOutlet private var menuSelectionForFind: NSMenuItem?
     @IBOutlet private var menuFindNext: NSMenuItem?
     @IBOutlet private var menuFindPrevious: NSMenuItem?
     @IBOutlet private var menuHideFindBar: NSMenuItem?
@@ -615,6 +616,7 @@ class AppDelegate: NSObject,
         syncMenuShortcut(config, action: "paste_from_selection", menuItem: self.menuPasteSelection)
         syncMenuShortcut(config, action: "select_all", menuItem: self.menuSelectAll)
         syncMenuShortcut(config, action: "start_search", menuItem: self.menuFind)
+        syncMenuShortcut(config, action: "search_selection", menuItem: self.menuSelectionForFind)
         syncMenuShortcut(config, action: "search:next", menuItem: self.menuFindNext)
         syncMenuShortcut(config, action: "search:previous", menuItem: self.menuFindPrevious)
 

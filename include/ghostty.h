@@ -882,7 +882,7 @@ typedef enum {
   GHOSTTY_ACTION_SEARCH_TOTAL,
   GHOSTTY_ACTION_SEARCH_SELECTED,
   GHOSTTY_ACTION_READONLY,
-  } ghostty_action_tag_e;
+} ghostty_action_tag_e;
 
 typedef union {
   ghostty_action_split_direction_e new_split;

@@ -475,7 +475,9 @@ extension Ghostty {
                 }
                 .onReceive(NotificationCenter.default.publisher(for: .ghosttySearchFocus)) { notification in
                     guard notification.object as? SurfaceView === surfaceView else { return }
-                    isSearchFieldFocused = true
+                    DispatchQueue.main.async {
+                        isSearchFieldFocused = true
+                    }
                 }
                 .background(
                     GeometryReader { barGeo in

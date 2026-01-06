@@ -5163,6 +5163,15 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             );
         },
 
+        .search_selection => {
+            const selection = try self.selectionString(self.alloc) orelse return false;
+            return try self.rt_app.performAction(
+                .{ .surface = self },
+                .start_search,
+                .{ .needle = selection },
+            );
+        },
+
         .end_search => {
             // We only return that this was performed if we actually
             // stopped a search, but we also send the apprt end_search so

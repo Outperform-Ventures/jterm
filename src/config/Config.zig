@@ -6587,6 +6587,12 @@ pub const Keybinds = struct {
             );
             try self.set.putFlags(
                 alloc,
+                .{ .key = .{ .unicode = 'e' }, .mods = .{ .super = true } },
+                .search_selection,
+                .{ .performable = true },
+            );
+            try self.set.putFlags(
+                alloc,
                 .{ .key = .{ .unicode = 'f' }, .mods = .{ .super = true, .shift = true } },
                 .end_search,
                 .{ .performable = true },
