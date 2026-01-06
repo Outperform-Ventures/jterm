@@ -5163,12 +5163,12 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             );
         },
 
-        .selection_for_search => {
+        .search_selection => {
             const selection = try self.selectionString(self.alloc) orelse return false;
             return try self.rt_app.performAction(
                 .{ .surface = self },
-                .selection_for_search,
-                .{ .text = selection },
+                .start_search,
+                .{ .needle = selection },
             );
         },
 

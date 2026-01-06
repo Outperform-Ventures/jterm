@@ -316,9 +316,6 @@ pub const Action = union(Key) {
     /// Start the search overlay with an optional initial needle.
     start_search: StartSearch,
 
-    /// Input the selected text into the search field.
-    selection_for_search: SelectionForSearch,
-
     /// End the search overlay, clearing the search state and hiding it.
     end_search,
 
@@ -392,7 +389,6 @@ pub const Action = union(Key) {
         show_on_screen_keyboard,
         command_finished,
         start_search,
-        selection_for_search,
         end_search,
         search_total,
         search_selected,
@@ -919,17 +915,4 @@ pub const SearchSelected = struct {
     }
 };
 
-pub const SelectionForSearch = struct {
-    text: [:0]const u8,
 
-    // Sync with: ghostty_action_selection_for_search_s
-    pub const C = extern struct {
-        text: [*:0]const u8,
-    };
-
-    pub fn cval(self: SelectionForSearch) C {
-        return .{
-            .text = self.text.ptr,
-        };
-    }
-};

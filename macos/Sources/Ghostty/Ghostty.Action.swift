@@ -128,18 +128,6 @@ extension Ghostty.Action {
         }
     }
 
-    struct SelectionForSearch {
-        let text: String?
-
-        init(c: ghostty_action_selection_for_search_s) {
-            if let contentCString = c.text {
-                self.text = String(cString: contentCString)
-            } else {
-                self.text = nil
-            }
-        }
-    }
-
     enum PromptTitle {
         case surface
         case tab

@@ -368,8 +368,10 @@ pub const Action = union(enum) {
     /// If a previous search is active, it is replaced.
     search: []const u8,
 
-    /// Input the selected text into the search field.
-    selection_for_search,
+    /// Start a search for the current text selection. If there is no
+    /// selection, this does nothing. If a search is already active, this
+    /// changes the search terms.
+    search_selection,
 
     /// Navigate the search results. If there is no active search, this
     /// is not performed.
@@ -1287,7 +1289,7 @@ pub const Action = union(enum) {
             .cursor_key,
             .search,
             .navigate_search,
-            .selection_for_search,
+            .search_selection,
             .start_search,
             .end_search,
             .reset,
