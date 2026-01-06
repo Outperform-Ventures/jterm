@@ -479,13 +479,6 @@ extension Ghostty {
                         isSearchFieldFocused = true
                     }
                 }
-                .onReceive(NotificationCenter.default.publisher(for: .ghosttySelectionForSearch)) { notification in
-                    guard notification.object as? SurfaceView === surfaceView else { return }
-                    if let userInfo = notification.userInfo, let text = userInfo["text"] as? String {
-                        searchState.needle = text
-                        // We do not focus the textfield after the action to match macOS behavior
-                    }
-                }
                 .background(
                     GeometryReader { barGeo in
                         Color.clear.onAppear {

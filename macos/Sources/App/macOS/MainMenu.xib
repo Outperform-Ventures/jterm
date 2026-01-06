@@ -263,12 +263,6 @@
                                                 <action selector="find:" target="-1" id="PeY-3u-IxC"/>
                                             </connections>
                                         </menuItem>
-                                        <menuItem title="Selection for Find" id="TDN-42-Bu7">
-                                            <modifierMask key="keyEquivalentModifierMask"/>
-                                            <connections>
-                                                <action selector="selectionForFind:" target="-1" id="rhL-7g-XQQ"/>
-                                            </connections>
-                                        </menuItem>
                                         <menuItem title="Find Next" id="XqU-X8-q32">
                                             <modifierMask key="keyEquivalentModifierMask"/>
                                             <connections>
@@ -286,6 +280,13 @@
                                             <modifierMask key="keyEquivalentModifierMask"/>
                                             <connections>
                                                 <action selector="findHide:" target="-1" id="hGP-K9-yN9"/>
+                                            </connections>
+                                        </menuItem>
+                                        <menuItem isSeparatorItem="YES" id="2N8-Xz-RVc"/>
+                                        <menuItem title="Use Selection for Find" id="TDN-42-Bu7">
+                                            <modifierMask key="keyEquivalentModifierMask"/>
+                                            <connections>
+                                                <action selector="selectionForFind:" target="-1" id="rhL-7g-XQQ"/>
                                             </connections>
                                         </menuItem>
                                     </items>
