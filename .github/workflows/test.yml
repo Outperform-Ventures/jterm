@@ -217,6 +217,7 @@ jobs:
             x86_64-macos,
             aarch64-linux,
             x86_64-linux,
+            x86_64-linux-musl,
             x86_64-windows,
             wasm32-freestanding,
           ]
