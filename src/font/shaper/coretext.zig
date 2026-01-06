@@ -389,8 +389,8 @@ pub const Shaper = struct {
         var cell_offset: CellOffset = .{};
 
         // For debugging positions, turn this on:
-        //var run_offset_y: f64 = 0.0;
-        //var cell_offset_y: f64 = 0.0;
+        var run_offset_y: f64 = 0.0;
+        var cell_offset_y: f64 = 0.0;
 
         // Clear our cell buf and make sure we have enough room for the whole
         // line of glyphs, so that we can just assume capacity when appending
@@ -410,8 +410,8 @@ pub const Shaper = struct {
         // other so we can iterate over them and just append to our
         // cell buffer.
         const runs = line.getGlyphRuns();
-        for (0..runs.getCount()) |i| {
-            const ctrun = runs.getValueAtIndex(macos.text.Run, i);
+        for (0..runs.getCount()) |run_i| {
+            const ctrun = runs.getValueAtIndex(macos.text.Run, run_i);
 
             const status = ctrun.getStatus();
             if (status.non_monotonic or status.right_to_left) non_ltr = true;
@@ -434,30 +434,45 @@ pub const Shaper = struct {
                 // Our cluster is also our cell X position. If the cluster changes
                 // then we need to reset our current cell offsets.
                 const cluster = state.codepoints.items[index].cluster;
-                if (cell_offset.cluster != cluster) pad: {
-                    // We previously asserted this but for rtl text this is
-                    // not true. So we check for this and break out. In the
-                    // future we probably need to reverse pad for rtl but
-                    // I don't have a solid test case for this yet so let's
-                    // wait for that.
-                    if (cell_offset.cluster > cluster) break :pad;
+                if (cell_offset.cluster != cluster) {
+                    // We previously asserted that the new cluster is greater
+                    // than cell_offset.cluster, but for rtl text this is not
+                    // true. We then used to break out of this block if cluster
+                    // was less than cell_offset.cluster, but now this would
+                    // fail to reset cell_offset.x and cell_offset.cluster and
+                    // lead to incorrect shape.Cell `x` and `x_offset`. We
+                    // don't have a test case for RTL, yet.
 
-                    cell_offset = .{
-                        .cluster = cluster,
-                        .x = run_offset_x,
+                    const is_codepoint_first_in_cluster = blk: {
+                        var i = index;
+                        while (i > 0) {
+                            i -= 1;
+                            const codepoint = state.codepoints.items[i];
+
+                            // Skip surrogate pair padding
+                            if (codepoint.codepoint == 0) continue;
+                            break :blk codepoint.cluster != cluster;
+                        } else break :blk true;
                     };
 
-                    // For debugging positions, turn this on:
-                    //cell_offset_y = run_offset_y;
+                    if (is_codepoint_first_in_cluster) {
+                        cell_offset = .{
+                            .cluster = cluster,
+                            .x = run_offset_x,
+                        };
+
+                        // For debugging positions, turn this on:
+                        cell_offset_y = run_offset_y;
+                    }
                 }
 
                 // For debugging positions, turn this on:
-                //try self.debugPositions(alloc, run_offset_x, run_offset_y, cell_offset, cell_offset_y, position, index);
+                try self.debugPositions(alloc, run_offset_x, run_offset_y, cell_offset, cell_offset_y, position, index);
 
                 const x_offset = position.x - cell_offset.x;
 
                 self.cell_buf.appendAssumeCapacity(.{
-                    .x = @intCast(cluster),
+                    .x = @intCast(cell_offset.cluster),
                     .x_offset = @intFromFloat(@round(x_offset)),
                     .y_offset = @intFromFloat(@round(position.y)),
                     .glyph_index = glyph,
@@ -468,7 +483,7 @@ pub const Shaper = struct {
                 run_offset_x += advance.width;
 
                 // For debugging positions, turn this on:
-                //run_offset_y += advance.height;
+                run_offset_y += advance.height;
             }
         }
 
@@ -657,15 +672,20 @@ pub const Shaper = struct {
         const positions_differ = @abs(x_offset_diff) > 0.0001 or @abs(y_offset_diff) > 0.0001;
         const old_offset_y = position.y - cell_offset_y;
         const position_y_differs = @abs(cell_offset_y) > 0.0001;
+        const cluster = state.codepoints.items[index].cluster;
+        const cluster_differs = cluster != cell_offset.cluster;
 
-        if (positions_differ or position_y_differs) {
+        if (positions_differ or position_y_differs or cluster_differs) {
             var allocating = std.Io.Writer.Allocating.init(alloc);
             const writer = &allocating.writer;
             const codepoints = state.codepoints.items;
-            const current_cp = state.codepoints.items[index].codepoint;
             var last_cluster: ?u32 = null;
-            for (codepoints) |cp| {
-                if ((cp.cluster == cell_offset.cluster or cp.cluster == cell_offset.cluster - 1 or cp.cluster == cell_offset.cluster + 1) and
+            for (codepoints, 0..) |cp, i| {
+                if ((cp.cluster == cluster - 3 or
+                    cp.cluster == cluster - 2 or
+                    cp.cluster == cluster - 1 or
+                    cp.cluster == cluster or
+                    cp.cluster == cluster + 1) and
                     cp.codepoint != 0 // Skip surrogate pair padding
                 ) {
                     if (last_cluster) |last| {
@@ -673,7 +693,7 @@ pub const Shaper = struct {
                             try writer.writeAll(" ");
                         }
                     }
-                    if (cp.cluster == cell_offset.cluster and cp.codepoint == current_cp) {
+                    if (i == index) {
                         try writer.writeAll("▸");
                     }
                     try writer.print("\\u{{{x}}}", .{cp.codepoint});
@@ -682,7 +702,11 @@ pub const Shaper = struct {
             }
             try writer.writeAll(" → ");
             for (codepoints) |cp| {
-                if ((cp.cluster == cell_offset.cluster or cp.cluster == cell_offset.cluster - 1 or cp.cluster == cell_offset.cluster + 1) and
+                if ((cp.cluster == cluster - 3 or
+                    cp.cluster == cluster - 2 or
+                    cp.cluster == cluster - 1 or
+                    cp.cluster == cluster or
+                    cp.cluster == cluster + 1) and
                     cp.codepoint != 0 // Skip surrogate pair padding
                 ) {
                     try writer.print("{u}", .{@as(u21, @intCast(cp.codepoint))});
@@ -692,7 +716,7 @@ pub const Shaper = struct {
 
             if (positions_differ) {
                 log.warn("position differs from advance: cluster={d} pos=({d:.2},{d:.2}) adv=({d:.2},{d:.2}) diff=({d:.2},{d:.2}) cps = {s}", .{
-                    cell_offset.cluster,
+                    cluster,
                     x_offset,
                     position.y,
                     advance_x_offset,
@@ -705,7 +729,7 @@ pub const Shaper = struct {
 
             if (position_y_differs) {
                 log.warn("position.y differs from old offset.y: cluster={d} pos=({d:.2},{d:.2}) run_offset=({d:.2},{d:.2}) cell_offset=({d:.2},{d:.2}) old offset.y={d:.2} cps = {s}", .{
-                    cell_offset.cluster,
+                    cluster,
                     x_offset,
                     position.y,
                     run_offset_x,
@@ -713,6 +737,21 @@ pub const Shaper = struct {
                     cell_offset.x,
                     cell_offset_y,
                     old_offset_y,
+                    formatted_cps,
+                });
+            }
+
+            if (cluster_differs) {
+                log.warn("cell_offset.cluster differs from cluster (potential ligature detected) cell_offset.cluster={d} cluster={d} diff={d} pos=({d:.2},{d:.2}) run_offset=({d:.2},{d:.2}) cell_offset=({d:.2},{d:.2}) cps = {s}", .{
+                    cell_offset.cluster,
+                    cluster,
+                    cluster - cell_offset.cluster,
+                    x_offset,
+                    position.y,
+                    run_offset_x,
+                    run_offset_y,
+                    cell_offset.x,
+                    cell_offset_y,
                     formatted_cps,
                 });
             }
