@@ -1527,6 +1527,14 @@ extension Ghostty {
             }
         }
 
+        @IBAction func scrollToSelection(_ sender: Any?) {
+            guard let surface = self.surface else { return }
+            let action = "scroll_to_selection"
+            if (!ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8)))) {
+                AppDelegate.logger.warning("action failed action=\(action)")
+            }
+        }
+
         @IBAction func findNext(_ sender: Any?) {
             guard let surface = self.surface else { return }
             let action = "search:next"

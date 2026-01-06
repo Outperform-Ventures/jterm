@@ -289,6 +289,12 @@
                                                 <action selector="selectionForFind:" target="-1" id="rhL-7g-XQQ"/>
                                             </connections>
                                         </menuItem>
+                                        <menuItem title="Jump to Selection" id="1rN-4k-Dz3">
+                                            <modifierMask key="keyEquivalentModifierMask"/>
+                                            <connections>
+                                                <action selector="scrollToSelection:" target="-1" id="5gS-8h-Xm2"/>
+                                            </connections>
+                                        </menuItem>
                                     </items>
                                 </menu>
                             </menuItem>
