@@ -457,7 +457,7 @@ class BaseTerminalController: NSWindowController,
         )
     }
 
-    private func replaceSurfaceTree(
+    func replaceSurfaceTree(
         _ newTree: SplitTree<Ghostty.SurfaceView>,
         moveFocusTo newView: Ghostty.SurfaceView? = nil,
         moveFocusFrom oldView: Ghostty.SurfaceView? = nil,
@@ -930,7 +930,6 @@ class BaseTerminalController: NSWindowController,
         // Remove from source controller's tree and add it to our tree.
         // We do this first because if there is an error then we can
         // abort.
-        let sourceTreeWithoutNode = sourceController.surfaceTree.removing(sourceNode)
         let newTree: SplitTree<Ghostty.SurfaceView>
         do {
             newTree = try surfaceTree.inserting(view: source, at: destination, direction: direction)
@@ -946,25 +945,8 @@ class BaseTerminalController: NSWindowController,
             undoManager?.endUndoGrouping()
         }
         
-        if sourceTreeWithoutNode.isEmpty {
-            // If our source tree is becoming empty, then we're closing this terminal.
-            // We need to handle this carefully to get undo to work properly. If the
-            // controller is a TerminalController this is easy because it has a way
-            // to do this.
-            if let c = sourceController as? TerminalController {
-                c.closeTabImmediately()
-            } else {
-                // Not a TerminalController so we always undo into a new window.
-                _ = TerminalController.newWindow(
-                    sourceController.ghostty,
-                    tree: sourceController.surfaceTree,
-                    confirmUndo: false)
-            }
-        } else {
-            // The source isn't empty so we can do a simple remove which will handle
-            // the undo properly.
-            sourceController.removeSurfaceNode(sourceNode)
-        }
+        // Remove the node from the source.
+        sourceController.removeSurfaceNode(sourceNode)
         
         // Add in the surface to our tree
         replaceSurfaceTree(
