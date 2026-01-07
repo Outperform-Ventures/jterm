@@ -834,7 +834,15 @@ class BaseTerminalController: NSWindowController,
 
     private func applyTitleToWindow() {
         guard let window else { return }
-        window.title = titleOverride ?? lastComputedTitle
+        
+        if let titleOverride {
+            window.title = computeTitle(
+                title: titleOverride,
+                bell: focusedSurface?.bell ?? false)
+            return
+        }
+        
+        window.title = lastComputedTitle
     }
     
     func pwdDidChange(to: URL?) {
