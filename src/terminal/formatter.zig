@@ -1120,18 +1120,27 @@ pub const PageFormatter = struct {
 
                 // If we have a zero value, then we accumulate a counter. We
                 // only want to turn zero values into spaces if we have a non-zero
-                // char sometime later. However, for styled formats (VT, HTML), if
-                // the cell has styling (e.g., background color), we must emit it
-                // to preserve the visual appearance.
-                const dominated_by_style = self.opts.emit.styled() and
-                    (!cell.isEmpty() or cell.hasStyling());
-                if (!dominated_by_style and !cell.hasText()) {
-                    blank_cells += 1;
-                    continue;
-                }
-                if (cell.codepoint() == ' ' and self.opts.trim and !dominated_by_style) {
-                    blank_cells += 1;
-                    continue;
+                // char sometime later.
+                blank: {
+                    // If we're emitting styled output (not plaintext) and
+                    // the cell has some kind of styling or is not empty
+                    // then this isn't blank.
+                    if (self.opts.emit.styled() and
+                        (!cell.isEmpty() or cell.hasStyling())) break :blank;
+
+                    // Cells with no text are blank
+                    if (!cell.hasText()) {
+                        blank_cells += 1;
+                        continue;
+                    }
+
+                    // Trailing spaces are blank. We know it is trailing
+                    // because if we get a non-empty cell later we'll
+                    // fill the blanks.
+                    if (cell.codepoint() == ' ' and self.opts.trim) {
+                        blank_cells += 1;
+                        continue;
+                    }
                 }
 
                 // This cell is not blank. If we have accumulated blank cells
@@ -1169,79 +1178,72 @@ pub const PageFormatter = struct {
                     blank_cells = 0;
                 }
 
+                style: {
+                    // If we aren't emitting styled output then we don't
+                    // have to worry about styles.
+                    if (!self.opts.emit.styled()) break :style;
+
+                    // Get our cell style.
+                    const cell_style = self.cellStyle(cell);
+
+                    // If the style hasn't changed, don't bloat output.
+                    if (cell_style.eql(style)) break :style;
+
+                    // If we had a previous style, we need to close it,
+                    // because we've confirmed we have some new style
+                    // (which is maybe default).
+                    if (!style.default()) switch (self.opts.emit) {
+                        .html => try self.formatStyleClose(writer),
+
+                        // For VT, we only close if we're switching to a default
+                        // style because any non-default style will emit
+                        // a \x1b[0m as the start of a VT coloring sequence.
+                        .vt => if (cell_style.default()) try self.formatStyleClose(writer),
+
+                        // Unreachable because of the styled() check at the
+                        // top of this block.
+                        .plain => unreachable,
+                    };
+
+                    // At this point, we can copy our style over
+                    style = cell_style;
+
+                    // If we're just the default style now, we're done.
+                    if (cell_style.default()) break :style;
+
+                    // New style, emit it.
+                    try self.formatStyleOpen(
+                        writer,
+                        &style,
+                    );
+
+                    // If we have a point map, we map the style to
+                    // this cell.
+                    if (self.point_map) |*map| {
+                        var discarding: std.Io.Writer.Discarding = .init(&.{});
+                        try self.formatStyleOpen(
+                            &discarding.writer,
+                            &style,
+                        );
+                        for (0..discarding.count) |_| map.map.append(map.alloc, .{
+                            .x = x,
+                            .y = y,
+                        }) catch return error.WriteFailed;
+                    }
+                }
+
                 switch (cell.content_tag) {
                     // We combine codepoint and graphemes because both have
                     // shared style handling. We use comptime to dup it.
                     inline .codepoint, .codepoint_grapheme => |tag| {
-                        // Handle closing our styling if we go back to unstyled
-                        // content.
-                        if (self.opts.emit.styled() and
-                            !cell.hasStyling() and
-                            !style.default())
-                        {
-                            try self.formatStyleClose(writer);
-                            style = .{};
-                        }
-
-                        // If we're emitting styling and we have styles, then
-                        // we need to load the style and emit any sequences
-                        // as necessary.
-                        if (self.opts.emit.styled() and cell.hasStyling()) style: {
-                            // Get the style.
-                            const cell_style = self.page.styles.get(
-                                self.page.memory,
-                                cell.style_id,
-                            );
-
-                            // If the style hasn't changed since our last
-                            // emitted style, don't bloat the output.
-                            if (cell_style.eql(style)) break :style;
-
-                            // We need to emit a closing tag if the style
-                            // was non-default before, which means we set
-                            // styles once.
-                            const closing = !style.default();
-
-                            // New style, emit it.
-                            style = cell_style.*;
-                            try self.formatStyleOpen(
-                                writer,
-                                &style,
-                                closing,
-                            );
-
-                            // If we have a point map, we map the style to
-                            // this cell.
-                            if (self.point_map) |*map| {
-                                var discarding: std.Io.Writer.Discarding = .init(&.{});
-                                try self.formatStyleOpen(
-                                    &discarding.writer,
-                                    &style,
-                                    closing,
-                                );
-                                for (0..discarding.count) |_| map.map.append(map.alloc, .{
-                                    .x = x,
-                                    .y = y,
-                                }) catch return error.WriteFailed;
-                            }
-                        }
-
-                        // For styled cells without text, emit a space to carry the styling
-                        if (cell.hasText()) {
-                            try self.writeCell(tag, writer, cell);
-                        } else {
-                            try writer.writeByte(' ');
-                        }
+                        try self.writeCell(tag, writer, cell);
 
                         // If we have a point map, all codepoints map to this
                         // cell.
                         if (self.point_map) |*map| {
-                            const byte_count: usize = if (cell.hasText()) count: {
-                                var discarding: std.Io.Writer.Discarding = .init(&.{});
-                                try self.writeCell(tag, &discarding.writer, cell);
-                                break :count discarding.count;
-                            } else 1;
-                            for (0..byte_count) |_| map.map.append(map.alloc, .{
+                            var discarding: std.Io.Writer.Discarding = .init(&.{});
+                            try self.writeCell(tag, &discarding.writer, cell);
+                            for (0..discarding.count) |_| map.map.append(map.alloc, .{
                                 .x = x,
                                 .y = y,
                             }) catch return error.WriteFailed;
@@ -1250,21 +1252,12 @@ pub const PageFormatter = struct {
 
                     // Cells with only background color (no text). Emit a space
                     // with the appropriate background color SGR sequence.
-                    .bg_color_palette => {
-                        const index = cell.content.color_palette;
-                        try self.emitBgColorSgr(writer, index, null, &style);
+                    .bg_color_palette, .bg_color_rgb => {
                         try writer.writeByte(' ');
-                        if (self.point_map) |*map| {
-                            map.map.append(map.alloc, .{ .x = x, .y = y }) catch return error.WriteFailed;
-                        }
-                    },
-                    .bg_color_rgb => {
-                        const rgb = cell.content.color_rgb;
-                        try self.emitBgColorSgr(writer, null, rgb, &style);
-                        try writer.writeByte(' ');
-                        if (self.point_map) |*map| {
-                            map.map.append(map.alloc, .{ .x = x, .y = y }) catch return error.WriteFailed;
-                        }
+                        if (self.point_map) |*map| map.map.append(
+                            map.alloc,
+                            .{ .x = x, .y = y },
+                        ) catch return error.WriteFailed;
                     },
                 }
             }
@@ -1298,6 +1291,14 @@ pub const PageFormatter = struct {
         writer: *std.Io.Writer,
         cell: *const Cell,
     ) !void {
+        // Blank cells get an empty space that isn't replaced by anything
+        // because it isn't really a space. We do this so that formatting
+        // is preserved if we're emitting styles.
+        if (!cell.hasText()) {
+            try writer.writeByte(' ');
+            return;
+        }
+
         try self.writeCodepointWithReplacement(writer, cell.content.codepoint);
         if (comptime tag == .codepoint_grapheme) {
             for (self.page.lookupGrapheme(cell).?) |cp| {
@@ -1381,67 +1382,47 @@ pub const PageFormatter = struct {
         }
     }
 
-    /// Emit background color SGR sequence for bg_color_* content tags.
-    /// Updates the style tracking to reflect the emitted background.
-    fn emitBgColorSgr(
-        self: PageFormatter,
-        writer: *std.Io.Writer,
-        palette_index: ?u8,
-        rgb: ?Cell.RGB,
-        style: *Style,
-    ) std.Io.Writer.Error!void {
-        switch (self.opts.emit) {
-            .plain => {},
-            .vt => {
-                // Close previous style if non-default
-                if (!style.default()) try writer.writeAll("\x1b[0m");
-                // Emit background color
-                if (palette_index) |idx| {
-                    try writer.print("\x1b[48;5;{d}m", .{idx});
-                } else if (rgb) |c| {
-                    try writer.print("\x1b[48;2;{d};{d};{d}m", .{ c.r, c.g, c.b });
-                }
-                // Update style tracking - set bg_color so we know to reset later
-                style.* = .{};
-                style.bg_color = if (palette_index) |idx|
-                    .{ .palette = idx }
-                else if (rgb) |c|
-                    .{ .rgb = .{ .r = c.r, .g = c.g, .b = c.b } }
-                else
-                    .none;
+    /// Returns the style for the given cell. If there is no styling this
+    /// will return the default style.
+    fn cellStyle(
+        self: *const PageFormatter,
+        cell: *const Cell,
+    ) Style {
+        return switch (cell.content_tag) {
+            inline .codepoint, .codepoint_grapheme => if (!cell.hasStyling())
+                .{}
+            else
+                self.page.styles.get(
+                    self.page.memory,
+                    cell.style_id,
+                ).*,
+
+            .bg_color_palette => .{
+                .bg_color = .{
+                    .palette = cell.content.color_palette,
+                },
             },
-            .html => {
-                // Close previous tag if needed
-                if (!style.default()) try writer.writeAll("</div>");
-                // Emit background color as inline style
-                if (palette_index) |idx| {
-                    try writer.print("<div style=\"display: inline;background-color: var(--vt-palette-{d});\">", .{idx});
-                } else if (rgb) |c| {
-                    try writer.print("<div style=\"display: inline;background-color: #{x:0>2}{x:0>2}{x:0>2};\">", .{ c.r, c.g, c.b });
-                }
-                style.* = .{};
-                style.bg_color = if (palette_index) |idx|
-                    .{ .palette = idx }
-                else if (rgb) |c|
-                    .{ .rgb = .{ .r = c.r, .g = c.g, .b = c.b } }
-                else
-                    .none;
+
+            .bg_color_rgb => .{
+                .bg_color = .{
+                    .rgb = .{
+                        .r = cell.content.color_rgb.r,
+                        .g = cell.content.color_rgb.g,
+                        .b = cell.content.color_rgb.b,
+                    },
+                },
             },
-        }
+        };
     }
 
     fn formatStyleOpen(
         self: PageFormatter,
         writer: *std.Io.Writer,
         style: *const Style,
-        closing: bool,
     ) std.Io.Writer.Error!void {
         switch (self.opts.emit) {
             .plain => unreachable,
 
-            // Note: we don't use closing on purpose because VT sequences
-            // always reset the prior style. Our formatter always emits a
-            // \x1b[0m before emitting a new style if necessary.
             .vt => {
                 var formatter = style.formatterVt();
                 formatter.palette = self.opts.palette;
@@ -1451,7 +1432,6 @@ pub const PageFormatter = struct {
             // We use `display: inline` so that the div doesn't impact
             // layout since we're primarily using it as a CSS wrapper.
             .html => {
-                if (closing) try writer.writeAll("</div>");
                 var formatter = style.formatterHtml();
                 formatter.palette = self.opts.palette;
                 try writer.print(
