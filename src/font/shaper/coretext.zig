@@ -389,8 +389,8 @@ pub const Shaper = struct {
         var cell_offset: CellOffset = .{};
 
         // For debugging positions, turn this on:
-        var run_offset_y: f64 = 0.0;
-        var cell_offset_y: f64 = 0.0;
+        //var run_offset_y: f64 = 0.0;
+        //var cell_offset_y: f64 = 0.0;
 
         // Clear our cell buf and make sure we have enough room for the whole
         // line of glyphs, so that we can just assume capacity when appending
@@ -437,13 +437,13 @@ pub const Shaper = struct {
                 if (cell_offset.cluster != cluster) {
                     // We previously asserted that the new cluster is greater
                     // than cell_offset.cluster, but for rtl text this is not
-                    // true. We then used to break out of this block if cluster
-                    // was less than cell_offset.cluster, but now this would
-                    // fail to reset cell_offset.x and cell_offset.cluster and
-                    // lead to incorrect shape.Cell `x` and `x_offset`. We
-                    // don't have a test case for RTL, yet.
+                    // true. We then used to break out of this block if the new
+                    // cluster was less than cell_offset.cluster, but now this
+                    // would fail to reset cell_offset.x and
+                    // cell_offset.cluster and lead to incorrect shape.Cell `x`
+                    // and `x_offset`. We don't have a test case for RTL, yet.
 
-                    const is_codepoint_first_in_cluster = blk: {
+                    const is_first_codepoint_in_cluster = blk: {
                         var i = index;
                         while (i > 0) {
                             i -= 1;
@@ -455,19 +455,33 @@ pub const Shaper = struct {
                         } else break :blk true;
                     };
 
-                    if (is_codepoint_first_in_cluster) {
+                    // We need to reset the `cell_offset` at the start of a new
+                    // cluster, but we do that conditionally if the codepoint
+                    // `is_first_codepoint_in_cluster`, which is a heuristic to
+                    // detect ligatures and avoid positioning glyphs that mark
+                    // ligatures incorrectly. The idea is that if the first
+                    // codepoint in a cluster doesn't appear in the stream,
+                    // it's very likely that it combined with codepoints from a
+                    // previous cluster into a ligature. Then, the subsequent
+                    // codepoints are very likely marking glyphs that are
+                    // placed relative to that ligature, so if we were to reset
+                    // the `cell_offset` to align it with the grid, the
+                    // positions would be off. (TBD if there are exceptions to
+                    // this heuristic, but using the logging below seems to
+                    // show it works well.)
+                    if (is_first_codepoint_in_cluster) {
                         cell_offset = .{
                             .cluster = cluster,
                             .x = run_offset_x,
                         };
 
                         // For debugging positions, turn this on:
-                        cell_offset_y = run_offset_y;
+                        //cell_offset_y = run_offset_y;
                     }
                 }
 
                 // For debugging positions, turn this on:
-                try self.debugPositions(alloc, run_offset_x, run_offset_y, cell_offset, cell_offset_y, position, index);
+                //try self.debugPositions(alloc, run_offset_x, run_offset_y, cell_offset, cell_offset_y, position, index);
 
                 const x_offset = position.x - cell_offset.x;
 
@@ -483,7 +497,7 @@ pub const Shaper = struct {
                 run_offset_x += advance.width;
 
                 // For debugging positions, turn this on:
-                run_offset_y += advance.height;
+                //run_offset_y += advance.height;
             }
         }
 
