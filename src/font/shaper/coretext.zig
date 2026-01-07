@@ -681,11 +681,8 @@ pub const Shaper = struct {
             const codepoints = state.codepoints.items;
             var last_cluster: ?u32 = null;
             for (codepoints, 0..) |cp, i| {
-                if ((cp.cluster == cluster - 3 or
-                    cp.cluster == cluster - 2 or
-                    cp.cluster == cluster - 1 or
-                    cp.cluster == cluster or
-                    cp.cluster == cluster + 1) and
+                if ((cp.cluster >= cell_offset.cluster - 1 and
+                    cp.cluster <= cluster + 1) and
                     cp.codepoint != 0 // Skip surrogate pair padding
                 ) {
                     if (last_cluster) |last| {
@@ -696,17 +693,19 @@ pub const Shaper = struct {
                     if (i == index) {
                         try writer.writeAll("▸");
                     }
-                    try writer.print("\\u{{{x}}}", .{cp.codepoint});
+                    // Using Python syntax for easier debugging
+                    if (cp.codepoint > 0xFFFF) {
+                        try writer.print("\\U{x:0>8}", .{cp.codepoint});
+                    } else {
+                        try writer.print("\\u{x:0>4}", .{cp.codepoint});
+                    }
                     last_cluster = cp.cluster;
                 }
             }
             try writer.writeAll(" → ");
             for (codepoints) |cp| {
-                if ((cp.cluster == cluster - 3 or
-                    cp.cluster == cluster - 2 or
-                    cp.cluster == cluster - 1 or
-                    cp.cluster == cluster or
-                    cp.cluster == cluster + 1) and
+                if ((cp.cluster >= cell_offset.cluster - 1 and
+                    cp.cluster <= cluster + 1) and
                     cp.codepoint != 0 // Skip surrogate pair padding
                 ) {
                     try writer.print("{u}", .{@as(u21, @intCast(cp.codepoint))});
