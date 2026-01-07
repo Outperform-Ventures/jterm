@@ -695,7 +695,7 @@ pub const Shaper = struct {
             const codepoints = state.codepoints.items;
             var last_cluster: ?u32 = null;
             for (codepoints, 0..) |cp, i| {
-                if ((cp.cluster >= cell_offset.cluster - 1 and
+                if ((@as(i32, @intCast(cp.cluster)) >= @as(i32, @intCast(cell_offset.cluster)) - 1 and
                     cp.cluster <= cluster + 1) and
                     cp.codepoint != 0 // Skip surrogate pair padding
                 ) {
@@ -718,7 +718,7 @@ pub const Shaper = struct {
             }
             try writer.writeAll(" → ");
             for (codepoints) |cp| {
-                if ((cp.cluster >= cell_offset.cluster - 1 and
+                if ((@as(i32, @intCast(cp.cluster)) >= @as(i32, @intCast(cell_offset.cluster)) - 1 and
                     cp.cluster <= cluster + 1) and
                     cp.codepoint != 0 // Skip surrogate pair padding
                 ) {
