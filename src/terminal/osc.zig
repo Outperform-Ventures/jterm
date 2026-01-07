@@ -518,11 +518,6 @@ pub const Parser = struct {
                 else => self.state = .invalid,
             },
 
-            .@"0" => switch (c) {
-                ';' => self.writeToFixed(),
-                else => self.state = .invalid,
-            },
-
             .@"1" => switch (c) {
                 ';' => self.writeToFixed(),
                 '0' => self.state = .@"10",
@@ -564,57 +559,26 @@ pub const Parser = struct {
                 else => self.state = .invalid,
             },
 
-            .@"110" => switch (c) {
-                ';' => if (self.ensureAllocator()) self.writeToFixed(),
-                else => self.state = .invalid,
-            },
-
-            .@"111" => switch (c) {
-                ';' => if (self.ensureAllocator()) self.writeToFixed(),
-                else => self.state = .invalid,
-            },
-
-            .@"112" => switch (c) {
-                ';' => if (self.ensureAllocator()) self.writeToFixed(),
-                else => self.state = .invalid,
-            },
-
-            .@"113" => switch (c) {
-                ';' => if (self.ensureAllocator()) self.writeToFixed(),
-                else => self.state = .invalid,
-            },
-
-            .@"114" => switch (c) {
-                ';' => if (self.ensureAllocator()) self.writeToFixed(),
-                else => self.state = .invalid,
-            },
-
-            .@"115" => switch (c) {
-                ';' => if (self.ensureAllocator()) self.writeToFixed(),
-                else => self.state = .invalid,
-            },
-
-            .@"116" => switch (c) {
-                ';' => if (self.ensureAllocator()) self.writeToFixed(),
-                else => self.state = .invalid,
-            },
-
-            .@"117" => switch (c) {
-                ';' => if (self.ensureAllocator()) self.writeToFixed(),
-                else => self.state = .invalid,
-            },
-
-            .@"118" => switch (c) {
-                ';' => if (self.ensureAllocator()) self.writeToFixed(),
-                else => self.state = .invalid,
-            },
-
-            .@"119" => switch (c) {
-                ';' => if (self.ensureAllocator()) self.writeToFixed(),
-                else => self.state = .invalid,
-            },
-
-            .@"12" => switch (c) {
+            .@"4",
+            .@"12",
+            .@"14",
+            .@"15",
+            .@"16",
+            .@"17",
+            .@"18",
+            .@"19",
+            .@"21",
+            .@"110",
+            .@"111",
+            .@"112",
+            .@"113",
+            .@"114",
+            .@"115",
+            .@"116",
+            .@"117",
+            .@"118",
+            .@"119",
+            => switch (c) {
                 ';' => if (self.ensureAllocator()) self.writeToFixed(),
                 else => self.state = .invalid,
             },
@@ -625,60 +589,10 @@ pub const Parser = struct {
                 else => self.state = .invalid,
             },
 
-            .@"133" => switch (c) {
-                ';' => self.writeToFixed(),
-                else => self.state = .invalid,
-            },
-
-            .@"14" => switch (c) {
-                ';' => if (self.ensureAllocator()) self.writeToFixed(),
-                else => self.state = .invalid,
-            },
-
-            .@"15" => switch (c) {
-                ';' => if (self.ensureAllocator()) self.writeToFixed(),
-                else => self.state = .invalid,
-            },
-
-            .@"16" => switch (c) {
-                ';' => if (self.ensureAllocator()) self.writeToFixed(),
-                else => self.state = .invalid,
-            },
-
-            .@"17" => switch (c) {
-                ';' => if (self.ensureAllocator()) self.writeToFixed(),
-                else => self.state = .invalid,
-            },
-
-            .@"18" => switch (c) {
-                ';' => if (self.ensureAllocator()) self.writeToFixed(),
-                else => self.state = .invalid,
-            },
-
-            .@"19" => switch (c) {
-                ';' => if (self.ensureAllocator()) self.writeToFixed(),
-                else => self.state = .invalid,
-            },
-
             .@"2" => switch (c) {
                 ';' => self.writeToFixed(),
                 '1' => self.state = .@"21",
                 '2' => self.state = .@"22",
-                else => self.state = .invalid,
-            },
-
-            .@"21" => switch (c) {
-                ';' => if (self.ensureAllocator()) self.writeToFixed(),
-                else => self.state = .invalid,
-            },
-
-            .@"22" => switch (c) {
-                ';' => self.writeToFixed(),
-                else => self.state = .invalid,
-            },
-
-            .@"4" => switch (c) {
-                ';' => if (self.ensureAllocator()) self.writeToFixed(),
                 else => self.state = .invalid,
             },
 
@@ -704,17 +618,13 @@ pub const Parser = struct {
                 else => self.state = .invalid,
             },
 
-            .@"777" => switch (c) {
-                ';' => self.writeToFixed(),
-                else => self.state = .invalid,
-            },
-
-            .@"8" => switch (c) {
-                ';' => self.writeToFixed(),
-                else => self.state = .invalid,
-            },
-
-            .@"9" => switch (c) {
+            .@"0",
+            .@"133",
+            .@"22",
+            .@"777",
+            .@"8",
+            .@"9",
+            => switch (c) {
                 ';' => self.writeToFixed(),
                 else => self.state = .invalid,
             },
@@ -731,41 +641,56 @@ pub const Parser = struct {
     pub fn end(self: *Parser, terminator_ch: ?u8) ?*Command {
         return switch (self.state) {
             .start => null,
+
             .invalid => null,
-            .@"0" => self.parseChangeWindowTitle(terminator_ch),
+
+            .@"0",
+            .@"2",
+            => self.parseChangeWindowTitle(terminator_ch),
+
             .@"1" => self.parseChangeWindowIcon(terminator_ch),
-            .@"2" => self.parseChangeWindowTitle(terminator_ch),
-            .@"4" => self.parseOscColor(terminator_ch),
-            .@"5" => self.parseOscColor(terminator_ch),
+
+            .@"4",
+            .@"5",
+            .@"10",
+            .@"11",
+            .@"12",
+            .@"13",
+            .@"14",
+            .@"15",
+            .@"16",
+            .@"17",
+            .@"18",
+            .@"19",
+            .@"104",
+            .@"110",
+            .@"111",
+            .@"112",
+            .@"113",
+            .@"114",
+            .@"115",
+            .@"116",
+            .@"117",
+            .@"118",
+            .@"119",
+            => self.parseOscColor(terminator_ch),
+
             .@"7" => self.parseReportPwd(terminator_ch),
+
             .@"8" => self.parseHyperlink(terminator_ch),
+
             .@"9" => self.parseOsc9(terminator_ch),
-            .@"10" => self.parseOscColor(terminator_ch),
-            .@"11" => self.parseOscColor(terminator_ch),
-            .@"12" => self.parseOscColor(terminator_ch),
-            .@"13" => self.parseOscColor(terminator_ch),
-            .@"14" => self.parseOscColor(terminator_ch),
-            .@"15" => self.parseOscColor(terminator_ch),
-            .@"16" => self.parseOscColor(terminator_ch),
-            .@"17" => self.parseOscColor(terminator_ch),
-            .@"18" => self.parseOscColor(terminator_ch),
-            .@"19" => self.parseOscColor(terminator_ch),
+
             .@"21" => self.parseKittyColorProtocol(terminator_ch),
+
             .@"22" => self.parseMouseShape(terminator_ch),
+
             .@"52" => self.parseClipboardOperation(terminator_ch),
+
             .@"77" => null,
-            .@"104" => self.parseOscColor(terminator_ch),
-            .@"110" => self.parseOscColor(terminator_ch),
-            .@"111" => self.parseOscColor(terminator_ch),
-            .@"112" => self.parseOscColor(terminator_ch),
-            .@"113" => self.parseOscColor(terminator_ch),
-            .@"114" => self.parseOscColor(terminator_ch),
-            .@"115" => self.parseOscColor(terminator_ch),
-            .@"116" => self.parseOscColor(terminator_ch),
-            .@"117" => self.parseOscColor(terminator_ch),
-            .@"118" => self.parseOscColor(terminator_ch),
-            .@"119" => self.parseOscColor(terminator_ch),
+
             .@"133" => self.parseSemanticPrompt(terminator_ch),
+
             .@"777" => self.parseRxvtExtension(terminator_ch),
         };
     }
