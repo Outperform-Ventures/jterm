@@ -451,7 +451,7 @@ pub const Parser = struct {
 
     /// Make sure that we have an allocator. If we don't, set the state to
     /// invalid so that any additional OSC data is discarded.
-    pub inline fn ensureAllocator(self: *Parser) bool {
+    inline fn ensureAllocator(self: *Parser) bool {
         if (self.alloc != null) return true;
         log.warn("An allocator is required to process OSC {t} but none was provided.", .{self.state});
         self.state = .invalid;
@@ -459,7 +459,7 @@ pub const Parser = struct {
     }
 
     /// Set up a fixed Writer to collect the rest of the OSC data.
-    pub inline fn writeToFixed(self: *Parser) void {
+    inline fn writeToFixed(self: *Parser) void {
         self.fixed = .fixed(&self.buffer);
         self.writer = &self.fixed.?;
     }
@@ -467,7 +467,7 @@ pub const Parser = struct {
     /// Set up an allocating Writer to collect the rest of the OSC data. If we
     /// don't have an allocator or setting up the allocator fails, fall back to
     /// writing to a fixed buffer and hope that it's big enough.
-    pub inline fn writeToAllocating(self: *Parser) void {
+    inline fn writeToAllocating(self: *Parser) void {
         const alloc = self.alloc orelse {
             // We don't have an allocator - fall back to a fixed buffer and hope
             // that it's big enough.
