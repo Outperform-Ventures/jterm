@@ -2000,6 +2000,12 @@ pub const Scroll = union(enum) {
 pub fn scroll(self: *PageList, behavior: Scroll) void {
     defer self.assertIntegrity();
 
+    // Special case no-scrollback mode to never allow scrolling.
+    if (self.explicit_max_size == 0) {
+        self.viewport = .active;
+        return;
+    }
+
     switch (behavior) {
         .active => self.viewport = .active,
         .top => self.viewport = .top,
@@ -2322,6 +2328,17 @@ pub const Scrollbar = struct {
 /// is (arbitrary pins are expensive). The caller should take care to only
 /// call this as needed and not too frequently.
 pub fn scrollbar(self: *PageList) Scrollbar {
+    // If we have no scrollback, special case no scrollbar.
+    // We need to do this because the way PageList works is that
+    // it always has SOME extra space (due to the way we allocate by page).
+    // So even with no scrollback we have some growth. It is architecturally
+    // much simpler to just hide that for no-scrollback cases.
+    if (self.explicit_max_size == 0) return .{
+        .total = self.rows,
+        .offset = 0,
+        .len = self.rows,
+    };
+
     return .{
         .total = self.total_rows,
         .offset = self.viewportRowOffset(),
@@ -4762,7 +4779,8 @@ test "PageList grow prune required with a single page" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
-    var s = try init(alloc, 80, 24, 0);
+    // Need scrollback > 0 to have a scrollbar to test
+    var s = try init(alloc, 80, 24, null);
     defer s.deinit();
 
     // This block is all test setup. There is nothing required about this
@@ -4808,6 +4826,47 @@ test "PageList grow prune required with a single page" {
         .offset = s.total_rows - s.rows,
         .len = s.rows,
     }, s.scrollbar());
+}
+
+test "PageList scrollbar with max_size 0 after grow" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 80, 24, 0);
+    defer s.deinit();
+
+    // Grow some rows (simulates normal terminal output)
+    try s.growRows(10);
+
+    const sb = s.scrollbar();
+
+    // With no scrollback (max_size = 0), total should equal rows
+    try testing.expectEqual(s.rows, sb.total);
+
+    // With no scrollback, offset should be 0 (nowhere to scroll back to)
+    try testing.expectEqual(@as(usize, 0), sb.offset);
+}
+
+test "PageList scroll with max_size 0 no history" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 80, 24, 0);
+    defer s.deinit();
+
+    try s.growRows(10);
+
+    // Remember initial viewport position
+    const pt_before = s.getCell(.{ .viewport = .{} }).?.screenPoint();
+
+    // Try to scroll backwards into "history" - should be no-op
+    s.scroll(.{ .delta_row = -5 });
+    try testing.expect(s.viewport == .active);
+
+    // Scroll to top - should also be no-op with no scrollback
+    s.scroll(.{ .top = {} });
+    const pt_after = s.getCell(.{ .viewport = .{} }).?.screenPoint();
+    try testing.expectEqual(pt_before, pt_after);
 }
 
 test "PageList scroll top" {
@@ -5785,8 +5844,8 @@ test "PageList grow prune scrollback" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
-    // Zero here forces minimum max size to effectively two pages.
-    var s = try init(alloc, 80, 24, 0);
+    // Use std_size to limit scrollback so pruning is triggered.
+    var s = try init(alloc, 80, 24, std_size);
     defer s.deinit();
 
     // Grow to capacity
@@ -5854,8 +5913,8 @@ test "PageList grow prune scrollback with viewport pin not in pruned page" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
-    // Zero here forces minimum max size to effectively two pages.
-    var s = try init(alloc, 80, 24, 0);
+    // Use std_size to limit scrollback so pruning is triggered.
+    var s = try init(alloc, 80, 24, std_size);
     defer s.deinit();
 
     // Grow to capacity of first page
