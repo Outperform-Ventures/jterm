@@ -232,8 +232,21 @@ pub const RemapSet = struct {
         InvalidMod,
     };
 
-    pub fn deinit(self: *RemapSet, alloc: Allocator) void {
-        self.map.deinit(alloc);
+    /// Parse from CLI input. Required by Config.
+    pub fn parseCLI(self: *RemapSet, alloc: Allocator, input: ?[]const u8) !void {
+        const value = input orelse "";
+
+        // Empty value resets the set
+        if (value.len == 0) {
+            self.map.clearRetainingCapacity();
+            self.mask = .{};
+            return;
+        }
+
+        self.parse(alloc, value) catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            error.MissingAssignment, error.InvalidMod => return error.InvalidValue,
+        };
     }
 
     /// Parse a modifier remap and add it to the set.
@@ -294,6 +307,10 @@ pub const RemapSet = struct {
         self.mask.update(from_right);
     }
 
+    pub fn deinit(self: *RemapSet, alloc: Allocator) void {
+        self.map.deinit(alloc);
+    }
+
     /// Must be called prior to any remappings so that the mapping
     /// is sorted properly. Otherwise, you will get invalid results.
     pub fn finalize(self: *RemapSet) void {
@@ -315,6 +332,67 @@ pub const RemapSet = struct {
         };
 
         self.map.sort(Context{ .keys = self.map.keys() });
+    }
+
+    /// Deep copy of the struct. Required by Config.
+    pub fn clone(self: *const RemapSet, alloc: Allocator) Allocator.Error!RemapSet {
+        return .{
+            .map = try self.map.clone(alloc),
+            .mask = self.mask,
+        };
+    }
+
+    /// Compare if two RemapSets are equal. Required by Config.
+    pub fn equal(self: RemapSet, other: RemapSet) bool {
+        if (self.map.count() != other.map.count()) return false;
+
+        var it = self.map.iterator();
+        while (it.next()) |entry| {
+            const other_value = other.map.get(entry.key_ptr.*) orelse return false;
+            if (!entry.value_ptr.equal(other_value)) return false;
+        }
+
+        return true;
+    }
+
+    /// Used by Formatter. Required by Config.
+    pub fn formatEntry(self: RemapSet, formatter: anytype) !void {
+        if (self.map.count() == 0) {
+            try formatter.formatEntry(void, {});
+            return;
+        }
+
+        var it = self.map.iterator();
+        while (it.next()) |entry| {
+            const from = entry.key_ptr.*;
+            const to = entry.value_ptr.*;
+
+            var buf: [64]u8 = undefined;
+            var fbs = std.io.fixedBufferStream(&buf);
+            const writer = fbs.writer();
+            formatMod(writer, from) catch return error.OutOfMemory;
+            writer.writeByte('=') catch return error.OutOfMemory;
+            formatMod(writer, to) catch return error.OutOfMemory;
+            try formatter.formatEntry([]const u8, fbs.getWritten());
+        }
+    }
+
+    fn formatMod(writer: anytype, mods: Mods) !void {
+        // Check which mod is set and format it with optional side prefix
+        inline for (.{ "shift", "ctrl", "alt", "super" }) |name| {
+            if (@field(mods, name)) {
+                const side = @field(mods.sides, name);
+                if (side == .right) {
+                    try writer.writeAll("right_");
+                } else {
+                    // Only write left_ if we need to distinguish
+                    // For now, always write left_ if it's a sided mapping
+                    try writer.writeAll("left_");
+                }
+                try writer.writeAll(name);
+                return;
+            }
+        }
     }
 
     /// Parses a single mode in a single remapping string. E.g.
@@ -598,4 +676,145 @@ test "RemapSet: isRemapped checks mask" {
     try testing.expect(set.isRemapped(.{ .ctrl = true }));
     try testing.expect(!set.isRemapped(.{ .alt = true }));
     try testing.expect(!set.isRemapped(.{ .shift = true }));
+}
+
+test "RemapSet: clone creates independent copy" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var set: RemapSet = .empty;
+    defer set.deinit(alloc);
+
+    try set.parse(alloc, "ctrl=super");
+    set.finalize();
+
+    var cloned = try set.clone(alloc);
+    defer cloned.deinit(alloc);
+
+    try testing.expect(set.equal(cloned));
+    try testing.expect(cloned.isRemapped(.{ .ctrl = true }));
+}
+
+test "RemapSet: equal compares correctly" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var set1: RemapSet = .empty;
+    defer set1.deinit(alloc);
+
+    var set2: RemapSet = .empty;
+    defer set2.deinit(alloc);
+
+    try testing.expect(set1.equal(set2));
+
+    try set1.parse(alloc, "ctrl=super");
+    try testing.expect(!set1.equal(set2));
+
+    try set2.parse(alloc, "ctrl=super");
+    try testing.expect(set1.equal(set2));
+
+    try set1.parse(alloc, "alt=shift");
+    try testing.expect(!set1.equal(set2));
+}
+
+test "RemapSet: parseCLI basic" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var set: RemapSet = .empty;
+    defer set.deinit(alloc);
+
+    try set.parseCLI(alloc, "ctrl=super");
+    try testing.expectEqual(@as(usize, 2), set.map.count());
+}
+
+test "RemapSet: parseCLI empty clears" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var set: RemapSet = .empty;
+    defer set.deinit(alloc);
+
+    try set.parseCLI(alloc, "ctrl=super");
+    try testing.expectEqual(@as(usize, 2), set.map.count());
+
+    try set.parseCLI(alloc, "");
+    try testing.expectEqual(@as(usize, 0), set.map.count());
+}
+
+test "RemapSet: parseCLI invalid" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var set: RemapSet = .empty;
+    defer set.deinit(alloc);
+
+    try testing.expectError(error.InvalidValue, set.parseCLI(alloc, "foo=bar"));
+    try testing.expectError(error.InvalidValue, set.parseCLI(alloc, "ctrl"));
+}
+
+test "RemapSet: formatEntry empty" {
+    const testing = std.testing;
+    const formatterpkg = @import("../config/formatter.zig");
+
+    var buf: std.Io.Writer.Allocating = .init(testing.allocator);
+    defer buf.deinit();
+
+    const set: RemapSet = .empty;
+    try set.formatEntry(formatterpkg.entryFormatter("key-remap", &buf.writer));
+    try testing.expectEqualSlices(u8, "key-remap = \n", buf.written());
+}
+
+test "RemapSet: formatEntry single sided" {
+    const testing = std.testing;
+    const formatterpkg = @import("../config/formatter.zig");
+
+    var buf: std.Io.Writer.Allocating = .init(testing.allocator);
+    defer buf.deinit();
+
+    var set: RemapSet = .empty;
+    defer set.deinit(testing.allocator);
+
+    try set.parse(testing.allocator, "left_ctrl=super");
+    set.finalize();
+
+    try set.formatEntry(formatterpkg.entryFormatter("key-remap", &buf.writer));
+    try testing.expectEqualSlices(u8, "key-remap = left_ctrl=left_super\n", buf.written());
+}
+
+test "RemapSet: formatEntry unsided creates two entries" {
+    const testing = std.testing;
+    const formatterpkg = @import("../config/formatter.zig");
+
+    var buf: std.Io.Writer.Allocating = .init(testing.allocator);
+    defer buf.deinit();
+
+    var set: RemapSet = .empty;
+    defer set.deinit(testing.allocator);
+
+    try set.parse(testing.allocator, "ctrl=super");
+    set.finalize();
+
+    try set.formatEntry(formatterpkg.entryFormatter("key-remap", &buf.writer));
+    // Unsided creates both left and right mappings
+    const written = buf.written();
+    try testing.expect(std.mem.indexOf(u8, written, "left_ctrl=left_super") != null);
+    try testing.expect(std.mem.indexOf(u8, written, "right_ctrl=left_super") != null);
+}
+
+test "RemapSet: formatEntry right sided" {
+    const testing = std.testing;
+    const formatterpkg = @import("../config/formatter.zig");
+
+    var buf: std.Io.Writer.Allocating = .init(testing.allocator);
+    defer buf.deinit();
+
+    var set: RemapSet = .empty;
+    defer set.deinit(testing.allocator);
+
+    try set.parse(testing.allocator, "left_alt=right_ctrl");
+    set.finalize();
+
+    try set.formatEntry(formatterpkg.entryFormatter("key-remap", &buf.writer));
+    try testing.expectEqualSlices(u8, "key-remap = left_alt=right_ctrl\n", buf.written());
 }

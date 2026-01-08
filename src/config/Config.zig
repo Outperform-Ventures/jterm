@@ -37,7 +37,7 @@ const RepeatableStringMap = @import("RepeatableStringMap.zig");
 pub const Path = @import("path.zig").Path;
 pub const RepeatablePath = @import("path.zig").RepeatablePath;
 const ClipboardCodepointMap = @import("ClipboardCodepointMap.zig");
-const KeyRemapSet = @import("key_mods.zig").RemapSet;
+const KeyRemapSet = @import("../input/key_mods.zig").RemapSet;
 
 // We do this instead of importing all of terminal/main.zig to
 // limit the dependency graph. This is important because some things
@@ -1796,7 +1796,7 @@ keybind: Keybinds = .{},
 ///
 /// Currently only supported on macOS. Linux/GTK support is planned for
 /// a future release.
-@"key-remap": RepeatableKeyRemap = .{},
+@"key-remap": KeyRemapSet = .empty,
 
 /// Horizontal window padding. This applies padding between the terminal cells
 /// and the left and right window borders. The value is in points, meaning that
@@ -4477,6 +4477,9 @@ pub fn finalize(self: *Config) !void {
     }
 
     self.@"faint-opacity" = std.math.clamp(self.@"faint-opacity", 0.0, 1.0);
+
+    // Finalize key remapping set for efficient lookups
+    self.@"key-remap".finalize();
 }
 
 /// Callback for src/cli/args.zig to allow us to handle special cases
@@ -8059,112 +8062,6 @@ pub const RepeatableLink = struct {
         // This currently can't be set so we don't format anything.
         _ = self;
         _ = formatter;
-    }
-};
-
-/// RepeatableKeyRemap is used for the key-remap configuration which
-/// allows remapping modifier keys within Ghostty.
-pub const RepeatableKeyRemap = struct {
-    const Self = @This();
-
-    value: std.ArrayListUnmanaged(inputpkg.KeyRemap) = .empty,
-
-    pub fn parseCLI(self: *Self, alloc: Allocator, input_: ?[]const u8) !void {
-        // Empty/unset input clears the list
-        const input = input_ orelse "";
-        if (input.len == 0) {
-            self.value.clearRetainingCapacity();
-            return;
-        }
-
-        // Parse the key remap
-        const remap = inputpkg.KeyRemap.parse(input) catch |err| switch (err) {
-            error.InvalidFormat => return error.InvalidValue,
-            error.InvalidModifier => return error.InvalidValue,
-        };
-
-        // Reserve space and append
-        try self.value.ensureUnusedCapacity(alloc, 1);
-        self.value.appendAssumeCapacity(remap);
-    }
-
-    /// Deep copy of the struct. Required by Config.
-    pub fn clone(self: *const Self, alloc: Allocator) Allocator.Error!Self {
-        return .{
-            .value = try self.value.clone(alloc),
-        };
-    }
-
-    /// Compare if two values are equal. Required by Config.
-    pub fn equal(self: Self, other: Self) bool {
-        if (self.value.items.len != other.value.items.len) return false;
-        for (self.value.items, other.value.items) |a, b| {
-            if (!a.equal(b)) return false;
-        }
-        return true;
-    }
-
-    /// Used by Formatter
-    pub fn formatEntry(self: Self, formatter: formatterpkg.EntryFormatter) !void {
-        if (self.value.items.len == 0) {
-            try formatter.formatEntry(void, {});
-            return;
-        }
-
-        for (self.value.items) |item| {
-            // Format as "from=to"
-            var buf: [64]u8 = undefined;
-            var fbs = std.io.fixedBufferStream(&buf);
-            const writer = fbs.writer();
-            writer.print("{s}={s}", .{ @tagName(item.from), @tagName(item.to) }) catch
-                return error.OutOfMemory;
-            try formatter.formatEntry([]const u8, fbs.getWritten());
-        }
-    }
-
-    test "RepeatableKeyRemap parseCLI" {
-        const testing = std.testing;
-        var arena = ArenaAllocator.init(testing.allocator);
-        defer arena.deinit();
-        const alloc = arena.allocator();
-
-        var list: RepeatableKeyRemap = .{};
-
-        try list.parseCLI(alloc, "ctrl=super");
-        try testing.expectEqual(@as(usize, 1), list.value.items.len);
-        try testing.expectEqual(inputpkg.KeyRemap.ModKey.ctrl, list.value.items[0].from);
-        try testing.expectEqual(inputpkg.KeyRemap.ModKey.super, list.value.items[0].to);
-
-        try list.parseCLI(alloc, "alt=shift");
-        try testing.expectEqual(@as(usize, 2), list.value.items.len);
-    }
-
-    test "RepeatableKeyRemap parseCLI clear" {
-        const testing = std.testing;
-        var arena = ArenaAllocator.init(testing.allocator);
-        defer arena.deinit();
-        const alloc = arena.allocator();
-
-        var list: RepeatableKeyRemap = .{};
-
-        try list.parseCLI(alloc, "ctrl=super");
-        try testing.expectEqual(@as(usize, 1), list.value.items.len);
-
-        // Empty clears the list
-        try list.parseCLI(alloc, "");
-        try testing.expectEqual(@as(usize, 0), list.value.items.len);
-    }
-
-    test "RepeatableKeyRemap parseCLI invalid" {
-        const testing = std.testing;
-        var arena = ArenaAllocator.init(testing.allocator);
-        defer arena.deinit();
-        const alloc = arena.allocator();
-
-        var list: RepeatableKeyRemap = .{};
-
-        try testing.expectError(error.InvalidValue, list.parseCLI(alloc, "foo=bar"));
-        try testing.expectError(error.InvalidValue, list.parseCLI(alloc, "ctrl"));
     }
 };
 

@@ -333,7 +333,7 @@ const DerivedConfig = struct {
     notify_on_command_finish: configpkg.Config.NotifyOnCommandFinish,
     notify_on_command_finish_action: configpkg.Config.NotifyOnCommandFinishAction,
     notify_on_command_finish_after: Duration,
-    key_remaps: []const input.KeyRemap,
+    key_remaps: input.KeyRemapSet,
 
     const Link = struct {
         regex: oni.Regex,
@@ -409,7 +409,7 @@ const DerivedConfig = struct {
             .notify_on_command_finish = config.@"notify-on-command-finish",
             .notify_on_command_finish_action = config.@"notify-on-command-finish-action",
             .notify_on_command_finish_after = config.@"notify-on-command-finish-after",
-            .key_remaps = config.@"key-remap".value.items,
+            .key_remaps = try config.@"key-remap".clone(alloc),
 
             // Assignments happen sequentially so we have to do this last
             // so that the memory is captured from allocs above.
@@ -2582,8 +2582,8 @@ pub fn keyEventIsBinding(
 ) bool {
     // Apply key remappings for consistency with keyCallback
     var event = event_orig;
-    if (self.config.key_remaps.len > 0) {
-        event.mods = input.KeyRemap.applyRemaps(self.config.key_remaps, event_orig.mods);
+    if (self.config.key_remaps.isRemapped(event_orig.mods)) {
+        event.mods = self.config.key_remaps.apply(event_orig.mods);
     }
 
     switch (event.action) {
@@ -2620,8 +2620,8 @@ pub fn keyCallback(
     // Apply key remappings to transform modifiers before any processing.
     // This allows users to remap modifier keys at the app level.
     var event = event_orig;
-    if (self.config.key_remaps.len > 0) {
-        event.mods = input.KeyRemap.applyRemaps(self.config.key_remaps, event_orig.mods);
+    if (self.config.key_remaps.isRemapped(event_orig.mods)) {
+        event.mods = self.config.key_remaps.apply(event_orig.mods);
     }
 
     // Crash metadata in case we crash in here
