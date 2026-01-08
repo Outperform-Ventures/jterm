@@ -9,6 +9,7 @@ const build_config = @import("../build_config.zig");
 const uucode = @import("uucode");
 const EntryFormatter = @import("../config/formatter.zig").EntryFormatter;
 const key = @import("key.zig");
+const key_mods = @import("key_mods.zig");
 const KeyEvent = key.KeyEvent;
 
 /// The trigger that needs to be performed to execute the action.
@@ -1640,18 +1641,12 @@ pub const Trigger = struct {
             }
 
             // Alias modifiers
-            const alias_mods = .{
-                .{ "cmd", "super" },
-                .{ "command", "super" },
-                .{ "opt", "alt" },
-                .{ "option", "alt" },
-                .{ "control", "ctrl" },
-            };
-            inline for (alias_mods) |pair| {
+            inline for (key_mods.alias) |pair| {
                 if (std.mem.eql(u8, part, pair[0])) {
                     // Repeat not allowed
-                    if (@field(result.mods, pair[1])) return Error.InvalidFormat;
-                    @field(result.mods, pair[1]) = true;
+                    const field = @tagName(pair[1]);
+                    if (@field(result.mods, field)) return Error.InvalidFormat;
+                    @field(result.mods, field) = true;
                     continue :loop;
                 }
             }

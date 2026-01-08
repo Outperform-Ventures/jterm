@@ -37,6 +37,7 @@ const RepeatableStringMap = @import("RepeatableStringMap.zig");
 pub const Path = @import("path.zig").Path;
 pub const RepeatablePath = @import("path.zig").RepeatablePath;
 const ClipboardCodepointMap = @import("ClipboardCodepointMap.zig");
+const KeyRemapSet = @import("../input/key_mods.zig").RemapSet;
 
 // We do this instead of importing all of terminal/main.zig to
 // limit the dependency graph. This is important because some things
@@ -1756,6 +1757,46 @@ class: ?[:0]const u8 = null,
 ///
 /// Key tables are available since Ghostty 1.3.0.
 keybind: Keybinds = .{},
+
+/// Remap modifier keys within Ghostty. This allows you to swap or reassign
+/// modifier keys at the application level without affecting system-wide
+/// settings.
+///
+/// The format is `from=to` where both `from` and `to` are modifier key names.
+/// You can use generic names like `ctrl`, `alt`, `shift`, `super` (macOS:
+/// `cmd`/`command`) or sided names like `left_ctrl`, `right_alt`, etc.
+///
+/// This will NOT change keyboard layout or key encodings outside of Ghostty.
+/// For example, on macOS, `option+a` may still produce `å` even if `option` is
+/// remapped to `ctrl`. Desktop environments usually handle key layout long
+/// before Ghostty receives the key events.
+///
+/// Example:
+///
+///     key-remap = ctrl=super
+///     key-remap = left_control=right_alt
+///
+/// Important notes:
+///
+/// * This is a one-way remap. If you remap `ctrl=super`, then the physical
+///   Ctrl key acts as Super, but the Super key remains Super.
+///
+/// * Remaps are not transitive. If you remap `ctrl=super` and `alt=ctrl`,
+///   pressing Alt will produce Ctrl, NOT Super.
+///
+/// * This affects both keybind matching and terminal input encoding.
+///   This does NOT impact keyboard layout or how keys are interpreted
+///   prior to Ghostty receiving them. For example, `option+a` on macOS
+///   may still produce `å` even if `option` is remapped to `ctrl`.
+///
+/// * Generic modifiers (e.g. `ctrl`) match both left and right physical keys.
+///   Use sided names (e.g. `left_ctrl`) to remap only one side. ///
+///
+/// This configuration can be repeated to specify multiple remaps.
+///
+/// Currently only supported on macOS. Linux/GTK support is planned for
+/// a future release.
+@"key-remap": KeyRemapSet = .empty,
 
 /// Horizontal window padding. This applies padding between the terminal cells
 /// and the left and right window borders. The value is in points, meaning that
@@ -4436,6 +4477,9 @@ pub fn finalize(self: *Config) !void {
     }
 
     self.@"faint-opacity" = std.math.clamp(self.@"faint-opacity", 0.0, 1.0);
+
+    // Finalize key remapping set for efficient lookups
+    self.@"key-remap".finalize();
 }
 
 /// Callback for src/cli/args.zig to allow us to handle special cases
