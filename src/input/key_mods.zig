@@ -410,11 +410,21 @@ pub const RemapSet = struct {
             input,
         };
 
+        const mod: Mod = if (std.meta.stringToEnum(
+            Mod,
+            mod_str,
+        )) |mod| mod else mod: {
+            inline for (alias) |pair| {
+                if (std.mem.eql(u8, mod_str, pair[0])) {
+                    break :mod pair[1];
+                }
+            }
+
+            return error.InvalidMod;
+        };
+
         return .{
-            std.meta.stringToEnum(
-                Mod,
-                mod_str,
-            ) orelse return error.InvalidMod,
+            mod,
             if (side_str.len > 0) std.meta.stringToEnum(
                 Mod.Side,
                 side_str,
@@ -751,6 +761,90 @@ test "RemapSet: parseCLI invalid" {
 
     try testing.expectError(error.InvalidValue, set.parseCLI(alloc, "foo=bar"));
     try testing.expectError(error.InvalidValue, set.parseCLI(alloc, "ctrl"));
+}
+
+test "RemapSet: parse aliased modifiers" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var set: RemapSet = .empty;
+    defer set.deinit(alloc);
+
+    try set.parse(alloc, "cmd=ctrl");
+    set.finalize();
+
+    const left_super: Mods = .{ .super = true, .sides = .{ .super = .left } };
+    const left_ctrl: Mods = .{ .ctrl = true, .sides = .{ .ctrl = .left } };
+    try testing.expectEqual(left_ctrl, set.apply(left_super));
+}
+
+test "RemapSet: parse aliased modifiers command" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var set: RemapSet = .empty;
+    defer set.deinit(alloc);
+
+    try set.parse(alloc, "command=alt");
+    set.finalize();
+
+    const left_super: Mods = .{ .super = true, .sides = .{ .super = .left } };
+    const left_alt: Mods = .{ .alt = true, .sides = .{ .alt = .left } };
+    try testing.expectEqual(left_alt, set.apply(left_super));
+}
+
+test "RemapSet: parse aliased modifiers opt and option" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var set: RemapSet = .empty;
+    defer set.deinit(alloc);
+
+    try set.parse(alloc, "opt=super");
+    set.finalize();
+
+    const left_alt: Mods = .{ .alt = true, .sides = .{ .alt = .left } };
+    const left_super: Mods = .{ .super = true, .sides = .{ .super = .left } };
+    try testing.expectEqual(left_super, set.apply(left_alt));
+
+    set.deinit(alloc);
+    set = .empty;
+
+    try set.parse(alloc, "option=shift");
+    set.finalize();
+
+    const left_shift: Mods = .{ .shift = true, .sides = .{ .shift = .left } };
+    try testing.expectEqual(left_shift, set.apply(left_alt));
+}
+
+test "RemapSet: parse aliased modifiers control" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var set: RemapSet = .empty;
+    defer set.deinit(alloc);
+
+    try set.parse(alloc, "control=super");
+    set.finalize();
+
+    const left_ctrl: Mods = .{ .ctrl = true, .sides = .{ .ctrl = .left } };
+    const left_super: Mods = .{ .super = true, .sides = .{ .super = .left } };
+    try testing.expectEqual(left_super, set.apply(left_ctrl));
+}
+
+test "RemapSet: parse aliased modifiers on target side" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var set: RemapSet = .empty;
+    defer set.deinit(alloc);
+
+    try set.parse(alloc, "alt=cmd");
+    set.finalize();
+
+    const left_alt: Mods = .{ .alt = true, .sides = .{ .alt = .left } };
+    const left_super: Mods = .{ .super = true, .sides = .{ .super = .left } };
+    try testing.expectEqual(left_super, set.apply(left_alt));
 }
 
 test "RemapSet: formatEntry empty" {
