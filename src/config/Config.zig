@@ -1790,12 +1790,18 @@ keybind: Keybinds = .{},
 ///   may still produce `å` even if `option` is remapped to `ctrl`.
 ///
 /// * Generic modifiers (e.g. `ctrl`) match both left and right physical keys.
-///   Use sided names (e.g. `left_ctrl`) to remap only one side. ///
+///   Use sided names (e.g. `left_ctrl`) to remap only one side.
+///
+/// There are other edge case scenarios that may not behave as expected
+/// but are working as intended the way this feature is designed:
+///
+/// * On macOS, bindings in the main menu will trigger before any remapping
+///   is done. This is because macOS itself handles menu activation and
+///   this happens before Ghostty receives the key event. To workaround
+///   this, you should unbind the menu items and rebind them using your
+///   desired modifier.
 ///
 /// This configuration can be repeated to specify multiple remaps.
-///
-/// Currently only supported on macOS. Linux/GTK support is planned for
-/// a future release.
 @"key-remap": KeyRemapSet = .empty,
 
 /// Horizontal window padding. This applies padding between the terminal cells
