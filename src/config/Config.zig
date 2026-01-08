@@ -1765,6 +1765,11 @@ keybind: Keybinds = .{},
 /// You can use generic names like `ctrl`, `alt`, `shift`, `super` (macOS:
 /// `cmd`/`command`) or sided names like `left_ctrl`, `right_alt`, etc.
 ///
+/// This will NOT change keyboard layout or key encodings outside of Ghostty.
+/// For example, on macOS, `option+a` may still produce `å` even if `option` is
+/// remapped to `ctrl`. Desktop environments usually handle key layout long
+/// before Ghostty receives the key events.
+///
 /// Example:
 ///
 ///     key-remap = ctrl=super
@@ -1779,6 +1784,9 @@ keybind: Keybinds = .{},
 ///   pressing Alt will produce Ctrl, NOT Super.
 ///
 /// * This affects both keybind matching and terminal input encoding.
+///   This does NOT impact keyboard layout or how keys are interpreted
+///   prior to Ghostty receiving them. For example, `option+a` on macOS
+///   may still produce `å` even if `option` is remapped to `ctrl`.
 ///
 /// * Generic modifiers (e.g. `ctrl`) match both left and right physical keys.
 ///   Use sided names (e.g. `left_ctrl`) to remap only one side.
