@@ -315,22 +315,22 @@ pub const Parser = struct {
     /// Optional allocator used to accept data longer than MAX_BUF.
     /// This only applies to some commands (e.g. OSC 52) that can
     /// reasonably exceed MAX_BUF.
-    alloc: ?Allocator = null,
+    alloc: ?Allocator,
 
     /// Current state of the parser.
-    state: State = .start,
+    state: State,
 
     /// Buffer for temporary storage of OSC data
-    buffer: [MAX_BUF]u8 = undefined,
+    buffer: [MAX_BUF]u8,
     /// Fixed writer for accumulating OSC data
-    fixed: ?std.Io.Writer = null,
+    fixed: ?std.Io.Writer,
     /// Allocating writer for accumulating OSC data
-    allocating: ?std.Io.Writer.Allocating = null,
+    allocating: ?std.Io.Writer.Allocating,
     /// Pointer to the active writer for accumulating OSC data
-    writer: ?*std.Io.Writer = null,
+    writer: ?*std.Io.Writer,
 
     /// The command that is the result of parsing.
-    command: Command = .invalid,
+    command: Command,
 
     pub const State = enum {
         start,
