@@ -37,6 +37,7 @@ const RepeatableStringMap = @import("RepeatableStringMap.zig");
 pub const Path = @import("path.zig").Path;
 pub const RepeatablePath = @import("path.zig").RepeatablePath;
 const ClipboardCodepointMap = @import("ClipboardCodepointMap.zig");
+const KeyRemapSet = @import("key_mods.zig").RemapSet;
 
 // We do this instead of importing all of terminal/main.zig to
 // limit the dependency graph. This is important because some things
@@ -1789,7 +1790,7 @@ keybind: Keybinds = .{},
 ///   may still produce `å` even if `option` is remapped to `ctrl`.
 ///
 /// * Generic modifiers (e.g. `ctrl`) match both left and right physical keys.
-///   Use sided names (e.g. `left_ctrl`) to remap only one side.
+///   Use sided names (e.g. `left_ctrl`) to remap only one side. ///
 ///
 /// This configuration can be repeated to specify multiple remaps.
 ///

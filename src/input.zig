@@ -22,6 +22,7 @@ pub const Link = @import("input/Link.zig");
 pub const Key = key.Key;
 pub const KeyboardLayout = keyboard.Layout;
 pub const KeyEvent = key.KeyEvent;
+pub const KeyRemapSet = key_mods.RemapSet;
 pub const InspectorMode = Binding.Action.InspectorMode;
 pub const Mods = key_mods.Mods;
 pub const MouseButton = mouse.Button;

@@ -1,4 +1,6 @@
 const std = @import("std");
+const assert = @import("../quirks.zig").inlineAssert;
+const Allocator = std.mem.Allocator;
 const builtin = @import("builtin");
 const OptionAsAlt = @import("config.zig").OptionAsAlt;
 
@@ -33,19 +35,46 @@ pub const Mods = packed struct(Mods.Backing) {
     super: bool = false,
     caps_lock: bool = false,
     num_lock: bool = false,
-    sides: side = .{},
+    sides: Side = .{},
     _padding: u6 = 0,
+
+    /// The standard modifier keys only. Does not include the lock keys,
+    /// only standard bindable keys.
+    pub const Keys = packed struct(u4) {
+        shift: bool = false,
+        ctrl: bool = false,
+        alt: bool = false,
+        super: bool = false,
+
+        pub const Backing = @typeInfo(Keys).@"struct".backing_integer.?;
+
+        pub inline fn int(self: Keys) Keys.Backing {
+            return @bitCast(self);
+        }
+    };
 
     /// Tracks the side that is active for any given modifier. Note
     /// that this doesn't confirm a modifier is pressed; you must check
     /// the bool for that in addition to this.
     ///
     /// Not all platforms support this, check apprt for more info.
-    pub const side = packed struct(u4) {
+    pub const Side = packed struct(u4) {
         shift: Mod.Side = .left,
         ctrl: Mod.Side = .left,
         alt: Mod.Side = .left,
         super: Mod.Side = .left,
+
+        pub const Backing = @typeInfo(Side).@"struct".backing_integer.?;
+    };
+
+    /// The mask that has all the side bits set.
+    pub const side_mask: Mods = .{
+        .sides = .{
+            .shift = .right,
+            .ctrl = .right,
+            .alt = .right,
+            .super = .right,
+        },
     };
 
     /// Integer value of this struct.
@@ -61,6 +90,16 @@ pub const Mods = packed struct(Mods.Backing) {
     /// Returns true if two mods are equal.
     pub fn equal(self: Mods, other: Mods) bool {
         return self.int() == other.int();
+    }
+
+    /// Returns only the keys.
+    ///
+    /// In the future I want to remove `binding` for this. I didn't want
+    /// to do that all in one PR where I added this because its a bigger
+    /// change.
+    pub fn keys(self: Mods) Keys {
+        const backing: Keys.Backing = @truncate(self.int());
+        return @bitCast(backing);
     }
 
     /// Return mods that are only relevant for bindings.
@@ -177,9 +216,386 @@ pub const Mods = packed struct(Mods.Backing) {
 /// Modifier remapping. See `key-remap` in Config.zig for detailed docs.
 pub const RemapSet = struct {
     /// Available mappings.
-    map: std.ArrayHashMapUnmanaged(Mods, Mods),
+    map: std.AutoArrayHashMapUnmanaged(Mods, Mods),
 
     /// The mask of remapped modifiers that can be used to quickly
     /// check if some input mods need remapping.
-    mask: Mods.Backing,
+    mask: Mask,
+
+    pub const empty: RemapSet = .{
+        .map = .{},
+        .mask = .{},
+    };
+
+    pub const ParseError = Allocator.Error || error{
+        MissingAssignment,
+        InvalidMod,
+    };
+
+    pub fn deinit(self: *RemapSet, alloc: Allocator) void {
+        self.map.deinit(alloc);
+    }
+
+    /// Parse a modifier remap and add it to the set.
+    pub fn parse(
+        self: *RemapSet,
+        alloc: Allocator,
+        input: []const u8,
+    ) ParseError!void {
+        // Find the assignment point ('=')
+        const eql_idx = std.mem.indexOfScalar(
+            u8,
+            input,
+            '=',
+        ) orelse return error.MissingAssignment;
+
+        // The to side defaults to "left" if no explicit side is given.
+        // This is because this is the default unsided value provided by
+        // the apprts in the current Mods layout.
+        const to: Mods = to: {
+            const raw = try parseMod(input[eql_idx + 1 ..]);
+            break :to initMods(raw[0], raw[1] orelse .left);
+        };
+
+        // The from side, if sided, is easy and we put it directly into
+        // the map.
+        const from_raw = try parseMod(input[0..eql_idx]);
+        if (from_raw[1]) |from_side| {
+            const from: Mods = initMods(from_raw[0], from_side);
+            try self.map.put(
+                alloc,
+                from,
+                to,
+            );
+            errdefer comptime unreachable;
+            self.mask.update(from);
+            return;
+        }
+
+        // We need to do some combinatorial explosion here for unsided
+        // from in order to assign all possible sides.
+        const from_left = initMods(from_raw[0], .left);
+        const from_right = initMods(from_raw[0], .right);
+        try self.map.put(
+            alloc,
+            from_left,
+            to,
+        );
+        errdefer _ = self.map.swapRemove(from_left);
+        try self.map.put(
+            alloc,
+            from_right,
+            to,
+        );
+        errdefer _ = self.map.swapRemove(from_right);
+
+        errdefer comptime unreachable;
+        self.mask.update(from_left);
+        self.mask.update(from_right);
+    }
+
+    /// Must be called prior to any remappings so that the mapping
+    /// is sorted properly. Otherwise, you will get invalid results.
+    pub fn finalize(self: *RemapSet) void {
+        const Context = struct {
+            keys: []const Mods,
+
+            pub fn lessThan(
+                ctx: @This(),
+                a_index: usize,
+                b_index: usize,
+            ) bool {
+                _ = b_index;
+
+                // Mods with any right sides prioritize
+                const side_mask = comptime Mods.side_mask.int();
+                const a = ctx.keys[a_index];
+                return a.int() & side_mask != 0;
+            }
+        };
+
+        self.map.sort(Context{ .keys = self.map.keys() });
+    }
+
+    /// Parses a single mode in a single remapping string. E.g.
+    /// `ctrl` or `left_shift`.
+    fn parseMod(input: []const u8) error{InvalidMod}!struct { Mod, ?Mod.Side } {
+        const side_str, const mod_str = if (std.mem.indexOfScalar(
+            u8,
+            input,
+            '_',
+        )) |idx| .{
+            input[0..idx],
+            input[idx + 1 ..],
+        } else .{
+            "",
+            input,
+        };
+
+        return .{
+            std.meta.stringToEnum(
+                Mod,
+                mod_str,
+            ) orelse return error.InvalidMod,
+            if (side_str.len > 0) std.meta.stringToEnum(
+                Mod.Side,
+                side_str,
+            ) orelse return error.InvalidMod else null,
+        };
+    }
+
+    fn initMods(mod: Mod, side: Mod.Side) Mods {
+        switch (mod) {
+            inline else => |tag| {
+                var mods: Mods = .{};
+                @field(mods, @tagName(tag)) = true;
+                @field(mods.sides, @tagName(tag)) = side;
+                return mods;
+            },
+        }
+    }
+
+    /// Returns true if the given mods need remapping.
+    pub fn isRemapped(self: *const RemapSet, mods: Mods) bool {
+        return self.mask.match(mods);
+    }
+
+    /// Apply a remap to the given mods.
+    pub fn apply(self: *const RemapSet, mods: Mods) Mods {
+        if (!self.isRemapped(mods)) return mods;
+
+        const mods_binding: Mods.Keys.Backing = @truncate(mods.int());
+        const mods_sides: Mods.Side.Backing = @bitCast(mods.sides);
+
+        var it = self.map.iterator();
+        while (it.next()) |entry| {
+            const from = entry.key_ptr.*;
+            const from_binding: Mods.Keys.Backing = @truncate(from.int());
+            if (mods_binding & from_binding != from_binding) continue;
+            const from_sides: Mods.Side.Backing = @bitCast(from.sides);
+            if ((mods_sides ^ from_sides) & from_binding != 0) continue;
+
+            var mods_int = mods.int();
+            mods_int &= ~from.int();
+            mods_int |= entry.value_ptr.int();
+            return @bitCast(mods_int);
+        }
+
+        unreachable;
+    }
+
+    /// Tracks which modifier keys and sides have remappings registered.
+    /// Used as a fast pre-check before doing expensive map lookups.
+    ///
+    /// The mask uses separate tracking for left and right sides because
+    /// remappings can be side-specific (e.g., only remap left_ctrl).
+    ///
+    /// Note: `left_sides` uses inverted logic where 1 means "left is remapped"
+    /// even though `Mod.Side.left = 0`. This allows efficient bitwise matching
+    /// since we can AND directly with the side bits.
+    pub const Mask = packed struct(u12) {
+        /// Which modifier keys (shift/ctrl/alt/super) have any remapping.
+        keys: Mods.Keys = .{},
+        /// Which modifiers have left-side remappings (inverted: 1 = left remapped).
+        left_sides: Mods.Side = .{},
+        /// Which modifiers have right-side remappings (1 = right remapped).
+        right_sides: Mods.Side = .{},
+
+        /// Adds a modifier to the mask, marking it as having a remapping.
+        pub fn update(self: *Mask, mods: Mods) void {
+            const keys_int: Mods.Keys.Backing = mods.keys().int();
+
+            // OR the new keys into our existing keys mask.
+            // Example: keys=0b0000, new ctrl → keys=0b0010
+            self.keys = @bitCast(self.keys.int() | keys_int);
+
+            // Both Keys and Side are u4 with matching bit positions.
+            // This lets us use keys_int to select which side bits to update.
+            const sides: Mods.Side.Backing = @bitCast(mods.sides);
+            const left_int: Mods.Side.Backing = @bitCast(self.left_sides);
+            const right_int: Mods.Side.Backing = @bitCast(self.right_sides);
+
+            // Update left_sides: set bit if this key is active AND side is left.
+            // Since Side.left=0, we invert sides (~sides) so left becomes 1.
+            // keys_int masks to only affect the modifier being added.
+            // Example: left_ctrl → keys_int=0b0010, ~sides=0b1111 (left=0 inverted)
+            //          result: left_int | (0b0010 & 0b1111) = left_int | 0b0010
+            self.left_sides = @bitCast(left_int | (keys_int & ~sides));
+
+            // Update right_sides: set bit if this key is active AND side is right.
+            // Since Side.right=1, we use sides directly.
+            // Example: right_ctrl → keys_int=0b0010, sides=0b0010 (right=1)
+            //          result: right_int | (0b0010 & 0b0010) = right_int | 0b0010
+            self.right_sides = @bitCast(right_int | (keys_int & sides));
+        }
+
+        /// Returns true if the given mods match any remapping in this mask.
+        /// This is a fast check to avoid expensive map lookups when no
+        /// remapping could possibly apply.
+        ///
+        /// Checks both that the modifier key is remapped AND that the
+        /// specific side (left/right) being pressed has a remapping.
+        pub fn match(self: *const Mask, mods: Mods) bool {
+            // Find which pressed keys have remappings registered.
+            // Example: pressed={ctrl,alt}, mask={ctrl} → active=0b0010 (just ctrl)
+            const active = mods.keys().int() & self.keys.int();
+            if (active == 0) return false;
+
+            // Check if the pressed side matches a remapped side.
+            // For left (sides bit = 0): check against left_int (where 1 = left remapped)
+            //   ~sides inverts so left becomes 1, then AND with left_int
+            // For right (sides bit = 1): check against right_int directly
+            //
+            // Example: pressing left_ctrl (sides.ctrl=0, left_int.ctrl=1)
+            //   ~sides = 0b1111, left_int = 0b0010
+            //   (~sides & left_int) = 0b0010 ✓ matches
+            //
+            // Example: pressing right_ctrl but only left_ctrl is remapped
+            //   sides = 0b0010, left_int = 0b0010, right_int = 0b0000
+            //   (~0b0010 & 0b0010) | (0b0010 & 0b0000) = 0b0000 ✗ no match
+            const sides: Mods.Side.Backing = @bitCast(mods.sides);
+            const left_int: Mods.Side.Backing = @bitCast(self.left_sides);
+            const right_int: Mods.Side.Backing = @bitCast(self.right_sides);
+            const side_match = (~sides & left_int) | (sides & right_int);
+
+            // Final check: is any active (pressed + remapped) key also side-matched?
+            return (active & side_match) != 0;
+        }
+    };
 };
+
+test "RemapSet: unsided remap creates both left and right mappings" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var set: RemapSet = .empty;
+    defer set.deinit(alloc);
+    try set.parse(alloc, "ctrl=super");
+    set.finalize();
+    try testing.expectEqual(
+        Mods{
+            .super = true,
+            .sides = .{ .super = .left },
+        },
+        set.apply(.{
+            .ctrl = true,
+            .sides = .{ .ctrl = .left },
+        }),
+    );
+    try testing.expectEqual(
+        Mods{
+            .super = true,
+            .sides = .{ .super = .left },
+        },
+        set.apply(.{
+            .ctrl = true,
+            .sides = .{ .ctrl = .right },
+        }),
+    );
+}
+
+test "RemapSet: sided from only maps that side" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var set: RemapSet = .empty;
+    defer set.deinit(alloc);
+
+    try set.parse(alloc, "left_alt=ctrl");
+    set.finalize();
+
+    const left_alt: Mods = .{ .alt = true, .sides = .{ .alt = .left } };
+    const left_ctrl: Mods = .{ .ctrl = true, .sides = .{ .ctrl = .left } };
+    try testing.expectEqual(left_ctrl, set.apply(left_alt));
+
+    const right_alt: Mods = .{ .alt = true, .sides = .{ .alt = .right } };
+    try testing.expectEqual(right_alt, set.apply(right_alt));
+}
+
+test "RemapSet: sided to" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var set: RemapSet = .empty;
+    defer set.deinit(alloc);
+
+    try set.parse(alloc, "ctrl=right_super");
+    set.finalize();
+
+    const left_ctrl: Mods = .{ .ctrl = true, .sides = .{ .ctrl = .left } };
+    const right_super: Mods = .{ .super = true, .sides = .{ .super = .right } };
+    try testing.expectEqual(right_super, set.apply(left_ctrl));
+}
+
+test "RemapSet: both sides specified" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var set: RemapSet = .empty;
+    defer set.deinit(alloc);
+
+    try set.parse(alloc, "left_shift=right_ctrl");
+    set.finalize();
+
+    const left_shift: Mods = .{ .shift = true, .sides = .{ .shift = .left } };
+    const right_ctrl: Mods = .{ .ctrl = true, .sides = .{ .ctrl = .right } };
+    try testing.expectEqual(right_ctrl, set.apply(left_shift));
+}
+
+test "RemapSet: multiple parses accumulate" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var set: RemapSet = .empty;
+    defer set.deinit(alloc);
+
+    try set.parse(alloc, "left_ctrl=super");
+    try set.parse(alloc, "left_alt=ctrl");
+    set.finalize();
+
+    const left_ctrl: Mods = .{ .ctrl = true, .sides = .{ .ctrl = .left } };
+    const left_super: Mods = .{ .super = true, .sides = .{ .super = .left } };
+    try testing.expectEqual(left_super, set.apply(left_ctrl));
+
+    const left_alt: Mods = .{ .alt = true, .sides = .{ .alt = .left } };
+    const left_ctrl_result: Mods = .{ .ctrl = true, .sides = .{ .ctrl = .left } };
+    try testing.expectEqual(left_ctrl_result, set.apply(left_alt));
+}
+
+test "RemapSet: error on missing assignment" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var set: RemapSet = .empty;
+    defer set.deinit(alloc);
+
+    try testing.expectError(error.MissingAssignment, set.parse(alloc, "ctrl"));
+    try testing.expectError(error.MissingAssignment, set.parse(alloc, ""));
+}
+
+test "RemapSet: error on invalid modifier" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var set: RemapSet = .empty;
+    defer set.deinit(alloc);
+
+    try testing.expectError(error.InvalidMod, set.parse(alloc, "invalid=ctrl"));
+    try testing.expectError(error.InvalidMod, set.parse(alloc, "ctrl=invalid"));
+    try testing.expectError(error.InvalidMod, set.parse(alloc, "middle_ctrl=super"));
+}
+
+test "RemapSet: isRemapped checks mask" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var set: RemapSet = .empty;
+    defer set.deinit(alloc);
+
+    try set.parse(alloc, "ctrl=super");
+    set.finalize();
+
+    try testing.expect(set.isRemapped(.{ .ctrl = true }));
+    try testing.expect(!set.isRemapped(.{ .alt = true }));
+    try testing.expect(!set.isRemapped(.{ .shift = true }));
+}
