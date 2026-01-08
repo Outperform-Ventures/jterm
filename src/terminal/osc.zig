@@ -486,7 +486,7 @@ pub const Parser = struct {
     }
 
     /// Consume the next character c and advance the parser state.
-    pub inline fn next(self: *Parser, c: u8) void {
+    pub fn next(self: *Parser, c: u8) void {
         // If the state becomes invalid for any reason, just discard
         // any further input.
         if (self.state == .invalid) return;
