@@ -4,6 +4,7 @@ const builtin = @import("builtin");
 const config = @import("input/config.zig");
 const mouse = @import("input/mouse.zig");
 const key = @import("input/key.zig");
+const key_mods = @import("input/key_mods.zig");
 const keyboard = @import("input/keyboard.zig");
 
 pub const command = @import("input/command.zig");
@@ -22,7 +23,7 @@ pub const Key = key.Key;
 pub const KeyboardLayout = keyboard.Layout;
 pub const KeyEvent = key.KeyEvent;
 pub const InspectorMode = Binding.Action.InspectorMode;
-pub const Mods = key.Mods;
+pub const Mods = key_mods.Mods;
 pub const MouseButton = mouse.Button;
 pub const MouseButtonState = mouse.ButtonState;
 pub const MousePressureStage = mouse.PressureStage;
