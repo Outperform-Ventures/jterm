@@ -2579,7 +2579,7 @@ pub fn preeditCallback(self: *Surface, preedit_: ?[]const u8) !void {
 pub fn keyEventIsBinding(
     self: *Surface,
     event_orig: input.KeyEvent,
-) bool {
+) ?input.Binding.Flags {
     // Apply key remappings for consistency with keyCallback
     var event = event_orig;
     if (self.config.key_remaps.isRemapped(event_orig.mods)) {
@@ -2587,26 +2587,35 @@ pub fn keyEventIsBinding(
     }
 
     switch (event.action) {
-        .release => return false,
+        .release => return null,
         .press, .repeat => {},
     }
 
-    // If we're in a sequence, check the sequence set
-    if (self.keyboard.sequence_set) |set| {
-        return set.getEvent(event) != null;
-    }
-
-    // Check active key tables (inner-most to outer-most)
-    const table_items = self.keyboard.table_stack.items;
-    for (0..table_items.len) |i| {
-        const rev_i: usize = table_items.len - 1 - i;
-        if (table_items[rev_i].set.getEvent(event) != null) {
-            return true;
+    // Look up our entry
+    const entry: input.Binding.Set.Entry = entry: {
+        // If we're in a sequence, check the sequence set
+        if (self.keyboard.sequence_set) |set| {
+            break :entry set.getEvent(event) orelse return null;
         }
-    }
 
-    // Check the root set
-    return self.config.keybind.set.getEvent(event) != null;
+        // Check active key tables (inner-most to outer-most)
+        const table_items = self.keyboard.table_stack.items;
+        for (0..table_items.len) |i| {
+            const rev_i: usize = table_items.len - 1 - i;
+            if (table_items[rev_i].set.getEvent(event)) |entry| {
+                break :entry entry;
+            }
+        }
+
+        // Check the root set
+        break :entry self.config.keybind.set.getEvent(event) orelse return null;
+    };
+
+    // Return flags based on the
+    return switch (entry.value_ptr.*) {
+        .leader => .{},
+        inline .leaf, .leaf_chained => |v| v.flags,
+    };
 }
 
 /// Called for any key events. This handles keybindings, encoding and

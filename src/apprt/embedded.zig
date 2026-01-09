@@ -1751,13 +1751,18 @@ pub const CAPI = struct {
     export fn ghostty_surface_key_is_binding(
         surface: *Surface,
         event: KeyEvent,
+        c_flags: ?*input.Binding.Flags.C,
     ) bool {
         const core_event = event.keyEvent().core() orelse {
             log.warn("error processing key event", .{});
             return false;
         };
 
-        return surface.core_surface.keyEventIsBinding(core_event);
+        const flags = surface.core_surface.keyEventIsBinding(
+            core_event,
+        ) orelse return false;
+        if (c_flags) |ptr| ptr.* = flags.cval();
+        return true;
     }
 
     /// Send raw text to the terminal. This is treated like a paste

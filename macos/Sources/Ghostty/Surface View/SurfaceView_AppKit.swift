@@ -1184,7 +1184,7 @@ extension Ghostty {
             // We only care about key down events. It might not even be possible
             // to receive any other event type here.
             guard event.type == .keyDown else { return false }
-
+            
             // Only process events if we're focused. Some key events like C-/ macOS
             // appears to send to the first view in the hierarchy rather than the
             // the first responder (I don't know why). This prevents us from handling it.
@@ -1194,26 +1194,35 @@ extension Ghostty {
             if (!focused) {
                 return false
             }
-
-            // Let the menu system handle this event if we're not in a key sequence or key table.
-            // This allows the menu bar to flash for shortcuts like Command+V.
-            if keySequence.isEmpty && keyTables.isEmpty {
-                if let menu = NSApp.mainMenu, menu.performKeyEquivalent(with: event) {
-                    return true
+            
+            // Get information about if this is a binding.
+            let bindingFlags = surfaceModel.flatMap { surface in
+                var ghosttyEvent = event.ghosttyKeyEvent(GHOSTTY_ACTION_PRESS)
+                return (event.characters ?? "").withCString { ptr in
+                    ghosttyEvent.text = ptr
+                    return surface.keyIsBinding(ghosttyEvent)
                 }
             }
-
-            // If the menu didn't handle it, check Ghostty bindings for custom shortcuts.
-            if let surface {
-                var ghosttyEvent = event.ghosttyKeyEvent(GHOSTTY_ACTION_PRESS)
-                let match = (event.characters ?? "").withCString { ptr in
-                    ghosttyEvent.text = ptr
-                    return ghostty_surface_key_is_binding(surface, ghosttyEvent)
+            
+            // If this is a binding then we want to perform it.
+            if let bindingFlags {
+                // Attempt to trigger a menu item for this key binding. We only do this if:
+                //   - We're not in a key sequence or table (those are separate bindings)
+                //   - The binding is NOT `all` (menu uses FirstResponder chain)
+                //   - The binding is NOT `performable` (menu will always consume)
+                //   - The binding is `consumed` (unconsumed bindings should pass through
+                //     to the terminal, so we must not intercept them for the menu)
+                if keySequence.isEmpty,
+                   keyTables.isEmpty,
+                   bindingFlags.isDisjoint(with: [.all, .performable]),
+                   bindingFlags.contains(.consumed) {
+                    if let menu = NSApp.mainMenu, menu.performKeyEquivalent(with: event) {
+                        return true
+                    }
                 }
-                if match {
-                    self.keyDown(with: event)
-                    return true
-                }
+                
+                self.keyDown(with: event)
+                return true
             }
 
             let equivalent: String
