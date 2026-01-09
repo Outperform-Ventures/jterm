@@ -8,6 +8,7 @@ const assert = @import("../quirks.zig").inlineAssert;
 const build_config = @import("../build_config.zig");
 const uucode = @import("uucode");
 const EntryFormatter = @import("../config/formatter.zig").EntryFormatter;
+const deepEqual = @import("../datastruct/comparison.zig").deepEqual;
 const key = @import("key.zig");
 const key_mods = @import("key_mods.zig");
 const KeyEvent = key.KeyEvent;
@@ -1587,6 +1588,24 @@ pub const Action = union(enum) {
             },
         }
     }
+
+    /// Compares two actions for equality.
+    pub fn equal(self: Action, other: Action) bool {
+        if (std.meta.activeTag(self) != std.meta.activeTag(other)) return false;
+        return switch (self) {
+            inline else => |field_self, tag| {
+                const field_other = @field(other, @tagName(tag));
+                return deepEqual(
+                    @TypeOf(field_self),
+                    field_self,
+                    field_other,
+                );
+            },
+        };
+    }
+
+    /// For the Set.Context
+    const bindingSetEqual = equal;
 };
 
 /// Trigger is the associated key state that can trigger an action.
@@ -1908,7 +1927,7 @@ pub const Trigger = struct {
     }
 
     /// Returns true if two triggers are equal.
-    pub fn eql(self: Trigger, other: Trigger) bool {
+    pub fn equal(self: Trigger, other: Trigger) bool {
         if (self.mods != other.mods) return false;
         const self_tag = std.meta.activeTag(self.key);
         const other_tag = std.meta.activeTag(other.key);
@@ -1919,6 +1938,26 @@ pub const Trigger = struct {
             .catch_all => true,
         };
     }
+
+    /// Returns true if two triggers are equal using folded codepoints.
+    pub fn foldedEqual(self: Trigger, other: Trigger) bool {
+        if (self.mods != other.mods) return false;
+        const self_tag = std.meta.activeTag(self.key);
+        const other_tag = std.meta.activeTag(other.key);
+        if (self_tag != other_tag) return false;
+        return switch (self.key) {
+            .physical => |v| v == other.key.physical,
+            .unicode => |v| deepEqual(
+                [3]u21,
+                foldedCodepoint(v),
+                foldedCodepoint(other.key.unicode),
+            ),
+            .catch_all => true,
+        };
+    }
+
+    /// For the Set.Context
+    const bindingSetEqual = foldedEqual;
 
     /// Convert the trigger to a C API compatible trigger.
     pub fn cval(self: Trigger) C {
@@ -2674,7 +2713,7 @@ pub const Set = struct {
 
         // If our value is not the same as the old trigger, we can
         // ignore it because our reverse mapping points somewhere else.
-        if (!entry.value_ptr.eql(old)) return;
+        if (!entry.value_ptr.equal(old)) return;
 
         // It is the same trigger, so let's now go through our bindings
         // and try to find another trigger that maps to the same action.
@@ -2745,7 +2784,8 @@ pub const Set = struct {
             }
 
             pub fn eql(ctx: @This(), a: KeyType, b: KeyType) bool {
-                return ctx.hash(a) == ctx.hash(b);
+                _ = ctx;
+                return a.bindingSetEqual(b);
             }
         };
     }
@@ -3110,63 +3150,63 @@ test "parse: all triggers" {
     }
 }
 
-test "Trigger: eql" {
+test "Trigger: equal" {
     const testing = std.testing;
 
     // Equal physical keys
     {
         const t1: Trigger = .{ .key = .{ .physical = .arrow_up }, .mods = .{ .ctrl = true } };
         const t2: Trigger = .{ .key = .{ .physical = .arrow_up }, .mods = .{ .ctrl = true } };
-        try testing.expect(t1.eql(t2));
+        try testing.expect(t1.equal(t2));
     }
 
     // Different physical keys
     {
         const t1: Trigger = .{ .key = .{ .physical = .arrow_up }, .mods = .{ .ctrl = true } };
         const t2: Trigger = .{ .key = .{ .physical = .arrow_down }, .mods = .{ .ctrl = true } };
-        try testing.expect(!t1.eql(t2));
+        try testing.expect(!t1.equal(t2));
     }
 
     // Different mods
     {
         const t1: Trigger = .{ .key = .{ .physical = .arrow_up }, .mods = .{ .ctrl = true } };
         const t2: Trigger = .{ .key = .{ .physical = .arrow_up }, .mods = .{ .shift = true } };
-        try testing.expect(!t1.eql(t2));
+        try testing.expect(!t1.equal(t2));
     }
 
     // Equal unicode keys
     {
         const t1: Trigger = .{ .key = .{ .unicode = 'a' }, .mods = .{} };
         const t2: Trigger = .{ .key = .{ .unicode = 'a' }, .mods = .{} };
-        try testing.expect(t1.eql(t2));
+        try testing.expect(t1.equal(t2));
     }
 
     // Different unicode keys
     {
         const t1: Trigger = .{ .key = .{ .unicode = 'a' }, .mods = .{} };
         const t2: Trigger = .{ .key = .{ .unicode = 'b' }, .mods = .{} };
-        try testing.expect(!t1.eql(t2));
+        try testing.expect(!t1.equal(t2));
     }
 
     // Different key types
     {
         const t1: Trigger = .{ .key = .{ .unicode = 'a' }, .mods = .{} };
         const t2: Trigger = .{ .key = .{ .physical = .key_a }, .mods = .{} };
-        try testing.expect(!t1.eql(t2));
+        try testing.expect(!t1.equal(t2));
     }
 
     // catch_all
     {
         const t1: Trigger = .{ .key = .catch_all, .mods = .{} };
         const t2: Trigger = .{ .key = .catch_all, .mods = .{} };
-        try testing.expect(t1.eql(t2));
+        try testing.expect(t1.equal(t2));
     }
 
     // catch_all with different mods
     {
         const t1: Trigger = .{ .key = .catch_all, .mods = .{} };
         const t2: Trigger = .{ .key = .catch_all, .mods = .{ .alt = true } };
-        try testing.expect(!t1.eql(t2));
+        try testing.expect(!t1.equal(t2));
     }
 }
 
