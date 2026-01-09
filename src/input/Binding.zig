@@ -45,6 +45,27 @@ pub const Flags = packed struct {
     /// performed. If the action can't be performed then the binding acts as
     /// if it doesn't exist.
     performable: bool = false,
+
+    /// C type
+    pub const C = u8;
+
+    /// Converts this to a C-compatible value.
+    ///
+    /// Sync with ghostty.h for enums.
+    pub fn cval(self: Flags) C {
+        const Backing = @typeInfo(Flags).@"struct".backing_integer.?;
+        return @as(Backing, @bitCast(self));
+    }
+
+    test "cval" {
+        const testing = std.testing;
+        try testing.expectEqual(@as(u8, 0b0001), (Flags{}).cval());
+        try testing.expectEqual(@as(u8, 0b0000), (Flags{ .consumed = false }).cval());
+        try testing.expectEqual(@as(u8, 0b0011), (Flags{ .all = true }).cval());
+        try testing.expectEqual(@as(u8, 0b0101), (Flags{ .global = true }).cval());
+        try testing.expectEqual(@as(u8, 0b1001), (Flags{ .performable = true }).cval());
+        try testing.expectEqual(@as(u8, 0b1111), (Flags{ .consumed = true, .all = true, .global = true, .performable = true }).cval());
+    }
 };
 
 /// Full binding parser. The binding parser is implemented as an iterator

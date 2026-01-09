@@ -103,6 +103,13 @@ typedef enum {
 } ghostty_input_mods_e;
 
 typedef enum {
+  GHOSTTY_BINDING_FLAGS_CONSUMED = 1 << 0,
+  GHOSTTY_BINDING_FLAGS_ALL = 1 << 1,
+  GHOSTTY_BINDING_FLAGS_GLOBAL = 1 << 2,
+  GHOSTTY_BINDING_FLAGS_PERFORMABLE = 1 << 3,
+} ghostty_binding_flags_e;
+
+typedef enum {
   GHOSTTY_ACTION_RELEASE,
   GHOSTTY_ACTION_PRESS,
   GHOSTTY_ACTION_REPEAT,
@@ -1058,7 +1065,9 @@ void ghostty_surface_set_color_scheme(ghostty_surface_t,
 ghostty_input_mods_e ghostty_surface_key_translation_mods(ghostty_surface_t,
                                                           ghostty_input_mods_e);
 bool ghostty_surface_key(ghostty_surface_t, ghostty_input_key_s);
-bool ghostty_surface_key_is_binding(ghostty_surface_t, ghostty_input_key_s);
+bool ghostty_surface_key_is_binding(ghostty_surface_t,
+                                    ghostty_input_key_s,
+                                    ghostty_binding_flags_e*);
 void ghostty_surface_text(ghostty_surface_t, const char*, uintptr_t);
 void ghostty_surface_preedit(ghostty_surface_t, const char*, uintptr_t);
 bool ghostty_surface_mouse_captured(ghostty_surface_t);
