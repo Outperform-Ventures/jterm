@@ -2935,7 +2935,7 @@ keybind: Keybinds = .{},
 ///    Display a border around the alerted surface until the terminal is
 ///    re-focused or interacted with (such as on keyboard input).
 ///
-///    GTK only.
+///    Available since: 1.2.0 on GTK, 1.2.1 on macOS
 ///
 /// Example: `audio`, `no-audio`, `system`, `no-system`
 ///
