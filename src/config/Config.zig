@@ -6830,7 +6830,7 @@ pub const Keybinds = struct {
 
     /// Like formatEntry but has an option to include docs.
     pub fn formatEntryDocs(self: Keybinds, formatter: formatterpkg.EntryFormatter, docs: bool) !void {
-        if (self.set.bindings.size == 0 and self.tables.count() == 0) {
+        if (self.set.bindings.count() == 0 and self.tables.count() == 0) {
             try formatter.formatEntry(void, {});
             return;
         }
@@ -6932,8 +6932,8 @@ pub const Keybinds = struct {
         // Note they turn into translated keys because they match
         // their ASCII mapping.
         const want =
-            \\keybind = ctrl+z>2=goto_tab:2
             \\keybind = ctrl+z>1=goto_tab:1
+            \\keybind = ctrl+z>2=goto_tab:2
             \\
         ;
         try std.testing.expectEqualStrings(want, buf.written());
@@ -6957,9 +6957,9 @@ pub const Keybinds = struct {
 
         // NB: This does not currently retain the order of the keybinds.
         const want =
-            \\a = ctrl+a>ctrl+c>t=new_tab
-            \\a = ctrl+a>ctrl+b>w=close_window
             \\a = ctrl+a>ctrl+b>n=new_window
+            \\a = ctrl+a>ctrl+b>w=close_window
+            \\a = ctrl+a>ctrl+c>t=new_tab
             \\a = ctrl+b>ctrl+d>a=previous_tab
             \\
         ;

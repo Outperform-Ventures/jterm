@@ -1998,18 +1998,18 @@ pub const Trigger = struct {
 /// The use case is that this will be called on EVERY key input to look
 /// for an associated action so it must be fast.
 pub const Set = struct {
-    const HashMap = std.HashMapUnmanaged(
+    const HashMap = std.ArrayHashMapUnmanaged(
         Trigger,
         Value,
         Context(Trigger),
-        std.hash_map.default_max_load_percentage,
+        true,
     );
 
-    const ReverseMap = std.HashMapUnmanaged(
+    const ReverseMap = std.ArrayHashMapUnmanaged(
         Action,
         Trigger,
         Context(Action),
-        std.hash_map.default_max_load_percentage,
+        true,
     );
 
     /// The set of bindings.
@@ -2503,11 +2503,10 @@ pub const Set = struct {
             // update the reverse mapping to remove the old action.
             .leaf => if (track_reverse) {
                 const t_hash = t.hash();
-                var it = self.reverse.iterator();
-                while (it.next()) |reverse_entry| it: {
-                    if (t_hash == reverse_entry.value_ptr.hash()) {
-                        self.reverse.removeByPtr(reverse_entry.key_ptr);
-                        break :it;
+                for (0.., self.reverse.values()) |i, *value| {
+                    if (t_hash == value.hash()) {
+                        self.reverse.swapRemoveAt(i);
+                        break;
                     }
                 }
             },
@@ -2523,7 +2522,7 @@ pub const Set = struct {
             .action = action,
             .flags = flags,
         } };
-        errdefer _ = self.bindings.remove(t);
+        errdefer _ = self.bindings.swapRemove(t);
 
         if (track_reverse) try self.reverse.put(alloc, action, t);
         errdefer if (track_reverse) self.reverse.remove(action);
@@ -2663,7 +2662,7 @@ pub const Set = struct {
         self.chain_parent = null;
 
         var entry = self.bindings.get(t) orelse return;
-        _ = self.bindings.remove(t);
+        _ = self.bindings.swapRemove(t);
 
         switch (entry) {
             // For a leader removal, we need to deallocate our child set.
@@ -2733,7 +2732,7 @@ pub const Set = struct {
 
         // No other trigger points to this action so we remove
         // the reverse mapping completely.
-        _ = self.reverse.remove(action);
+        _ = self.reverse.swapRemove(action);
     }
 
     /// Deep clone the set.
@@ -2766,9 +2765,8 @@ pub const Set = struct {
 
         // We need to clone the action keys in the reverse map since
         // they may contain allocated values.
-        {
-            var it = result.reverse.keyIterator();
-            while (it.next()) |action| action.* = try action.clone(alloc);
+        for (result.reverse.keys()) |*action| {
+            action.* = try action.clone(alloc);
         }
 
         return result;
@@ -2778,13 +2776,22 @@ pub const Set = struct {
     /// gets the hash key and checks for equality.
     fn Context(comptime KeyType: type) type {
         return struct {
-            pub fn hash(ctx: @This(), k: KeyType) u64 {
+            pub fn hash(ctx: @This(), k: KeyType) u32 {
                 _ = ctx;
-                return k.hash();
+                // This seems crazy at first glance but this is also how
+                // the Zig standard library handles hashing for array
+                // hash maps!
+                return @truncate(k.hash());
             }
 
-            pub fn eql(ctx: @This(), a: KeyType, b: KeyType) bool {
+            pub fn eql(
+                ctx: @This(),
+                a: KeyType,
+                b: KeyType,
+                b_index: usize,
+            ) bool {
                 _ = ctx;
+                _ = b_index;
                 return a.bindingSetEqual(b);
             }
         };
