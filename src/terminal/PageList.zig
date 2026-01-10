@@ -4,6 +4,7 @@
 const PageList = @This();
 
 const std = @import("std");
+const builtin = @import("builtin");
 const build_options = @import("terminal_options");
 const Allocator = std.mem.Allocator;
 const assert = @import("../quirks.zig").inlineAssert;
@@ -255,6 +256,21 @@ fn minMaxSize(cols: size.CellCountInt, rows: size.CellCountInt) !usize {
     return PagePool.item_size * pages;
 }
 
+/// This is the page allocator we'll use for all our underlying
+/// VM page allocations.
+inline fn pageAllocator() Allocator {
+    // In tests we use our testing allocator so we can detect leaks.
+    if (builtin.is_test) return std.testing.allocator;
+
+    // On non-macOS we use our standard Zig page allocator.
+    if (!builtin.target.os.tag.isDarwin()) return std.heap.page_allocator;
+
+    // On macOS we want to tag our memory so we can assign it to our
+    // core terminal usage.
+    const mach = @import("../os/mach.zig");
+    return mach.taggedPageAllocator(.application_specific_1);
+}
+
 /// Initialize the page. The top of the first page in the list is always the
 /// top of the active area of the screen (important knowledge for quickly
 /// setting up cursors in Screen).
@@ -280,7 +296,11 @@ pub fn init(
     // The screen starts with a single page that is the entire viewport,
     // and we'll split it thereafter if it gets too large and add more as
     // necessary.
-    var pool = try MemoryPool.init(alloc, std.heap.page_allocator, page_preheat);
+    var pool = try MemoryPool.init(
+        alloc,
+        pageAllocator(),
+        page_preheat,
+    );
     errdefer pool.deinit();
     var page_serial: u64 = 0;
     const page_list, const page_size = try initPages(
@@ -669,7 +689,7 @@ pub fn clone(
             // Setup our pools
             break :alloc try .init(
                 alloc,
-                std.heap.page_allocator,
+                pageAllocator(),
                 page_count,
             );
         },
@@ -2476,6 +2496,10 @@ pub fn grow(self: *PageList) !?*List.Node {
 
     // Slower path: we have no space, we need to allocate a new page.
 
+    // Get the layout first so our failable work is done early.
+    // We'll need this for both paths.
+    const cap = try std_capacity.adjust(.{ .cols = self.cols });
+
     // If allocation would exceed our max size, we prune the first page.
     // We don't need to reallocate because we can simply reuse that first
     // page.
@@ -2492,18 +2516,11 @@ pub fn grow(self: *PageList) !?*List.Node {
         // satisfied then we do not prune.
         if (self.growRequiredForActive()) break :prune;
 
-        const layout = Page.layout(try std_capacity.adjust(.{ .cols = self.cols }));
-
-        // Get our first page and reset it to prepare for reuse.
         const first = self.pages.popFirst().?;
         assert(first != last);
-        const buf = first.data.memory;
-        @memset(buf, 0);
 
-        // Decrease our total row count from the pruned page and then
-        // add one for our new row.
+        // Decrease our total row count from the pruned page
         self.total_rows -= first.data.size.rows;
-        self.total_rows += 1;
 
         // If we have a pin viewport cache then we need to update it.
         if (self.viewport == .pin) viewport: {
@@ -2521,10 +2538,26 @@ pub fn grow(self: *PageList) !?*List.Node {
             }
         }
 
+        // If our first node has non-standard memory size, we can't reuse
+        // it. This is because our initBuf below would change the underlying
+        // memory length which would break our memory free outside the pool.
+        // It is easiest in this case to prune the node.
+        if (first.data.memory.len > std_size) {
+            // Node is already removed so we can just destroy it.
+            self.destroyNode(first);
+            break :prune;
+        }
+
+        // Reset our memory
+        const buf = first.data.memory;
+        @memset(buf, 0);
+        assert(buf.len <= std_size);
+
         // Initialize our new page and reinsert it as the last
-        first.data = .initBuf(.init(buf), layout);
+        first.data = .initBuf(.init(buf), Page.layout(cap));
         first.data.size.rows = 1;
         self.pages.insertAfter(last, first);
+        self.total_rows += 1;
 
         // We also need to reset the serial number. Since this is the only
         // place we ever reuse a serial number, we also can safely set
@@ -2554,7 +2587,7 @@ pub fn grow(self: *PageList) !?*List.Node {
     }
 
     // We need to allocate a new memory buffer.
-    const next_node = try self.createPage(try std_capacity.adjust(.{ .cols = self.cols }));
+    const next_node = try self.createPage(cap);
     // we don't errdefer this because we've added it to the linked
     // list and its fine to have dangling unused pages.
     self.pages.append(next_node);
@@ -10984,4 +11017,69 @@ test "PageList resize grow cols with unwrap fixes viewport pin" {
     // Used to panic here, so test that we can get the bottom right.
     const br_after = s.getBottomRight(.viewport);
     try testing.expect(br_after != null);
+}
+
+test "PageList grow reuses non-standard page without leak" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    // Create a PageList with 3 * std_size max so we can fit multiple pages
+    // but will still trigger reuse.
+    var s = try init(alloc, 80, 24, 3 * std_size);
+    defer s.deinit();
+
+    // Save the first page node before adjustment
+    const first_before = s.pages.first.?;
+
+    // Adjust the first page to have non-standard capacity. We use a small
+    // increase that makes it just slightly larger than std_size.
+    _ = try s.adjustCapacity(first_before, .{ .grapheme_bytes = std_size + 1 });
+
+    // The first page should now have non-standard memory size.
+    try testing.expect(s.pages.first.?.data.memory.len > std_size);
+
+    // First, fill up the first page's capacity
+    const first_page = s.pages.first.?;
+    while (first_page.data.size.rows < first_page.data.capacity.rows) {
+        _ = try s.grow();
+    }
+
+    // Now grow to create a second page
+    _ = try s.grow();
+    try testing.expect(s.pages.first != s.pages.last);
+
+    // Continue growing until we exceed max_size AND the last page is full
+    while (s.page_size + PagePool.item_size <= s.maxSize() or
+        s.pages.last.?.data.size.rows < s.pages.last.?.data.capacity.rows)
+    {
+        _ = try s.grow();
+    }
+
+    // The first page should still be non-standard
+    try testing.expect(s.pages.first.?.data.memory.len > std_size);
+
+    // Verify we have enough rows for active area (so prune path isn't skipped)
+    try testing.expect(!s.growRequiredForActive());
+
+    // Verify last page is full (so grow will need to allocate/reuse)
+    try testing.expect(s.pages.last.?.data.size.rows == s.pages.last.?.data.capacity.rows);
+
+    // Remember the first page memory pointer before the reuse attempt
+    const first_page_ptr = s.pages.first.?;
+    const first_page_mem_ptr = s.pages.first.?.data.memory.ptr;
+
+    // Now grow one more time to trigger the reuse path. Since the first page
+    // is non-standard, it should be destroyed (not reused). The testing
+    // allocator will detect a leak if destroyNode doesn't properly free
+    // the non-standard memory.
+    _ = try s.grow();
+
+    // After grow, check if the first page is a different one
+    // (meaning the non-standard page was pruned, not reused at the end)
+    // The original first page should no longer be the first page
+    try testing.expect(s.pages.first.? != first_page_ptr);
+
+    // If the non-standard page was properly destroyed and not reused,
+    // the last page should not have the same memory pointer
+    try testing.expect(s.pages.last.?.data.memory.ptr != first_page_mem_ptr);
 }
