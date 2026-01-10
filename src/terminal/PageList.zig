@@ -2509,13 +2509,26 @@ pub fn grow(self: *PageList) !?*List.Node {
         // satisfied then we do not prune.
         if (self.growRequiredForActive()) break :prune;
 
-        const layout = Page.layout(try std_capacity.adjust(.{ .cols = self.cols }));
-
-        // Get our first page and reset it to prepare for reuse.
         const first = self.pages.popFirst().?;
         assert(first != last);
+
+        // If our first node has non-standard memory size, we can't reuse
+        // it. This is because our initBuf below would change the underlying
+        // memory length which would break our memory free outside the pool.
+        // It is easiest in this case to prune the node.
+        if (first.data.memory.len > std_size) {
+            // Node is already removed so we can just destroy it.
+            self.destroyNode(first);
+            break :prune;
+        }
+
+        // Get the layout first so our failable work is done early.
+        const layout = Page.layout(try std_capacity.adjust(.{ .cols = self.cols }));
+
+        // Reset our memory
         const buf = first.data.memory;
         @memset(buf, 0);
+        assert(buf.len <= std_size);
 
         // Decrease our total row count from the pruned page and then
         // add one for our new row.
