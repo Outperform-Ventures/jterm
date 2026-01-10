@@ -259,6 +259,9 @@ fn minMaxSize(cols: size.CellCountInt, rows: size.CellCountInt) !usize {
 /// This is the page allocator we'll use for all our underlying
 /// VM page allocations.
 inline fn pageAllocator() Allocator {
+    // In tests we use our testing allocator so we can detect leaks.
+    if (builtin.is_test) return std.testing.allocator;
+
     // On non-macOS we use our standard Zig page allocator.
     if (!builtin.target.os.tag.isDarwin()) return std.heap.page_allocator;
 
