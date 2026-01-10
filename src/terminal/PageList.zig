@@ -4,6 +4,7 @@
 const PageList = @This();
 
 const std = @import("std");
+const builtin = @import("builtin");
 const build_options = @import("terminal_options");
 const Allocator = std.mem.Allocator;
 const assert = @import("../quirks.zig").inlineAssert;
@@ -255,6 +256,18 @@ fn minMaxSize(cols: size.CellCountInt, rows: size.CellCountInt) !usize {
     return PagePool.item_size * pages;
 }
 
+/// This is the page allocator we'll use for all our underlying
+/// VM page allocations.
+inline fn pageAllocator() Allocator {
+    // On non-macOS we use our standard Zig page allocator.
+    if (!builtin.target.os.tag.isDarwin()) return std.heap.page_allocator;
+
+    // On macOS we want to tag our memory so we can assign it to our
+    // core terminal usage.
+    const mach = @import("../os/mach.zig");
+    return mach.taggedPageAllocator(.application_specific_1);
+}
+
 /// Initialize the page. The top of the first page in the list is always the
 /// top of the active area of the screen (important knowledge for quickly
 /// setting up cursors in Screen).
@@ -280,7 +293,11 @@ pub fn init(
     // The screen starts with a single page that is the entire viewport,
     // and we'll split it thereafter if it gets too large and add more as
     // necessary.
-    var pool = try MemoryPool.init(alloc, std.heap.page_allocator, page_preheat);
+    var pool = try MemoryPool.init(
+        alloc,
+        pageAllocator(),
+        page_preheat,
+    );
     errdefer pool.deinit();
     var page_serial: u64 = 0;
     const page_list, const page_size = try initPages(
@@ -669,7 +686,7 @@ pub fn clone(
             // Setup our pools
             break :alloc try .init(
                 alloc,
-                std.heap.page_allocator,
+                pageAllocator(),
                 page_count,
             );
         },
