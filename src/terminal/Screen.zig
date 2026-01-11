@@ -397,32 +397,15 @@ pub fn clone(
     top: point.Point,
     bot: ?point.Point,
 ) !Screen {
-    return try self.clonePool(alloc, null, top, bot);
-}
-
-/// Same as clone but you can specify a custom memory pool to use for
-/// the screen.
-pub fn clonePool(
-    self: *const Screen,
-    alloc: Allocator,
-    pool: ?*PageList.MemoryPool,
-    top: point.Point,
-    bot: ?point.Point,
-) !Screen {
     // Create a tracked pin remapper for our selection and cursor. Note
     // that we may want to expose this generally in the future but at the
     // time of doing this we don't need to.
     var pin_remap = PageList.Clone.TrackedPinsRemap.init(alloc);
     defer pin_remap.deinit();
 
-    var pages = try self.pages.clone(.{
+    var pages = try self.pages.clone(alloc, .{
         .top = top,
         .bot = bot,
-        .memory = if (pool) |p| .{
-            .pool = p,
-        } else .{
-            .alloc = alloc,
-        },
         .tracked_pins = &pin_remap,
     });
     errdefer pages.deinit();
