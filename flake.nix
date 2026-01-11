@@ -35,7 +35,7 @@
     };
 
     home-manager = {
-      url = "github:nix-community/home-manager?ref=release-25.05";
+      url = "github:nix-community/home-manager";
       inputs = {
         nixpkgs.follows = "nixpkgs";
       };
@@ -117,7 +117,6 @@
             wayland-gnome = runVM ./nix/vm/wayland-gnome.nix;
             wayland-plasma6 = runVM ./nix/vm/wayland-plasma6.nix;
             x11-cinnamon = runVM ./nix/vm/x11-cinnamon.nix;
-            x11-gnome = runVM ./nix/vm/x11-gnome.nix;
             x11-plasma6 = runVM ./nix/vm/x11-plasma6.nix;
             x11-xfce = runVM ./nix/vm/x11-xfce.nix;
           };
