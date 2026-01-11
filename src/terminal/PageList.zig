@@ -2509,6 +2509,18 @@ pub fn grow(self: *PageList) !?*List.Node {
             }
         }
 
+        // Update any tracked pins that point to this page to point to the
+        // new first page to the top-left, and mark them as garbage.
+        const pin_keys = self.tracked_pins.keys();
+        for (pin_keys) |p| {
+            if (p.node != first) continue;
+            p.node = self.pages.first.?;
+            p.y = 0;
+            p.x = 0;
+            p.garbage = true;
+        }
+        self.viewport_pin.garbage = false;
+
         // If our first node has non-standard memory size, we can't reuse
         // it. This is because our initBuf below would change the underlying
         // memory length which would break our memory free outside the pool.
@@ -2537,18 +2549,6 @@ pub fn grow(self: *PageList) !?*List.Node {
         self.page_serial_min = first.serial + 1;
         first.serial = self.page_serial;
         self.page_serial += 1;
-
-        // Update any tracked pins that point to this page to point to the
-        // new first page to the top-left.
-        const pin_keys = self.tracked_pins.keys();
-        for (pin_keys) |p| {
-            if (p.node != first) continue;
-            p.node = self.pages.first.?;
-            p.y = 0;
-            p.x = 0;
-            p.garbage = true;
-        }
-        self.viewport_pin.garbage = false;
 
         // In this case we do NOT need to update page_size because
         // we're reusing an existing page so nothing has changed.
@@ -11030,6 +11030,10 @@ test "PageList grow reuses non-standard page without leak" {
     const first_page_ptr = s.pages.first.?;
     const first_page_mem_ptr = s.pages.first.?.data.memory.ptr;
 
+    // Create a tracked pin pointing to the non-standard first page
+    const tracked_pin = try s.trackPin(.{ .node = first_page_ptr, .x = 0, .y = 0 });
+    defer s.untrackPin(tracked_pin);
+
     // Now grow one more time to trigger the reuse path. Since the first page
     // is non-standard, it should be destroyed (not reused). The testing
     // allocator will detect a leak if destroyNode doesn't properly free
@@ -11044,4 +11048,10 @@ test "PageList grow reuses non-standard page without leak" {
     // If the non-standard page was properly destroyed and not reused,
     // the last page should not have the same memory pointer
     try testing.expect(s.pages.last.?.data.memory.ptr != first_page_mem_ptr);
+
+    // The tracked pin should have been moved to the new first page and marked as garbage
+    try testing.expectEqual(s.pages.first.?, tracked_pin.node);
+    try testing.expectEqual(0, tracked_pin.x);
+    try testing.expectEqual(0, tracked_pin.y);
+    try testing.expect(tracked_pin.garbage);
 }
