@@ -5221,6 +5221,7 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
 
         .search_selection => {
             const selection = try self.selectionString(self.alloc) orelse return false;
+            defer self.alloc.free(selection);
             return try self.rt_app.performAction(
                 .{ .surface = self },
                 .start_search,
