@@ -732,6 +732,11 @@ fn setupNushell(
     resource_dir: []const u8,
     env: *EnvMap,
 ) !?config.Command {
+    // Add our XDG_DATA_DIRS entry (for nushell/vendor/autoload/). This
+    // makes our 'ghostty' module automatically available, even if any
+    // of the later checks abort the rest of our automatic integration.
+    if (!try setupXdgDataDirs(alloc, resource_dir, env)) return null;
+
     var stack_fallback = std.heap.stackFallback(4096, alloc);
     var cmd = internal_os.shell.ShellCommandBuilder.init(stack_fallback.get());
     defer cmd.deinit();
@@ -782,8 +787,6 @@ fn setupNushell(
             try cmd.appendArg(arg);
         }
     }
-
-    if (!try setupXdgDataDirs(alloc, resource_dir, env)) return null;
 
     // Return a copy of our modified command line to use as the shell command.
     return .{ .shell = try alloc.dupeZ(u8, try cmd.toOwnedSlice()) };
@@ -836,7 +839,8 @@ test "nushell: unsupported options" {
         defer env.deinit();
 
         try testing.expect(try setupNushell(alloc, .{ .shell = cmdline }, res.path, &env) == null);
-        try testing.expectEqual(0, env.count());
+        try testing.expect(env.get("XDG_DATA_DIRS") != null);
+        try testing.expect(env.get("GHOSTTY_SHELL_INTEGRATION_XDG_DIR") != null);
     }
 }
 
