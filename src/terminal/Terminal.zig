@@ -5419,6 +5419,52 @@ test "Terminal: insertLines top/bottom scroll region" {
     }
 }
 
+test "Terminal: insertLines across page boundary marks all shifted rows dirty" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, .{ .rows = 5, .cols = 10, .max_scrollback = 1024 });
+    defer t.deinit(alloc);
+
+    const first_page = t.screens.active.pages.pages.first.?;
+    const first_page_nrows = first_page.data.capacity.rows;
+
+    // Fill up the first page minus 3 rows
+    for (0..first_page_nrows - 3) |_| try t.linefeed();
+
+    // Add content that will cross a page boundary
+    try t.printString("1AAAA");
+    t.carriageReturn();
+    try t.linefeed();
+    try t.printString("2BBBB");
+    t.carriageReturn();
+    try t.linefeed();
+    try t.printString("3CCCC");
+    t.carriageReturn();
+    try t.linefeed();
+    try t.printString("4DDDD");
+    t.carriageReturn();
+    try t.linefeed();
+    try t.printString("5EEEE");
+
+    // Verify we now have a second page
+    try testing.expect(first_page.next != null);
+
+    t.setCursorPos(1, 1);
+    t.clearDirty();
+    t.insertLines(1);
+
+    try testing.expect(t.isDirty(.{ .active = .{ .x = 0, .y = 0 } }));
+    try testing.expect(t.isDirty(.{ .active = .{ .x = 0, .y = 1 } }));
+    try testing.expect(t.isDirty(.{ .active = .{ .x = 0, .y = 2 } }));
+    try testing.expect(t.isDirty(.{ .active = .{ .x = 0, .y = 3 } }));
+    try testing.expect(t.isDirty(.{ .active = .{ .x = 0, .y = 4 } }));
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("\n1AAAA\n2BBBB\n3CCCC\n4DDDD", str);
+    }
+}
+
 test "Terminal: insertLines (legacy test)" {
     const alloc = testing.allocator;
     var t = try init(alloc, .{ .cols = 2, .rows = 5 });
@@ -8039,6 +8085,52 @@ test "Terminal: deleteLines colors with bg color" {
             .g = 0,
             .b = 0,
         }, list_cell.cell.content.color_rgb);
+    }
+}
+
+test "Terminal: deleteLines across page boundary marks all shifted rows dirty" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, .{ .rows = 5, .cols = 10, .max_scrollback = 1024 });
+    defer t.deinit(alloc);
+
+    const first_page = t.screens.active.pages.pages.first.?;
+    const first_page_nrows = first_page.data.capacity.rows;
+
+    // Fill up the first page minus 3 rows
+    for (0..first_page_nrows - 3) |_| try t.linefeed();
+
+    // Add content that will cross a page boundary
+    try t.printString("1AAAA");
+    t.carriageReturn();
+    try t.linefeed();
+    try t.printString("2BBBB");
+    t.carriageReturn();
+    try t.linefeed();
+    try t.printString("3CCCC");
+    t.carriageReturn();
+    try t.linefeed();
+    try t.printString("4DDDD");
+    t.carriageReturn();
+    try t.linefeed();
+    try t.printString("5EEEE");
+
+    // Verify we now have a second page
+    try testing.expect(first_page.next != null);
+
+    t.setCursorPos(1, 1);
+    t.clearDirty();
+    t.deleteLines(1);
+
+    try testing.expect(t.isDirty(.{ .active = .{ .x = 0, .y = 0 } }));
+    try testing.expect(t.isDirty(.{ .active = .{ .x = 0, .y = 1 } }));
+    try testing.expect(t.isDirty(.{ .active = .{ .x = 0, .y = 2 } }));
+    try testing.expect(t.isDirty(.{ .active = .{ .x = 0, .y = 3 } }));
+    try testing.expect(t.isDirty(.{ .active = .{ .x = 0, .y = 4 } }));
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("2BBBB\n3CCCC\n4DDDD\n5EEEE", str);
     }
 }
 
