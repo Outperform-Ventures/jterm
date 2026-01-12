@@ -1602,9 +1602,6 @@ pub fn insertLines(self: *Terminal, count: usize) void {
         const cur_rac = cur_p.rowAndCell();
         const cur_row: *Row = cur_rac.row;
 
-        // Mark the row as dirty
-        cur_p.markDirty();
-
         // If this is one of the lines we need to shift, do so
         if (y > adjusted_count) {
             const off_p = cur_p.up(adjusted_count).?;
@@ -1690,10 +1687,6 @@ pub fn insertLines(self: *Terminal, count: usize) void {
                     // Continue the loop to try handling this row again.
                     continue;
                 };
-
-                // The clone operation may overwrite the dirty flag, so make
-                // sure the row is still marked dirty.
-                dst_row.dirty = true;
             } else {
                 if (!left_right) {
                     // Swap the src/dst cells. This ensures that our dst gets the
@@ -1702,9 +1695,6 @@ pub fn insertLines(self: *Terminal, count: usize) void {
                     const dst = dst_row.*;
                     dst_row.* = src_row.*;
                     src_row.* = dst;
-
-                    // Make sure the row is marked as dirty though.
-                    dst_row.dirty = true;
 
                     // Ensure what we did didn't corrupt the page
                     cur_p.node.data.assertIntegrity();
@@ -1731,6 +1721,9 @@ pub fn insertLines(self: *Terminal, count: usize) void {
                 cells[self.scrolling_region.left .. self.scrolling_region.right + 1],
             );
         }
+
+        // Mark the row as dirty
+        cur_p.markDirty();
 
         // We have successfully processed a line.
         y -= 1;
@@ -1808,9 +1801,6 @@ pub fn deleteLines(self: *Terminal, count: usize) void {
     while (y < rem) {
         const cur_rac = cur_p.rowAndCell();
         const cur_row: *Row = cur_rac.row;
-
-        // Mark the row as dirty
-        cur_p.markDirty();
 
         // If this is one of the lines we need to shift, do so
         if (y < rem - adjusted_count) {
@@ -1892,10 +1882,6 @@ pub fn deleteLines(self: *Terminal, count: usize) void {
                     // Continue the loop to try handling this row again.
                     continue;
                 };
-
-                // The clone operation may overwrite the dirty flag, so make
-                // sure the row is still marked dirty.
-                dst_row.dirty = true;
             } else {
                 if (!left_right) {
                     // Swap the src/dst cells. This ensures that our dst gets the
@@ -1904,9 +1890,6 @@ pub fn deleteLines(self: *Terminal, count: usize) void {
                     const dst = dst_row.*;
                     dst_row.* = src_row.*;
                     src_row.* = dst;
-
-                    // Make sure the row is marked as dirty though.
-                    dst_row.dirty = true;
 
                     // Ensure what we did didn't corrupt the page
                     cur_p.node.data.assertIntegrity();
@@ -1933,6 +1916,9 @@ pub fn deleteLines(self: *Terminal, count: usize) void {
                 cells[self.scrolling_region.left .. self.scrolling_region.right + 1],
             );
         }
+
+        // Mark the row as dirty
+        cur_p.markDirty();
 
         // We have successfully processed a line.
         y += 1;
