@@ -6,6 +6,7 @@ const macos = @import("macos");
 const font = @import("../main.zig");
 const os = @import("../../os/main.zig");
 const terminal = @import("../../terminal/main.zig");
+const unicode = @import("../../unicode/main.zig");
 const Feature = font.shape.Feature;
 const FeatureList = font.shape.FeatureList;
 const default_features = font.shape.default_features;
@@ -103,7 +104,7 @@ pub const Shaper = struct {
         }
     };
 
-    const CellOffset = struct {
+    const Offset = struct {
         cluster: u32 = 0,
         x: f64 = 0,
     };
@@ -382,11 +383,12 @@ pub const Shaper = struct {
         const line = typesetter.createLine(.{ .location = 0, .length = 0 });
         self.cf_release_pool.appendAssumeCapacity(line);
 
-        // This keeps track of the current x offset (sum of advance.width)
-        var run_offset_x: f64 = 0.0;
+        // This keeps track of the current x offset (sum of advance.width) and
+        // the furthest cluster we've seen so far (max).
+        var run_offset: Offset = .{};
 
         // This keeps track of the cell starting x and cluster.
-        var cell_offset: CellOffset = .{};
+        var cell_offset: Offset = .{};
 
         // For debugging positions, turn this on:
         //var run_offset_y: f64 = 0.0;
@@ -436,12 +438,12 @@ pub const Shaper = struct {
                 const cluster = state.codepoints.items[index].cluster;
                 if (cell_offset.cluster != cluster) {
                     // We previously asserted that the new cluster is greater
-                    // than cell_offset.cluster, but for rtl text this is not
-                    // true. We then used to break out of this block if the new
-                    // cluster was less than cell_offset.cluster, but now this
-                    // would fail to reset cell_offset.x and
-                    // cell_offset.cluster and lead to incorrect shape.Cell `x`
-                    // and `x_offset`. We don't have a test case for RTL, yet.
+                    // than cell_offset.cluster, but this isn't always true.
+                    // See e.g. the "shape Chakma vowel sign with ligature
+                    // (vowel sign renders first)" test.
+
+                    const is_after_glyph_from_current_or_next_clusters =
+                        cluster <= run_offset.cluster;
 
                     const is_first_codepoint_in_cluster = blk: {
                         var i = index;
@@ -457,22 +459,38 @@ pub const Shaper = struct {
 
                     // We need to reset the `cell_offset` at the start of a new
                     // cluster, but we do that conditionally if the codepoint
-                    // `is_first_codepoint_in_cluster`, which is a heuristic to
-                    // detect ligatures and avoid positioning glyphs that mark
-                    // ligatures incorrectly. The idea is that if the first
-                    // codepoint in a cluster doesn't appear in the stream,
-                    // it's very likely that it combined with codepoints from a
-                    // previous cluster into a ligature. Then, the subsequent
-                    // codepoints are very likely marking glyphs that are
-                    // placed relative to that ligature, so if we were to reset
-                    // the `cell_offset` to align it with the grid, the
-                    // positions would be off. (TBD if there are exceptions to
-                    // this heuristic, but using the logging below seems to
-                    // show it works well.)
-                    if (is_first_codepoint_in_cluster) {
+                    // `is_first_codepoint_in_cluster` and the cluster is not
+                    // `is_after_glyph_from_current_or_next_clusters`, which is
+                    // a heuristic to detect ligatures and avoid positioning
+                    // glyphs that mark ligatures incorrectly. The idea is that
+                    // if the first codepoint in a cluster doesn't appear in
+                    // the stream, it's very likely that it combined with
+                    // codepoints from a previous cluster into a ligature.
+                    // Then, the subsequent codepoints are very likely marking
+                    // glyphs that are placed relative to that ligature, so if
+                    // we were to reset the `cell_offset` to align it with the
+                    // grid, the positions would be off. The
+                    // `!is_after_glyph_from_current_or_next_clusters` check is
+                    // needed in case these marking glyphs come from a later
+                    // cluster but are rendered first (see the Chakma and
+                    // Bengali tests). In that case when we get to the
+                    // codepoint that `is_first_codepoint_in_cluster`, but in a
+                    // cluster that
+                    // `is_after_glyph_from_current_or_next_clusters`, we don't
+                    // want to reset to the grid and cause the positions to be
+                    // off. (Note that we could go back and align the cells to
+                    // the grid starting from the one from the cluster that
+                    // rendered out of order, but that is more complicated so
+                    // we don't do that for now. Also, it's TBD if there are
+                    // exceptions to this heuristic for detecting ligatures,
+                    // but using the logging below seems to show it works
+                    // well.)
+                    if (is_first_codepoint_in_cluster and
+                        !is_after_glyph_from_current_or_next_clusters)
+                    {
                         cell_offset = .{
                             .cluster = cluster,
-                            .x = run_offset_x,
+                            .x = run_offset.x,
                         };
 
                         // For debugging positions, turn this on:
@@ -481,7 +499,7 @@ pub const Shaper = struct {
                 }
 
                 // For debugging positions, turn this on:
-                //try self.debugPositions(alloc, run_offset_x, run_offset_y, cell_offset, cell_offset_y, position, index);
+                //try self.debugPositions(alloc, run_offset, run_offset_y, cell_offset, cell_offset_y, position, index);
 
                 const x_offset = position.x - cell_offset.x;
 
@@ -494,7 +512,8 @@ pub const Shaper = struct {
 
                 // Add our advances to keep track of our run offsets.
                 // Advances apply to the NEXT cell.
-                run_offset_x += advance.width;
+                run_offset.x += advance.width;
+                run_offset.cluster = @max(run_offset.cluster, cluster);
 
                 // For debugging positions, turn this on:
                 //run_offset_y += advance.height;
@@ -670,16 +689,16 @@ pub const Shaper = struct {
     fn debugPositions(
         self: *Shaper,
         alloc: Allocator,
-        run_offset_x: f64,
+        run_offset: Offset,
         run_offset_y: f64,
-        cell_offset: CellOffset,
+        cell_offset: Offset,
         cell_offset_y: f64,
         position: macos.graphics.Point,
         index: usize,
     ) !void {
         const state = &self.run_state;
         const x_offset = position.x - cell_offset.x;
-        const advance_x_offset = run_offset_x - cell_offset.x;
+        const advance_x_offset = run_offset.x - cell_offset.x;
         const advance_y_offset = run_offset_y - cell_offset_y;
         const x_offset_diff = x_offset - advance_x_offset;
         const y_offset_diff = position.y - advance_y_offset;
@@ -689,7 +708,30 @@ pub const Shaper = struct {
         const cluster = state.codepoints.items[index].cluster;
         const cluster_differs = cluster != cell_offset.cluster;
 
-        if (positions_differ or position_y_differs or cluster_differs) {
+        // To debug every loop, flip this to true:
+        const extra_debugging = false;
+
+        const is_previous_codepoint_prepend = if (cluster_differs or
+            extra_debugging)
+        blk: {
+            var i = index;
+            while (i > 0) {
+                i -= 1;
+                const codepoint = state.codepoints.items[i];
+
+                // Skip surrogate pair padding
+                if (codepoint.codepoint == 0) continue;
+
+                break :blk unicode.table.get(@intCast(codepoint.codepoint)).grapheme_boundary_class == .prepend;
+            }
+            break :blk false;
+        } else false;
+
+        const formatted_cps = if (positions_differ or
+            position_y_differs or
+            cluster_differs or
+            extra_debugging)
+        blk: {
             var allocating = std.Io.Writer.Allocating.init(alloc);
             const writer = &allocating.writer;
             const codepoints = state.codepoints.items;
@@ -725,49 +767,69 @@ pub const Shaper = struct {
                     try writer.print("{u}", .{@as(u21, @intCast(cp.codepoint))});
                 }
             }
-            const formatted_cps = try allocating.toOwnedSlice();
+            break :blk try allocating.toOwnedSlice();
+        } else "";
 
-            if (positions_differ) {
-                log.warn("position differs from advance: cluster={d} pos=({d:.2},{d:.2}) adv=({d:.2},{d:.2}) diff=({d:.2},{d:.2}) cps = {s}", .{
-                    cluster,
-                    x_offset,
-                    position.y,
-                    advance_x_offset,
-                    advance_y_offset,
-                    x_offset_diff,
-                    y_offset_diff,
-                    formatted_cps,
-                });
-            }
+        if (extra_debugging) {
+            log.warn("extra debugging of positions index={d} cell_offset.cluster={d} cluster={d} run_offset.cluster={d} diff={d} pos=({d:.2},{d:.2}) run_offset=({d:.2},{d:.2}) cell_offset=({d:.2},{d:.2}) is_prev_prepend={} cps = {s}", .{
+                index,
+                cell_offset.cluster,
+                cluster,
+                run_offset.cluster,
+                cluster - cell_offset.cluster,
+                x_offset,
+                position.y,
+                run_offset.x,
+                run_offset_y,
+                cell_offset.x,
+                cell_offset_y,
+                is_previous_codepoint_prepend,
+                formatted_cps,
+            });
+        }
 
-            if (position_y_differs) {
-                log.warn("position.y differs from old offset.y: cluster={d} pos=({d:.2},{d:.2}) run_offset=({d:.2},{d:.2}) cell_offset=({d:.2},{d:.2}) old offset.y={d:.2} cps = {s}", .{
-                    cluster,
-                    x_offset,
-                    position.y,
-                    run_offset_x,
-                    run_offset_y,
-                    cell_offset.x,
-                    cell_offset_y,
-                    old_offset_y,
-                    formatted_cps,
-                });
-            }
+        if (positions_differ) {
+            log.warn("position differs from advance: cluster={d} pos=({d:.2},{d:.2}) adv=({d:.2},{d:.2}) diff=({d:.2},{d:.2}) cps = {s}", .{
+                cluster,
+                x_offset,
+                position.y,
+                advance_x_offset,
+                advance_y_offset,
+                x_offset_diff,
+                y_offset_diff,
+                formatted_cps,
+            });
+        }
 
-            if (cluster_differs) {
-                log.warn("cell_offset.cluster differs from cluster (potential ligature detected) cell_offset.cluster={d} cluster={d} diff={d} pos=({d:.2},{d:.2}) run_offset=({d:.2},{d:.2}) cell_offset=({d:.2},{d:.2}) cps = {s}", .{
-                    cell_offset.cluster,
-                    cluster,
-                    cluster - cell_offset.cluster,
-                    x_offset,
-                    position.y,
-                    run_offset_x,
-                    run_offset_y,
-                    cell_offset.x,
-                    cell_offset_y,
-                    formatted_cps,
-                });
-            }
+        if (position_y_differs) {
+            log.warn("position.y differs from old offset.y: cluster={d} pos=({d:.2},{d:.2}) run_offset=({d:.2},{d:.2}) cell_offset=({d:.2},{d:.2}) old offset.y={d:.2} cps = {s}", .{
+                cluster,
+                x_offset,
+                position.y,
+                run_offset.x,
+                run_offset_y,
+                cell_offset.x,
+                cell_offset_y,
+                old_offset_y,
+                formatted_cps,
+            });
+        }
+
+        if (cluster_differs) {
+            log.warn("cell_offset.cluster differs from cluster (potential ligature detected) cell_offset.cluster={d} cluster={d} run_offset.cluster={d} diff={d} pos=({d:.2},{d:.2}) run_offset=({d:.2},{d:.2}) cell_offset=({d:.2},{d:.2}) is_prev_prepend={} cps = {s}", .{
+                cell_offset.cluster,
+                cluster,
+                run_offset.cluster,
+                cluster - cell_offset.cluster,
+                x_offset,
+                position.y,
+                run_offset.x,
+                run_offset_y,
+                cell_offset.x,
+                cell_offset_y,
+                is_previous_codepoint_prepend,
+                formatted_cps,
+            });
         }
     }
 };
@@ -1636,10 +1698,213 @@ test "shape Tai Tham letters (position.y differs from advance)" {
         try testing.expectEqual(@as(usize, 3), cells.len);
         try testing.expectEqual(@as(u16, 0), cells[0].x);
         try testing.expectEqual(@as(u16, 0), cells[1].x);
-        try testing.expectEqual(@as(u16, 1), cells[2].x); // U from second grapheme
+        try testing.expectEqual(@as(u16, 0), cells[2].x); // U from second grapheme
 
         // The U glyph renders at a y below zero
         try testing.expectEqual(@as(i16, -3), cells[2].y_offset);
+    }
+    try testing.expectEqual(@as(usize, 1), count);
+}
+
+test "shape Javanese ligatures" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    // We need a font that supports Javanese for this to work, if we can't find
+    // Noto Sans Javanese Regular, which is a system font on macOS, we just
+    // skip the test.
+    var testdata = testShaperWithDiscoveredFont(
+        alloc,
+        "Noto Sans Javanese",
+    ) catch return error.SkipZigTest;
+    defer testdata.deinit();
+
+    var buf: [32]u8 = undefined;
+    var buf_idx: usize = 0;
+
+    // First grapheme cluster:
+    buf_idx += try std.unicode.utf8Encode(0xa9a4, buf[buf_idx..]); // NA
+    buf_idx += try std.unicode.utf8Encode(0xa9c0, buf[buf_idx..]); // PANGKON
+    // Second grapheme cluster, combining with the first in a ligature:
+    buf_idx += try std.unicode.utf8Encode(0xa9b2, buf[buf_idx..]); // HA
+    buf_idx += try std.unicode.utf8Encode(0xa9b8, buf[buf_idx..]); // Vowel sign SUKU
+
+    // Make a screen with some data
+    var t = try terminal.Terminal.init(alloc, .{ .cols = 30, .rows = 3 });
+    defer t.deinit(alloc);
+
+    // Enable grapheme clustering
+    t.modes.set(.grapheme_cluster, true);
+
+    var s = t.vtStream();
+    defer s.deinit();
+    try s.nextSlice(buf[0..buf_idx]);
+
+    var state: terminal.RenderState = .empty;
+    defer state.deinit(alloc);
+    try state.update(alloc, &t);
+
+    // Get our run iterator
+    var shaper = &testdata.shaper;
+    var it = shaper.runIterator(.{
+        .grid = testdata.grid,
+        .cells = state.row_data.get(0).cells.slice(),
+    });
+    var count: usize = 0;
+    while (try it.next(alloc)) |run| {
+        count += 1;
+
+        const cells = try shaper.shape(run);
+        const cell_width = run.grid.metrics.cell_width;
+        try testing.expectEqual(@as(usize, 3), cells.len);
+        try testing.expectEqual(@as(u16, 0), cells[0].x);
+        try testing.expectEqual(@as(u16, 0), cells[1].x);
+        try testing.expectEqual(@as(u16, 0), cells[2].x);
+
+        // The vowel sign SUKU renders with correct x_offset
+        try testing.expect(cells[2].x_offset > 3 * cell_width);
+    }
+    try testing.expectEqual(@as(usize, 1), count);
+}
+
+test "shape Chakma vowel sign with ligature (vowel sign renders first)" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    // We need a font that supports Chakma for this to work, if we can't find
+    // Noto Sans Chakma Regular, which is a system font on macOS, we just skip
+    // the test.
+    var testdata = testShaperWithDiscoveredFont(
+        alloc,
+        "Noto Sans Chakma",
+    ) catch return error.SkipZigTest;
+    defer testdata.deinit();
+
+    var buf: [32]u8 = undefined;
+    var buf_idx: usize = 0;
+
+    // First grapheme cluster:
+    buf_idx += try std.unicode.utf8Encode(0x1111d, buf[buf_idx..]); // BAA
+    // Second grapheme cluster:
+    buf_idx += try std.unicode.utf8Encode(0x11116, buf[buf_idx..]); // TAA
+    buf_idx += try std.unicode.utf8Encode(0x11133, buf[buf_idx..]); // Virama
+    // Third grapheme cluster, combining with the second in a ligature:
+    buf_idx += try std.unicode.utf8Encode(0x11120, buf[buf_idx..]); // YYAA
+    buf_idx += try std.unicode.utf8Encode(0x1112c, buf[buf_idx..]); // Vowel Sign U
+
+    // Make a screen with some data
+    var t = try terminal.Terminal.init(alloc, .{ .cols = 30, .rows = 3 });
+    defer t.deinit(alloc);
+
+    // Enable grapheme clustering
+    t.modes.set(.grapheme_cluster, true);
+
+    var s = t.vtStream();
+    defer s.deinit();
+    try s.nextSlice(buf[0..buf_idx]);
+
+    var state: terminal.RenderState = .empty;
+    defer state.deinit(alloc);
+    try state.update(alloc, &t);
+
+    // Get our run iterator
+    var shaper = &testdata.shaper;
+    var it = shaper.runIterator(.{
+        .grid = testdata.grid,
+        .cells = state.row_data.get(0).cells.slice(),
+    });
+    var count: usize = 0;
+    while (try it.next(alloc)) |run| {
+        count += 1;
+
+        const cells = try shaper.shape(run);
+        try testing.expectEqual(@as(usize, 4), cells.len);
+        try testing.expectEqual(@as(u16, 0), cells[0].x);
+        // See the giant "We need to reset the `cell_offset`" comment, but here
+        // we should technically have the rest of these be `x` of 1, but that
+        // would require going back in the stream to adjust past cells, and
+        // don't take on that complexity.
+        try testing.expectEqual(@as(u16, 0), cells[1].x);
+        try testing.expectEqual(@as(u16, 0), cells[2].x);
+        try testing.expectEqual(@as(u16, 0), cells[3].x);
+
+        // The vowel sign U renders before the TAA:
+        try testing.expect(cells[1].x_offset < cells[2].x_offset);
+    }
+    try testing.expectEqual(@as(usize, 1), count);
+}
+
+test "shape Bengali ligatures with out of order vowels" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    // We need a font that supports Bengali for this to work, if we can't find
+    // Arial Unicode MS, which is a system font on macOS, we just skip the
+    // test.
+    var testdata = testShaperWithDiscoveredFont(
+        alloc,
+        "Arial Unicode MS",
+    ) catch return error.SkipZigTest;
+    defer testdata.deinit();
+
+    var buf: [32]u8 = undefined;
+    var buf_idx: usize = 0;
+
+    // First grapheme cluster:
+    buf_idx += try std.unicode.utf8Encode(0x09b0, buf[buf_idx..]); // RA
+    buf_idx += try std.unicode.utf8Encode(0x09be, buf[buf_idx..]); // Vowel sign AA
+    // Second grapheme cluster:
+    buf_idx += try std.unicode.utf8Encode(0x09b7, buf[buf_idx..]); // SSA
+    buf_idx += try std.unicode.utf8Encode(0x09cd, buf[buf_idx..]); // Virama
+    // Third grapheme cluster, combining with the second in a ligature:
+    buf_idx += try std.unicode.utf8Encode(0x099f, buf[buf_idx..]); // TTA
+    buf_idx += try std.unicode.utf8Encode(0x09cd, buf[buf_idx..]); // Virama
+    // Fourth grapheme cluster, combining with the previous two in a ligature:
+    buf_idx += try std.unicode.utf8Encode(0x09b0, buf[buf_idx..]); // RA
+    buf_idx += try std.unicode.utf8Encode(0x09c7, buf[buf_idx..]); // Vowel sign E
+
+    // Make a screen with some data
+    var t = try terminal.Terminal.init(alloc, .{ .cols = 30, .rows = 3 });
+    defer t.deinit(alloc);
+
+    // Enable grapheme clustering
+    t.modes.set(.grapheme_cluster, true);
+
+    var s = t.vtStream();
+    defer s.deinit();
+    try s.nextSlice(buf[0..buf_idx]);
+
+    var state: terminal.RenderState = .empty;
+    defer state.deinit(alloc);
+    try state.update(alloc, &t);
+
+    // Get our run iterator
+    var shaper = &testdata.shaper;
+    var it = shaper.runIterator(.{
+        .grid = testdata.grid,
+        .cells = state.row_data.get(0).cells.slice(),
+    });
+    var count: usize = 0;
+    while (try it.next(alloc)) |run| {
+        count += 1;
+
+        const cells = try shaper.shape(run);
+        try testing.expectEqual(@as(usize, 8), cells.len);
+        try testing.expectEqual(@as(u16, 0), cells[0].x);
+        try testing.expectEqual(@as(u16, 0), cells[1].x);
+        // See the giant "We need to reset the `cell_offset`" comment, but here
+        // we should technically have the rest of these be `x` of 1, but that
+        // would require going back in the stream to adjust past cells, and
+        // don't take on that complexity.
+        try testing.expectEqual(@as(u16, 0), cells[2].x);
+        try testing.expectEqual(@as(u16, 0), cells[3].x);
+        try testing.expectEqual(@as(u16, 0), cells[4].x);
+        try testing.expectEqual(@as(u16, 0), cells[5].x);
+        try testing.expectEqual(@as(u16, 0), cells[6].x);
+        try testing.expectEqual(@as(u16, 0), cells[7].x);
+
+        // The vowel sign E renders before the SSA:
+        try testing.expect(cells[2].x_offset < cells[3].x_offset);
     }
     try testing.expectEqual(@as(usize, 1), count);
 }
@@ -2381,7 +2646,7 @@ fn testShaperWithDiscoveredFont(alloc: Allocator, font_req: [:0]const u8) !TestS
             .monospace = false,
         });
         defer disco_it.deinit();
-        var face: font.DeferredFace = (try disco_it.next()).?;
+        var face: font.DeferredFace = (try disco_it.next()) orelse return error.FontNotFound;
         errdefer face.deinit();
         _ = try c.add(
             alloc,
