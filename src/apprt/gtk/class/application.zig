@@ -734,7 +734,7 @@ pub const Application = extern struct {
             .show_on_screen_keyboard => return Action.showOnScreenKeyboard(target),
             .command_finished => return Action.commandFinished(target, value),
 
-            .start_search => Action.startSearch(target),
+            .start_search => Action.startSearch(target, value),
             .end_search => Action.endSearch(target),
             .search_total => Action.searchTotal(target, value),
             .search_selected => Action.searchSelected(target, value),
@@ -2238,8 +2238,8 @@ const Action = struct {
             .{},
         );
 
-        // Create a new tab
-        win.newTab(parent);
+        // Create a new tab with window context (first tab in new window)
+        win.newTabForWindow(parent);
 
         // Show the window
         gtk.Window.present(win.as(gtk.Window));
@@ -2439,17 +2439,17 @@ const Action = struct {
         }
     }
 
-    pub fn startSearch(target: apprt.Target) void {
+    pub fn startSearch(target: apprt.Target, value: apprt.action.StartSearch) void {
         switch (target) {
             .app => {},
-            .surface => |v| v.rt_surface.surface.setSearchActive(true),
+            .surface => |v| v.rt_surface.surface.setSearchActive(true, value.needle),
         }
     }
 
     pub fn endSearch(target: apprt.Target) void {
         switch (target) {
             .app => {},
-            .surface => |v| v.rt_surface.surface.setSearchActive(false),
+            .surface => |v| v.rt_surface.surface.setSearchActive(false, ""),
         }
     }
 
