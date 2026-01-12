@@ -196,7 +196,8 @@ pub const Page = struct {
         // We need to go through and initialize all the rows so that
         // they point to a valid offset into the cells, since the rows
         // zero-initialized aren't valid.
-        const cells_ptr = cells.ptr(buf)[0 .. cap.cols * cap.rows];
+        const cells_len = @as(usize, cap.cols) * @as(usize, cap.rows);
+        const cells_ptr = cells.ptr(buf)[0..cells_len];
         for (rows.ptr(buf)[0..cap.rows], 0..) |*row, y| {
             const start = y * cap.cols;
             row.* = .{
@@ -1556,7 +1557,7 @@ pub const Page = struct {
         const rows_start = 0;
         const rows_end: usize = rows_start + (rows_count * @sizeOf(Row));
 
-        const cells_count: usize = @intCast(cap.cols * cap.rows);
+        const cells_count: usize = @as(usize, cap.cols) * @as(usize, cap.rows);
         const cells_start = alignForward(usize, rows_end, @alignOf(Cell));
         const cells_end = cells_start + (cells_count * @sizeOf(Cell));
 
@@ -1676,7 +1677,7 @@ pub const Capacity = struct {
         if (available_bits <= @bitSizeOf(Row)) return null;
 
         // We do the math of how many columns we can fit in the remaining
-        // bits ignoring the metadat of a row.
+        // bits ignoring the metadata of a row.
         const remaining_bits = available_bits - @bitSizeOf(Row);
         const max_cols = remaining_bits / @bitSizeOf(Cell);
 
