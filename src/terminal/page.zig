@@ -196,7 +196,8 @@ pub const Page = struct {
         // We need to go through and initialize all the rows so that
         // they point to a valid offset into the cells, since the rows
         // zero-initialized aren't valid.
-        const cells_ptr = cells.ptr(buf)[0 .. cap.cols * cap.rows];
+        const cells_len = @as(usize, cap.cols) * @as(usize, cap.rows);
+        const cells_ptr = cells.ptr(buf)[0..cells_len];
         for (rows.ptr(buf)[0..cap.rows], 0..) |*row, y| {
             const start = y * cap.cols;
             row.* = .{
@@ -1556,7 +1557,7 @@ pub const Page = struct {
         const rows_start = 0;
         const rows_end: usize = rows_start + (rows_count * @sizeOf(Row));
 
-        const cells_count: usize = @intCast(cap.cols * cap.rows);
+        const cells_count: usize = @as(usize, cap.cols) * @as(usize, cap.rows);
         const cells_start = alignForward(usize, rows_end, @alignOf(Cell));
         const cells_end = cells_start + (cells_count * @sizeOf(Cell));
 
@@ -1662,43 +1663,42 @@ pub const Capacity = struct {
         cols: ?size.CellCountInt = null,
     };
 
+    /// Returns the maximum number of columns that can be used with this
+    /// capacity while still fitting at least one row. Returns null if even
+    /// a single column cannot fit (which would indicate an unusable capacity).
+    ///
+    /// Note that this is the maximum number of columns that never increases
+    /// the amount of memory the original capacity will take. If you modify
+    /// the original capacity to add rows, then you can fit more columns.
+    pub fn maxCols(self: Capacity) ?size.CellCountInt {
+        const available_bits = self.availableBitsForGrid();
+
+        // If we can't even fit the row metadata, return null
+        if (available_bits <= @bitSizeOf(Row)) return null;
+
+        // We do the math of how many columns we can fit in the remaining
+        // bits ignoring the metadata of a row.
+        const remaining_bits = available_bits - @bitSizeOf(Row);
+        const max_cols = remaining_bits / @bitSizeOf(Cell);
+
+        // Clamp to CellCountInt max
+        return @min(std.math.maxInt(size.CellCountInt), max_cols);
+    }
+
     /// Adjust the capacity parameters while retaining the same total size.
+    ///
     /// Adjustments always happen by limiting the rows in the page. Everything
     /// else can grow. If it is impossible to achieve the desired adjustment,
     /// OutOfMemory is returned.
     pub fn adjust(self: Capacity, req: Adjustment) Allocator.Error!Capacity {
         var adjusted = self;
         if (req.cols) |cols| {
-            // The math below only works if there is no alignment gap between
-            // the end of the rows array and the start of the cells array.
-            //
-            // To guarantee this, we assert that Row's size is a multiple of
-            // Cell's alignment, so that any length array of Rows will end on
-            // a valid alignment for the start of the Cell array.
-            assert(@sizeOf(Row) % @alignOf(Cell) == 0);
-
-            const layout = Page.layout(self);
-
-            // In order to determine the amount of space in the page available
-            // for rows & cells (which will allow us to calculate the number of
-            // rows we can fit at a certain column width) we need to layout the
-            // "meta" members of the page (i.e. everything else) from the end.
-            const hyperlink_map_start = alignBackward(usize, layout.total_size - layout.hyperlink_map_layout.total_size, hyperlink.Map.base_align.toByteUnits());
-            const hyperlink_set_start = alignBackward(usize, hyperlink_map_start - layout.hyperlink_set_layout.total_size, hyperlink.Set.base_align.toByteUnits());
-            const string_alloc_start = alignBackward(usize, hyperlink_set_start - layout.string_alloc_layout.total_size, StringAlloc.base_align.toByteUnits());
-            const grapheme_map_start = alignBackward(usize, string_alloc_start - layout.grapheme_map_layout.total_size, GraphemeMap.base_align.toByteUnits());
-            const grapheme_alloc_start = alignBackward(usize, grapheme_map_start - layout.grapheme_alloc_layout.total_size, GraphemeAlloc.base_align.toByteUnits());
-            const styles_start = alignBackward(usize, grapheme_alloc_start - layout.styles_layout.total_size, StyleSet.base_align.toByteUnits());
+            const available_bits = self.availableBitsForGrid();
 
             // The size per row is:
             //   - The row metadata itself
             //   - The cells per row (n=cols)
-            const bits_per_row: usize = size: {
-                var bits: usize = @bitSizeOf(Row); // Row metadata
-                bits += @bitSizeOf(Cell) * @as(usize, @intCast(cols)); // Cells (n=cols)
-                break :size bits;
-            };
-            const available_bits: usize = styles_start * 8;
+            const bits_per_row: usize = @bitSizeOf(Row) + @bitSizeOf(Cell) * @as(usize, @intCast(cols));
             const new_rows: usize = @divFloor(available_bits, bits_per_row);
 
             // If our rows go to zero then we can't fit any row metadata
@@ -1710,6 +1710,34 @@ pub const Capacity = struct {
         }
 
         return adjusted;
+    }
+
+    /// Computes the number of bits available for rows and cells in the page.
+    ///
+    /// This is done by laying out the "meta" members (styles, graphemes,
+    /// hyperlinks, strings) from the end of the page and finding where they
+    /// start, which gives us the space available for rows and cells.
+    fn availableBitsForGrid(self: Capacity) usize {
+        // The math below only works if there is no alignment gap between
+        // the end of the rows array and the start of the cells array.
+        //
+        // To guarantee this, we assert that Row's size is a multiple of
+        // Cell's alignment, so that any length array of Rows will end on
+        // a valid alignment for the start of the Cell array.
+        assert(@sizeOf(Row) % @alignOf(Cell) == 0);
+
+        const l = Page.layout(self);
+
+        // Layout meta members from the end to find styles_start
+        const hyperlink_map_start = alignBackward(usize, l.total_size - l.hyperlink_map_layout.total_size, hyperlink.Map.base_align.toByteUnits());
+        const hyperlink_set_start = alignBackward(usize, hyperlink_map_start - l.hyperlink_set_layout.total_size, hyperlink.Set.base_align.toByteUnits());
+        const string_alloc_start = alignBackward(usize, hyperlink_set_start - l.string_alloc_layout.total_size, StringAlloc.base_align.toByteUnits());
+        const grapheme_map_start = alignBackward(usize, string_alloc_start - l.grapheme_map_layout.total_size, GraphemeMap.base_align.toByteUnits());
+        const grapheme_alloc_start = alignBackward(usize, grapheme_map_start - l.grapheme_alloc_layout.total_size, GraphemeAlloc.base_align.toByteUnits());
+        const styles_start = alignBackward(usize, grapheme_alloc_start - l.styles_layout.total_size, StyleSet.base_align.toByteUnits());
+
+        // Multiply by 8 to convert bytes to bits
+        return styles_start * 8;
     }
 };
 
@@ -2068,6 +2096,40 @@ test "Page capacity adjust cols too high" {
         error.OutOfMemory,
         original.adjust(.{ .cols = std.math.maxInt(size.CellCountInt) }),
     );
+}
+
+test "Capacity maxCols basic" {
+    const cap = std_capacity;
+    const max = cap.maxCols().?;
+
+    // maxCols should be >= current cols (since current capacity is valid)
+    try testing.expect(max >= cap.cols);
+
+    // Adjusting to maxCols should succeed with at least 1 row
+    const adjusted = try cap.adjust(.{ .cols = max });
+    try testing.expect(adjusted.rows >= 1);
+
+    // Adjusting to maxCols + 1 should fail
+    try testing.expectError(
+        error.OutOfMemory,
+        cap.adjust(.{ .cols = max + 1 }),
+    );
+}
+
+test "Capacity maxCols preserves total size" {
+    const cap = std_capacity;
+    const original_size = Page.layout(cap).total_size;
+    const max = cap.maxCols().?;
+    const adjusted = try cap.adjust(.{ .cols = max });
+    const adjusted_size = Page.layout(adjusted).total_size;
+    try testing.expectEqual(original_size, adjusted_size);
+}
+
+test "Capacity maxCols with 1 row exactly" {
+    const cap = std_capacity;
+    const max = cap.maxCols().?;
+    const adjusted = try cap.adjust(.{ .cols = max });
+    try testing.expectEqual(@as(size.CellCountInt, 1), adjusted.rows);
 }
 
 test "Page init" {
