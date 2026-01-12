@@ -49,7 +49,15 @@ const Node = struct {
 /// The memory pool we get page nodes from.
 const NodePool = std.heap.MemoryPool(List.Node);
 
+/// The standard page capacity that we use as a starting point for
+/// all pages. This is chosen as a sane default that fits most terminal
+/// usage to support using our pool.
 const std_capacity = pagepkg.std_capacity;
+
+/// The maximum columns we can support with the standard capacity.
+const std_max_cols = std_capacity.maxCols().?;
+
+/// The byte size required for a standard page.
 const std_size = Page.layout(std_capacity).total_size;
 
 /// The memory pool we use for page memory buffers. We use a separate pool
