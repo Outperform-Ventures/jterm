@@ -287,7 +287,7 @@ fn writeBashCompletions(writer: *std.Io.Writer) !void {
         \\  else                    prev="${COMP_WORDS[COMP_CWORD-1]}"
         \\  fi
         \\
-        \\  # current completion is double quoted add a space so the curor progresses
+        \\  # current completion is double quoted add a space so the cursor progresses
         \\  if [[ "$2" == \"*\" ]]; then
         \\    COMPREPLY=( "$cur " );
         \\    return;

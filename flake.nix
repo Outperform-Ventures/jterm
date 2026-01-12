@@ -28,14 +28,14 @@
     };
 
     zon2nix = {
-      url = "github:jcollie/zon2nix?rev=bf983aa90ff169372b9fa8c02e57ea75e0b42245";
+      url = "github:jcollie/zon2nix?rev=c28e93f3ba133d4c1b1d65224e2eebede61fd071";
       inputs = {
         nixpkgs.follows = "nixpkgs";
       };
     };
 
     home-manager = {
-      url = "github:nix-community/home-manager?ref=release-25.05";
+      url = "github:nix-community/home-manager";
       inputs = {
         nixpkgs.follows = "nixpkgs";
       };
@@ -117,7 +117,6 @@
             wayland-gnome = runVM ./nix/vm/wayland-gnome.nix;
             wayland-plasma6 = runVM ./nix/vm/wayland-plasma6.nix;
             x11-cinnamon = runVM ./nix/vm/x11-cinnamon.nix;
-            x11-gnome = runVM ./nix/vm/x11-gnome.nix;
             x11-plasma6 = runVM ./nix/vm/x11-plasma6.nix;
             x11-xfce = runVM ./nix/vm/x11-xfce.nix;
           };
