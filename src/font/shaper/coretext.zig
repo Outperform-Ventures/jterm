@@ -1823,7 +1823,7 @@ test "shape Chakma vowel sign with ligature (vowel sign renders first)" {
         // See the giant "We need to reset the `cell_offset`" comment, but here
         // we should technically have the rest of these be `x` of 1, but that
         // would require going back in the stream to adjust past cells, and
-        // don't take on that complexity.
+        // we don't take on that complexity.
         try testing.expectEqual(@as(u16, 0), cells[1].x);
         try testing.expectEqual(@as(u16, 0), cells[2].x);
         try testing.expectEqual(@as(u16, 0), cells[3].x);
@@ -1895,7 +1895,7 @@ test "shape Bengali ligatures with out of order vowels" {
         // See the giant "We need to reset the `cell_offset`" comment, but here
         // we should technically have the rest of these be `x` of 1, but that
         // would require going back in the stream to adjust past cells, and
-        // don't take on that complexity.
+        // we don't take on that complexity.
         try testing.expectEqual(@as(u16, 0), cells[2].x);
         try testing.expectEqual(@as(u16, 0), cells[3].x);
         try testing.expectEqual(@as(u16, 0), cells[4].x);
