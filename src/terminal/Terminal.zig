@@ -1602,9 +1602,6 @@ pub fn insertLines(self: *Terminal, count: usize) void {
         const cur_rac = cur_p.rowAndCell();
         const cur_row: *Row = cur_rac.row;
 
-        // Mark the row as dirty
-        cur_p.markDirty();
-
         // If this is one of the lines we need to shift, do so
         if (y > adjusted_count) {
             const off_p = cur_p.up(adjusted_count).?;
@@ -1699,9 +1696,6 @@ pub fn insertLines(self: *Terminal, count: usize) void {
                     dst_row.* = src_row.*;
                     src_row.* = dst;
 
-                    // Make sure the row is marked as dirty though.
-                    dst_row.dirty = true;
-
                     // Ensure what we did didn't corrupt the page
                     cur_p.node.data.assertIntegrity();
                 } else {
@@ -1727,6 +1721,9 @@ pub fn insertLines(self: *Terminal, count: usize) void {
                 cells[self.scrolling_region.left .. self.scrolling_region.right + 1],
             );
         }
+
+        // Mark the row as dirty
+        cur_p.markDirty();
 
         // We have successfully processed a line.
         y -= 1;
@@ -1804,9 +1801,6 @@ pub fn deleteLines(self: *Terminal, count: usize) void {
     while (y < rem) {
         const cur_rac = cur_p.rowAndCell();
         const cur_row: *Row = cur_rac.row;
-
-        // Mark the row as dirty
-        cur_p.markDirty();
 
         // If this is one of the lines we need to shift, do so
         if (y < rem - adjusted_count) {
@@ -1897,9 +1891,6 @@ pub fn deleteLines(self: *Terminal, count: usize) void {
                     dst_row.* = src_row.*;
                     src_row.* = dst;
 
-                    // Make sure the row is marked as dirty though.
-                    dst_row.dirty = true;
-
                     // Ensure what we did didn't corrupt the page
                     cur_p.node.data.assertIntegrity();
                 } else {
@@ -1925,6 +1916,9 @@ pub fn deleteLines(self: *Terminal, count: usize) void {
                 cells[self.scrolling_region.left .. self.scrolling_region.right + 1],
             );
         }
+
+        // Mark the row as dirty
+        cur_p.markDirty();
 
         // We have successfully processed a line.
         y += 1;
@@ -5419,6 +5413,52 @@ test "Terminal: insertLines top/bottom scroll region" {
     }
 }
 
+test "Terminal: insertLines across page boundary marks all shifted rows dirty" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, .{ .rows = 5, .cols = 10, .max_scrollback = 1024 });
+    defer t.deinit(alloc);
+
+    const first_page = t.screens.active.pages.pages.first.?;
+    const first_page_nrows = first_page.data.capacity.rows;
+
+    // Fill up the first page minus 3 rows
+    for (0..first_page_nrows - 3) |_| try t.linefeed();
+
+    // Add content that will cross a page boundary
+    try t.printString("1AAAA");
+    t.carriageReturn();
+    try t.linefeed();
+    try t.printString("2BBBB");
+    t.carriageReturn();
+    try t.linefeed();
+    try t.printString("3CCCC");
+    t.carriageReturn();
+    try t.linefeed();
+    try t.printString("4DDDD");
+    t.carriageReturn();
+    try t.linefeed();
+    try t.printString("5EEEE");
+
+    // Verify we now have a second page
+    try testing.expect(first_page.next != null);
+
+    t.setCursorPos(1, 1);
+    t.clearDirty();
+    t.insertLines(1);
+
+    try testing.expect(t.isDirty(.{ .active = .{ .x = 0, .y = 0 } }));
+    try testing.expect(t.isDirty(.{ .active = .{ .x = 0, .y = 1 } }));
+    try testing.expect(t.isDirty(.{ .active = .{ .x = 0, .y = 2 } }));
+    try testing.expect(t.isDirty(.{ .active = .{ .x = 0, .y = 3 } }));
+    try testing.expect(t.isDirty(.{ .active = .{ .x = 0, .y = 4 } }));
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("\n1AAAA\n2BBBB\n3CCCC\n4DDDD", str);
+    }
+}
+
 test "Terminal: insertLines (legacy test)" {
     const alloc = testing.allocator;
     var t = try init(alloc, .{ .cols = 2, .rows = 5 });
@@ -8039,6 +8079,52 @@ test "Terminal: deleteLines colors with bg color" {
             .g = 0,
             .b = 0,
         }, list_cell.cell.content.color_rgb);
+    }
+}
+
+test "Terminal: deleteLines across page boundary marks all shifted rows dirty" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, .{ .rows = 5, .cols = 10, .max_scrollback = 1024 });
+    defer t.deinit(alloc);
+
+    const first_page = t.screens.active.pages.pages.first.?;
+    const first_page_nrows = first_page.data.capacity.rows;
+
+    // Fill up the first page minus 3 rows
+    for (0..first_page_nrows - 3) |_| try t.linefeed();
+
+    // Add content that will cross a page boundary
+    try t.printString("1AAAA");
+    t.carriageReturn();
+    try t.linefeed();
+    try t.printString("2BBBB");
+    t.carriageReturn();
+    try t.linefeed();
+    try t.printString("3CCCC");
+    t.carriageReturn();
+    try t.linefeed();
+    try t.printString("4DDDD");
+    t.carriageReturn();
+    try t.linefeed();
+    try t.printString("5EEEE");
+
+    // Verify we now have a second page
+    try testing.expect(first_page.next != null);
+
+    t.setCursorPos(1, 1);
+    t.clearDirty();
+    t.deleteLines(1);
+
+    try testing.expect(t.isDirty(.{ .active = .{ .x = 0, .y = 0 } }));
+    try testing.expect(t.isDirty(.{ .active = .{ .x = 0, .y = 1 } }));
+    try testing.expect(t.isDirty(.{ .active = .{ .x = 0, .y = 2 } }));
+    try testing.expect(t.isDirty(.{ .active = .{ .x = 0, .y = 3 } }));
+    try testing.expect(t.isDirty(.{ .active = .{ .x = 0, .y = 4 } }));
+
+    {
+        const str = try t.plainString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings("2BBBB\n3CCCC\n4DDDD\n5EEEE", str);
     }
 }
 
