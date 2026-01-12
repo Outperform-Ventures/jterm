@@ -1690,6 +1690,10 @@ pub fn insertLines(self: *Terminal, count: usize) void {
                     // Continue the loop to try handling this row again.
                     continue;
                 };
+
+                // The clone operation may overwrite the dirty flag, so make
+                // sure the row is still marked dirty.
+                dst_row.dirty = true;
             } else {
                 if (!left_right) {
                     // Swap the src/dst cells. This ensures that our dst gets the
@@ -1888,6 +1892,10 @@ pub fn deleteLines(self: *Terminal, count: usize) void {
                     // Continue the loop to try handling this row again.
                     continue;
                 };
+
+                // The clone operation may overwrite the dirty flag, so make
+                // sure the row is still marked dirty.
+                dst_row.dirty = true;
             } else {
                 if (!left_right) {
                     // Swap the src/dst cells. This ensures that our dst gets the
