@@ -1318,7 +1318,7 @@ const ReflowCursor = struct {
                     // Grow our capacity until we can
                     // definitely fit the extra bytes.
                     const required = cps.len * @sizeOf(u21);
-                    var new_grapheme_capacity: usize = cap.grapheme_bytes;
+                    var new_grapheme_capacity: size.GraphemeBytesInt = cap.grapheme_bytes;
                     while (new_grapheme_capacity - cap.grapheme_bytes < required) {
                         new_grapheme_capacity *= 2;
                     }
@@ -1362,7 +1362,7 @@ const ReflowCursor = struct {
                 } else |_| {
                     // Grow our capacity until we can
                     // definitely fit the extra bytes.
-                    var new_string_capacity: usize = cap.string_bytes;
+                    var new_string_capacity: size.StringBytesInt = cap.string_bytes;
                     while (new_string_capacity - cap.string_bytes < additional_required_string_capacity) {
                         new_string_capacity *= 2;
                     }
@@ -2647,16 +2647,16 @@ pub const AdjustCapacity = struct {
     /// Adjust the number of styles in the page. This may be
     /// rounded up if necessary to fit alignment requirements,
     /// but it will never be rounded down.
-    styles: ?usize = null,
+    styles: ?size.StyleCountInt = null,
 
     /// Adjust the number of available grapheme bytes in the page.
-    grapheme_bytes: ?usize = null,
+    grapheme_bytes: ?size.GraphemeBytesInt = null,
 
     /// Adjust the number of available hyperlink bytes in the page.
-    hyperlink_bytes: ?usize = null,
+    hyperlink_bytes: ?size.HyperlinkCountInt = null,
 
     /// Adjust the number of available string bytes in the page.
-    string_bytes: ?usize = null,
+    string_bytes: ?size.StringBytesInt = null,
 };
 
 pub const AdjustCapacityError = Allocator.Error || Page.CloneFromError;
@@ -2692,23 +2692,19 @@ pub fn adjustCapacity(
     // All ceilPowerOfTwo is unreachable because we're always same or less
     // bit width so maxInt is always possible.
     if (adjustment.styles) |v| {
-        comptime assert(@bitSizeOf(@TypeOf(v)) <= @bitSizeOf(usize));
-        const aligned = std.math.ceilPowerOfTwo(usize, v) catch unreachable;
+        const aligned = std.math.ceilPowerOfTwo(size.StyleCountInt, v) catch unreachable;
         cap.styles = @max(cap.styles, aligned);
     }
     if (adjustment.grapheme_bytes) |v| {
-        comptime assert(@bitSizeOf(@TypeOf(v)) <= @bitSizeOf(usize));
-        const aligned = std.math.ceilPowerOfTwo(usize, v) catch unreachable;
+        const aligned = std.math.ceilPowerOfTwo(size.GraphemeBytesInt, v) catch unreachable;
         cap.grapheme_bytes = @max(cap.grapheme_bytes, aligned);
     }
     if (adjustment.hyperlink_bytes) |v| {
-        comptime assert(@bitSizeOf(@TypeOf(v)) <= @bitSizeOf(usize));
-        const aligned = std.math.ceilPowerOfTwo(usize, v) catch unreachable;
+        const aligned = std.math.ceilPowerOfTwo(size.HyperlinkCountInt, v) catch unreachable;
         cap.hyperlink_bytes = @max(cap.hyperlink_bytes, aligned);
     }
     if (adjustment.string_bytes) |v| {
-        comptime assert(@bitSizeOf(@TypeOf(v)) <= @bitSizeOf(usize));
-        const aligned = std.math.ceilPowerOfTwo(usize, v) catch unreachable;
+        const aligned = std.math.ceilPowerOfTwo(size.StringBytesInt, v) catch unreachable;
         cap.string_bytes = @max(cap.string_bytes, aligned);
     }
 
