@@ -776,7 +776,7 @@ pub const Shaper = struct {
                 cell_offset.cluster,
                 cluster,
                 run_offset.cluster,
-                cluster - cell_offset.cluster,
+                @as(isize, @intCast(cluster)) - @as(isize, @intCast(cell_offset.cluster)),
                 x_offset,
                 position.y,
                 run_offset.x,
@@ -820,7 +820,7 @@ pub const Shaper = struct {
                 cell_offset.cluster,
                 cluster,
                 run_offset.cluster,
-                cluster - cell_offset.cluster,
+                @as(isize, @intCast(cluster)) - @as(isize, @intCast(cell_offset.cluster)),
                 x_offset,
                 position.y,
                 run_offset.x,
@@ -1577,11 +1577,13 @@ test "shape Devanagari string" {
     try testing.expect(run != null);
     const cells = try shaper.shape(run.?);
 
+    // To understand the `x`/`cluster` assertions here, run with the "For
+    // debugging positions" code turned on and `extra_debugging` set to true.
     try testing.expectEqual(@as(usize, 8), cells.len);
     try testing.expectEqual(@as(u16, 0), cells[0].x);
     try testing.expectEqual(@as(u16, 1), cells[1].x);
     try testing.expectEqual(@as(u16, 2), cells[2].x);
-    try testing.expectEqual(@as(u16, 3), cells[3].x);
+    try testing.expectEqual(@as(u16, 4), cells[3].x);
     try testing.expectEqual(@as(u16, 4), cells[4].x);
     try testing.expectEqual(@as(u16, 5), cells[5].x);
     try testing.expectEqual(@as(u16, 5), cells[6].x);
