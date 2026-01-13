@@ -588,6 +588,76 @@ pub fn adjustCapacity(
     return new_node;
 }
 
+pub fn increaseCapacity(
+    self: *Screen,
+    node: *PageList.List.Node,
+    adjustment: ?PageList.IncreaseCapacity,
+) PageList.IncreaseCapacityError!*PageList.List.Node {
+    // If the page being modified isn't our cursor page then
+    // this is a quick operation because we have no additional
+    // accounting. We have to do this check here BEFORE calling
+    // increaseCapacity because increaseCapacity will update all
+    // our tracked pins (including our cursor).
+    if (node != self.cursor.page_pin.node) return try self.pages.increaseCapacity(
+        node,
+        adjustment,
+    );
+
+    // We're modifying the cursor page. When we increase the
+    // capacity below it will be short the ref count on our
+    // current style and hyperlink, so we need to init those.
+    const new_node = try self.pages.increaseCapacity(node, adjustment);
+    const new_page: *Page = &new_node.data;
+
+    // Re-add the style, if the page somehow doesn't have enough
+    // memory to add it, we emit a warning and gracefully degrade
+    // to the default style for the cursor.
+    if (self.cursor.style_id != style.default_id) {
+        self.cursor.style_id = new_page.styles.add(
+            new_page.memory,
+            self.cursor.style,
+        ) catch |err| id: {
+            // TODO: Should we increase the capacity further in this case?
+            log.warn(
+                "(Screen.increaseCapacity) Failed to add cursor style back to page, err={}",
+                .{err},
+            );
+
+            // Reset the cursor style.
+            self.cursor.style = .{};
+            break :id style.default_id;
+        };
+    }
+
+    // Re-add the hyperlink, if the page somehow doesn't have enough
+    // memory to add it, we emit a warning and gracefully degrade to
+    // no hyperlink.
+    if (self.cursor.hyperlink) |link| {
+        // So we don't attempt to free any memory in the replaced page.
+        self.cursor.hyperlink_id = 0;
+        self.cursor.hyperlink = null;
+
+        // Re-add
+        self.startHyperlinkOnce(link.*) catch |err| {
+            // TODO: Should we increase the capacity further in this case?
+            log.warn(
+                "(Screen.increaseCapacity) Failed to add cursor hyperlink back to page, err={}",
+                .{err},
+            );
+        };
+
+        // Remove our old link
+        link.deinit(self.alloc);
+        self.alloc.destroy(link);
+    }
+
+    // Reload the cursor information because the pin changed.
+    // So our page row/cell and so on are all off.
+    self.cursorReload();
+
+    return new_node;
+}
+
 pub inline fn cursorCellRight(self: *Screen, n: size.CellCountInt) *pagepkg.Cell {
     assert(self.cursor.x + n < self.pages.cols);
     const cell: [*]pagepkg.Cell = @ptrCast(self.cursor.page_cell);
@@ -3007,15 +3077,15 @@ pub fn testWriteString(self: *Screen, text: []const u8) !void {
                     .protected = self.cursor.protected,
                 };
 
-                // If we have a hyperlink, add it to the cell.
-                if (self.cursor.hyperlink_id > 0) try self.cursorSetHyperlink();
-
                 // If we have a ref-counted style, increase.
                 if (self.cursor.style_id != style.default_id) {
                     const page = self.cursor.page_pin.node.data;
                     page.styles.use(page.memory, self.cursor.style_id);
                     self.cursor.page_row.styled = true;
                 }
+
+                // If we have a hyperlink, add it to the cell.
+                if (self.cursor.hyperlink_id > 0) try self.cursorSetHyperlink();
             },
 
             2 => {
@@ -9102,4 +9172,240 @@ test "Screen: cursorDown to page with insufficient capacity" {
         // Didn't find boundary
         try testing.expect(false);
     }
+}
+
+test "Screen: increaseCapacity cursor style ref count preserved" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, .{
+        .cols = 5,
+        .rows = 5,
+        .max_scrollback = 0,
+    });
+    defer s.deinit();
+    try s.setAttribute(.bold);
+    try s.testWriteString("1ABCD");
+
+    // We should have one page and it should be our cursor page
+    try testing.expect(s.pages.pages.first == s.pages.pages.last);
+    try testing.expect(s.pages.pages.first == s.cursor.page_pin.node);
+
+    const old_style = s.cursor.style;
+
+    {
+        const page = &s.pages.pages.last.?.data;
+        // 5 chars + cursor = 6 refs
+        try testing.expectEqual(
+            6,
+            page.styles.refCount(page.memory, s.cursor.style_id),
+        );
+    }
+
+    // This forces the page to change via increaseCapacity.
+    const new_node = try s.increaseCapacity(
+        s.cursor.page_pin.node,
+        .grapheme_bytes,
+    );
+
+    // Cursor's page_pin should now point to the new node
+    try testing.expect(s.cursor.page_pin.node == new_node);
+
+    // Verify cursor's page_cell and page_row are correctly reloaded from the pin
+    const page_rac = s.cursor.page_pin.rowAndCell();
+    try testing.expect(s.cursor.page_row == page_rac.row);
+    try testing.expect(s.cursor.page_cell == page_rac.cell);
+
+    // Style should be preserved
+    try testing.expectEqual(old_style, s.cursor.style);
+    try testing.expect(s.cursor.style_id != style.default_id);
+
+    // After increaseCapacity, the 5 chars are cloned (5 refs) and
+    // the cursor's style is re-added (1 ref) = 6 total.
+    {
+        const page = &s.pages.pages.last.?.data;
+        const ref_count = page.styles.refCount(page.memory, s.cursor.style_id);
+        try testing.expectEqual(6, ref_count);
+    }
+}
+
+test "Screen: increaseCapacity cursor hyperlink ref count preserved" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, .{
+        .cols = 5,
+        .rows = 5,
+        .max_scrollback = 0,
+    });
+    defer s.deinit();
+    try s.startHyperlink("https://example.com/", null);
+    try s.testWriteString("1ABCD");
+
+    // We should have one page and it should be our cursor page
+    try testing.expect(s.pages.pages.first == s.pages.pages.last);
+    try testing.expect(s.pages.pages.first == s.cursor.page_pin.node);
+
+    {
+        const page = &s.pages.pages.last.?.data;
+        // Cursor has the hyperlink active = 1 count in hyperlink_set
+        try testing.expectEqual(1, page.hyperlink_set.count());
+        try testing.expect(s.cursor.hyperlink_id != 0);
+        try testing.expect(s.cursor.hyperlink != null);
+    }
+
+    // This forces the page to change via increaseCapacity.
+    _ = try s.increaseCapacity(
+        s.cursor.page_pin.node,
+        .grapheme_bytes,
+    );
+
+    // Hyperlink should be preserved with correct URI
+    try testing.expect(s.cursor.hyperlink != null);
+    try testing.expect(s.cursor.hyperlink_id != 0);
+    try testing.expectEqualStrings("https://example.com/", s.cursor.hyperlink.?.uri);
+
+    // After increaseCapacity, the hyperlink is re-added to the new page.
+    {
+        const page = &s.pages.pages.last.?.data;
+        try testing.expectEqual(1, page.hyperlink_set.count());
+    }
+}
+
+test "Screen: increaseCapacity cursor with both style and hyperlink preserved" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, .{
+        .cols = 5,
+        .rows = 5,
+        .max_scrollback = 0,
+    });
+    defer s.deinit();
+
+    // Set both a non-default style AND an active hyperlink.
+    // Write one character first with bold to mark the row as styled,
+    // then start the hyperlink and write more characters.
+    try s.setAttribute(.bold);
+    try s.startHyperlink("https://example.com/", null);
+    try s.testWriteString("1ABCD");
+
+    // We should have one page and it should be our cursor page
+    try testing.expect(s.pages.pages.first == s.pages.pages.last);
+    try testing.expect(s.pages.pages.first == s.cursor.page_pin.node);
+
+    const old_style = s.cursor.style;
+
+    {
+        const page = &s.pages.pages.last.?.data;
+        // 5 chars + cursor = 6 refs for bold style
+        try testing.expectEqual(
+            6,
+            page.styles.refCount(page.memory, s.cursor.style_id),
+        );
+        // Cursor has the hyperlink active = 1 count in hyperlink_set
+        try testing.expectEqual(1, page.hyperlink_set.count());
+        try testing.expect(s.cursor.style_id != style.default_id);
+        try testing.expect(s.cursor.hyperlink_id != 0);
+        try testing.expect(s.cursor.hyperlink != null);
+    }
+
+    // This forces the page to change via increaseCapacity.
+    _ = try s.increaseCapacity(
+        s.cursor.page_pin.node,
+        .grapheme_bytes,
+    );
+
+    // Style should be preserved
+    try testing.expectEqual(old_style, s.cursor.style);
+    try testing.expect(s.cursor.style_id != style.default_id);
+
+    // Hyperlink should be preserved with correct URI
+    try testing.expect(s.cursor.hyperlink != null);
+    try testing.expect(s.cursor.hyperlink_id != 0);
+    try testing.expectEqualStrings("https://example.com/", s.cursor.hyperlink.?.uri);
+
+    // After increaseCapacity, both style and hyperlink are re-added to the new page.
+    {
+        const page = &s.pages.pages.last.?.data;
+        const ref_count = page.styles.refCount(page.memory, s.cursor.style_id);
+        try testing.expectEqual(6, ref_count);
+        try testing.expectEqual(1, page.hyperlink_set.count());
+    }
+}
+
+test "Screen: increaseCapacity non-cursor page returns early" {
+    // Test that calling increaseCapacity on a page that is NOT the cursor's
+    // page properly delegates to pages.increaseCapacity without doing the
+    // extra cursor accounting (style/hyperlink re-adding).
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, .{
+        .cols = 80,
+        .rows = 24,
+        .max_scrollback = 10000,
+    });
+    defer s.deinit();
+
+    // Set up a custom style and hyperlink on the cursor
+    try s.setAttribute(.bold);
+    try s.startHyperlink("https://example.com/", null);
+    try s.testWriteString("Hello");
+
+    // Store cursor state before growing pages
+    const old_style = s.cursor.style;
+    const old_style_id = s.cursor.style_id;
+    const old_hyperlink = s.cursor.hyperlink;
+    const old_hyperlink_id = s.cursor.hyperlink_id;
+
+    // The cursor is on the first (and only) page
+    try testing.expect(s.pages.pages.first == s.pages.pages.last);
+    try testing.expect(s.cursor.page_pin.node == s.pages.pages.first.?);
+
+    // Grow pages until we have multiple pages. The cursor's pin stays on
+    // the first page since we're just adding rows.
+    const first_page_node = s.pages.pages.first.?;
+    first_page_node.data.pauseIntegrityChecks(true);
+    for (0..first_page_node.data.capacity.rows - first_page_node.data.size.rows) |_| {
+        _ = try s.pages.grow();
+    }
+    first_page_node.data.pauseIntegrityChecks(false);
+    _ = try s.pages.grow();
+
+    // Now we have two pages
+    try testing.expect(s.pages.pages.first != s.pages.pages.last);
+    const second_page = s.pages.pages.last.?;
+
+    // Cursor should still be on the first page (where it was created)
+    try testing.expect(s.cursor.page_pin.node == s.pages.pages.first.?);
+    try testing.expect(s.cursor.page_pin.node != second_page);
+
+    const second_page_styles_cap = second_page.data.capacity.styles;
+    const cursor_page_styles_cap = s.cursor.page_pin.node.data.capacity.styles;
+
+    // Call increaseCapacity on the second page (NOT the cursor's page)
+    const new_second_page = try s.increaseCapacity(second_page, .styles);
+
+    // The second page should have increased capacity
+    try testing.expectEqual(
+        second_page_styles_cap * 2,
+        new_second_page.data.capacity.styles,
+    );
+
+    // The cursor's page (first page) should be unchanged
+    try testing.expectEqual(
+        cursor_page_styles_cap,
+        s.cursor.page_pin.node.data.capacity.styles,
+    );
+
+    // Cursor state should be completely unchanged since we didn't touch its page
+    try testing.expectEqual(old_style, s.cursor.style);
+    try testing.expectEqual(old_style_id, s.cursor.style_id);
+    try testing.expectEqual(old_hyperlink, s.cursor.hyperlink);
+    try testing.expectEqual(old_hyperlink_id, s.cursor.hyperlink_id);
+
+    // Verify hyperlink is still valid
+    try testing.expect(s.cursor.hyperlink != null);
+    try testing.expectEqualStrings("https://example.com/", s.cursor.hyperlink.?.uri);
 }
