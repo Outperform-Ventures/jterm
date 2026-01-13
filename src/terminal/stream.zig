@@ -1641,7 +1641,7 @@ pub fn Stream(comptime Handler: type) type {
                                     },
                                 },
                                 else => {
-                                    log.warn("invalid set curor style command: {f}", .{input});
+                                    log.warn("invalid set cursor style command: {f}", .{input});
                                     return;
                                 },
                             };

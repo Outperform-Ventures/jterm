@@ -49,7 +49,12 @@ const Node = struct {
 /// The memory pool we get page nodes from.
 const NodePool = std.heap.MemoryPool(List.Node);
 
+/// The standard page capacity that we use as a starting point for
+/// all pages. This is chosen as a sane default that fits most terminal
+/// usage to support using our pool.
 const std_capacity = pagepkg.std_capacity;
+
+/// The byte size required for a standard page.
 const std_size = Page.layout(std_capacity).total_size;
 
 /// The memory pool we use for page memory buffers. We use a separate pool
@@ -223,19 +228,30 @@ pub const Viewport = union(enum) {
 /// But this gives us a nice fast heuristic for determining min/max size.
 /// Therefore, if the page size is violated you should always also verify
 /// that we have enough space for the active area.
-fn minMaxSize(cols: size.CellCountInt, rows: size.CellCountInt) !usize {
+fn minMaxSize(cols: size.CellCountInt, rows: size.CellCountInt) usize {
+    // Invariant required to ensure our divCeil below cannot overflow.
+    comptime {
+        const max_rows = std.math.maxInt(size.CellCountInt);
+        _ = std.math.divCeil(usize, max_rows, 1) catch unreachable;
+    }
+
     // Get our capacity to fit our rows. If the cols are too big, it may
     // force less rows than we want meaning we need more than one page to
     // represent a viewport.
-    const cap = try std_capacity.adjust(.{ .cols = cols });
+    const cap = initialCapacity(cols);
 
     // Calculate the number of standard sized pages we need to represent
     // an active area.
-    const pages_exact = if (cap.rows >= rows) 1 else try std.math.divCeil(
+    const pages_exact = if (cap.rows >= rows) 1 else std.math.divCeil(
         usize,
         rows,
         cap.rows,
-    );
+    ) catch {
+        // Not possible:
+        // - initialCapacity guarantees at least 1 row
+        // - numerator/denominator can't overflow because of comptime check above
+        unreachable;
+    };
 
     // We always need at least one page extra so that we
     // can fit partial pages to spread our active area across two pages.
@@ -253,6 +269,49 @@ fn minMaxSize(cols: size.CellCountInt, rows: size.CellCountInt) !usize {
     // });
 
     return PagePool.item_size * pages;
+}
+
+/// Calculates the initial capacity for a new page for a given column
+/// count. This will attempt to fit within std_size at all times so we
+/// can use our memory pool, but if cols is too big, this will return a
+/// larger capacity.
+///
+/// The returned capacity is always guaranteed to layout properly (not
+/// overflow). We are able to support capacities up to the maximum int
+/// value of cols, so this will never overflow.
+fn initialCapacity(cols: size.CellCountInt) Capacity {
+    // This is an important invariant that ensures that this function
+    // can never return an error. We verify here that our standard capacity
+    // when increased to maximum possible columns can always support at
+    // least one row in memory.
+    //
+    // IF THIS EVER FAILS: We probably need to modify our logic below
+    // to reduce other elements of the capacity (styles, graphemes, etc.).
+    // But, instead, I recommend taking a step back and re-evaluating
+    // life choices.
+    comptime {
+        var cap = std_capacity;
+        cap.cols = std.math.maxInt(size.CellCountInt);
+        _ = Page.layout(cap);
+    }
+
+    if (std_capacity.adjust(
+        .{ .cols = cols },
+    )) |cap| {
+        // If we can adjust our standard capacity, we fit within the
+        // standard size and we're good!
+        return cap;
+    } else |err| {
+        // Ensure our error set doesn't change.
+        comptime assert(@TypeOf(err) == error{OutOfMemory});
+    }
+
+    // This code path means that our standard capacity can't even
+    // accommodate our column count! The only solution is to increase
+    // our capacity and go non-standard.
+    var cap: Capacity = std_capacity;
+    cap.cols = cols;
+    return cap;
 }
 
 /// This is the page allocator we'll use for all our underlying
@@ -310,7 +369,7 @@ pub fn init(
     );
 
     // Get our minimum max size, see doc comments for more details.
-    const min_max_size = try minMaxSize(cols, rows);
+    const min_max_size = minMaxSize(cols, rows);
 
     // We always track our viewport pin to ensure this is never an allocation
     const viewport_pin = try pool.pins.create();
@@ -344,17 +403,31 @@ fn initPages(
     serial: *u64,
     cols: size.CellCountInt,
     rows: size.CellCountInt,
-) !struct { List, usize } {
+) Allocator.Error!struct { List, usize } {
     var page_list: List = .{};
     var page_size: usize = 0;
 
     // Add pages as needed to create our initial viewport.
-    const cap = try std_capacity.adjust(.{ .cols = cols });
+    const cap = initialCapacity(cols);
+    const layout = Page.layout(cap);
+    const pooled = layout.total_size <= std_size;
+    const page_alloc = pool.pages.arena.child_allocator;
+
     var rem = rows;
     while (rem > 0) {
         const node = try pool.nodes.create();
-        const page_buf = try pool.pages.create();
-        // no errdefer because the pool deinit will clean these up
+        const page_buf = if (pooled)
+            try pool.pages.create()
+        else
+            try page_alloc.alignedAlloc(
+                u8,
+                .fromByteUnits(std.heap.page_size_min),
+                layout.total_size,
+            );
+        errdefer if (pooled)
+            pool.pages.destroy(page_buf)
+        else
+            page_alloc.free(page_buf);
 
         // In runtime safety modes we have to memset because the Zig allocator
         // interface will always memset to 0xAA for undefined. In non-safe modes
@@ -364,10 +437,7 @@ fn initPages(
         // Initialize the first set of pages to contain our viewport so that
         // the top of the first page is always the active area.
         node.* = .{
-            .data = .initBuf(
-                .init(page_buf),
-                Page.layout(cap),
-            ),
+            .data = .initBuf(.init(page_buf), layout),
             .serial = serial.*,
         };
         node.data.size.rows = @min(rem, node.data.capacity.rows);
@@ -533,10 +603,8 @@ pub fn reset(self: *PageList) void {
     // We need enough pages/nodes to keep our active area. This should
     // never fail since we by definition have allocated a page already
     // that fits our size but I'm not confident to make that assertion.
-    const cap = std_capacity.adjust(
-        .{ .cols = self.cols },
-    ) catch @panic("reset: std_capacity.adjust failed");
-    assert(cap.rows > 0); // adjust should never return 0 rows
+    const cap = initialCapacity(self.cols);
+    assert(cap.rows > 0);
 
     // The number of pages we need is the number of rows in the active
     // area divided by the row capacity of a page.
@@ -828,7 +896,7 @@ pub fn resize(self: *PageList, opts: Resize) !void {
     // when increasing beyond our initial minimum max size or explicit max
     // size to fit the active area.
     const old_min_max_size = self.min_max_size;
-    self.min_max_size = try minMaxSize(
+    self.min_max_size = minMaxSize(
         opts.cols orelse self.cols,
         opts.rows orelse self.rows,
     );
@@ -1592,7 +1660,7 @@ fn resizeWithoutReflow(self: *PageList, opts: Resize) !void {
     // We only set the new min_max_size if we're not reflowing. If we are
     // reflowing, then resize handles this for us.
     const old_min_max_size = self.min_max_size;
-    self.min_max_size = if (!opts.reflow) try minMaxSize(
+    self.min_max_size = if (!opts.reflow) minMaxSize(
         opts.cols orelse self.cols,
         opts.rows orelse self.rows,
     ) else old_min_max_size;
@@ -4539,6 +4607,38 @@ test "PageList init rows across two pages" {
     try testing.expect(s.viewport == .active);
     try testing.expect(s.pages.first != null);
     try testing.expectEqual(@as(usize, s.rows), s.totalRows());
+
+    // Initial total rows should be our row count
+    try testing.expectEqual(s.rows, s.total_rows);
+
+    // Scrollbar should be where we expect it
+    try testing.expectEqual(Scrollbar{
+        .total = s.rows,
+        .offset = 0,
+        .len = s.rows,
+    }, s.scrollbar());
+}
+
+test "PageList init more than max cols" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    // Initialize with more columns than we can fit in our standard
+    // capacity. This is going to force us to go to a non-standard page
+    // immediately.
+    var s = try init(
+        alloc,
+        std_capacity.maxCols().? + 1,
+        80,
+        null,
+    );
+    defer s.deinit();
+    try testing.expect(s.viewport == .active);
+    try testing.expectEqual(@as(usize, s.rows), s.totalRows());
+
+    // We expect a single, non-standard page
+    try testing.expect(s.pages.first != null);
+    try testing.expect(s.pages.first.?.data.memory.len > std_size);
 
     // Initial total rows should be our row count
     try testing.expectEqual(s.rows, s.total_rows);
