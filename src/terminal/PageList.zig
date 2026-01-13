@@ -2736,6 +2736,110 @@ pub fn adjustCapacity(
     return new_node;
 }
 
+/// Possible dimensions to increase capacity for.
+pub const IncreaseCapacity = enum {
+    styles,
+    grapheme_bytes,
+    hyperlink_bytes,
+    string_bytes,
+};
+
+pub const IncreaseCapacityError = error{
+    // An actual system OOM trying to allocate memory.
+    OutOfMemory,
+
+    // The existing page is already at max capacity for the given
+    // adjustment. The caller must create a new page, remove data from
+    // the old page, etc. (up to the caller).
+    OutOfSpace,
+};
+
+/// Increase the capacity of the given page node in the given direction.
+/// This will always allocate a new node and remove the old node, so the
+/// existing node pointer will be invalid after this call. The newly created
+/// node on success is returned.
+///
+/// The increase amount is at the control of the PageList implementation,
+/// but is guaranteed to always increase by at least one unit in the
+/// given dimension. Practically, we'll always increase by much more
+/// (we currently double every time) but callers shouldn't depend on that.
+/// The only guarantee is some amount of growth.
+///
+/// Adjustment can be null if you want to recreate, reclone the page
+/// with the same capacity. This is a special case used for rehashing since
+/// the logic is otherwise the same. In this case, OutOfMemory is the
+/// only possible error.
+pub fn increaseCapacity(
+    self: *PageList,
+    node: *List.Node,
+    adjustment: ?IncreaseCapacity,
+) IncreaseCapacityError!*List.Node {
+    defer self.assertIntegrity();
+    const page: *Page = &node.data;
+
+    // Apply our adjustment
+    var cap = page.capacity;
+    if (adjustment) |v| switch (v) {
+        inline else => |tag| {
+            const field_name = @tagName(tag);
+            const Int = @FieldType(Capacity, field_name);
+            const old = @field(cap, field_name);
+
+            // We use checked math to prevent overflow. If there is an
+            // overflow it means we're out of space in this dimension,
+            // since pages can take up to their maxInt capacity in any
+            // category.
+            const new = std.math.mul(Int, old, 2) catch |err| {
+                comptime assert(@TypeOf(err) == error{Overflow});
+                return error.OutOfSpace;
+            };
+            @field(cap, field_name) = new;
+        },
+    };
+
+    log.info("adjusting page capacity={}", .{cap});
+
+    // Create our new page and clone the old page into it.
+    const new_node = try self.createPage(cap);
+    errdefer self.destroyNode(new_node);
+    const new_page: *Page = &new_node.data;
+    assert(new_page.capacity.rows >= page.capacity.rows);
+    assert(new_page.capacity.cols >= page.capacity.cols);
+    new_page.size.rows = page.size.rows;
+    new_page.size.cols = page.size.cols;
+    new_page.cloneFrom(
+        page,
+        0,
+        page.size.rows,
+    ) catch |err| {
+        // cloneFrom only errors if there isn't capacity for the data
+        // from the source page but we're only increasing capacity so
+        // this should never be possible. If it happens, we should crash
+        // because we're in no man's land and can't safely recover.
+        log.err("increaseCapacity clone failed err={}", .{err});
+        @panic("unexpected clone failure");
+    };
+
+    // Must not fail after this because the operations we do after this
+    // can't be recovered.
+    errdefer comptime unreachable;
+
+    // Fix up all our tracked pins to point to the new page.
+    const pin_keys = self.tracked_pins.keys();
+    for (pin_keys) |p| {
+        if (p.node != node) continue;
+        p.node = new_node;
+    }
+
+    // Insert this page and destroy the old page
+    self.pages.insertBefore(node, new_node);
+    self.pages.remove(node);
+    self.destroyNode(node);
+
+    new_page.assertIntegrity();
+    return new_node;
+}
+
 /// Create a new page node. This does not add it to the list and this
 /// does not do any memory size accounting with max_size/page_size.
 inline fn createPage(
@@ -6480,6 +6584,301 @@ test "PageList adjustCapacity after col shrink" {
         try testing.expectEqual(5, page.size.cols);
         try testing.expectEqual(5, s.cols);
     }
+}
+
+test "PageList increaseCapacity to increase styles" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 2, 2, 0);
+    defer s.deinit();
+
+    const original_styles_cap = s.pages.first.?.data.capacity.styles;
+
+    {
+        try testing.expect(s.pages.first == s.pages.last);
+        const page = &s.pages.first.?.data;
+
+        // Write all our data so we can assert its the same after
+        for (0..s.rows) |y| {
+            for (0..s.cols) |x| {
+                const rac = page.getRowAndCell(x, y);
+                rac.cell.* = .{
+                    .content_tag = .codepoint,
+                    .content = .{ .codepoint = @intCast(x) },
+                };
+            }
+        }
+    }
+
+    // Increase our styles
+    _ = try s.increaseCapacity(s.pages.first.?, .styles);
+
+    {
+        try testing.expect(s.pages.first == s.pages.last);
+        const page = &s.pages.first.?.data;
+
+        // Verify capacity doubled
+        try testing.expectEqual(
+            original_styles_cap * 2,
+            page.capacity.styles,
+        );
+
+        // Verify data preserved
+        for (0..s.rows) |y| {
+            for (0..s.cols) |x| {
+                const rac = page.getRowAndCell(x, y);
+                try testing.expectEqual(
+                    @as(u21, @intCast(x)),
+                    rac.cell.content.codepoint,
+                );
+            }
+        }
+    }
+}
+
+test "PageList increaseCapacity to increase graphemes" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 2, 2, 0);
+    defer s.deinit();
+
+    const original_cap = s.pages.first.?.data.capacity.grapheme_bytes;
+
+    {
+        try testing.expect(s.pages.first == s.pages.last);
+        const page = &s.pages.first.?.data;
+
+        for (0..s.rows) |y| {
+            for (0..s.cols) |x| {
+                const rac = page.getRowAndCell(x, y);
+                rac.cell.* = .{
+                    .content_tag = .codepoint,
+                    .content = .{ .codepoint = @intCast(x) },
+                };
+            }
+        }
+    }
+
+    _ = try s.increaseCapacity(s.pages.first.?, .grapheme_bytes);
+
+    {
+        try testing.expect(s.pages.first == s.pages.last);
+        const page = &s.pages.first.?.data;
+
+        try testing.expectEqual(original_cap * 2, page.capacity.grapheme_bytes);
+
+        for (0..s.rows) |y| {
+            for (0..s.cols) |x| {
+                const rac = page.getRowAndCell(x, y);
+                try testing.expectEqual(
+                    @as(u21, @intCast(x)),
+                    rac.cell.content.codepoint,
+                );
+            }
+        }
+    }
+}
+
+test "PageList increaseCapacity to increase hyperlinks" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 2, 2, 0);
+    defer s.deinit();
+
+    const original_cap = s.pages.first.?.data.capacity.hyperlink_bytes;
+
+    {
+        try testing.expect(s.pages.first == s.pages.last);
+        const page = &s.pages.first.?.data;
+
+        for (0..s.rows) |y| {
+            for (0..s.cols) |x| {
+                const rac = page.getRowAndCell(x, y);
+                rac.cell.* = .{
+                    .content_tag = .codepoint,
+                    .content = .{ .codepoint = @intCast(x) },
+                };
+            }
+        }
+    }
+
+    _ = try s.increaseCapacity(s.pages.first.?, .hyperlink_bytes);
+
+    {
+        try testing.expect(s.pages.first == s.pages.last);
+        const page = &s.pages.first.?.data;
+
+        try testing.expectEqual(original_cap * 2, page.capacity.hyperlink_bytes);
+
+        for (0..s.rows) |y| {
+            for (0..s.cols) |x| {
+                const rac = page.getRowAndCell(x, y);
+                try testing.expectEqual(
+                    @as(u21, @intCast(x)),
+                    rac.cell.content.codepoint,
+                );
+            }
+        }
+    }
+}
+
+test "PageList increaseCapacity to increase string_bytes" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 2, 2, 0);
+    defer s.deinit();
+
+    const original_cap = s.pages.first.?.data.capacity.string_bytes;
+
+    {
+        try testing.expect(s.pages.first == s.pages.last);
+        const page = &s.pages.first.?.data;
+
+        for (0..s.rows) |y| {
+            for (0..s.cols) |x| {
+                const rac = page.getRowAndCell(x, y);
+                rac.cell.* = .{
+                    .content_tag = .codepoint,
+                    .content = .{ .codepoint = @intCast(x) },
+                };
+            }
+        }
+    }
+
+    _ = try s.increaseCapacity(s.pages.first.?, .string_bytes);
+
+    {
+        try testing.expect(s.pages.first == s.pages.last);
+        const page = &s.pages.first.?.data;
+
+        try testing.expectEqual(original_cap * 2, page.capacity.string_bytes);
+
+        for (0..s.rows) |y| {
+            for (0..s.cols) |x| {
+                const rac = page.getRowAndCell(x, y);
+                try testing.expectEqual(
+                    @as(u21, @intCast(x)),
+                    rac.cell.content.codepoint,
+                );
+            }
+        }
+    }
+}
+
+test "PageList increaseCapacity tracked pins" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 2, 2, 0);
+    defer s.deinit();
+
+    // Create a tracked pin on the first page
+    const tracked = try s.trackPin(s.pin(.{ .active = .{ .x = 1, .y = 1 } }).?);
+    defer s.untrackPin(tracked);
+
+    const old_node = s.pages.first.?;
+    try testing.expectEqual(old_node, tracked.node);
+
+    // Increase capacity
+    const new_node = try s.increaseCapacity(s.pages.first.?, .styles);
+
+    // Pin should now point to the new node
+    try testing.expectEqual(new_node, tracked.node);
+    try testing.expectEqual(@as(size.CellCountInt, 1), tracked.x);
+    try testing.expectEqual(@as(size.CellCountInt, 1), tracked.y);
+}
+
+test "PageList increaseCapacity returns OutOfSpace at max capacity" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 2, 2, 0);
+    defer s.deinit();
+
+    // Set styles capacity to a value that will overflow when doubled
+    // We need to create a page with capacity at more than half of max
+    const max_styles = std.math.maxInt(size.StyleCountInt);
+    const half_max = max_styles / 2 + 1;
+
+    // Adjust capacity to near-max first
+    _ = try s.adjustCapacity(s.pages.first.?, .{ .styles = half_max });
+
+    // Now increaseCapacity should fail with OutOfSpace
+    try testing.expectError(
+        error.OutOfSpace,
+        s.increaseCapacity(s.pages.first.?, .styles),
+    );
+}
+
+test "PageList increaseCapacity after col shrink" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 10, 2, 0);
+    defer s.deinit();
+
+    // Shrink columns
+    try s.resize(.{ .cols = 5, .reflow = false });
+    try testing.expectEqual(5, s.cols);
+
+    {
+        const page = &s.pages.first.?.data;
+        try testing.expectEqual(5, page.size.cols);
+        try testing.expect(page.capacity.cols >= 10);
+    }
+
+    // Increase capacity
+    _ = try s.increaseCapacity(s.pages.first.?, .styles);
+
+    {
+        const page = &s.pages.first.?.data;
+        // size.cols should still be 5, not reverted to capacity.cols
+        try testing.expectEqual(5, page.size.cols);
+        try testing.expectEqual(5, s.cols);
+    }
+}
+
+test "PageList increaseCapacity multi-page" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 80, 24, null);
+    defer s.deinit();
+
+    // Grow to create a second page
+    const page1_node = s.pages.last.?;
+    page1_node.data.pauseIntegrityChecks(true);
+    for (0..page1_node.data.capacity.rows - page1_node.data.size.rows) |_| {
+        try testing.expect(try s.grow() == null);
+    }
+    page1_node.data.pauseIntegrityChecks(false);
+    try testing.expect(try s.grow() != null);
+
+    // Now we have two pages
+    try testing.expect(s.pages.first != s.pages.last);
+    const page2_node = s.pages.last.?;
+
+    const page1_styles_cap = s.pages.first.?.data.capacity.styles;
+    const page2_styles_cap = page2_node.data.capacity.styles;
+
+    // Increase capacity on the first page only
+    _ = try s.increaseCapacity(s.pages.first.?, .styles);
+
+    // First page capacity should be doubled
+    try testing.expectEqual(
+        page1_styles_cap * 2,
+        s.pages.first.?.data.capacity.styles,
+    );
+
+    // Second page should be unchanged
+    try testing.expectEqual(
+        page2_styles_cap,
+        s.pages.last.?.data.capacity.styles,
+    );
 }
 
 test "PageList pageIterator single page" {
