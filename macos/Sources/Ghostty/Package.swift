@@ -330,6 +330,22 @@ extension Ghostty {
         case xray
         case custom
         case customStyle = "custom-style"
+
+        /// Bundled asset name for built-in icons
+        var assetName: String? {
+            switch self {
+            case .official: return nil
+            case .blueprint: return "BlueprintImage"
+            case .chalkboard: return "ChalkboardImage"
+            case .microchip: return "MicrochipImage"
+            case .glass: return "GlassImage"
+            case .holographic: return "HolographicImage"
+            case .paper: return "PaperImage"
+            case .retro: return "RetroImage"
+            case .xray: return "XrayImage"
+            case .custom, .customStyle: return nil
+            }
+        }
     }
 
     /// macos-icon-frame
