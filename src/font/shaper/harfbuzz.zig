@@ -4,6 +4,7 @@ const Allocator = std.mem.Allocator;
 const harfbuzz = @import("harfbuzz");
 const font = @import("../main.zig");
 const terminal = @import("../../terminal/main.zig");
+const unicode = @import("../../unicode/main.zig");
 const Feature = font.shape.Feature;
 const FeatureList = font.shape.FeatureList;
 const default_features = font.shape.default_features;
@@ -19,7 +20,7 @@ const log = std.log.scoped(.font_shaper);
 
 /// Shaper that uses Harfbuzz.
 pub const Shaper = struct {
-    /// The allocated used for the feature list and cell buf.
+    /// The allocated used for the feature list, cell buf, and codepoints.
     alloc: Allocator,
 
     /// The buffer used for text shaping. We reuse it across multiple shaping
@@ -32,15 +33,28 @@ pub const Shaper = struct {
     /// The features to use for shaping.
     hb_feats: []harfbuzz.Feature,
 
-    // For debugging positions, turn this on:
-    debug_codepoints: std.ArrayListUnmanaged(DebugCodepoint) = .{},
+    /// The codepoints added to the buffer before shaping. We need to keep
+    /// these separately because after shaping, HarfBuzz replaces codepoints
+    /// with glyph indices in the buffer.
+    codepoints: std.ArrayListUnmanaged(Codepoint) = .{},
 
-    const DebugCodepoint = struct {
+    const Codepoint = struct {
         cluster: u32,
         codepoint: u32,
     };
 
     const CellBuf = std.ArrayListUnmanaged(font.shape.Cell);
+
+    const RunOffset = struct {
+        cluster: u32 = 0,
+        x: i32 = 0,
+        y: i32 = 0,
+    };
+
+    const CellOffset = struct {
+        cluster: u32 = 0,
+        x: i32 = 0,
+    };
 
     /// The cell_buf argument is the buffer to use for storing shaped results.
     /// This should be at least the number of columns in the terminal.
@@ -82,9 +96,7 @@ pub const Shaper = struct {
         self.hb_buf.destroy();
         self.cell_buf.deinit(self.alloc);
         self.alloc.free(self.hb_feats);
-
-        // For debugging positions, turn this on:
-        self.debug_codepoints.deinit(self.alloc);
+        self.codepoints.deinit(self.alloc);
     }
 
     pub fn endFrame(self: *const Shaper) void {
@@ -146,42 +158,97 @@ pub const Shaper = struct {
         // If it isn't true, I'd like to catch it and learn more.
         assert(info.len == pos.len);
 
-        // This keeps track of the current offsets within a single cell.
-        var cell_offset: struct {
-            cluster: u32 = 0,
-            x: i32 = 0,
-            y: i32 = 0,
-        } = .{};
+        // This keeps track of the current x and y offsets (sum of advances)
+        // and the furthest cluster we've seen so far (max).
+        var run_offset: RunOffset = .{};
+
+        // This keeps track of the cell starting x and cluster.
+        var cell_offset: CellOffset = .{};
 
         // Convert all our info/pos to cells and set it.
         self.cell_buf.clearRetainingCapacity();
         for (info, pos) |info_v, pos_v| {
-            // If our cluster changed then we've moved to a new cell.
-            if (info_v.cluster != cell_offset.cluster) cell_offset = .{
-                .cluster = info_v.cluster,
-            };
+            // info_v.cluster is the index into our codepoints array. We use it
+            // to get the original cluster.
+            const index = info_v.cluster;
+            // Our cluster is also our cell X position. If the cluster changes
+            // then we need to reset our current cell offsets.
+            const cluster = self.codepoints.items[index].cluster;
+            if (cell_offset.cluster != cluster) {
+                const is_after_glyph_from_current_or_next_clusters =
+                    cluster <= run_offset.cluster;
+
+                const is_first_codepoint_in_cluster = blk: {
+                    var i = index;
+                    while (i > 0) {
+                        i -= 1;
+                        const codepoint = self.codepoints.items[i];
+                        break :blk codepoint.cluster != cluster;
+                    } else break :blk true;
+                };
+
+                // We need to reset the `cell_offset` at the start of a new
+                // cluster, but we do that conditionally if the codepoint
+                // `is_first_codepoint_in_cluster` and the cluster is not
+                // `is_after_glyph_from_current_or_next_clusters`, which is
+                // a heuristic to detect ligatures and avoid positioning
+                // glyphs that mark ligatures incorrectly. The idea is that
+                // if the first codepoint in a cluster doesn't appear in
+                // the stream, it's very likely that it combined with
+                // codepoints from a previous cluster into a ligature.
+                // Then, the subsequent codepoints are very likely marking
+                // glyphs that are placed relative to that ligature, so if
+                // we were to reset the `cell_offset` to align it with the
+                // grid, the positions would be off. The
+                // `!is_after_glyph_from_current_or_next_clusters` check is
+                // needed in case these marking glyphs come from a later
+                // cluster but are rendered first (see the Chakma and
+                // Bengali tests). In that case when we get to the
+                // codepoint that `is_first_codepoint_in_cluster`, but in a
+                // cluster that
+                // `is_after_glyph_from_current_or_next_clusters`, we don't
+                // want to reset to the grid and cause the positions to be
+                // off. (Note that we could go back and align the cells to
+                // the grid starting from the one from the cluster that
+                // rendered out of order, but that is more complicated so
+                // we don't do that for now. Also, it's TBD if there are
+                // exceptions to this heuristic for detecting ligatures,
+                // but using the logging below seems to show it works
+                // well.)
+                if (is_first_codepoint_in_cluster and
+                    !is_after_glyph_from_current_or_next_clusters)
+                {
+                    cell_offset = .{
+                        .cluster = cluster,
+                        .x = run_offset.x,
+                    };
+                }
+            }
 
             // Under both FreeType and CoreText the harfbuzz scale is
             // in 26.6 fixed point units, so we round to the nearest
             // whole value here.
-            const x_offset = cell_offset.x + ((pos_v.x_offset + 0b100_000) >> 6);
-            const y_offset = cell_offset.y + ((pos_v.y_offset + 0b100_000) >> 6);
+            const x_offset = run_offset.x - cell_offset.x + ((pos_v.x_offset + 0b100_000) >> 6);
+            const y_offset = run_offset.y + ((pos_v.y_offset + 0b100_000) >> 6);
 
             // For debugging positions, turn this on:
-            try self.debugPositions(cell_offset, pos_v);
+            //try self.debugPositions(run_offset, cell_offset, pos_v, index);
 
             try self.cell_buf.append(self.alloc, .{
-                .x = @intCast(info_v.cluster),
+                .x = @intCast(cell_offset.cluster),
                 .x_offset = @intCast(x_offset),
                 .y_offset = @intCast(y_offset),
                 .glyph_index = info_v.codepoint,
             });
 
+            // Add our advances to keep track of our run offsets.
+            // Advances apply to the NEXT cell.
             // Under both FreeType and CoreText the harfbuzz scale is
             // in 26.6 fixed point units, so we round to the nearest
             // whole value here.
-            cell_offset.x += (pos_v.x_advance + 0b100_000) >> 6;
-            cell_offset.y += (pos_v.y_advance + 0b100_000) >> 6;
+            run_offset.x += (pos_v.x_advance + 0b100_000) >> 6;
+            run_offset.y += (pos_v.y_advance + 0b100_000) >> 6;
+            run_offset.cluster = @max(run_offset.cluster, cluster);
 
             // const i = self.cell_buf.items.len - 1;
             // log.warn("i={} info={} pos={} cell={}", .{ i, info_v, pos_v, self.cell_buf.items[i] });
@@ -199,6 +266,7 @@ pub const Shaper = struct {
             // Reset the buffer for our current run
             self.shaper.hb_buf.reset();
             self.shaper.hb_buf.setContentType(.unicode);
+            self.shaper.codepoints.clearRetainingCapacity();
 
             // We don't support RTL text because RTL in terminals is messy.
             // Its something we want to improve. For now, we force LTR because
@@ -208,10 +276,12 @@ pub const Shaper = struct {
 
         pub fn addCodepoint(self: RunIteratorHook, cp: u32, cluster: u32) !void {
             // log.warn("cluster={} cp={x}", .{ cluster, cp });
-            self.shaper.hb_buf.add(cp, cluster);
-
-            // For debugging positions, turn this on:
-            try self.shaper.debug_codepoints.append(self.shaper.alloc, .{
+            // We pass the index into codepoints as the cluster value to HarfBuzz.
+            // After shaping, we use info.cluster to get back the index, which
+            // lets us look up the original cluster value from codepoints.
+            const index: u32 = @intCast(self.shaper.codepoints.items.len);
+            self.shaper.hb_buf.add(cp, index);
+            try self.shaper.codepoints.append(self.shaper.alloc, .{
                 .cluster = cluster,
                 .codepoint = cp,
             });
@@ -224,41 +294,132 @@ pub const Shaper = struct {
 
     fn debugPositions(
         self: *Shaper,
-        cell_offset: anytype,
+        run_offset: RunOffset,
+        cell_offset: CellOffset,
         pos_v: harfbuzz.GlyphPosition,
+        index: u32,
     ) !void {
         const x_offset = cell_offset.x + ((pos_v.x_offset + 0b100_000) >> 6);
-        const y_offset = cell_offset.y + ((pos_v.y_offset + 0b100_000) >> 6);
-        const advance_x_offset = cell_offset.x;
-        const advance_y_offset = cell_offset.y;
-        const x_offset_diff = x_offset - advance_x_offset;
+        const y_offset = run_offset.y + ((pos_v.y_offset + 0b100_000) >> 6);
+        const advance_x_offset = run_offset.x - cell_offset.x;
+        const advance_y_offset = run_offset.y;
+        const x_offset_diff = x_offset - cell_offset.x - advance_x_offset;
         const y_offset_diff = y_offset - advance_y_offset;
+        const positions_differ = @abs(x_offset_diff) > 0 or @abs(y_offset_diff) > 0;
+        const y_offset_differs = run_offset.y != 0;
+        const cluster = self.codepoints.items[index].cluster;
+        const cluster_differs = cluster != cell_offset.cluster;
 
-        if (@abs(x_offset_diff) > 0 or @abs(y_offset_diff) > 0) {
+        // To debug every loop, flip this to true:
+        const extra_debugging = false;
+
+        const is_previous_codepoint_prepend = if (cluster_differs or
+            extra_debugging)
+        blk: {
+            var i = index;
+            while (i > 0) {
+                i -= 1;
+                const codepoint = self.codepoints.items[i];
+                break :blk unicode.table.get(@intCast(codepoint.codepoint)).grapheme_boundary_class == .prepend;
+            }
+            break :blk false;
+        } else false;
+
+        const formatted_cps = if (positions_differ or
+            y_offset_differs or
+            cluster_differs or
+            extra_debugging)
+        blk: {
             var allocating = std.Io.Writer.Allocating.init(self.alloc);
-            defer allocating.deinit();
             const writer = &allocating.writer;
-            const codepoints = self.debug_codepoints.items;
-            for (codepoints) |cp| {
-                if (cp.cluster == cell_offset.cluster) {
-                    try writer.print("\\u{{{x}}}", .{cp.codepoint});
+            const codepoints = self.codepoints.items;
+            var last_cluster: ?u32 = null;
+            for (codepoints, 0..) |cp, i| {
+                if (@as(i32, @intCast(cp.cluster)) >= @as(i32, @intCast(cell_offset.cluster)) - 1 and
+                    cp.cluster <= cluster + 1)
+                {
+                    if (last_cluster) |last| {
+                        if (cp.cluster != last) {
+                            try writer.writeAll(" ");
+                        }
+                    }
+                    if (i == index) {
+                        try writer.writeAll("▸");
+                    }
+                    // Using Python syntax for easier debugging
+                    if (cp.codepoint > 0xFFFF) {
+                        try writer.print("\\U{x:0>8}", .{cp.codepoint});
+                    } else {
+                        try writer.print("\\u{x:0>4}", .{cp.codepoint});
+                    }
+                    last_cluster = cp.cluster;
                 }
             }
             try writer.writeAll(" → ");
             for (codepoints) |cp| {
-                if (cp.cluster == cell_offset.cluster) {
+                if (@as(i32, @intCast(cp.cluster)) >= @as(i32, @intCast(cell_offset.cluster)) - 1 and
+                    cp.cluster <= cluster + 1)
+                {
                     try writer.print("{u}", .{@as(u21, @intCast(cp.codepoint))});
                 }
             }
-            const formatted_cps = try allocating.toOwnedSlice();
-            log.warn("position differs from advance: cluster={d} pos=({d},{d}) adv=({d},{d}) diff=({d},{d}) cps={s}", .{
+            break :blk try allocating.toOwnedSlice();
+        } else "";
+
+        if (extra_debugging) {
+            log.warn("extra debugging of positions index={d} cell_offset.cluster={d} cluster={d} run_offset.cluster={d} diff={d} pos=({d},{d}) run_offset=({d},{d}) cell_offset.x={d} is_prev_prepend={} cps = {s}", .{
+                index,
                 cell_offset.cluster,
+                cluster,
+                run_offset.cluster,
+                @as(isize, @intCast(cluster)) - @as(isize, @intCast(cell_offset.cluster)),
+                x_offset,
+                y_offset,
+                run_offset.x,
+                run_offset.y,
+                cell_offset.x,
+                is_previous_codepoint_prepend,
+                formatted_cps,
+            });
+        }
+
+        if (positions_differ) {
+            log.warn("position differs from advance: cluster={d} pos=({d},{d}) adv=({d},{d}) diff=({d},{d}) cps = {s}", .{
+                cluster,
                 x_offset,
                 y_offset,
                 advance_x_offset,
                 advance_y_offset,
                 x_offset_diff,
                 y_offset_diff,
+                formatted_cps,
+            });
+        }
+
+        if (y_offset_differs) {
+            log.warn("y_offset differs from zero: cluster={d} pos=({d},{d}) run_offset=({d},{d}) cell_offset.x={d} cps = {s}", .{
+                cluster,
+                x_offset,
+                y_offset,
+                run_offset.x,
+                run_offset.y,
+                cell_offset.x,
+                formatted_cps,
+            });
+        }
+
+        if (cluster_differs) {
+            log.warn("cell_offset.cluster differs from cluster (potential ligature detected) cell_offset.cluster={d} cluster={d} run_offset.cluster={d} diff={d} pos=({d},{d}) run_offset=({d},{d}) cell_offset.x={d} is_prev_prepend={} cps = {s}", .{
+                cell_offset.cluster,
+                cluster,
+                run_offset.cluster,
+                @as(isize, @intCast(cluster)) - @as(isize, @intCast(cell_offset.cluster)),
+                x_offset,
+                y_offset,
+                run_offset.x,
+                run_offset.y,
+                cell_offset.x,
+                is_previous_codepoint_prepend,
                 formatted_cps,
             });
         }
@@ -1499,4 +1660,365 @@ fn testShaperWithFont(alloc: Allocator, font_req: TestFont) !TestShaper {
         .grid = grid_ptr,
         .lib = lib,
     };
+}
+
+fn testShaperWithDiscoveredFont(alloc: Allocator, font_req: [:0]const u8) !TestShaper {
+    var lib = try Library.init(alloc);
+    errdefer lib.deinit();
+
+    var c = Collection.init();
+    c.load_options = .{ .library = lib };
+
+    // Discover and add our font to the collection.
+    {
+        var disco = font.Discover.init();
+        defer disco.deinit();
+        var disco_it = try disco.discover(alloc, .{
+            .family = font_req,
+            .size = 12,
+            .monospace = false,
+        });
+        defer disco_it.deinit();
+        var face: font.DeferredFace = (try disco_it.next()) orelse return error.FontNotFound;
+        errdefer face.deinit();
+        _ = try c.add(
+            alloc,
+            try face.load(lib, .{ .size = .{ .points = 12 } }),
+            .{
+                .style = .regular,
+                .fallback = false,
+                .size_adjustment = .none,
+            },
+        );
+    }
+
+    const grid_ptr = try alloc.create(SharedGrid);
+    errdefer alloc.destroy(grid_ptr);
+    grid_ptr.* = try .init(alloc, .{ .collection = c });
+    errdefer grid_ptr.*.deinit(alloc);
+
+    var shaper = try Shaper.init(alloc, .{});
+    errdefer shaper.deinit();
+
+    return TestShaper{
+        .alloc = alloc,
+        .shaper = shaper,
+        .grid = grid_ptr,
+        .lib = lib,
+    };
+}
+
+test "shape Tai Tham vowels (y_offset differs from zero)" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    // We need a font that supports Tai Tham for this to work, if we can't find
+    // Noto Sans Tai Tham, we just skip the test.
+    var testdata = testShaperWithDiscoveredFont(
+        alloc,
+        "Noto Sans Tai Tham",
+    ) catch return error.SkipZigTest;
+    defer testdata.deinit();
+
+    var buf: [32]u8 = undefined;
+    var buf_idx: usize = 0;
+    buf_idx += try std.unicode.utf8Encode(0x1a2F, buf[buf_idx..]); // ᨯ
+    buf_idx += try std.unicode.utf8Encode(0x1a70, buf[buf_idx..]); //  ᩰ
+
+    // Make a screen with some data
+    var t = try terminal.Terminal.init(alloc, .{ .cols = 30, .rows = 3 });
+    defer t.deinit(alloc);
+
+    // Enable grapheme clustering
+    t.modes.set(.grapheme_cluster, true);
+
+    var s = t.vtStream();
+    defer s.deinit();
+    try s.nextSlice(buf[0..buf_idx]);
+
+    var state: terminal.RenderState = .empty;
+    defer state.deinit(alloc);
+    try state.update(alloc, &t);
+
+    // Get our run iterator
+    var shaper = &testdata.shaper;
+    var it = shaper.runIterator(.{
+        .grid = testdata.grid,
+        .cells = state.row_data.get(0).cells.slice(),
+    });
+    var count: usize = 0;
+    while (try it.next(alloc)) |run| {
+        count += 1;
+
+        const cells = try shaper.shape(run);
+        const cell_width = run.grid.metrics.cell_width;
+        try testing.expectEqual(@as(usize, 2), cells.len);
+        try testing.expectEqual(@as(u16, 0), cells[0].x);
+        try testing.expectEqual(@as(u16, 0), cells[1].x);
+
+        // The first glyph renders in the next cell
+        try testing.expectEqual(@as(i16, @intCast(cell_width)), cells[0].x_offset);
+        try testing.expectEqual(@as(i16, 0), cells[1].x_offset);
+    }
+    try testing.expectEqual(@as(usize, 1), count);
+}
+
+test "shape Tai Tham letters (y_offset differs from zero)" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    // We need a font that supports Tai Tham for this to work, if we can't find
+    // Noto Sans Tai Tham, we just skip the test.
+    var testdata = testShaperWithDiscoveredFont(
+        alloc,
+        "Noto Sans Tai Tham",
+    ) catch return error.SkipZigTest;
+    defer testdata.deinit();
+
+    var buf: [32]u8 = undefined;
+    var buf_idx: usize = 0;
+
+    // First grapheme cluster:
+    buf_idx += try std.unicode.utf8Encode(0x1a48, buf[buf_idx..]); // MA
+    buf_idx += try std.unicode.utf8Encode(0x1a60, buf[buf_idx..]); // SAKOT
+    buf_idx += try std.unicode.utf8Encode(0x1a3f, buf[buf_idx..]); // LOW LA
+    buf_idx += try std.unicode.utf8Encode(0x1a75, buf[buf_idx..]); // Tone-1
+    // Second grapheme cluster:
+    buf_idx += try std.unicode.utf8Encode(0x1a41, buf[buf_idx..]); // HIGH PA
+
+    // Make a screen with some data
+    var t = try terminal.Terminal.init(alloc, .{ .cols = 30, .rows = 3 });
+    defer t.deinit(alloc);
+
+    // Enable grapheme clustering
+    t.modes.set(.grapheme_cluster, true);
+
+    var s = t.vtStream();
+    defer s.deinit();
+    try s.nextSlice(buf[0..buf_idx]);
+
+    var state: terminal.RenderState = .empty;
+    defer state.deinit(alloc);
+    try state.update(alloc, &t);
+
+    // Get our run iterator
+    var shaper = &testdata.shaper;
+    var it = shaper.runIterator(.{
+        .grid = testdata.grid,
+        .cells = state.row_data.get(0).cells.slice(),
+    });
+    var count: usize = 0;
+    while (try it.next(alloc)) |run| {
+        count += 1;
+
+        const cells = try shaper.shape(run);
+        try testing.expectEqual(@as(usize, 3), cells.len);
+        try testing.expectEqual(@as(u16, 0), cells[0].x);
+        try testing.expectEqual(@as(u16, 0), cells[1].x);
+        try testing.expectEqual(@as(u16, 0), cells[2].x); // U from second grapheme
+
+        // The U glyph renders at a y below zero
+        try testing.expectEqual(@as(i16, -3), cells[2].y_offset);
+    }
+    try testing.expectEqual(@as(usize, 1), count);
+}
+
+test "shape Javanese ligatures" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    // We need a font that supports Javanese for this to work, if we can't find
+    // Noto Sans Javanese Regular, we just skip the test.
+    var testdata = testShaperWithDiscoveredFont(
+        alloc,
+        "Noto Sans Javanese",
+    ) catch return error.SkipZigTest;
+    defer testdata.deinit();
+
+    var buf: [32]u8 = undefined;
+    var buf_idx: usize = 0;
+
+    // First grapheme cluster:
+    buf_idx += try std.unicode.utf8Encode(0xa9a4, buf[buf_idx..]); // NA
+    buf_idx += try std.unicode.utf8Encode(0xa9c0, buf[buf_idx..]); // PANGKON
+    // Second grapheme cluster, combining with the first in a ligature:
+    buf_idx += try std.unicode.utf8Encode(0xa9b2, buf[buf_idx..]); // HA
+    buf_idx += try std.unicode.utf8Encode(0xa9b8, buf[buf_idx..]); // Vowel sign SUKU
+
+    // Make a screen with some data
+    var t = try terminal.Terminal.init(alloc, .{ .cols = 30, .rows = 3 });
+    defer t.deinit(alloc);
+
+    // Enable grapheme clustering
+    t.modes.set(.grapheme_cluster, true);
+
+    var s = t.vtStream();
+    defer s.deinit();
+    try s.nextSlice(buf[0..buf_idx]);
+
+    var state: terminal.RenderState = .empty;
+    defer state.deinit(alloc);
+    try state.update(alloc, &t);
+
+    // Get our run iterator
+    var shaper = &testdata.shaper;
+    var it = shaper.runIterator(.{
+        .grid = testdata.grid,
+        .cells = state.row_data.get(0).cells.slice(),
+    });
+    var count: usize = 0;
+    while (try it.next(alloc)) |run| {
+        count += 1;
+
+        const cells = try shaper.shape(run);
+        const cell_width = run.grid.metrics.cell_width;
+        try testing.expectEqual(@as(usize, 3), cells.len);
+        try testing.expectEqual(@as(u16, 0), cells[0].x);
+        try testing.expectEqual(@as(u16, 0), cells[1].x);
+        try testing.expectEqual(@as(u16, 0), cells[2].x);
+
+        // The vowel sign SUKU renders with correct x_offset
+        try testing.expect(cells[2].x_offset > 3 * cell_width);
+    }
+    try testing.expectEqual(@as(usize, 1), count);
+}
+
+test "shape Chakma vowel sign with ligature (vowel sign renders first)" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    // We need a font that supports Chakma for this to work, if we can't find
+    // Noto Sans Chakma Regular, we just skip the test.
+    var testdata = testShaperWithDiscoveredFont(
+        alloc,
+        "Noto Sans Chakma",
+    ) catch return error.SkipZigTest;
+    defer testdata.deinit();
+
+    var buf: [32]u8 = undefined;
+    var buf_idx: usize = 0;
+
+    // First grapheme cluster:
+    buf_idx += try std.unicode.utf8Encode(0x1111d, buf[buf_idx..]); // BAA
+    // Second grapheme cluster:
+    buf_idx += try std.unicode.utf8Encode(0x11116, buf[buf_idx..]); // TAA
+    buf_idx += try std.unicode.utf8Encode(0x11133, buf[buf_idx..]); // Virama
+    // Third grapheme cluster, combining with the second in a ligature:
+    buf_idx += try std.unicode.utf8Encode(0x11120, buf[buf_idx..]); // YYAA
+    buf_idx += try std.unicode.utf8Encode(0x1112c, buf[buf_idx..]); // Vowel Sign U
+
+    // Make a screen with some data
+    var t = try terminal.Terminal.init(alloc, .{ .cols = 30, .rows = 3 });
+    defer t.deinit(alloc);
+
+    // Enable grapheme clustering
+    t.modes.set(.grapheme_cluster, true);
+
+    var s = t.vtStream();
+    defer s.deinit();
+    try s.nextSlice(buf[0..buf_idx]);
+
+    var state: terminal.RenderState = .empty;
+    defer state.deinit(alloc);
+    try state.update(alloc, &t);
+
+    // Get our run iterator
+    var shaper = &testdata.shaper;
+    var it = shaper.runIterator(.{
+        .grid = testdata.grid,
+        .cells = state.row_data.get(0).cells.slice(),
+    });
+    var count: usize = 0;
+    while (try it.next(alloc)) |run| {
+        count += 1;
+
+        const cells = try shaper.shape(run);
+        try testing.expectEqual(@as(usize, 4), cells.len);
+        try testing.expectEqual(@as(u16, 0), cells[0].x);
+        // See the giant "We need to reset the `cell_offset`" comment, but here
+        // we should technically have the rest of these be `x` of 1, but that
+        // would require going back in the stream to adjust past cells, and
+        // we don't take on that complexity.
+        try testing.expectEqual(@as(u16, 0), cells[1].x);
+        try testing.expectEqual(@as(u16, 0), cells[2].x);
+        try testing.expectEqual(@as(u16, 0), cells[3].x);
+
+        // The vowel sign U renders before the TAA:
+        try testing.expect(cells[1].x_offset < cells[2].x_offset);
+    }
+    try testing.expectEqual(@as(usize, 1), count);
+}
+
+test "shape Bengali ligatures with out of order vowels" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    // We need a font that supports Bengali for this to work, if we can't find
+    // Arial Unicode MS, we just skip the test.
+    var testdata = testShaperWithDiscoveredFont(
+        alloc,
+        "Arial Unicode MS",
+    ) catch return error.SkipZigTest;
+    defer testdata.deinit();
+
+    var buf: [32]u8 = undefined;
+    var buf_idx: usize = 0;
+
+    // First grapheme cluster:
+    buf_idx += try std.unicode.utf8Encode(0x09b0, buf[buf_idx..]); // RA
+    buf_idx += try std.unicode.utf8Encode(0x09be, buf[buf_idx..]); // Vowel sign AA
+    // Second grapheme cluster:
+    buf_idx += try std.unicode.utf8Encode(0x09b7, buf[buf_idx..]); // SSA
+    buf_idx += try std.unicode.utf8Encode(0x09cd, buf[buf_idx..]); // Virama
+    // Third grapheme cluster, combining with the second in a ligature:
+    buf_idx += try std.unicode.utf8Encode(0x099f, buf[buf_idx..]); // TTA
+    buf_idx += try std.unicode.utf8Encode(0x09cd, buf[buf_idx..]); // Virama
+    // Fourth grapheme cluster, combining with the previous two in a ligature:
+    buf_idx += try std.unicode.utf8Encode(0x09b0, buf[buf_idx..]); // RA
+    buf_idx += try std.unicode.utf8Encode(0x09c7, buf[buf_idx..]); // Vowel sign E
+
+    // Make a screen with some data
+    var t = try terminal.Terminal.init(alloc, .{ .cols = 30, .rows = 3 });
+    defer t.deinit(alloc);
+
+    // Enable grapheme clustering
+    t.modes.set(.grapheme_cluster, true);
+
+    var s = t.vtStream();
+    defer s.deinit();
+    try s.nextSlice(buf[0..buf_idx]);
+
+    var state: terminal.RenderState = .empty;
+    defer state.deinit(alloc);
+    try state.update(alloc, &t);
+
+    // Get our run iterator
+    var shaper = &testdata.shaper;
+    var it = shaper.runIterator(.{
+        .grid = testdata.grid,
+        .cells = state.row_data.get(0).cells.slice(),
+    });
+    var count: usize = 0;
+    while (try it.next(alloc)) |run| {
+        count += 1;
+
+        const cells = try shaper.shape(run);
+        try testing.expectEqual(@as(usize, 8), cells.len);
+        try testing.expectEqual(@as(u16, 0), cells[0].x);
+        try testing.expectEqual(@as(u16, 0), cells[1].x);
+        // See the giant "We need to reset the `cell_offset`" comment, but here
+        // we should technically have the rest of these be `x` of 1, but that
+        // would require going back in the stream to adjust past cells, and
+        // we don't take on that complexity.
+        try testing.expectEqual(@as(u16, 0), cells[2].x);
+        try testing.expectEqual(@as(u16, 0), cells[3].x);
+        try testing.expectEqual(@as(u16, 0), cells[4].x);
+        try testing.expectEqual(@as(u16, 0), cells[5].x);
+        try testing.expectEqual(@as(u16, 0), cells[6].x);
+        try testing.expectEqual(@as(u16, 0), cells[7].x);
+
+        // The vowel sign E renders before the SSA:
+        try testing.expect(cells[2].x_offset < cells[3].x_offset);
+    }
+    try testing.expectEqual(@as(usize, 1), count);
 }
