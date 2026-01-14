@@ -46,6 +46,8 @@ class AppDelegate: NSObject,
     @IBOutlet private var menuSelectAll: NSMenuItem?
     @IBOutlet private var menuFindParent: NSMenuItem?
     @IBOutlet private var menuFind: NSMenuItem?
+    @IBOutlet private var menuSelectionForFind: NSMenuItem?
+    @IBOutlet private var menuScrollToSelection: NSMenuItem?
     @IBOutlet private var menuFindNext: NSMenuItem?
     @IBOutlet private var menuFindPrevious: NSMenuItem?
     @IBOutlet private var menuHideFindBar: NSMenuItem?
@@ -615,6 +617,8 @@ class AppDelegate: NSObject,
         syncMenuShortcut(config, action: "paste_from_selection", menuItem: self.menuPasteSelection)
         syncMenuShortcut(config, action: "select_all", menuItem: self.menuSelectAll)
         syncMenuShortcut(config, action: "start_search", menuItem: self.menuFind)
+        syncMenuShortcut(config, action: "search_selection", menuItem: self.menuSelectionForFind)
+        syncMenuShortcut(config, action: "scroll_to_selection", menuItem: self.menuScrollToSelection)
         syncMenuShortcut(config, action: "search:next", menuItem: self.menuFindNext)
         syncMenuShortcut(config, action: "search:previous", menuItem: self.menuFindPrevious)
 
@@ -942,33 +946,8 @@ class AppDelegate: NSObject,
         var appIconName: String? = config.macosIcon.rawValue
 
         switch (config.macosIcon) {
-        case .official:
-            // Discard saved icon name
-            appIconName = nil
-            break
-        case .blueprint:
-            appIcon = NSImage(named: "BlueprintImage")!
-
-        case .chalkboard:
-            appIcon = NSImage(named: "ChalkboardImage")!
-
-        case .glass:
-            appIcon = NSImage(named: "GlassImage")!
-
-        case .holographic:
-            appIcon = NSImage(named: "HolographicImage")!
-
-        case .microchip:
-            appIcon = NSImage(named: "MicrochipImage")!
-
-        case .paper:
-            appIcon = NSImage(named: "PaperImage")!
-
-        case .retro:
-            appIcon = NSImage(named: "RetroImage")!
-
-        case .xray:
-            appIcon = NSImage(named: "XrayImage")!
+        case let icon where icon.assetName != nil:
+            appIcon = NSImage(named: icon.assetName!)!
 
         case .custom:
             if let userIcon = NSImage(contentsOfFile: config.macosCustomIcon) {
@@ -978,6 +957,7 @@ class AppDelegate: NSObject,
                 appIcon = nil // Revert back to official icon if invalid location
                 appIconName = nil // Discard saved icon name
             }
+
         case .customStyle:
             // Discard saved icon name
             // if no valid colours were found
@@ -993,6 +973,10 @@ class AppDelegate: NSObject,
             let colorStrings = ([ghostColor] + screenColors).compactMap(\.hexString)
             appIconName = (colorStrings + [config.macosIconFrame.rawValue])
                 .joined(separator: "_")
+
+        default:
+            // Discard saved icon name
+            appIconName = nil
         }
 
         // Only change the icon if it has actually changed from the current one,

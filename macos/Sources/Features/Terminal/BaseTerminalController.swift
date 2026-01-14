@@ -200,6 +200,11 @@ class BaseTerminalController: NSWindowController,
             selector: #selector(ghosttyDidPresentTerminal(_:)),
             name: Ghostty.Notification.ghosttyPresentTerminal,
             object: nil)
+        center.addObserver(
+            self,
+            selector: #selector(ghosttySurfaceDragEndedNoTarget(_:)),
+            name: .ghosttySurfaceDragEndedNoTarget,
+            object: nil)
 
         // Listen for local events that we need to know of outside of
         // single surface handlers.
@@ -235,7 +240,7 @@ class BaseTerminalController: NSWindowController,
         // Do the split
         let newTree: SplitTree<Ghostty.SurfaceView>
         do {
-            newTree = try surfaceTree.insert(
+            newTree = try surfaceTree.inserting(
                 view: newView,
                 at: oldView,
                 direction: direction)
@@ -445,14 +450,14 @@ class BaseTerminalController: NSWindowController,
         }
 
         replaceSurfaceTree(
-            surfaceTree.remove(node),
+            surfaceTree.removing(node),
             moveFocusTo: nextFocus,
             moveFocusFrom: focusedSurface,
             undoAction: "Close Terminal"
         )
     }
 
-    private func replaceSurfaceTree(
+    func replaceSurfaceTree(
         _ newTree: SplitTree<Ghostty.SurfaceView>,
         moveFocusTo newView: Ghostty.SurfaceView? = nil,
         moveFocusFrom oldView: Ghostty.SurfaceView? = nil,
@@ -466,33 +471,33 @@ class BaseTerminalController: NSWindowController,
                 Ghostty.moveFocus(to: newView, from: oldView)
             }
         }
-
+        
         // Setup our undo
-        if let undoManager {
-            if let undoAction {
-                undoManager.setActionName(undoAction)
+        guard let undoManager else { return }
+        if let undoAction {
+            undoManager.setActionName(undoAction)
+        }
+        
+        undoManager.registerUndo(
+            withTarget: self,
+            expiresAfter: undoExpiration
+        ) { target in
+            target.surfaceTree = oldTree
+            if let oldView {
+                DispatchQueue.main.async {
+                    Ghostty.moveFocus(to: oldView, from: target.focusedSurface)
+                }
             }
+            
             undoManager.registerUndo(
-                withTarget: self,
-                expiresAfter: undoExpiration
+                withTarget: target,
+                expiresAfter: target.undoExpiration
             ) { target in
-                target.surfaceTree = oldTree
-                if let oldView {
-                    DispatchQueue.main.async {
-                        Ghostty.moveFocus(to: oldView, from: target.focusedSurface)
-                    }
-                }
-
-                undoManager.registerUndo(
-                    withTarget: target,
-                    expiresAfter: target.undoExpiration
-                ) { target in
-                    target.replaceSurfaceTree(
-                        newTree,
-                        moveFocusTo: newView,
-                        moveFocusFrom: target.focusedSurface,
-                        undoAction: undoAction)
-                }
+                target.replaceSurfaceTree(
+                    newTree,
+                    moveFocusTo: newView,
+                    moveFocusFrom: target.focusedSurface,
+                    undoAction: undoAction)
             }
         }
     }
@@ -609,7 +614,7 @@ class BaseTerminalController: NSWindowController,
         guard surfaceTree.contains(target) else { return }
         
         // Equalize the splits
-        surfaceTree = surfaceTree.equalize()
+        surfaceTree = surfaceTree.equalized()
     }
     
     @objc private func ghosttyDidFocusSplit(_ notification: Notification) {
@@ -699,7 +704,7 @@ class BaseTerminalController: NSWindowController,
         
         // Perform the resize using the new SplitTree resize method
         do {
-            surfaceTree = try surfaceTree.resize(node: targetNode, by: amount, in: spatialDirection, with: bounds)
+            surfaceTree = try surfaceTree.resizing(node: targetNode, by: amount, in: spatialDirection, with: bounds)
         } catch {
             Ghostty.logger.warning("failed to resize split: \(error)")
         }
@@ -719,6 +724,42 @@ class BaseTerminalController: NSWindowController,
 
         // Show a brief highlight to help the user locate the presented terminal.
         target.highlight()
+    }
+
+    @objc private func ghosttySurfaceDragEndedNoTarget(_ notification: Notification) {
+        guard let target = notification.object as? Ghostty.SurfaceView else { return }
+        guard let targetNode = surfaceTree.root?.node(view: target) else { return }
+        
+        // If our tree isn't split, then we never create a new window, because
+        // it is already a single split.
+        guard surfaceTree.isSplit else { return }
+        
+        // If we are removing our focused surface then we move it. We need to
+        // keep track of our old one so undo sends focus back to the right place.
+        let oldFocusedSurface = focusedSurface
+        if focusedSurface == target {
+            focusedSurface = findNextFocusTargetAfterClosing(node: targetNode)
+        }
+
+        // Remove the surface from our tree
+        let removedTree = surfaceTree.removing(targetNode)
+
+        // Create a new tree with the dragged surface and open a new window
+        let newTree = SplitTree<Ghostty.SurfaceView>(view: target)
+        
+        // Treat our undo below as a full group.
+        undoManager?.beginUndoGrouping()
+        undoManager?.setActionName("Move Split")
+        defer {
+            undoManager?.endUndoGrouping()
+        }
+        
+        replaceSurfaceTree(removedTree, moveFocusFrom: oldFocusedSurface)
+        _ = TerminalController.newWindow(
+            ghostty,
+            tree: newTree,
+            position: notification.userInfo?[Notification.Name.ghosttySurfaceDragEndedNoTargetPointKey] as? NSPoint,
+            confirmUndo: false)
     }
 
     // MARK: Local Events
@@ -793,7 +834,15 @@ class BaseTerminalController: NSWindowController,
 
     private func applyTitleToWindow() {
         guard let window else { return }
-        window.title = titleOverride ?? lastComputedTitle
+        
+        if let titleOverride {
+            window.title = computeTitle(
+                title: titleOverride,
+                bell: focusedSurface?.bell ?? false)
+            return
+        }
+        
+        window.title = lastComputedTitle
     }
     
     func pwdDidChange(to: URL?) {
@@ -817,14 +866,101 @@ class BaseTerminalController: NSWindowController,
         self.window?.contentResizeIncrements = to
     }
 
-    func splitDidResize(node: SplitTree<Ghostty.SurfaceView>.Node, to newRatio: Double) {
-        let resizedNode = node.resize(to: newRatio)
+    func performSplitAction(_ action: TerminalSplitOperation) {
+        switch action {
+        case .resize(let resize):
+            splitDidResize(node: resize.node, to: resize.ratio)
+        case .drop(let drop):
+            splitDidDrop(source: drop.payload, destination: drop.destination, zone: drop.zone)
+        }
+    }
+
+    private func splitDidResize(node: SplitTree<Ghostty.SurfaceView>.Node, to newRatio: Double) {
+        let resizedNode = node.resizing(to: newRatio)
         do {
-            surfaceTree = try surfaceTree.replace(node: node, with: resizedNode)
+            surfaceTree = try surfaceTree.replacing(node: node, with: resizedNode)
         } catch {
             Ghostty.logger.warning("failed to replace node during split resize: \(error)")
+        }
+    }
+
+    private func splitDidDrop(
+        source: Ghostty.SurfaceView,
+        destination: Ghostty.SurfaceView,
+        zone: TerminalSplitDropZone
+    ) {
+        // Map drop zone to split direction
+        let direction: SplitTree<Ghostty.SurfaceView>.NewDirection = switch zone {
+        case .top: .up
+        case .bottom: .down
+        case .left: .left
+        case .right: .right
+        }
+        
+        // Check if source is in our tree
+        if let sourceNode = surfaceTree.root?.node(view: source) {
+            // Source is in our tree - same window move
+            let treeWithoutSource = surfaceTree.removing(sourceNode)
+            let newTree: SplitTree<Ghostty.SurfaceView>
+            do {
+                newTree = try treeWithoutSource.inserting(view: source, at: destination, direction: direction)
+            } catch {
+                Ghostty.logger.warning("failed to insert surface during drop: \(error)")
+                return
+            }
+            
+            replaceSurfaceTree(
+                newTree,
+                moveFocusTo: source,
+                moveFocusFrom: focusedSurface,
+                undoAction: "Move Split")
             return
         }
+        
+        // Source is not in our tree - search other windows
+        var sourceController: BaseTerminalController?
+        var sourceNode: SplitTree<Ghostty.SurfaceView>.Node?
+        for window in NSApp.windows {
+            guard let controller = window.windowController as? BaseTerminalController else { continue }
+            guard controller !== self else { continue }
+            if let node = controller.surfaceTree.root?.node(view: source) {
+                sourceController = controller
+                sourceNode = node
+                break
+            }
+        }
+        
+        guard let sourceController, let sourceNode else {
+            Ghostty.logger.warning("source surface not found in any window during drop")
+            return
+        }
+        
+        // Remove from source controller's tree and add it to our tree.
+        // We do this first because if there is an error then we can
+        // abort.
+        let newTree: SplitTree<Ghostty.SurfaceView>
+        do {
+            newTree = try surfaceTree.inserting(view: source, at: destination, direction: direction)
+        } catch {
+            Ghostty.logger.warning("failed to insert surface during cross-window drop: \(error)")
+            return
+        }
+        
+        // Treat our undo below as a full group.
+        undoManager?.beginUndoGrouping()
+        undoManager?.setActionName("Move Split")
+        defer {
+            undoManager?.endUndoGrouping()
+        }
+        
+        // Remove the node from the source.
+        sourceController.removeSurfaceNode(sourceNode)
+        
+        // Add in the surface to our tree
+        replaceSurfaceTree(
+            newTree,
+            moveFocusTo: source,
+            moveFocusFrom: focusedSurface)
     }
 
     func performAction(_ action: String, on surfaceView: Ghostty.SurfaceView) {
@@ -1076,6 +1212,15 @@ class BaseTerminalController: NSWindowController,
     }
 
     func windowDidBecomeKey(_ notification: Notification) {
+        // If when we become key our first responder is the window itself, then we
+        // want to move focus to our focused terminal surface. This works around
+        // various weirdness with moving surfaces around.
+        if let window, window.firstResponder == window, let focusedSurface {
+            DispatchQueue.main.async {
+                Ghostty.moveFocus(to: focusedSurface)
+            }
+        }
+
         // Becoming/losing key means we have to notify our surface(s) that we have focus
         // so things like cursors blink, pty events are sent, etc.
         self.syncFocusToSurfaceTree()
@@ -1227,7 +1372,15 @@ class BaseTerminalController: NSWindowController,
     @IBAction func find(_ sender: Any) {
         focusedSurface?.find(sender)
     }
-    
+
+    @IBAction func selectionForFind(_ sender: Any) {
+        focusedSurface?.selectionForFind(sender)
+    }
+
+    @IBAction func scrollToSelection(_ sender: Any) {
+        focusedSurface?.scrollToSelection(sender)
+    }
+
     @IBAction func findNext(_ sender: Any) {
         focusedSurface?.findNext(sender)
     }

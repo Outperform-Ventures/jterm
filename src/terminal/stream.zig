@@ -1641,7 +1641,7 @@ pub fn Stream(comptime Handler: type) type {
                                     },
                                 },
                                 else => {
-                                    log.warn("invalid set curor style command: {f}", .{input});
+                                    log.warn("invalid set cursor style command: {f}", .{input});
                                     return;
                                 },
                             };
@@ -2108,7 +2108,7 @@ pub fn Stream(comptime Handler: type) type {
                 .conemu_wait_input,
                 .conemu_guimacro,
                 => {
-                    log.warn("unimplemented OSC callback: {}", .{cmd});
+                    log.debug("unimplemented OSC callback: {}", .{cmd});
                 },
 
                 .invalid => {

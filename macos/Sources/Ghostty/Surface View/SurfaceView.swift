@@ -224,6 +224,14 @@ extension Ghostty {
                             .opacity(overlayOpacity)
                     }
                 }
+
+                #if canImport(AppKit)
+                // Grab handle for dragging the window. We want this to appear at the very
+                // top Z-index os it isn't faded by the unfocused overlay.
+                //
+                // This is disabled except on macOS because it uses AppKit drag/drop APIs.
+                SurfaceGrabHandle(surfaceView: surfaceView)
+                #endif
             }
 
         }
@@ -467,7 +475,9 @@ extension Ghostty {
                 }
                 .onReceive(NotificationCenter.default.publisher(for: .ghosttySearchFocus)) { notification in
                     guard notification.object as? SurfaceView === surfaceView else { return }
-                    isSearchFieldFocused = true
+                    DispatchQueue.main.async {
+                        isSearchFieldFocused = true
+                    }
                 }
                 .background(
                     GeometryReader { barGeo in
@@ -638,6 +648,9 @@ extension Ghostty {
         /// Wait after the command
         var waitAfterCommand: Bool = false
 
+        /// Context for surface creation
+        var context: ghostty_surface_context_e = GHOSTTY_SURFACE_CONTEXT_WINDOW
+
         init() {}
 
         init(from config: ghostty_surface_config_s) {
@@ -659,6 +672,7 @@ extension Ghostty {
                     }
                 }
             }
+            self.context = config.context
         }
 
         /// Provides a C-compatible ghostty configuration within a closure. The configuration
@@ -691,6 +705,9 @@ extension Ghostty {
             
             // Set wait after command
             config.wait_after_command = waitAfterCommand
+
+            // Set context
+            config.context = context
 
             // Use withCString to ensure strings remain valid for the duration of the closure
             return try workingDirectory.withCString { cWorkingDir in
