@@ -2756,7 +2756,7 @@ pub const Surface = extern struct {
 
         // Check if middle button paste should be disabled based on GNOME settings
         // If gtk_enable_primary_paste is explicitly false, skip processing middle button
-        if (button == .middle and !(priv.gtk_enable_primary_paste orelse false)) {
+        if (button == .middle and !(priv.gtk_enable_primary_paste orelse true)) {
             return;
         }
 
