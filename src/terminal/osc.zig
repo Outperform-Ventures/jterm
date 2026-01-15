@@ -14,6 +14,8 @@ const Allocator = mem.Allocator;
 const LibEnum = @import("../lib/enum.zig").Enum;
 const kitty_color = @import("kitty/color.zig");
 const parsers = @import("osc/parsers.zig");
+const encoding = @import("osc/encoding.zig");
+
 pub const color = parsers.color;
 
 const log = std.log.scoped(.osc);
@@ -191,6 +193,9 @@ pub const Command = union(Key) {
     /// ConEmu GUI macro (OSC 9;6)
     conemu_guimacro: [:0]const u8,
 
+    /// Kitty text sizing protocol (OSC 66)
+    kitty_text_sizing: parsers.kitty_text_sizing.OSC,
+
     pub const Key = LibEnum(
         if (build_options.c_abi) .c else .zig,
         // NOTE: Order matters, see LibEnum documentation.
@@ -216,6 +221,7 @@ pub const Command = union(Key) {
             "conemu_progress_report",
             "conemu_wait_input",
             "conemu_guimacro",
+            "kitty_text_sizing",
         },
     );
 
@@ -342,6 +348,7 @@ pub const Parser = struct {
         @"2",
         @"4",
         @"5",
+        @"6",
         @"7",
         @"8",
         @"9",
@@ -358,6 +365,7 @@ pub const Parser = struct {
         @"21",
         @"22",
         @"52",
+        @"66",
         @"77",
         @"104",
         @"110",
@@ -431,6 +439,7 @@ pub const Parser = struct {
             .prompt_start,
             .report_pwd,
             .show_desktop_notification,
+            .kitty_text_sizing,
             => {},
         }
 
@@ -510,6 +519,7 @@ pub const Parser = struct {
                 '2' => self.state = .@"2",
                 '4' => self.state = .@"4",
                 '5' => self.state = .@"5",
+                '6' => self.state = .@"6",
                 '7' => self.state = .@"7",
                 '8' => self.state = .@"8",
                 '9' => self.state = .@"9",
@@ -600,7 +610,14 @@ pub const Parser = struct {
                 else => self.state = .invalid,
             },
 
-            .@"52" => switch (c) {
+            .@"6" => switch (c) {
+                '6' => self.state = .@"66",
+                else => self.state = .invalid,
+            },
+
+            .@"52",
+            .@"66",
+            => switch (c) {
                 ';' => self.writeToAllocating(),
                 else => self.state = .invalid,
             },
@@ -685,6 +702,10 @@ pub const Parser = struct {
 
             .@"52" => parsers.clipboard_operation.parse(self, terminator_ch),
 
+            .@"6" => null,
+
+            .@"66" => parsers.kitty_text_sizing.parse(self, terminator_ch),
+
             .@"77" => null,
 
             .@"133" => parsers.semantic_prompt.parse(self, terminator_ch),
@@ -696,4 +717,5 @@ pub const Parser = struct {
 
 test {
     _ = parsers;
+    _ = encoding;
 }
