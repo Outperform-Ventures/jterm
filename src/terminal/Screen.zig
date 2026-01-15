@@ -2248,7 +2248,7 @@ pub fn endHyperlink(self: *Screen) void {
 }
 
 /// Set the current hyperlink state on the current cell.
-pub fn cursorSetHyperlink(self: *Screen) !void {
+pub fn cursorSetHyperlink(self: *Screen) PageList.IncreaseCapacityError!void {
     assert(self.cursor.hyperlink_id != 0);
 
     var page = &self.cursor.page_pin.node.data;
@@ -2263,10 +2263,6 @@ pub fn cursorSetHyperlink(self: *Screen) !void {
     } else |err| switch (err) {
         // hyperlink_map is out of space, realloc the page to be larger
         error.HyperlinkMapOutOfMemory => {
-            const uri_size = if (self.cursor.hyperlink) |link| link.uri.len else 0;
-
-            var string_bytes = page.capacity.string_bytes;
-
             // Attempt to allocate the space that would be required to
             // insert a new copy of the cursor hyperlink uri in to the
             // string alloc, since right now adjustCapacity always just
@@ -2274,29 +2270,31 @@ pub fn cursorSetHyperlink(self: *Screen) !void {
             // If this alloc fails then we know we also need to grow our
             // string bytes.
             //
-            // FIXME: This SUCKS
-            if (page.string_alloc.alloc(
-                u8,
-                page.memory,
-                uri_size,
-            )) |slice| {
-                // We don't bother freeing because we're
-                // about to free the entire page anyway.
-                _ = &slice;
-            } else |_| {
-                // We didn't have enough room, let's just double our
-                // string bytes until there's definitely enough room
-                // for our uri.
-                const before = string_bytes;
-                while (string_bytes - before < uri_size) string_bytes *= 2;
+            // FIXME: increaseCapacity should not do this.
+            while (self.cursor.hyperlink) |link| {
+                if (page.string_alloc.alloc(
+                    u8,
+                    page.memory,
+                    link.uri.len,
+                )) |slice| {
+                    // We don't bother freeing because we're
+                    // about to free the entire page anyway.
+                    _ = slice;
+                    break;
+                } else |_| {}
+
+                // We didn't have enough room, let's increase string bytes
+                const new_node = try self.increaseCapacity(
+                    self.cursor.page_pin.node,
+                    .string_bytes,
+                );
+                assert(new_node == self.cursor.page_pin.node);
+                page = &new_node.data;
             }
 
-            _ = try self.adjustCapacity(
+            _ = try self.increaseCapacity(
                 self.cursor.page_pin.node,
-                .{
-                    .hyperlink_bytes = page.capacity.hyperlink_bytes * 2,
-                    .string_bytes = string_bytes,
-                },
+                .hyperlink_bytes,
             );
 
             // Retry
