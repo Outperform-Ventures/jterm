@@ -2038,7 +2038,7 @@ pub const Cell = packed struct(u64) {
 
 test "Page.layout can take a maxed capacity" {
     // Our intention is for a maxed-out capacity to always fit
-    // within a page layout without trigering runtime safety on any
+    // within a page layout without triggering runtime safety on any
     // overflow. This simplifies some of our handling downstream of the
     // call (relevant to: https://github.com/ghostty-org/ghostty/issues/10258)
     var cap: Capacity = undefined;
