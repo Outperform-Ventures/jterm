@@ -1300,31 +1300,30 @@ const ReflowCursor = struct {
                 // If our page can't support an additional cell
                 // with graphemes then we increase capacity.
                 if (self.page.graphemeCount() >= self.page.graphemeCapacity()) {
-                    try self.adjustCapacity(list, .{
-                        .grapheme_bytes = cap.grapheme_bytes * 2,
-                    });
+                    try self.increaseCapacity(
+                        list,
+                        .grapheme_bytes,
+                    );
                 }
 
                 // Attempt to allocate the space that would be required
                 // for these graphemes, and if it's not available, then
-                // increase capacity.
-                if (self.page.grapheme_alloc.alloc(
-                    u21,
-                    self.page.memory,
-                    cps.len,
-                )) |slice| {
-                    self.page.grapheme_alloc.free(self.page.memory, slice);
-                } else |_| {
-                    // Grow our capacity until we can
-                    // definitely fit the extra bytes.
-                    const required = cps.len * @sizeOf(u21);
-                    var new_grapheme_capacity: size.GraphemeBytesInt = cap.grapheme_bytes;
-                    while (new_grapheme_capacity - cap.grapheme_bytes < required) {
-                        new_grapheme_capacity *= 2;
+                // increase capacity. Keep trying until we succeed.
+                while (true) {
+                    if (self.page.grapheme_alloc.alloc(
+                        u21,
+                        self.page.memory,
+                        cps.len,
+                    )) |slice| {
+                        self.page.grapheme_alloc.free(
+                            self.page.memory,
+                            slice,
+                        );
+                        break;
+                    } else |_| {
+                        // Grow our capacity until we can fit the extra bytes.
+                        try self.increaseCapacity(list, .grapheme_bytes);
                     }
-                    try self.adjustCapacity(list, .{
-                        .grapheme_bytes = new_grapheme_capacity,
-                    });
                 }
 
                 // This shouldn't fail since we made sure we have space above.
@@ -1339,9 +1338,7 @@ const ReflowCursor = struct {
                 // If our page can't support an additional cell
                 // with a hyperlink then we increase capacity.
                 if (self.page.hyperlinkCount() >= self.page.hyperlinkCapacity()) {
-                    try self.adjustCapacity(list, .{
-                        .hyperlink_bytes = cap.hyperlink_bytes * 2,
-                    });
+                    try self.increaseCapacity(list, .hyperlink_bytes);
                 }
 
                 // Ensure that the string alloc has sufficient capacity
@@ -1352,23 +1349,26 @@ const ReflowCursor = struct {
                         .explicit => |v| v.len,
                         .implicit => 0,
                     };
-                if (self.page.string_alloc.alloc(
-                    u8,
-                    self.page.memory,
-                    additional_required_string_capacity,
-                )) |slice| {
-                    // We have enough capacity, free the test alloc.
-                    self.page.string_alloc.free(self.page.memory, slice);
-                } else |_| {
-                    // Grow our capacity until we can
-                    // definitely fit the extra bytes.
-                    var new_string_capacity: size.StringBytesInt = cap.string_bytes;
-                    while (new_string_capacity - cap.string_bytes < additional_required_string_capacity) {
-                        new_string_capacity *= 2;
+                // Keep trying until we have enough capacity.
+                while (true) {
+                    if (self.page.string_alloc.alloc(
+                        u8,
+                        self.page.memory,
+                        additional_required_string_capacity,
+                    )) |slice| {
+                        // We have enough capacity, free the test alloc.
+                        self.page.string_alloc.free(
+                            self.page.memory,
+                            slice,
+                        );
+                        break;
+                    } else |_| {
+                        // Grow our capacity until we can fit the extra bytes.
+                        try self.increaseCapacity(
+                            list,
+                            .string_bytes,
+                        );
                     }
-                    try self.adjustCapacity(list, .{
-                        .string_bytes = new_string_capacity,
-                    });
                 }
 
                 const dst_id = self.page.hyperlink_set.addWithIdContext(
@@ -1380,18 +1380,16 @@ const ReflowCursor = struct {
                 ) catch |err| id: {
                     // If the add failed then either the set needs to grow
                     // or it needs to be rehashed. Either one of those can
-                    // be accomplished by adjusting capacity, either with
+                    // be accomplished by increasing capacity, either with
                     // no actual change or with an increased hyperlink cap.
-                    try self.adjustCapacity(list, switch (err) {
-                        error.OutOfMemory => .{
-                            .hyperlink_bytes = cap.hyperlink_bytes * 2,
-                        },
-                        error.NeedsRehash => .{},
+                    try self.increaseCapacity(list, switch (err) {
+                        error.OutOfMemory => .hyperlink_bytes,
+                        error.NeedsRehash => null,
                     });
 
                     // We assume this one will succeed. We dupe the link
                     // again, and don't have to worry about the other one
-                    // because adjusting the capacity naturally clears up
+                    // because increasing the capacity naturally clears up
                     // any managed memory not associated with a cell yet.
                     break :id try self.page.hyperlink_set.addWithIdContext(
                         self.page.memory,
@@ -1424,13 +1422,11 @@ const ReflowCursor = struct {
                 ) catch |err| id: {
                     // If the add failed then either the set needs to grow
                     // or it needs to be rehashed. Either one of those can
-                    // be accomplished by adjusting capacity, either with
+                    // be accomplished by increasing capacity, either with
                     // no actual change or with an increased style cap.
-                    try self.adjustCapacity(list, switch (err) {
-                        error.OutOfMemory => .{
-                            .styles = cap.styles * 2,
-                        },
-                        error.NeedsRehash => .{},
+                    try self.increaseCapacity(list, switch (err) {
+                        error.OutOfMemory => .styles,
+                        error.NeedsRehash => null,
                     });
 
                     // We assume this one will succeed.
@@ -1507,11 +1503,11 @@ const ReflowCursor = struct {
         }
     }
 
-    /// Adjust the capacity of the current page.
-    fn adjustCapacity(
+    /// Increase the capacity of the current page.
+    fn increaseCapacity(
         self: *ReflowCursor,
         list: *PageList,
-        adjustment: AdjustCapacity,
+        adjustment: ?IncreaseCapacity,
     ) !void {
         const old_x = self.x;
         const old_y = self.y;
@@ -1522,7 +1518,7 @@ const ReflowCursor = struct {
             // be correct during a reflow.
             list.pauseIntegrityChecks(true);
             defer list.pauseIntegrityChecks(false);
-            break :node try list.adjustCapacity(
+            break :node try list.increaseCapacity(
                 self.node,
                 adjustment,
             );
@@ -2640,100 +2636,6 @@ pub fn grow(self: *PageList) !?*List.Node {
     self.total_rows += 1;
 
     return next_node;
-}
-
-/// Adjust the capacity of the given page in the list.
-pub const AdjustCapacity = struct {
-    /// Adjust the number of styles in the page. This may be
-    /// rounded up if necessary to fit alignment requirements,
-    /// but it will never be rounded down.
-    styles: ?size.StyleCountInt = null,
-
-    /// Adjust the number of available grapheme bytes in the page.
-    grapheme_bytes: ?size.GraphemeBytesInt = null,
-
-    /// Adjust the number of available hyperlink bytes in the page.
-    hyperlink_bytes: ?size.HyperlinkCountInt = null,
-
-    /// Adjust the number of available string bytes in the page.
-    string_bytes: ?size.StringBytesInt = null,
-};
-
-pub const AdjustCapacityError = Allocator.Error || Page.CloneFromError;
-
-/// Adjust the capacity of the given page in the list. This should
-/// be used in cases where OutOfMemory is returned by some operation
-/// i.e to increase style counts, grapheme counts, etc.
-///
-/// Adjustment works by increasing the capacity of the desired
-/// dimension to a certain amount and increases the memory allocation
-/// requirement for the backing memory of the page. We currently
-/// never split pages or anything like that. Because increased allocation
-/// has to happen outside our memory pool, its generally much slower
-/// so pages should be sized to be large enough to handle all but
-/// exceptional cases.
-///
-/// This can currently only INCREASE capacity size. It cannot
-/// decrease capacity size. This limitation is only because we haven't
-/// yet needed that use case. If we ever do, this can be added. Currently
-/// any requests to decrease will be ignored.
-pub fn adjustCapacity(
-    self: *PageList,
-    node: *List.Node,
-    adjustment: AdjustCapacity,
-) AdjustCapacityError!*List.Node {
-    defer self.assertIntegrity();
-    const page: *Page = &node.data;
-
-    // We always start with the base capacity of the existing page. This
-    // ensures we never shrink from what we need.
-    var cap = page.capacity;
-
-    // All ceilPowerOfTwo is unreachable because we're always same or less
-    // bit width so maxInt is always possible.
-    if (adjustment.styles) |v| {
-        const aligned = std.math.ceilPowerOfTwo(size.StyleCountInt, v) catch unreachable;
-        cap.styles = @max(cap.styles, aligned);
-    }
-    if (adjustment.grapheme_bytes) |v| {
-        const aligned = std.math.ceilPowerOfTwo(size.GraphemeBytesInt, v) catch unreachable;
-        cap.grapheme_bytes = @max(cap.grapheme_bytes, aligned);
-    }
-    if (adjustment.hyperlink_bytes) |v| {
-        const aligned = std.math.ceilPowerOfTwo(size.HyperlinkCountInt, v) catch unreachable;
-        cap.hyperlink_bytes = @max(cap.hyperlink_bytes, aligned);
-    }
-    if (adjustment.string_bytes) |v| {
-        const aligned = std.math.ceilPowerOfTwo(size.StringBytesInt, v) catch unreachable;
-        cap.string_bytes = @max(cap.string_bytes, aligned);
-    }
-
-    log.info("adjusting page capacity={}", .{cap});
-
-    // Create our new page and clone the old page into it.
-    const new_node = try self.createPage(cap);
-    errdefer self.destroyNode(new_node);
-    const new_page: *Page = &new_node.data;
-    assert(new_page.capacity.rows >= page.capacity.rows);
-    assert(new_page.capacity.cols >= page.capacity.cols);
-    new_page.size.rows = page.size.rows;
-    new_page.size.cols = page.size.cols;
-    try new_page.cloneFrom(page, 0, page.size.rows);
-
-    // Fix up all our tracked pins to point to the new page.
-    const pin_keys = self.tracked_pins.keys();
-    for (pin_keys) |p| {
-        if (p.node != node) continue;
-        p.node = new_node;
-    }
-
-    // Insert this page and destroy the old page
-    self.pages.insertBefore(node, new_node);
-    self.pages.remove(node);
-    self.destroyNode(node);
-
-    new_page.assertIntegrity();
-    return new_node;
 }
 
 /// Possible dimensions to increase capacity for.
@@ -4991,21 +4893,14 @@ test "PageList grow prune required with a single page" {
     // behavior during a refactor. This is setting up a scenario that is
     // possible to trigger a bug (#2280).
     {
-        // Adjust our capacity until our page is larger than the standard size.
+        // Increase our capacity until our page is larger than the standard size.
         // This is important because it triggers a scenario where our calculated
         // minSize() which is supposed to accommodate 2 pages is no longer true.
-        var cap = std_capacity;
         while (true) {
-            cap.grapheme_bytes *= 2;
-            const layout = Page.layout(cap);
+            const layout = Page.layout(s.pages.first.?.data.capacity);
             if (layout.total_size > std_size) break;
+            _ = try s.increaseCapacity(s.pages.first.?, .grapheme_bytes);
         }
-
-        // Adjust to that capacity. After we should still have one page.
-        _ = try s.adjustCapacity(
-            s.pages.first.?,
-            .{ .grapheme_bytes = cap.grapheme_bytes },
-        );
         try testing.expect(s.pages.first != null);
         try testing.expect(s.pages.first == s.pages.last);
     }
@@ -6424,168 +6319,6 @@ test "PageList eraseRowBounded exhausts pages invalidates viewport offset cache"
     }, s.scrollbar());
 }
 
-test "PageList adjustCapacity to increase styles" {
-    const testing = std.testing;
-    const alloc = testing.allocator;
-
-    var s = try init(alloc, 2, 2, 0);
-    defer s.deinit();
-    {
-        try testing.expect(s.pages.first == s.pages.last);
-        const page = &s.pages.first.?.data;
-
-        // Write all our data so we can assert its the same after
-        for (0..s.rows) |y| {
-            for (0..s.cols) |x| {
-                const rac = page.getRowAndCell(x, y);
-                rac.cell.* = .{
-                    .content_tag = .codepoint,
-                    .content = .{ .codepoint = @intCast(x) },
-                };
-            }
-        }
-    }
-
-    // Increase our styles
-    _ = try s.adjustCapacity(
-        s.pages.first.?,
-        .{ .styles = std_capacity.styles * 2 },
-    );
-
-    {
-        try testing.expect(s.pages.first == s.pages.last);
-        const page = &s.pages.first.?.data;
-        for (0..s.rows) |y| {
-            for (0..s.cols) |x| {
-                const rac = page.getRowAndCell(x, y);
-                try testing.expectEqual(
-                    @as(u21, @intCast(x)),
-                    rac.cell.content.codepoint,
-                );
-            }
-        }
-    }
-}
-
-test "PageList adjustCapacity to increase graphemes" {
-    const testing = std.testing;
-    const alloc = testing.allocator;
-
-    var s = try init(alloc, 2, 2, 0);
-    defer s.deinit();
-    {
-        try testing.expect(s.pages.first == s.pages.last);
-        const page = &s.pages.first.?.data;
-
-        // Write all our data so we can assert its the same after
-        for (0..s.rows) |y| {
-            for (0..s.cols) |x| {
-                const rac = page.getRowAndCell(x, y);
-                rac.cell.* = .{
-                    .content_tag = .codepoint,
-                    .content = .{ .codepoint = @intCast(x) },
-                };
-            }
-        }
-    }
-
-    // Increase our graphemes
-    _ = try s.adjustCapacity(
-        s.pages.first.?,
-        .{ .grapheme_bytes = std_capacity.grapheme_bytes * 2 },
-    );
-
-    {
-        try testing.expect(s.pages.first == s.pages.last);
-        const page = &s.pages.first.?.data;
-        for (0..s.rows) |y| {
-            for (0..s.cols) |x| {
-                const rac = page.getRowAndCell(x, y);
-                try testing.expectEqual(
-                    @as(u21, @intCast(x)),
-                    rac.cell.content.codepoint,
-                );
-            }
-        }
-    }
-}
-
-test "PageList adjustCapacity to increase hyperlinks" {
-    const testing = std.testing;
-    const alloc = testing.allocator;
-
-    var s = try init(alloc, 2, 2, 0);
-    defer s.deinit();
-    {
-        try testing.expect(s.pages.first == s.pages.last);
-        const page = &s.pages.first.?.data;
-
-        // Write all our data so we can assert its the same after
-        for (0..s.rows) |y| {
-            for (0..s.cols) |x| {
-                const rac = page.getRowAndCell(x, y);
-                rac.cell.* = .{
-                    .content_tag = .codepoint,
-                    .content = .{ .codepoint = @intCast(x) },
-                };
-            }
-        }
-    }
-
-    // Increase our graphemes
-    _ = try s.adjustCapacity(
-        s.pages.first.?,
-        .{ .hyperlink_bytes = @max(std_capacity.hyperlink_bytes * 2, 2048) },
-    );
-
-    {
-        try testing.expect(s.pages.first == s.pages.last);
-        const page = &s.pages.first.?.data;
-        for (0..s.rows) |y| {
-            for (0..s.cols) |x| {
-                const rac = page.getRowAndCell(x, y);
-                try testing.expectEqual(
-                    @as(u21, @intCast(x)),
-                    rac.cell.content.codepoint,
-                );
-            }
-        }
-    }
-}
-
-test "PageList adjustCapacity after col shrink" {
-    const testing = std.testing;
-    const alloc = testing.allocator;
-
-    var s = try init(alloc, 10, 2, 0);
-    defer s.deinit();
-
-    // Shrink columns - this updates size.cols but not capacity.cols
-    try s.resize(.{ .cols = 5, .reflow = false });
-    try testing.expectEqual(5, s.cols);
-
-    {
-        const page = &s.pages.first.?.data;
-        // capacity.cols is still 10, but size.cols should be 5
-        try testing.expectEqual(5, page.size.cols);
-        try testing.expect(page.capacity.cols >= 10);
-    }
-
-    // Now adjust capacity (e.g., to increase styles)
-    // This should preserve the current size.cols, not revert to capacity.cols
-    _ = try s.adjustCapacity(
-        s.pages.first.?,
-        .{ .styles = std_capacity.styles * 2 },
-    );
-
-    {
-        const page = &s.pages.first.?.data;
-        // After adjustCapacity, size.cols should still be 5, not 10
-        try testing.expectEqual(5, page.size.cols);
-        try testing.expectEqual(5, s.cols);
-    }
-}
-
 test "PageList increaseCapacity to increase styles" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -6799,13 +6532,12 @@ test "PageList increaseCapacity returns OutOfSpace at max capacity" {
     var s = try init(alloc, 2, 2, 0);
     defer s.deinit();
 
-    // Set styles capacity to a value that will overflow when doubled
-    // We need to create a page with capacity at more than half of max
+    // Keep increasing styles capacity until we're at more than half of max
     const max_styles = std.math.maxInt(size.StyleCountInt);
     const half_max = max_styles / 2 + 1;
-
-    // Adjust capacity to near-max first
-    _ = try s.adjustCapacity(s.pages.first.?, .{ .styles = half_max });
+    while (s.pages.first.?.data.capacity.styles < half_max) {
+        _ = try s.increaseCapacity(s.pages.first.?, .styles);
+    }
 
     // Now increaseCapacity should fail with OutOfSpace
     try testing.expectError(
@@ -11485,12 +11217,10 @@ test "PageList grow reuses non-standard page without leak" {
     var s = try init(alloc, 80, 24, 3 * std_size);
     defer s.deinit();
 
-    // Save the first page node before adjustment
-    const first_before = s.pages.first.?;
-
-    // Adjust the first page to have non-standard capacity. We use a small
-    // increase that makes it just slightly larger than std_size.
-    _ = try s.adjustCapacity(first_before, .{ .grapheme_bytes = std_size + 1 });
+    // Increase the first page capacity to make it non-standard (larger than std_size).
+    while (s.pages.first.?.data.memory.len <= std_size) {
+        _ = try s.increaseCapacity(s.pages.first.?, .grapheme_bytes);
+    }
 
     // The first page should now have non-standard memory size.
     try testing.expect(s.pages.first.?.data.memory.len > std_size);
