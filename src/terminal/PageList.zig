@@ -1652,7 +1652,7 @@ const ReflowCursor = struct {
     }
 };
 
-fn resizeWithoutReflow(self: *PageList, opts: Resize) !void {
+fn resizeWithoutReflow(self: *PageList, opts: Resize) Allocator.Error!void {
     // We only set the new min_max_size if we're not reflowing. If we are
     // reflowing, then resize handles this for us.
     const old_min_max_size = self.min_max_size;
@@ -1812,25 +1812,43 @@ fn resizeWithoutReflowGrowCols(
     self: *PageList,
     cols: size.CellCountInt,
     chunk: PageIterator.Chunk,
-) !void {
+) Allocator.Error!void {
     assert(cols > self.cols);
     const page = &chunk.node.data;
-    const cap = try page.capacity.adjust(.{ .cols = cols });
 
     // Update our col count
     const old_cols = self.cols;
-    self.cols = cap.cols;
+    self.cols = cols;
     errdefer self.cols = old_cols;
 
     // Unlikely fast path: we have capacity in the page. This
     // is only true if we resized to less cols earlier.
-    if (page.capacity.cols >= cap.cols) {
-        page.size.cols = cap.cols;
+    if (page.capacity.cols >= cols) {
+        page.size.cols = cols;
         return;
     }
 
     // Likely slow path: we don't have capacity, so we need
     // to allocate a page, and copy the old data into it.
+
+    // Try to fit our new column size into our existing page capacity.
+    // If that doesn't work then use a non-standard page with the
+    // given columns.
+    const cap = page.capacity.adjust(
+        .{ .cols = cols },
+    ) catch |err| err: {
+        comptime assert(@TypeOf(err) == error{OutOfMemory});
+
+        // We verify all maxed out page layouts work.
+        var cap = page.capacity;
+        cap.cols = cols;
+
+        // We're growing columns so we can only get less rows so use
+        // the lesser of our capacity and size so we minimize wasted
+        // rows.
+        cap.rows = @min(page.size.rows, cap.rows);
+        break :err cap;
+    };
 
     // On error, we need to undo all the pages we've added.
     const prev = chunk.node.prev;
@@ -1895,6 +1913,31 @@ fn resizeWithoutReflowGrowCols(
         assert(prev_page.size.rows <= prev_page.capacity.rows);
     }
 
+    // If we have an error, we clear the rows we just added to our prev page.
+    const prev_copied = copied;
+    errdefer if (prev_copied > 0) {
+        const prev_page = &prev.?.data;
+        const prev_size = prev_page.size.rows - prev_copied;
+        const prev_rows = prev_page.rows.ptr(prev_page.memory)[prev_size..prev_page.size.rows];
+        for (prev_rows) |*row| prev_page.clearCells(
+            row,
+            0,
+            prev_page.size.cols,
+        );
+        prev_page.size.rows = prev_size;
+    };
+
+    // We delete any of the nodes we added.
+    errdefer {
+        var it = chunk.node.prev;
+        while (it) |node| {
+            if (node == prev) break;
+            it = node.prev;
+            self.pages.remove(node);
+            self.destroyNode(node);
+        }
+    }
+
     // We need to loop because our col growth may force us
     // to split pages.
     while (copied < page.size.rows) {
@@ -1907,19 +1950,33 @@ fn resizeWithoutReflowGrowCols(
 
         // Perform the copy
         const y_start = copied;
-        const y_end = copied + len;
-        const src_rows = page.rows.ptr(page.memory)[y_start..y_end];
+        const src_rows = page.rows.ptr(page.memory)[y_start .. copied + len];
         const dst_rows = new_node.data.rows.ptr(new_node.data.memory)[0..len];
         for (dst_rows, src_rows) |*dst_row, *src_row| {
             new_node.data.size.rows += 1;
-            errdefer new_node.data.size.rows -= 1;
-            try new_node.data.cloneRowFrom(
+            if (new_node.data.cloneRowFrom(
                 page,
                 dst_row,
                 src_row,
-            );
+            )) |_| {
+                copied += 1;
+            } else |err| {
+                // I don't THINK this should be possible, because while our
+                // row count may diminish due to the adjustment, our
+                // prior capacity should have been sufficient to hold all the
+                // managed memory.
+                log.warn(
+                    "unexpected cloneRowFrom failure during resizeWithoutReflowGrowCols: {}",
+                    .{err},
+                );
+
+                // We can actually safely handle this though by exiting
+                // this loop early and cutting our copy short.
+                new_node.data.size.rows -= 1;
+                break;
+            }
         }
-        copied = y_end;
+        const y_end = copied;
 
         // Insert our new page
         self.pages.insertBefore(chunk.node, new_node);
@@ -1935,6 +1992,10 @@ fn resizeWithoutReflowGrowCols(
         }
     }
     assert(copied == page.size.rows);
+
+    // Our prior errdeferes are invalid after this point so ensure
+    // we don't have any more errors.
+    errdefer comptime unreachable;
 
     // Remove the old page.
     // Deallocate the old page.
@@ -2514,7 +2575,7 @@ inline fn growRequiredForActive(self: *const PageList) bool {
 /// adhere to max_size.
 ///
 /// This returns the newly allocated page node if there is one.
-pub fn grow(self: *PageList) !?*List.Node {
+pub fn grow(self: *PageList) Allocator.Error!?*List.Node {
     defer self.assertIntegrity();
 
     const last = self.pages.last.?;
@@ -2533,7 +2594,7 @@ pub fn grow(self: *PageList) !?*List.Node {
 
     // Get the layout first so our failable work is done early.
     // We'll need this for both paths.
-    const cap = try std_capacity.adjust(.{ .cols = self.cols });
+    const cap = initialCapacity(self.cols);
 
     // If allocation would exceed our max size, we prune the first page.
     // We don't need to reallocate because we can simply reuse that first
