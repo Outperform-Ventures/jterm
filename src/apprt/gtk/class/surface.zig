@@ -1517,7 +1517,7 @@ pub const Surface = extern struct {
         const xft_dpi_scale = xft_scale: {
             // gtk-xft-dpi is font DPI multiplied by 1024. See
             // https://docs.gtk.org/gtk4/property.Settings.gtk-xft-dpi.html
-            const gtk_xft_dpi = gsettings.readSetting(c_int, "gtk-xft-dpi") orelse {
+            const gtk_xft_dpi = gsettings.get(.gtk_xft_dpi) orelse {
                 log.warn("gtk-xft-dpi was not set, using default value", .{});
                 break :xft_scale 1.0;
             };
@@ -1527,7 +1527,7 @@ pub const Surface = extern struct {
             // https://gitlab.gnome.org/GNOME/libadwaita/-/commit/a7738a4d269bfdf4d8d5429ca73ccdd9b2450421
             // https://gitlab.gnome.org/GNOME/libadwaita/-/commit/9759d3fd81129608dd78116001928f2aed974ead
             if (gtk_xft_dpi <= 0) {
-                log.warn("gtk-xft-dpi was not set, using default value", .{});
+                log.warn("gtk-xft-dpi has invalid value ({}), using default", .{gtk_xft_dpi});
                 break :xft_scale 1.0;
             }
 
@@ -1773,7 +1773,10 @@ pub const Surface = extern struct {
 
         // Read GNOME desktop interface settings for primary paste (middle-click)
         // This is only relevant on Linux systems with GNOME settings available
-        priv.gtk_enable_primary_paste = gsettings.readSetting(bool, "gtk-enable-primary-paste");
+        priv.gtk_enable_primary_paste = gsettings.get(.gtk_enable_primary_paste) orelse blk: {
+            log.warn("gtk-enable-primary-paste was not set, using default value", .{});
+            break :blk false;
+        };
 
         // Set up to handle items being dropped on our surface. Files can be dropped
         // from Nautilus and strings can be dropped from many programs. The order
@@ -2696,7 +2699,7 @@ pub const Surface = extern struct {
 
         // Check if middle button paste should be disabled based on GNOME settings
         // If gtk_enable_primary_paste is explicitly false, skip processing middle button
-        if (button == .middle and priv.gtk_enable_primary_paste == false) {
+        if (button == .middle and !(priv.gtk_enable_primary_paste orelse true)) {
             return;
         }
 
@@ -2753,7 +2756,7 @@ pub const Surface = extern struct {
 
         // Check if middle button paste should be disabled based on GNOME settings
         // If gtk_enable_primary_paste is explicitly false, skip processing middle button
-        if (button == .middle and !priv.gtk_enable_primary_paste) {
+        if (button == .middle and !(priv.gtk_enable_primary_paste orelse false)) {
             return;
         }
 
