@@ -1669,7 +1669,7 @@ pub fn insertLines(self: *Terminal, count: usize) void {
                         error.OutOfMemory,
                         => @panic("increaseCapacity system allocator OOM"),
 
-                        // The page can't accomodate the managed memory required
+                        // The page can't accommodate the managed memory required
                         // for this operation. We previously just corrupted
                         // memory here so a crash is better. The right long
                         // term solution is to allocate a new page here
