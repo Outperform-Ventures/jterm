@@ -874,7 +874,7 @@ pub const Resize = struct {
 
 /// Resize
 /// TODO: docs
-pub fn resize(self: *PageList, opts: Resize) !void {
+pub fn resize(self: *PageList, opts: Resize) Allocator.Error!void {
     defer self.assertIntegrity();
 
     if (comptime std.debug.runtime_safety) {
@@ -944,7 +944,7 @@ fn resizeCols(
     self: *PageList,
     cols: size.CellCountInt,
     cursor: ?Resize.Cursor,
-) !void {
+) Allocator.Error!void {
     assert(cols != self.cols);
 
     // Update our cols. We have to do this early because grow() that we
@@ -1149,7 +1149,7 @@ const ReflowCursor = struct {
         self: *ReflowCursor,
         list: *PageList,
         row: Pin,
-    ) !void {
+    ) Allocator.Error!void {
         const src_page: *Page = &row.node.data;
         const src_row = row.rowAndCell().row;
         const src_y = row.y;
@@ -1247,11 +1247,11 @@ const ReflowCursor = struct {
                 }
             }
 
-            switch (try self.writeCell(
+            if (self.writeCell(
                 list,
                 &cells[x],
                 src_page,
-            )) {
+            )) |result| switch (result) {
                 // Wrote the cell, move to the next.
                 .success => x += 1,
                 // Wrote the cell but request to skip the next so skip it.
@@ -1259,6 +1259,24 @@ const ReflowCursor = struct {
                 .skip_next => x += 2,
                 // Didn't write the cell, repeat writing this same cell.
                 .repeat => {},
+            } else |err| switch (err) {
+                // System out of memory, we can't fix this.
+                error.OutOfMemory => return error.OutOfMemory,
+
+                // We reached the capacity of a single page and can't
+                // add any more of some type of managed memory.
+                error.OutOfSpace => {
+                    log.warn("OutOfSpace during reflow at src_y={} src_x={} dst_y={} dst_x={} cp={X}", .{
+                        src_y,
+                        x,
+                        self.y,
+                        self.x,
+                        cells[x].content.codepoint,
+                    });
+
+                    // TODO: Split the page
+                    x += 1;
+                },
             }
         }
 
