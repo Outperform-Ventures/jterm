@@ -1308,83 +1308,97 @@ const ReflowCursor = struct {
         repeat,
         skip_next,
     } {
-        // Copy cell contents.
-        switch (cell.content_tag) {
-            .codepoint,
-            .codepoint_grapheme,
-            => switch (cell.wide) {
-                .narrow => self.page_cell.* = cell.*,
+        // Initialize self.page_cell with basic, unmanaged memory contents.
+        {
+            // This must not fail because we want to make sure we atomically
+            // setup our page cell to be valid.
+            errdefer comptime unreachable;
 
-                .wide => if (self.page.size.cols > 1) {
-                    if (self.x == self.page.size.cols - 1) {
-                        // If there's a wide character in the last column of
-                        // the reflowed page then we need to insert a spacer
-                        // head and wrap before handling it.
-                        self.page_cell.* = .{
-                            .content_tag = .codepoint,
-                            .content = .{ .codepoint = 0 },
-                            .wide = .spacer_head,
-                        };
+            // Copy cell contents.
+            switch (cell.content_tag) {
+                .codepoint,
+                .codepoint_grapheme,
+                => switch (cell.wide) {
+                    .narrow => self.page_cell.* = cell.*,
 
-                        // Move to the next row (this sets pending wrap
-                        // which will cause us to wrap on the next
-                        // iteration).
+                    .wide => if (self.page.size.cols > 1) {
+                        if (self.x == self.page.size.cols - 1) {
+                            // If there's a wide character in the last column of
+                            // the reflowed page then we need to insert a spacer
+                            // head and wrap before handling it.
+                            self.page_cell.* = .{
+                                .content_tag = .codepoint,
+                                .content = .{ .codepoint = 0 },
+                                .wide = .spacer_head,
+                            };
+
+                            // Move to the next row (this sets pending wrap
+                            // which will cause us to wrap on the next
+                            // iteration).
+                            self.cursorForward();
+
+                            // Decrement the source position so that when we
+                            // loop we'll process this source cell again,
+                            // since we can't copy it into a spacer head.
+                            return .repeat;
+                        } else {
+                            self.page_cell.* = cell.*;
+                        }
+                    } else {
+                        // Edge case, when resizing to 1 column, wide
+                        // characters are just destroyed and replaced
+                        // with empty narrow cells.
+                        self.page_cell.content.codepoint = 0;
+                        self.page_cell.wide = .narrow;
                         self.cursorForward();
 
-                        // Decrement the source position so that when we
-                        // loop we'll process this source cell again,
-                        // since we can't copy it into a spacer head.
-                        return .repeat;
-                    } else {
+                        // Skip spacer tail so it doesn't cause a wrap.
+                        return .skip_next;
+                    },
+
+                    .spacer_tail => if (self.page.size.cols > 1) {
                         self.page_cell.* = cell.*;
-                    }
-                } else {
-                    // Edge case, when resizing to 1 column, wide
-                    // characters are just destroyed and replaced
-                    // with empty narrow cells.
-                    self.page_cell.content.codepoint = 0;
-                    self.page_cell.wide = .narrow;
-                    self.cursorForward();
+                    } else {
+                        // Edge case, when resizing to 1 column, wide
+                        // characters are just destroyed and replaced
+                        // with empty narrow cells, so we should just
+                        // discard any spacer tails.
+                        return .success;
+                    },
 
-                    // Skip spacer tail so it doesn't cause a wrap.
-                    return .skip_next;
+                    .spacer_head => {
+                        // Spacer heads should be ignored. If we need a
+                        // spacer head in our reflowed page, it is added
+                        // when processing the wide cell it belongs to.
+                        return .success;
+                    },
                 },
 
-                .spacer_tail => if (self.page.size.cols > 1) {
+                .bg_color_palette,
+                .bg_color_rgb,
+                => {
+                    // These are guaranteed to have no style or grapheme
+                    // data associated with them so we can fast path them.
                     self.page_cell.* = cell.*;
-                } else {
-                    // Edge case, when resizing to 1 column, wide
-                    // characters are just destroyed and replaced
-                    // with empty narrow cells, so we should just
-                    // discard any spacer tails.
+                    self.cursorForward();
                     return .success;
                 },
+            }
 
-                .spacer_head => {
-                    // Spacer heads should be ignored. If we need a
-                    // spacer head in our reflowed page, it is added
-                    // when processing the wide cell it belongs to.
-                    return .success;
-                },
-            },
+            // These will create issues by trying to clone managed memory that
+            // isn't set if the current dst row needs to be moved to a new page.
+            // They'll be fixed once we do properly copy the relevant memory.
+            self.page_cell.content_tag = .codepoint;
+            self.page_cell.hyperlink = false;
+            self.page_cell.style_id = stylepkg.default_id;
 
-            .bg_color_palette,
-            .bg_color_rgb,
-            => {
-                // These are guaranteed to have no style or grapheme
-                // data associated with them so we can fast path them.
-                self.page_cell.* = cell.*;
-                self.cursorForward();
-                return .success;
-            },
+            if (comptime build_options.kitty_graphics) {
+                // Copy Kitty virtual placeholder status
+                if (cell.codepoint() == kitty.graphics.unicode.placeholder) {
+                    self.page_row.kitty_virtual_placeholder = true;
+                }
+            }
         }
-
-        // These will create issues by trying to clone managed memory that
-        // isn't set if the current dst row needs to be moved to a new page.
-        // They'll be fixed once we do properly copy the relevant memory.
-        self.page_cell.content_tag = .codepoint;
-        self.page_cell.hyperlink = false;
-        self.page_cell.style_id = stylepkg.default_id;
 
         // std.log.warn("\nsrc_y={} src_x={} dst_y={} dst_x={} dst_cols={} cp={X} wide={} page_cell_wide={}", .{
         //     src_y,
@@ -1397,12 +1411,10 @@ const ReflowCursor = struct {
         //     self.page_cell.wide,
         // });
 
-        if (comptime build_options.kitty_graphics) {
-            // Copy Kitty virtual placeholder status
-            if (cell.codepoint() == kitty.graphics.unicode.placeholder) {
-                self.page_row.kitty_virtual_placeholder = true;
-            }
-        }
+        // From this point on we're moving on to failable, managed memory.
+        // If we reach an error, we do the minimal cleanup necessary to
+        // not leave dangling memory but otherwise we gracefully degrade
+        // into some functional but not strictly correct cell.
 
         // Copy grapheme data.
         if (cell.content_tag == .codepoint_grapheme) {
@@ -1455,8 +1467,8 @@ const ReflowCursor = struct {
                 }
 
                 // Unsafe builds we throw away grapheme data!
-                cell.content_tag = .codepoint;
-                cell.content = .{ .codepoint = 0xFFFD };
+                self.page_cell.content_tag = .codepoint;
+                self.page_cell.content = .{ .codepoint = 0xFFFD };
             };
         }
 
@@ -1548,7 +1560,6 @@ const ReflowCursor = struct {
                         unreachable;
                     }
 
-                    cell.hyperlink = false;
                     break :hyperlink;
                 };
 
@@ -1576,7 +1587,6 @@ const ReflowCursor = struct {
                     }
 
                     dst_link2.free(self.page);
-                    cell.hyperlink = false;
                     break :hyperlink;
                 };
             } orelse src_id;
@@ -1600,7 +1610,7 @@ const ReflowCursor = struct {
 
                 // Unsafe builds we throw away hyperlink data!
                 self.page.hyperlink_set.release(self.page.memory, dst_id);
-                cell.hyperlink = false;
+                self.page_cell.hyperlink = false;
                 break :hyperlink;
             };
         }
@@ -1644,7 +1654,7 @@ const ReflowCursor = struct {
                         unreachable;
                     }
 
-                    cell.style_id = stylepkg.default_id;
+                    self.page_cell.style_id = stylepkg.default_id;
                     break :style;
                 };
             } orelse cell.style_id;
