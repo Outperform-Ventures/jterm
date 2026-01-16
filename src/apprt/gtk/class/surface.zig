@@ -676,9 +676,8 @@ pub const Surface = extern struct {
         context: apprt.surface.NewSurfaceContext = .window,
 
         /// Whether primary paste (middle-click paste) is enabled via GNOME settings.
-        /// If null, the setting could not be read (non-GNOME system or schema missing).
         /// If true, middle-click paste is enabled. If false, it's disabled.
-        gtk_enable_primary_paste: ?bool = null,
+        gtk_enable_primary_paste: ?bool = true,
 
         pub var offset: c_int = 0;
     };
@@ -2699,7 +2698,7 @@ pub const Surface = extern struct {
 
         // Check if middle button paste should be disabled based on GNOME settings
         // If gtk_enable_primary_paste is explicitly false, skip processing middle button
-        if (button == .middle and !(priv.gtk_enable_primary_paste orelse true)) {
+        if (button == .middle and !(priv.gtk_enable_primary_paste)) {
             return;
         }
 
@@ -2756,7 +2755,7 @@ pub const Surface = extern struct {
 
         // Check if middle button paste should be disabled based on GNOME settings
         // If gtk_enable_primary_paste is explicitly false, skip processing middle button
-        if (button == .middle and !(priv.gtk_enable_primary_paste orelse true)) {
+        if (button == .middle and !(priv.gtk_enable_primary_paste)) {
             return;
         }
 
