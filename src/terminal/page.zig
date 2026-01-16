@@ -1569,7 +1569,10 @@ pub const Page = struct {
         const grapheme_alloc_start = alignForward(usize, styles_end, GraphemeAlloc.base_align.toByteUnits());
         const grapheme_alloc_end = grapheme_alloc_start + grapheme_alloc_layout.total_size;
 
-        const grapheme_count = @divFloor(cap.grapheme_bytes, grapheme_chunk);
+        const grapheme_count = std.math.ceilPowerOfTwo(
+            usize,
+            @divFloor(cap.grapheme_bytes, grapheme_chunk),
+        ) catch unreachable;
         const grapheme_map_layout = GraphemeMap.layout(@intCast(grapheme_count));
         const grapheme_map_start = alignForward(usize, grapheme_alloc_end, GraphemeMap.base_align.toByteUnits());
         const grapheme_map_end = grapheme_map_start + grapheme_map_layout.total_size;
@@ -1639,25 +1642,33 @@ pub const Size = struct {
 };
 
 /// Capacity of this page.
+///
+/// This capacity can be maxed out (every field max) and still fit
+/// within a 64-bit memory space. If you need more than this, you will
+/// need to split data across separate pages.
+///
+/// For 32-bit systems, it is possible to overflow the addressable
+/// space and this is something we still need to address in the future
+/// likely by limiting the maximum capacity on 32-bit systems further.
 pub const Capacity = struct {
     /// Number of columns and rows we can know about.
     cols: size.CellCountInt,
     rows: size.CellCountInt,
 
     /// Number of unique styles that can be used on this page.
-    styles: usize = 16,
+    styles: size.StyleCountInt = 16,
 
     /// Number of bytes to allocate for hyperlink data. Note that the
     /// amount of data used for hyperlinks in total is more than this because
     /// hyperlinks use string data as well as a small amount of lookup metadata.
     /// This number is a rough approximation.
-    hyperlink_bytes: usize = hyperlink_bytes_default,
+    hyperlink_bytes: size.HyperlinkCountInt = hyperlink_bytes_default,
 
     /// Number of bytes to allocate for grapheme data.
-    grapheme_bytes: usize = grapheme_bytes_default,
+    grapheme_bytes: size.GraphemeBytesInt = grapheme_bytes_default,
 
     /// Number of bytes to allocate for strings.
-    string_bytes: usize = string_bytes_default,
+    string_bytes: size.StringBytesInt = string_bytes_default,
 
     pub const Adjustment = struct {
         cols: ?size.CellCountInt = null,
@@ -2024,6 +2035,21 @@ pub const Cell = packed struct(u64) {
 //     try testing.expectEqual(@as(usize, 524_288), total_size); // 512 KiB
 //     //const pages = total_size / std.heap.page_size_min;
 // }
+
+test "Page.layout can take a maxed capacity" {
+    // Our intention is for a maxed-out capacity to always fit
+    // within a page layout without triggering runtime safety on any
+    // overflow. This simplifies some of our handling downstream of the
+    // call (relevant to: https://github.com/ghostty-org/ghostty/issues/10258)
+    var cap: Capacity = undefined;
+    inline for (@typeInfo(Capacity).@"struct".fields) |field| {
+        @field(cap, field.name) = std.math.maxInt(field.type);
+    }
+
+    // Note that a max capacity will exceed our max_page_size so we
+    // can't init a page with it, but it should layout.
+    _ = Page.layout(cap);
+}
 
 test "Cell is zero by default" {
     const cell = Cell.init(0);

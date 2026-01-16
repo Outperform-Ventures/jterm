@@ -1634,54 +1634,48 @@ pub fn insertLines(self: *Terminal, count: usize) void {
                     self.scrolling_region.left,
                     self.scrolling_region.right + 1,
                 ) catch |err| {
-                    const cap = dst_p.node.data.capacity;
                     // Adjust our page capacity to make
                     // room for we didn't have space for
-                    _ = self.screens.active.adjustCapacity(
+                    _ = self.screens.active.increaseCapacity(
                         dst_p.node,
                         switch (err) {
                             // Rehash the sets
                             error.StyleSetNeedsRehash,
                             error.HyperlinkSetNeedsRehash,
-                            => .{},
+                            => null,
 
                             // Increase style memory
                             error.StyleSetOutOfMemory,
-                            => .{ .styles = cap.styles * 2 },
+                            => .styles,
 
                             // Increase string memory
                             error.StringAllocOutOfMemory,
-                            => .{ .string_bytes = cap.string_bytes * 2 },
+                            => .string_bytes,
 
                             // Increase hyperlink memory
                             error.HyperlinkSetOutOfMemory,
                             error.HyperlinkMapOutOfMemory,
-                            => .{ .hyperlink_bytes = cap.hyperlink_bytes * 2 },
+                            => .hyperlink_bytes,
 
                             // Increase grapheme memory
                             error.GraphemeMapOutOfMemory,
                             error.GraphemeAllocOutOfMemory,
-                            => .{ .grapheme_bytes = cap.grapheme_bytes * 2 },
+                            => .grapheme_bytes,
                         },
                     ) catch |e| switch (e) {
-                        // This shouldn't be possible because above we're only
-                        // adjusting capacity _upwards_. So it should have all
-                        // the existing capacity it had to fit the adjusted
-                        // data. Panic since we don't expect this.
-                        error.StyleSetOutOfMemory,
-                        error.StyleSetNeedsRehash,
-                        error.StringAllocOutOfMemory,
-                        error.HyperlinkSetOutOfMemory,
-                        error.HyperlinkSetNeedsRehash,
-                        error.HyperlinkMapOutOfMemory,
-                        error.GraphemeMapOutOfMemory,
-                        error.GraphemeAllocOutOfMemory,
-                        => @panic("adjustCapacity resulted in capacity errors"),
-
-                        // The system allocator is OOM. We can't currently do
-                        // anything graceful here. We panic.
+                        // System OOM. We have no way to recover from this
+                        // currently. We should probably change insertLines
+                        // to raise an error here.
                         error.OutOfMemory,
-                        => @panic("adjustCapacity system allocator OOM"),
+                        => @panic("increaseCapacity system allocator OOM"),
+
+                        // The page can't accommodate the managed memory required
+                        // for this operation. We previously just corrupted
+                        // memory here so a crash is better. The right long
+                        // term solution is to allocate a new page here
+                        // move this row to the new page, and start over.
+                        error.OutOfSpace,
+                        => @panic("increaseCapacity OutOfSpace"),
                     };
 
                     // Continue the loop to try handling this row again.
@@ -1834,49 +1828,41 @@ pub fn deleteLines(self: *Terminal, count: usize) void {
                     self.scrolling_region.left,
                     self.scrolling_region.right + 1,
                 ) catch |err| {
-                    const cap = dst_p.node.data.capacity;
                     // Adjust our page capacity to make
                     // room for we didn't have space for
-                    _ = self.screens.active.adjustCapacity(
+                    _ = self.screens.active.increaseCapacity(
                         dst_p.node,
                         switch (err) {
                             // Rehash the sets
                             error.StyleSetNeedsRehash,
                             error.HyperlinkSetNeedsRehash,
-                            => .{},
+                            => null,
 
                             // Increase style memory
                             error.StyleSetOutOfMemory,
-                            => .{ .styles = cap.styles * 2 },
+                            => .styles,
 
                             // Increase string memory
                             error.StringAllocOutOfMemory,
-                            => .{ .string_bytes = cap.string_bytes * 2 },
+                            => .string_bytes,
 
                             // Increase hyperlink memory
                             error.HyperlinkSetOutOfMemory,
                             error.HyperlinkMapOutOfMemory,
-                            => .{ .hyperlink_bytes = cap.hyperlink_bytes * 2 },
+                            => .hyperlink_bytes,
 
                             // Increase grapheme memory
                             error.GraphemeMapOutOfMemory,
                             error.GraphemeAllocOutOfMemory,
-                            => .{ .grapheme_bytes = cap.grapheme_bytes * 2 },
+                            => .grapheme_bytes,
                         },
                     ) catch |e| switch (e) {
-                        // See insertLines which has the same error capture.
-                        error.StyleSetOutOfMemory,
-                        error.StyleSetNeedsRehash,
-                        error.StringAllocOutOfMemory,
-                        error.HyperlinkSetOutOfMemory,
-                        error.HyperlinkSetNeedsRehash,
-                        error.HyperlinkMapOutOfMemory,
-                        error.GraphemeMapOutOfMemory,
-                        error.GraphemeAllocOutOfMemory,
-                        => @panic("adjustCapacity resulted in capacity errors"),
-
+                        // See insertLines
                         error.OutOfMemory,
-                        => @panic("adjustCapacity system allocator OOM"),
+                        => @panic("increaseCapacity system allocator OOM"),
+
+                        error.OutOfSpace,
+                        => @panic("increaseCapacity OutOfSpace"),
                     };
 
                     // Continue the loop to try handling this row again.
