@@ -6,6 +6,7 @@ pub const clipboard_operation = @import("parsers/clipboard_operation.zig");
 pub const color = @import("parsers/color.zig");
 pub const hyperlink = @import("parsers/hyperlink.zig");
 pub const kitty_color = @import("parsers/kitty_color.zig");
+pub const kitty_text_sizing = @import("parsers/kitty_text_sizing.zig");
 pub const mouse_shape = @import("parsers/mouse_shape.zig");
 pub const osc9 = @import("parsers/osc9.zig");
 pub const report_pwd = @import("parsers/report_pwd.zig");
@@ -19,6 +20,7 @@ test {
     _ = color;
     _ = hyperlink;
     _ = kitty_color;
+    _ = kitty_text_sizing;
     _ = mouse_shape;
     _ = osc9;
     _ = report_pwd;
