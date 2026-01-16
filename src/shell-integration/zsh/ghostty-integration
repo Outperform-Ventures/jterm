@@ -201,11 +201,9 @@ _ghostty_deferred_init() {
     _ghostty_report_pwd
 
     if [[ "$GHOSTTY_SHELL_FEATURES" == *"title"* ]]; then
-      # Enable terminal title changes.
+      # Enable terminal title changes, formatted for user-friendly display.
       functions[_ghostty_precmd]+="
           builtin print -rnu $_ghostty_fd \$'\\e]2;'\"\${(%):-%(4~|…/%3~|%~)}\"\$'\\a'"
-      # Strip control characters from the command to avoid displaying escape
-      # sequences like \n in the title.
       functions[_ghostty_preexec]+="
           builtin print -rnu $_ghostty_fd \$'\\e]2;'\"\${1//[[:cntrl:]]}\"\$'\\a'"
     fi
