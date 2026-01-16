@@ -1696,9 +1696,17 @@ const ReflowCursor = struct {
         const old_row = self.page_row;
         const old_x = self.x;
 
+        // Our total row count never changes, because we're removing one
+        // row from the last page and moving it into a new page.
+        const old_total_rows = self.total_rows;
+        defer self.total_rows = old_total_rows;
+
         try self.cursorNewPage(list, cap);
         assert(self.node != old_node);
         assert(self.y == 0);
+
+        // We have no cleanup for our old state from here on out. No failures!
+        errdefer comptime unreachable;
 
         // Restore the x position of the cursor.
         self.cursorAbsolute(old_x, 0);
@@ -1752,7 +1760,7 @@ const ReflowCursor = struct {
         const old_y = self.y;
         const old_total_rows = self.total_rows;
 
-        self.* = .init(node: {
+        const node = node: {
             // Pause integrity checks because the total row count won't
             // be correct during a reflow.
             list.pauseIntegrityChecks(true);
@@ -1761,8 +1769,12 @@ const ReflowCursor = struct {
                 self.node,
                 adjustment,
             );
-        });
+        };
+        // We must not fail after this, we've modified our self.node
+        // and we need to fix it up.
+        errdefer comptime unreachable;
 
+        self.* = .init(node);
         self.cursorAbsolute(old_x, old_y);
         self.total_rows = old_total_rows;
     }
@@ -1824,7 +1836,6 @@ const ReflowCursor = struct {
         list.pages.insertAfter(self.node, node);
 
         self.* = .init(node);
-
         self.new_rows = new_rows;
     }
 
