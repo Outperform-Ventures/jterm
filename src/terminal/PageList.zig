@@ -1264,18 +1264,22 @@ const ReflowCursor = struct {
                 error.OutOfMemory => return error.OutOfMemory,
 
                 // We reached the capacity of a single page and can't
-                // add any more of some type of managed memory.
-                error.OutOfSpace => {
-                    log.warn("OutOfSpace during reflow at src_y={} src_x={} dst_y={} dst_x={} cp={X}", .{
-                        src_y,
-                        x,
-                        self.y,
-                        self.x,
-                        cells[x].content.codepoint,
-                    });
-
-                    // TODO: Split the page
+                // add any more of some type of managed memory. When this
+                // happens we split out the current row we're working on
+                // into a new page and continue from there.
+                error.OutOfSpace => if (self.y == 0) {
+                    // If we're already on the first-row, we can't split
+                    // any further, so we just ignore bad cells and take
+                    // corrupted (but valid) cell contents.
+                    log.warn("reflowRow OutOfSpace on first row, discarding cell managed memory", .{});
                     x += 1;
+                    self.cursorForward();
+                } else {
+                    // Move our last row to a new page.
+                    try self.moveLastRowToNewPage(list, cap);
+
+                    // Do NOT increment x so that we retry writing
+                    // the same existing cell.
                 },
             }
         }
@@ -1683,7 +1687,7 @@ const ReflowCursor = struct {
         self: *ReflowCursor,
         list: *PageList,
         cap: Capacity,
-    ) !void {
+    ) Allocator.Error!void {
         assert(self.y == self.page.size.rows - 1);
         assert(!self.pending_wrap);
 
@@ -1693,15 +1697,41 @@ const ReflowCursor = struct {
         const old_x = self.x;
 
         try self.cursorNewPage(list, cap);
+        assert(self.node != old_node);
+        assert(self.y == 0);
 
         // Restore the x position of the cursor.
         self.cursorAbsolute(old_x, 0);
 
-        // We expect to have enough capacity to clone the row.
-        try self.page.cloneRowFrom(old_page, self.page_row, old_row);
+        // Copy our old data. This should NOT fail because we have the
+        // capacity of the old page which already fits the data we requested.
+        self.page.cloneRowFrom(
+            old_page,
+            self.page_row,
+            old_row,
+        ) catch |err| {
+            log.err(
+                "error cloning single row for moveLastRowToNewPage err={}",
+                .{err},
+            );
+            @panic("unexpected copy row failure");
+        };
+
+        // Move any tracked pins from that last row into this new node.
+        {
+            const pin_keys = list.tracked_pins.keys();
+            for (pin_keys) |p| {
+                if (&p.node.data != old_page or
+                    p.y != old_page.size.rows - 1) continue;
+
+                p.node = self.node;
+                p.y = self.y;
+                // p.x remains the same since we're copying the row as-is
+            }
+        }
 
         // Clear the row from the old page and truncate it.
-        old_page.clearCells(old_row, 0, self.page.size.cols);
+        old_page.clearCells(old_row, 0, old_page.size.cols);
         old_page.size.rows -= 1;
 
         // If that was the last row in that page
