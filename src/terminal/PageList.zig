@@ -3003,8 +3003,16 @@ pub fn increaseCapacity(
             // overflow it means we're out of space in this dimension,
             // since pages can take up to their maxInt capacity in any
             // category.
-            const new = std.math.mul(Int, old, 2) catch |err| {
+            const new = std.math.mul(
+                Int,
+                old,
+                2,
+            ) catch |err| overflow: {
                 comptime assert(@TypeOf(err) == error{Overflow});
+                // Our final doubling would overflow since maxInt is
+                // 2^N - 1 for an unsignged int of N bits. So, if we overflow
+                // and we haven't used all the bits, use all the bits.
+                if (old < std.math.maxInt(Int)) break :overflow std.math.maxInt(Int);
                 return error.OutOfSpace;
             };
             @field(cap, field_name) = new;
@@ -6844,18 +6852,19 @@ test "PageList increaseCapacity returns OutOfSpace at max capacity" {
     var s = try init(alloc, 2, 2, 0);
     defer s.deinit();
 
-    // Keep increasing styles capacity until we're at more than half of max
+    // Keep increasing styles capacity until we get OutOfSpace
     const max_styles = std.math.maxInt(size.StyleCountInt);
-    const half_max = max_styles / 2 + 1;
-    while (s.pages.first.?.data.capacity.styles < half_max) {
-        _ = try s.increaseCapacity(s.pages.first.?, .styles);
+    while (true) {
+        _ = s.increaseCapacity(
+            s.pages.first.?,
+            .styles,
+        ) catch |err| {
+            // Before OutOfSpace, we should have reached maxInt
+            try testing.expectEqual(error.OutOfSpace, err);
+            try testing.expectEqual(max_styles, s.pages.first.?.data.capacity.styles);
+            break;
+        };
     }
-
-    // Now increaseCapacity should fail with OutOfSpace
-    try testing.expectError(
-        error.OutOfSpace,
-        s.increaseCapacity(s.pages.first.?, .styles),
-    );
 }
 
 test "PageList increaseCapacity after col shrink" {
