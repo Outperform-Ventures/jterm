@@ -204,8 +204,10 @@ _ghostty_deferred_init() {
       # Enable terminal title changes.
       functions[_ghostty_precmd]+="
           builtin print -rnu $_ghostty_fd \$'\\e]2;'\"\${(%):-%(4~|…/%3~|%~)}\"\$'\\a'"
+      # Strip control characters from the command to avoid displaying escape
+      # sequences like \n in the title.
       functions[_ghostty_preexec]+="
-          builtin print -rnu $_ghostty_fd \$'\\e]2;'\"\${(V)1}\"\$'\\a'"
+          builtin print -rnu $_ghostty_fd \$'\\e]2;'\"\${1//[[:cntrl:]]}\"\$'\\a'"
     fi
 
     if [[ "$GHOSTTY_SHELL_FEATURES" == *"cursor"* ]]; then
