@@ -292,7 +292,8 @@ fn initialCapacity(cols: size.CellCountInt) Capacity {
     comptime {
         var cap = std_capacity;
         cap.cols = std.math.maxInt(size.CellCountInt);
-        _ = Page.layout(cap);
+        const layout = Page.layout(cap);
+        assert(layout.total_size <= size.max_page_size);
     }
 
     if (std_capacity.adjust(
