@@ -640,9 +640,8 @@ pub fn cursorUp(self: *Screen, n: size.CellCountInt) void {
     defer self.assertIntegrity();
 
     self.cursor.y -= n; // Must be set before cursorChangePin
-    const page_pin = self.cursor.page_pin.up(n).?;
-    self.cursorChangePin(page_pin);
-    const page_rac = page_pin.rowAndCell();
+    self.cursorChangePin(self.cursor.page_pin.up(n).?);
+    const page_rac = self.cursor.page_pin.rowAndCell();
     self.cursor.page_row = page_rac.row;
     self.cursor.page_cell = page_rac.cell;
 }
@@ -667,9 +666,8 @@ pub fn cursorDown(self: *Screen, n: size.CellCountInt) void {
 
     // We move the offset into our page list to the next row and then
     // get the pointers to the row/cell and set all the cursor state up.
-    const page_pin = self.cursor.page_pin.down(n).?;
-    self.cursorChangePin(page_pin);
-    const page_rac = page_pin.rowAndCell();
+    self.cursorChangePin(self.cursor.page_pin.down(n).?);
+    const page_rac = self.cursor.page_pin.rowAndCell();
     self.cursor.page_row = page_rac.row;
     self.cursor.page_cell = page_rac.cell;
 }
@@ -800,31 +798,37 @@ pub fn cursorDownScroll(self: *Screen) !void {
         // allocate, prune scrollback, whatever.
         _ = try self.pages.grow();
 
-        // If our pin page change it means that the page that the pin
-        // was on was pruned. In this case, grow() moves the pin to
-        // the top-left of the new page. This effectively moves it by
-        // one already, we just need to fix up the x value.
-        const page_pin = if (old_pin.node == self.cursor.page_pin.node)
-            self.cursor.page_pin.down(1).?
-        else reuse: {
-            var pin = self.cursor.page_pin.*;
-            pin.x = self.cursor.x;
-            break :reuse pin;
-        };
+        self.cursorChangePin(new_pin: {
+            // We do this all in a block here because referencing this pin
+            // after cursorChangePin is unsafe, and we want to keep it out
+            // of scope.
 
-        // These assertions help catch some pagelist math errors. Our
-        // x/y should be unchanged after the grow.
-        if (build_options.slow_runtime_safety) {
-            const active = self.pages.pointFromPin(
-                .active,
-                page_pin,
-            ).?.active;
-            assert(active.x == self.cursor.x);
-            assert(active.y == self.cursor.y);
-        }
+            // If our pin page change it means that the page that the pin
+            // was on was pruned. In this case, grow() moves the pin to
+            // the top-left of the new page. This effectively moves it by
+            // one already, we just need to fix up the x value.
+            const page_pin = if (old_pin.node == self.cursor.page_pin.node)
+                self.cursor.page_pin.down(1).?
+            else reuse: {
+                var pin = self.cursor.page_pin.*;
+                pin.x = self.cursor.x;
+                break :reuse pin;
+            };
 
-        self.cursorChangePin(page_pin);
-        const page_rac = page_pin.rowAndCell();
+            // These assertions help catch some pagelist math errors. Our
+            // x/y should be unchanged after the grow.
+            if (build_options.slow_runtime_safety) {
+                const active = self.pages.pointFromPin(
+                    .active,
+                    page_pin,
+                ).?.active;
+                assert(active.x == self.cursor.x);
+                assert(active.y == self.cursor.y);
+            }
+
+            break :new_pin page_pin;
+        });
+        const page_rac = self.cursor.page_pin.rowAndCell();
         self.cursor.page_row = page_rac.row;
         self.cursor.page_cell = page_rac.cell;
 
@@ -834,7 +838,7 @@ pub fn cursorDownScroll(self: *Screen) !void {
         // Clear the new row so it gets our bg color. We only do this
         // if we have a bg color at all.
         if (self.cursor.style.bg_color != .none) {
-            const page: *Page = &page_pin.node.data;
+            const page: *Page = &self.cursor.page_pin.node.data;
             self.clearCells(
                 page,
                 self.cursor.page_row,
@@ -1081,6 +1085,11 @@ pub fn cursorCopy(self: *Screen, other: Cursor, opts: struct {
 /// page than the old AND we have a style or hyperlink set. In that case,
 /// we must release our old one and insert the new one, since styles are
 /// stored per-page.
+///
+/// Note that this can change the cursor pin AGAIN if the process of
+/// setting up our cursor forces a capacity adjustment of the underlying
+/// cursor page, so any references to the page pin should be re-read
+/// from `self.cursor.page_pin` after calling this.
 inline fn cursorChangePin(self: *Screen, new: Pin) void {
     // Moving the cursor affects text run splitting (ligatures) so
     // we must mark the old and new page dirty. We do this as long
@@ -9015,4 +9024,82 @@ test "Screen: adjustCapacity cursor style exceeds style set capacity" {
     // In such a case, adjust this test accordingly.
     try testing.expect(s.cursor.style.default());
     try testing.expectEqual(style.default_id, s.cursor.style_id);
+}
+
+test "Screen: cursorDown to page with insufficient capacity" {
+    // Regression test for https://github.com/ghostty-org/ghostty/issues/10282
+    //
+    // This test exposes a use-after-realloc bug in cursorDown (and similar
+    // cursor movement functions). The bug pattern:
+    //
+    // 1. cursorDown creates a by-value copy of the pin via page_pin.down(n)
+    // 2. cursorChangePin is called, which may trigger adjustCapacity
+    //    if the target page's style map is full
+    // 3. adjustCapacity frees the old page and creates a new one
+    // 4. The local pin copy still points to the freed page
+    // 5. rowAndCell() on the stale pin accesses freed memory
+
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    // Small screen to make page boundary crossing easy to set up
+    var s = try init(alloc, .{ .cols = 10, .rows = 3, .max_scrollback = 1 });
+    defer s.deinit();
+
+    // Scroll down enough to create a second page
+    const start_page = &s.pages.pages.last.?.data;
+    const rem = start_page.capacity.rows;
+    start_page.pauseIntegrityChecks(true);
+    for (0..rem) |_| try s.cursorDownOrScroll();
+    start_page.pauseIntegrityChecks(false);
+
+    // Cursor should now be on a new page
+    const new_page = &s.cursor.page_pin.node.data;
+    try testing.expect(start_page != new_page);
+
+    // Fill new_page's style map to capacity. When we move INTO this page
+    // with a style set, adjustCapacity will be triggered.
+    {
+        new_page.pauseIntegrityChecks(true);
+        defer new_page.pauseIntegrityChecks(false);
+        defer new_page.assertIntegrity();
+
+        var n: u24 = 1;
+        while (new_page.styles.add(
+            new_page.memory,
+            .{ .bg_color = .{ .rgb = @bitCast(n) } },
+        )) |_| n += 1 else |_| {}
+    }
+
+    // Move cursor to start of active area and set a style
+    s.cursorAbsolute(0, 0);
+    try s.setAttribute(.bold);
+    try testing.expect(s.cursor.style.flags.bold);
+    try testing.expect(s.cursor.style_id != style.default_id);
+
+    // Find the row just before the page boundary
+    for (0..s.pages.rows - 1) |row| {
+        s.cursorAbsolute(0, @intCast(row));
+        const cur_node = s.cursor.page_pin.node;
+        if (s.cursor.page_pin.down(1)) |next_pin| {
+            if (next_pin.node != cur_node) {
+                // Cursor is at 'row', moving down crosses to new_page
+                try testing.expect(&next_pin.node.data == new_page);
+
+                // This cursorDown triggers the bug: the local page_pin copy
+                // becomes stale after adjustCapacity, causing rowAndCell()
+                // to access freed memory.
+                s.cursorDown(1);
+
+                // If the fix is applied, verify correct state
+                try testing.expect(s.cursor.y == row + 1);
+                try testing.expect(s.cursor.style.flags.bold);
+
+                break;
+            }
+        }
+    } else {
+        // Didn't find boundary
+        try testing.expect(false);
+    }
 }
