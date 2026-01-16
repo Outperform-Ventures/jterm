@@ -1247,361 +1247,396 @@ const ReflowCursor = struct {
                 }
             }
 
-            const cell = &cells[x];
-            x += 1;
-
-            // Copy cell contents.
-            switch (cell.content_tag) {
-                .codepoint,
-                .codepoint_grapheme,
-                => switch (cell.wide) {
-                    .narrow => self.page_cell.* = cell.*,
-
-                    .wide => if (self.page.size.cols > 1) {
-                        if (self.x == self.page.size.cols - 1) {
-                            // If there's a wide character in the last column of
-                            // the reflowed page then we need to insert a spacer
-                            // head and wrap before handling it.
-                            self.page_cell.* = .{
-                                .content_tag = .codepoint,
-                                .content = .{ .codepoint = 0 },
-                                .wide = .spacer_head,
-                            };
-
-                            // Decrement the source position so that when we
-                            // loop we'll process this source cell again,
-                            // since we can't copy it into a spacer head.
-                            x -= 1;
-
-                            // Move to the next row (this sets pending wrap
-                            // which will cause us to wrap on the next
-                            // iteration).
-                            self.cursorForward();
-                            continue;
-                        } else {
-                            self.page_cell.* = cell.*;
-                        }
-                    } else {
-                        // Edge case, when resizing to 1 column, wide
-                        // characters are just destroyed and replaced
-                        // with empty narrow cells.
-                        self.page_cell.content.codepoint = 0;
-                        self.page_cell.wide = .narrow;
-                        self.cursorForward();
-                        // Skip spacer tail so it doesn't cause a wrap.
-                        x += 1;
-                        continue;
-                    },
-
-                    .spacer_tail => if (self.page.size.cols > 1) {
-                        self.page_cell.* = cell.*;
-                    } else {
-                        // Edge case, when resizing to 1 column, wide
-                        // characters are just destroyed and replaced
-                        // with empty narrow cells, so we should just
-                        // discard any spacer tails.
-                        continue;
-                    },
-
-                    .spacer_head => {
-                        // Spacer heads should be ignored. If we need a
-                        // spacer head in our reflowed page, it is added
-                        // when processing the wide cell it belongs to.
-                        continue;
-                    },
-                },
-
-                .bg_color_palette,
-                .bg_color_rgb,
-                => {
-                    // These are guaranteed to have no style or grapheme
-                    // data associated with them so we can fast path them.
-                    self.page_cell.* = cell.*;
-                    self.cursorForward();
-                    continue;
-                },
+            switch (try self.writeCell(
+                list,
+                &cells[x],
+                src_page,
+            )) {
+                // Wrote the cell, move to the next.
+                .success => x += 1,
+                // Wrote the cell but request to skip the next so skip it.
+                // This is used for things like spacers.
+                .skip_next => x += 2,
+                // Didn't write the cell, repeat writing this same cell.
+                .repeat => {},
             }
-
-            // These will create issues by trying to clone managed memory that
-            // isn't set if the current dst row needs to be moved to a new page.
-            // They'll be fixed once we do properly copy the relevant memory.
-            self.page_cell.content_tag = .codepoint;
-            self.page_cell.hyperlink = false;
-            self.page_cell.style_id = stylepkg.default_id;
-
-            // std.log.warn("\nsrc_y={} src_x={} dst_y={} dst_x={} dst_cols={} cp={X} wide={} page_cell_wide={}", .{
-            //     src_y,
-            //     x,
-            //     self.y,
-            //     self.x,
-            //     self.page.size.cols,
-            //     cell.content.codepoint,
-            //     cell.wide,
-            //     self.page_cell.wide,
-            // });
-
-            // Copy grapheme data.
-            if (cell.content_tag == .codepoint_grapheme) {
-                // Copy the graphemes
-                const cps = src_page.lookupGrapheme(cell).?;
-
-                // If our page can't support an additional cell
-                // with graphemes then we increase capacity.
-                if (self.page.graphemeCount() >= self.page.graphemeCapacity()) {
-                    try self.increaseCapacity(
-                        list,
-                        .grapheme_bytes,
-                    );
-                }
-
-                // Attempt to allocate the space that would be required
-                // for these graphemes, and if it's not available, then
-                // increase capacity. Keep trying until we succeed.
-                while (true) {
-                    if (self.page.grapheme_alloc.alloc(
-                        u21,
-                        self.page.memory,
-                        cps.len,
-                    )) |slice| {
-                        self.page.grapheme_alloc.free(
-                            self.page.memory,
-                            slice,
-                        );
-                        break;
-                    } else |_| {
-                        // Grow our capacity until we can fit the extra bytes.
-                        try self.increaseCapacity(list, .grapheme_bytes);
-                    }
-                }
-
-                self.page.setGraphemes(
-                    self.page_row,
-                    self.page_cell,
-                    cps,
-                ) catch |err| {
-                    // This shouldn't fail since we made sure we have space
-                    // above. There is no reasonable behavior we can take here
-                    // so we have a warn level log. This is ALMOST non-recoverable,
-                    // though we choose to recover by corrupting the cell
-                    // to a non-grapheme codepoint.
-                    log.err("setGraphemes failed after capacity increase err={}", .{err});
-                    if (comptime std.debug.runtime_safety) {
-                        // Force a crash with safe builds.
-                        unreachable;
-                    }
-
-                    // Unsafe builds we throw away grapheme data!
-                    cell.content_tag = .codepoint;
-                    cell.content = .{ .codepoint = 0xFFFD };
-                };
-            }
-
-            // Copy hyperlink data.
-            if (cell.hyperlink) hyperlink: {
-                const src_id = src_page.lookupHyperlink(cell).?;
-                const src_link = src_page.hyperlink_set.get(src_page.memory, src_id);
-
-                // If our page can't support an additional cell
-                // with a hyperlink then we increase capacity.
-                if (self.page.hyperlinkCount() >= self.page.hyperlinkCapacity()) {
-                    try self.increaseCapacity(list, .hyperlink_bytes);
-                }
-
-                // Ensure that the string alloc has sufficient capacity
-                // to dupe the link (and the ID if it's not implicit).
-                const additional_required_string_capacity =
-                    src_link.uri.len +
-                    switch (src_link.id) {
-                        .explicit => |v| v.len,
-                        .implicit => 0,
-                    };
-                // Keep trying until we have enough capacity.
-                while (true) {
-                    if (self.page.string_alloc.alloc(
-                        u8,
-                        self.page.memory,
-                        additional_required_string_capacity,
-                    )) |slice| {
-                        // We have enough capacity, free the test alloc.
-                        self.page.string_alloc.free(
-                            self.page.memory,
-                            slice,
-                        );
-                        break;
-                    } else |_| {
-                        // Grow our capacity until we can fit the extra bytes.
-                        try self.increaseCapacity(
-                            list,
-                            .string_bytes,
-                        );
-                    }
-                }
-
-                const dst_link = src_link.dupe(
-                    src_page,
-                    self.page,
-                ) catch |err| {
-                    // This shouldn't fail since we did a capacity
-                    // check above.
-                    log.err("link dupe failed with capacity check err={}", .{err});
-                    if (comptime std.debug.runtime_safety) {
-                        // Force a crash with safe builds.
-                        unreachable;
-                    }
-
-                    cell.hyperlink = false;
-                    break :hyperlink;
-                };
-
-                const dst_id = self.page.hyperlink_set.addWithIdContext(
-                    self.page.memory,
-                    dst_link,
-                    src_id,
-                    .{ .page = self.page },
-                ) catch |err| id: {
-                    // If the add failed then either the set needs to grow
-                    // or it needs to be rehashed. Either one of those can
-                    // be accomplished by increasing capacity, either with
-                    // no actual change or with an increased hyperlink cap.
-                    try self.increaseCapacity(list, switch (err) {
-                        error.OutOfMemory => .hyperlink_bytes,
-                        error.NeedsRehash => null,
-                    });
-
-                    // We dupe the link again, and don't have to worry about
-                    // freeing the other one because increasing the capacity
-                    // destroyed the prior page.
-                    const dst_link2 = src_link.dupe(
-                        src_page,
-                        self.page,
-                    ) catch |err2| {
-                        // This shouldn't fail since we did a capacity
-                        // check above.
-                        log.err("link dupe failed with capacity check err={}", .{err2});
-                        if (comptime std.debug.runtime_safety) {
-                            // Force a crash with safe builds.
-                            unreachable;
-                        }
-
-                        cell.hyperlink = false;
-                        break :hyperlink;
-                    };
-
-                    // We assume this one will succeed. We dupe the link
-                    // again, and don't have to worry about the other one
-                    // because increasing the capacity naturally clears up
-                    // any managed memory not associated with a cell yet.
-                    break :id self.page.hyperlink_set.addWithIdContext(
-                        self.page.memory,
-                        dst_link2,
-                        src_id,
-                        .{ .page = self.page },
-                    ) catch |err2| {
-                        // This shouldn't happen since we increased capacity
-                        // above so we handle it like the other similar
-                        // cases and log it, crash in safe builds, and
-                        // remove the hyperlink in unsafe builds.
-                        log.err(
-                            "addWithIdContext failed after capacity increase err={}",
-                            .{err2},
-                        );
-                        if (comptime std.debug.runtime_safety) {
-                            // Force a crash with safe builds.
-                            unreachable;
-                        }
-
-                        dst_link2.free(self.page);
-                        cell.hyperlink = false;
-                        break :hyperlink;
-                    };
-                } orelse src_id;
-
-                // We expect this to succeed due to the hyperlinkCapacity
-                // check we did before. If it doesn't succeed let's
-                // log it, crash (in safe builds), and clear our state.
-                self.page.setHyperlink(
-                    self.page_row,
-                    self.page_cell,
-                    dst_id,
-                ) catch |err| {
-                    log.err(
-                        "setHyperlink failed after capacity increase err={}",
-                        .{err},
-                    );
-                    if (comptime std.debug.runtime_safety) {
-                        // Force a crash with safe builds.
-                        unreachable;
-                    }
-
-                    // Unsafe builds we throw away hyperlink data!
-                    self.page.hyperlink_set.release(self.page.memory, dst_id);
-                    cell.hyperlink = false;
-                    break :hyperlink;
-                };
-            }
-
-            // Copy style data.
-            if (cell.hasStyling()) style: {
-                const style = src_page.styles.get(
-                    src_page.memory,
-                    cell.style_id,
-                ).*;
-
-                const id = self.page.styles.addWithId(
-                    self.page.memory,
-                    style,
-                    cell.style_id,
-                ) catch |err| id: {
-                    // If the add failed then either the set needs to grow
-                    // or it needs to be rehashed. Either one of those can
-                    // be accomplished by increasing capacity, either with
-                    // no actual change or with an increased style cap.
-                    try self.increaseCapacity(list, switch (err) {
-                        error.OutOfMemory => .styles,
-                        error.NeedsRehash => null,
-                    });
-
-                    // We assume this one will succeed.
-                    break :id self.page.styles.addWithId(
-                        self.page.memory,
-                        style,
-                        cell.style_id,
-                    ) catch |err2| {
-                        // Should not fail since we just modified capacity
-                        // above. Log it, crash in safe builds, clear style
-                        // in unsafe builds.
-                        log.err(
-                            "addWithId failed after capacity increase err={}",
-                            .{err2},
-                        );
-                        if (comptime std.debug.runtime_safety) {
-                            // Force a crash with safe builds.
-                            unreachable;
-                        }
-
-                        cell.style_id = stylepkg.default_id;
-                        break :style;
-                    };
-                } orelse cell.style_id;
-
-                self.page_row.styled = true;
-                self.page_cell.style_id = id;
-            }
-
-            if (comptime build_options.kitty_graphics) {
-                // Copy Kitty virtual placeholder status
-                if (cell.codepoint() == kitty.graphics.unicode.placeholder) {
-                    self.page_row.kitty_virtual_placeholder = true;
-                }
-            }
-
-            self.cursorForward();
         }
 
         // If the source row isn't wrapped then we should scroll afterwards.
         if (!src_row.wrap) {
             self.new_rows += 1;
         }
+    }
+
+    /// Write a cell. On error, this will not unwrite the cell but
+    /// the cell may be incomplete (but valid). For example, if the source
+    /// cell is styled and we failed to allocate space for styles, the
+    /// written cell may not be styled but it is valid.
+    ///
+    /// The key failure to recognize for callers is when we can't increase
+    /// capacity in our destination page. In this case, the caller may want
+    /// to split the page at this row, rewrite the row into a new page
+    /// and continue from there.
+    ///
+    /// But this function guarantees the terminal/page will be in a
+    /// coherent state even on error.
+    fn writeCell(
+        self: *ReflowCursor,
+        list: *PageList,
+        cell: *const pagepkg.Cell,
+        src_page: *const Page,
+    ) IncreaseCapacityError!enum {
+        success,
+        repeat,
+        skip_next,
+    } {
+        // Copy cell contents.
+        switch (cell.content_tag) {
+            .codepoint,
+            .codepoint_grapheme,
+            => switch (cell.wide) {
+                .narrow => self.page_cell.* = cell.*,
+
+                .wide => if (self.page.size.cols > 1) {
+                    if (self.x == self.page.size.cols - 1) {
+                        // If there's a wide character in the last column of
+                        // the reflowed page then we need to insert a spacer
+                        // head and wrap before handling it.
+                        self.page_cell.* = .{
+                            .content_tag = .codepoint,
+                            .content = .{ .codepoint = 0 },
+                            .wide = .spacer_head,
+                        };
+
+                        // Move to the next row (this sets pending wrap
+                        // which will cause us to wrap on the next
+                        // iteration).
+                        self.cursorForward();
+
+                        // Decrement the source position so that when we
+                        // loop we'll process this source cell again,
+                        // since we can't copy it into a spacer head.
+                        return .repeat;
+                    } else {
+                        self.page_cell.* = cell.*;
+                    }
+                } else {
+                    // Edge case, when resizing to 1 column, wide
+                    // characters are just destroyed and replaced
+                    // with empty narrow cells.
+                    self.page_cell.content.codepoint = 0;
+                    self.page_cell.wide = .narrow;
+                    self.cursorForward();
+
+                    // Skip spacer tail so it doesn't cause a wrap.
+                    return .skip_next;
+                },
+
+                .spacer_tail => if (self.page.size.cols > 1) {
+                    self.page_cell.* = cell.*;
+                } else {
+                    // Edge case, when resizing to 1 column, wide
+                    // characters are just destroyed and replaced
+                    // with empty narrow cells, so we should just
+                    // discard any spacer tails.
+                    return .success;
+                },
+
+                .spacer_head => {
+                    // Spacer heads should be ignored. If we need a
+                    // spacer head in our reflowed page, it is added
+                    // when processing the wide cell it belongs to.
+                    return .success;
+                },
+            },
+
+            .bg_color_palette,
+            .bg_color_rgb,
+            => {
+                // These are guaranteed to have no style or grapheme
+                // data associated with them so we can fast path them.
+                self.page_cell.* = cell.*;
+                self.cursorForward();
+                return .success;
+            },
+        }
+
+        // These will create issues by trying to clone managed memory that
+        // isn't set if the current dst row needs to be moved to a new page.
+        // They'll be fixed once we do properly copy the relevant memory.
+        self.page_cell.content_tag = .codepoint;
+        self.page_cell.hyperlink = false;
+        self.page_cell.style_id = stylepkg.default_id;
+
+        // std.log.warn("\nsrc_y={} src_x={} dst_y={} dst_x={} dst_cols={} cp={X} wide={} page_cell_wide={}", .{
+        //     src_y,
+        //     x,
+        //     self.y,
+        //     self.x,
+        //     self.page.size.cols,
+        //     cell.content.codepoint,
+        //     cell.wide,
+        //     self.page_cell.wide,
+        // });
+
+        if (comptime build_options.kitty_graphics) {
+            // Copy Kitty virtual placeholder status
+            if (cell.codepoint() == kitty.graphics.unicode.placeholder) {
+                self.page_row.kitty_virtual_placeholder = true;
+            }
+        }
+
+        // Copy grapheme data.
+        if (cell.content_tag == .codepoint_grapheme) {
+            // Copy the graphemes
+            const cps = src_page.lookupGrapheme(cell).?;
+
+            // If our page can't support an additional cell
+            // with graphemes then we increase capacity.
+            if (self.page.graphemeCount() >= self.page.graphemeCapacity()) {
+                try self.increaseCapacity(
+                    list,
+                    .grapheme_bytes,
+                );
+            }
+
+            // Attempt to allocate the space that would be required
+            // for these graphemes, and if it's not available, then
+            // increase capacity. Keep trying until we succeed.
+            while (true) {
+                if (self.page.grapheme_alloc.alloc(
+                    u21,
+                    self.page.memory,
+                    cps.len,
+                )) |slice| {
+                    self.page.grapheme_alloc.free(
+                        self.page.memory,
+                        slice,
+                    );
+                    break;
+                } else |_| {
+                    // Grow our capacity until we can fit the extra bytes.
+                    try self.increaseCapacity(list, .grapheme_bytes);
+                }
+            }
+
+            self.page.setGraphemes(
+                self.page_row,
+                self.page_cell,
+                cps,
+            ) catch |err| {
+                // This shouldn't fail since we made sure we have space
+                // above. There is no reasonable behavior we can take here
+                // so we have a warn level log. This is ALMOST non-recoverable,
+                // though we choose to recover by corrupting the cell
+                // to a non-grapheme codepoint.
+                log.err("setGraphemes failed after capacity increase err={}", .{err});
+                if (comptime std.debug.runtime_safety) {
+                    // Force a crash with safe builds.
+                    unreachable;
+                }
+
+                // Unsafe builds we throw away grapheme data!
+                cell.content_tag = .codepoint;
+                cell.content = .{ .codepoint = 0xFFFD };
+            };
+        }
+
+        // Copy hyperlink data.
+        if (cell.hyperlink) hyperlink: {
+            const src_id = src_page.lookupHyperlink(cell).?;
+            const src_link = src_page.hyperlink_set.get(src_page.memory, src_id);
+
+            // If our page can't support an additional cell
+            // with a hyperlink then we increase capacity.
+            if (self.page.hyperlinkCount() >= self.page.hyperlinkCapacity()) {
+                try self.increaseCapacity(list, .hyperlink_bytes);
+            }
+
+            // Ensure that the string alloc has sufficient capacity
+            // to dupe the link (and the ID if it's not implicit).
+            const additional_required_string_capacity =
+                src_link.uri.len +
+                switch (src_link.id) {
+                    .explicit => |v| v.len,
+                    .implicit => 0,
+                };
+            // Keep trying until we have enough capacity.
+            while (true) {
+                if (self.page.string_alloc.alloc(
+                    u8,
+                    self.page.memory,
+                    additional_required_string_capacity,
+                )) |slice| {
+                    // We have enough capacity, free the test alloc.
+                    self.page.string_alloc.free(
+                        self.page.memory,
+                        slice,
+                    );
+                    break;
+                } else |_| {
+                    // Grow our capacity until we can fit the extra bytes.
+                    try self.increaseCapacity(
+                        list,
+                        .string_bytes,
+                    );
+                }
+            }
+
+            const dst_link = src_link.dupe(
+                src_page,
+                self.page,
+            ) catch |err| {
+                // This shouldn't fail since we did a capacity
+                // check above.
+                log.err("link dupe failed with capacity check err={}", .{err});
+                if (comptime std.debug.runtime_safety) {
+                    // Force a crash with safe builds.
+                    unreachable;
+                }
+
+                break :hyperlink;
+            };
+
+            const dst_id = self.page.hyperlink_set.addWithIdContext(
+                self.page.memory,
+                dst_link,
+                src_id,
+                .{ .page = self.page },
+            ) catch |err| id: {
+                // Always free our original link in case the increaseCap
+                // call fails so we aren't leaking memory.
+                dst_link.free(self.page);
+
+                // If the add failed then either the set needs to grow
+                // or it needs to be rehashed. Either one of those can
+                // be accomplished by increasing capacity, either with
+                // no actual change or with an increased hyperlink cap.
+                try self.increaseCapacity(list, switch (err) {
+                    error.OutOfMemory => .hyperlink_bytes,
+                    error.NeedsRehash => null,
+                });
+
+                // We need to recreate the link into the new page.
+                const dst_link2 = src_link.dupe(
+                    src_page,
+                    self.page,
+                ) catch |err2| {
+                    // This shouldn't fail since we did a capacity
+                    // check above.
+                    log.err("link dupe failed with capacity check err={}", .{err2});
+                    if (comptime std.debug.runtime_safety) {
+                        // Force a crash with safe builds.
+                        unreachable;
+                    }
+
+                    cell.hyperlink = false;
+                    break :hyperlink;
+                };
+
+                // We assume this one will succeed. We dupe the link
+                // again, and don't have to worry about the other one
+                // because increasing the capacity naturally clears up
+                // any managed memory not associated with a cell yet.
+                break :id self.page.hyperlink_set.addWithIdContext(
+                    self.page.memory,
+                    dst_link2,
+                    src_id,
+                    .{ .page = self.page },
+                ) catch |err2| {
+                    // This shouldn't happen since we increased capacity
+                    // above so we handle it like the other similar
+                    // cases and log it, crash in safe builds, and
+                    // remove the hyperlink in unsafe builds.
+                    log.err(
+                        "addWithIdContext failed after capacity increase err={}",
+                        .{err2},
+                    );
+                    if (comptime std.debug.runtime_safety) {
+                        // Force a crash with safe builds.
+                        unreachable;
+                    }
+
+                    dst_link2.free(self.page);
+                    cell.hyperlink = false;
+                    break :hyperlink;
+                };
+            } orelse src_id;
+
+            // We expect this to succeed due to the hyperlinkCapacity
+            // check we did before. If it doesn't succeed let's
+            // log it, crash (in safe builds), and clear our state.
+            self.page.setHyperlink(
+                self.page_row,
+                self.page_cell,
+                dst_id,
+            ) catch |err| {
+                log.err(
+                    "setHyperlink failed after capacity increase err={}",
+                    .{err},
+                );
+                if (comptime std.debug.runtime_safety) {
+                    // Force a crash with safe builds.
+                    unreachable;
+                }
+
+                // Unsafe builds we throw away hyperlink data!
+                self.page.hyperlink_set.release(self.page.memory, dst_id);
+                cell.hyperlink = false;
+                break :hyperlink;
+            };
+        }
+
+        // Copy style data.
+        if (cell.hasStyling()) style: {
+            const style = src_page.styles.get(
+                src_page.memory,
+                cell.style_id,
+            ).*;
+
+            const id = self.page.styles.addWithId(
+                self.page.memory,
+                style,
+                cell.style_id,
+            ) catch |err| id: {
+                // If the add failed then either the set needs to grow
+                // or it needs to be rehashed. Either one of those can
+                // be accomplished by increasing capacity, either with
+                // no actual change or with an increased style cap.
+                try self.increaseCapacity(list, switch (err) {
+                    error.OutOfMemory => .styles,
+                    error.NeedsRehash => null,
+                });
+
+                // We assume this one will succeed.
+                break :id self.page.styles.addWithId(
+                    self.page.memory,
+                    style,
+                    cell.style_id,
+                ) catch |err2| {
+                    // Should not fail since we just modified capacity
+                    // above. Log it, crash in safe builds, clear style
+                    // in unsafe builds.
+                    log.err(
+                        "addWithId failed after capacity increase err={}",
+                        .{err2},
+                    );
+                    if (comptime std.debug.runtime_safety) {
+                        // Force a crash with safe builds.
+                        unreachable;
+                    }
+
+                    cell.style_id = stylepkg.default_id;
+                    break :style;
+                };
+            } orelse cell.style_id;
+
+            self.page_row.styled = true;
+            self.page_cell.style_id = id;
+        }
+
+        self.cursorForward();
+        return .success;
     }
 
     /// Create a new page in the provided list with the provided
@@ -1654,7 +1689,7 @@ const ReflowCursor = struct {
         self: *ReflowCursor,
         list: *PageList,
         adjustment: ?IncreaseCapacity,
-    ) !void {
+    ) IncreaseCapacityError!void {
         const old_x = self.x;
         const old_y = self.y;
         const old_total_rows = self.total_rows;
