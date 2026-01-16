@@ -305,11 +305,11 @@ pub const Shaper = struct {
         pos_v: harfbuzz.GlyphPosition,
         index: u32,
     ) !void {
-        const x_offset = cell_offset.x + ((pos_v.x_offset + 0b100_000) >> 6);
+        const x_offset = run_offset.x - cell_offset.x + ((pos_v.x_offset + 0b100_000) >> 6);
         const y_offset = run_offset.y + ((pos_v.y_offset + 0b100_000) >> 6);
         const advance_x_offset = run_offset.x - cell_offset.x;
         const advance_y_offset = run_offset.y;
-        const x_offset_diff = x_offset - cell_offset.x - advance_x_offset;
+        const x_offset_diff = x_offset - advance_x_offset;
         const y_offset_diff = y_offset - advance_y_offset;
         const positions_differ = @abs(x_offset_diff) > 0 or @abs(y_offset_diff) > 0;
         const y_offset_differs = run_offset.y != 0;
@@ -1069,7 +1069,7 @@ test "shape Devanagari string" {
     try testing.expectEqual(@as(u16, 0), cells[0].x);
     try testing.expectEqual(@as(u16, 1), cells[1].x);
     try testing.expectEqual(@as(u16, 2), cells[2].x);
-    try testing.expectEqual(@as(u16, 3), cells[3].x);
+    try testing.expectEqual(@as(u16, 4), cells[3].x);
     try testing.expectEqual(@as(u16, 4), cells[4].x);
     try testing.expectEqual(@as(u16, 5), cells[5].x);
     try testing.expectEqual(@as(u16, 5), cells[6].x);
@@ -1207,12 +1207,11 @@ test "shape Tai Tham letters (run_offset.y differs from zero)" {
     var buf_idx: usize = 0;
 
     // First grapheme cluster:
-    buf_idx += try std.unicode.utf8Encode(0x1a48, buf[buf_idx..]); // MA
+    buf_idx += try std.unicode.utf8Encode(0x1a49, buf[buf_idx..]); // HA
     buf_idx += try std.unicode.utf8Encode(0x1a60, buf[buf_idx..]); // SAKOT
-    buf_idx += try std.unicode.utf8Encode(0x1a3f, buf[buf_idx..]); // LOW LA
-    buf_idx += try std.unicode.utf8Encode(0x1a75, buf[buf_idx..]); // Tone-1
-    // Second grapheme cluster:
-    buf_idx += try std.unicode.utf8Encode(0x1a41, buf[buf_idx..]); // HIGH PA
+    // Second grapheme cluster, combining with the first in a ligature:
+    buf_idx += try std.unicode.utf8Encode(0x1a3f, buf[buf_idx..]); // YA
+    buf_idx += try std.unicode.utf8Encode(0x1a69, buf[buf_idx..]); // U
 
     // Make a screen with some data
     var t = try terminal.Terminal.init(alloc, .{ .cols = 30, .rows = 3 });
@@ -1380,6 +1379,10 @@ test "shape Chakma vowel sign with ligature (vowel sign renders first)" {
 }
 
 test "shape Bengali ligatures with out of order vowels" {
+    // Whereas this test in CoreText had everything shaping into one giant
+    // ligature, HarfBuzz splits it into a few clusters. It still looks okay
+    // (see #10332).
+
     const testing = std.testing;
     const alloc = testing.allocator;
 
@@ -1401,10 +1404,10 @@ test "shape Bengali ligatures with out of order vowels" {
     // Second grapheme cluster:
     buf_idx += try std.unicode.utf8Encode(0x09b7, buf[buf_idx..]); // SSA
     buf_idx += try std.unicode.utf8Encode(0x09cd, buf[buf_idx..]); // Virama
-    // Third grapheme cluster, combining with the second in a ligature:
+    // Third grapheme cluster:
     buf_idx += try std.unicode.utf8Encode(0x099f, buf[buf_idx..]); // TTA
     buf_idx += try std.unicode.utf8Encode(0x09cd, buf[buf_idx..]); // Virama
-    // Fourth grapheme cluster, combining with the previous two in a ligature:
+    // Fourth grapheme cluster:
     buf_idx += try std.unicode.utf8Encode(0x09b0, buf[buf_idx..]); // RA
     buf_idx += try std.unicode.utf8Encode(0x09c7, buf[buf_idx..]); // Vowel sign E
 
@@ -1437,16 +1440,15 @@ test "shape Bengali ligatures with out of order vowels" {
         try testing.expectEqual(@as(usize, 8), cells.len);
         try testing.expectEqual(@as(u16, 0), cells[0].x);
         try testing.expectEqual(@as(u16, 0), cells[1].x);
-        // See the giant "We need to reset the `cell_offset`" comment, but here
-        // we should technically have the rest of these be `x` of 1, but that
-        // would require going back in the stream to adjust past cells, and
-        // we don't take on that complexity.
-        try testing.expectEqual(@as(u16, 0), cells[2].x);
-        try testing.expectEqual(@as(u16, 0), cells[3].x);
-        try testing.expectEqual(@as(u16, 0), cells[4].x);
-        try testing.expectEqual(@as(u16, 0), cells[5].x);
-        try testing.expectEqual(@as(u16, 0), cells[6].x);
-        try testing.expectEqual(@as(u16, 0), cells[7].x);
+
+        // Whereas CoreText puts everything all into the first cell (see the
+        // coresponding test), HarfBuzz splits into three clusters.
+        try testing.expectEqual(@as(u16, 1), cells[2].x);
+        try testing.expectEqual(@as(u16, 1), cells[3].x);
+        try testing.expectEqual(@as(u16, 2), cells[4].x);
+        try testing.expectEqual(@as(u16, 2), cells[5].x);
+        try testing.expectEqual(@as(u16, 2), cells[6].x);
+        try testing.expectEqual(@as(u16, 2), cells[7].x);
 
         // The vowel sign E renders before the SSA:
         try testing.expect(cells[2].x_offset < cells[3].x_offset);
