@@ -186,6 +186,15 @@ const SemanticPromptKVIterator = struct {
             break :kv kv;
         };
 
+        // If we have an empty item, we return an empty key and value.
+        //
+        // This allows for trailing semicolons, but also lets us parse
+        // (or rather, ignore) empty fields; for example `a=b;;e=f`.
+        if (kv.len < 1) return .{
+            .key = kv,
+            .value = kv,
+        };
+
         const key = key: {
             const index = std.mem.indexOfScalar(u8, kv, '=') orelse break :key kv;
             kv[index] = 0;
@@ -346,6 +355,18 @@ test "OSC 133: prompt_start with special_key empty" {
     const cmd = p.end(null).?.*;
     try testing.expect(cmd == .prompt_start);
     try testing.expect(cmd.prompt_start.special_key == false);
+}
+
+test "OSC 133: prompt_start with trailing ;" {
+    const testing = std.testing;
+
+    var p: Parser = .init(null);
+
+    const input = "133;A;";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end(null).?.*;
+    try testing.expect(cmd == .prompt_start);
 }
 
 test "OSC 133: prompt_start with click_events true" {
