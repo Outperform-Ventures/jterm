@@ -61,10 +61,8 @@ pub const Key = enum {
 ///   const enabled = get(.gtk_enable_primary_paste);
 ///   const dpi = get(.gtk_xft_dpi);
 pub fn get(comptime key: Key) ?key.Type() {
-    comptime {
-        if (key.requiresAllocation()) {
-            @compileError("Allocating types require an allocator; use getAlloc() instead");
-        }
+    if (comptime key.requiresAllocation()) {
+        @compileError("Allocating types require an allocator; use getAlloc() instead");
     }
     const settings = gtk.Settings.getDefault() orelse return null;
     return getImpl(settings, null, key) catch unreachable;
