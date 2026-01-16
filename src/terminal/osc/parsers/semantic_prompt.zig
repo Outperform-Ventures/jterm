@@ -186,6 +186,15 @@ const SemanticPromptKVIterator = struct {
             break :kv kv;
         };
 
+        // If we have an empty item, we return an empty key and value.
+        //
+        // This allows for trailing semicolons, but also lets us parse
+        // (or rather, ignore) empty fields; for example `a=b;;e=f`.
+        if (kv.len < 1) return .{
+            .key = kv,
+            .value = kv,
+        };
+
         const key = key: {
             const index = std.mem.indexOfScalar(u8, kv, '=') orelse break :key kv;
             kv[index] = 0;
