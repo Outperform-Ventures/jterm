@@ -266,6 +266,12 @@ pub const Shaper = struct {
             // Reset the buffer for our current run
             self.shaper.hb_buf.reset();
             self.shaper.hb_buf.setContentType(.unicode);
+
+            // We set the cluster level to `characters` to give us the most
+            // granularity, matching the CoreText shaper, and allowing us
+            // to use our same ligature detection heuristics.
+            self.shaper.hb_buf.setClusterLevel(.characters);
+
             self.shaper.codepoints.clearRetainingCapacity();
 
             // We don't support RTL text because RTL in terminals is messy.
@@ -325,12 +331,13 @@ pub const Shaper = struct {
             break :blk false;
         } else false;
 
-        const formatted_cps = if (positions_differ or
+        const formatted_cps: ?[]u8 = if (positions_differ or
             y_offset_differs or
             cluster_differs or
             extra_debugging)
         blk: {
             var allocating = std.Io.Writer.Allocating.init(self.alloc);
+            defer allocating.deinit();
             const writer = &allocating.writer;
             const codepoints = self.codepoints.items;
             var last_cluster: ?u32 = null;
@@ -364,7 +371,8 @@ pub const Shaper = struct {
                 }
             }
             break :blk try allocating.toOwnedSlice();
-        } else "";
+        } else null;
+        defer if (formatted_cps) |cps| self.alloc.free(cps);
 
         if (extra_debugging) {
             log.warn("extra debugging of positions index={d} cell_offset.cluster={d} cluster={d} run_offset.cluster={d} diff={d} pos=({d},{d}) run_offset=({d},{d}) cell_offset.x={d} is_prev_prepend={} cps = {s}", .{
@@ -379,7 +387,7 @@ pub const Shaper = struct {
                 run_offset.y,
                 cell_offset.x,
                 is_previous_codepoint_prepend,
-                formatted_cps,
+                formatted_cps.?,
             });
         }
 
@@ -392,19 +400,19 @@ pub const Shaper = struct {
                 advance_y_offset,
                 x_offset_diff,
                 y_offset_diff,
-                formatted_cps,
+                formatted_cps.?,
             });
         }
 
         if (y_offset_differs) {
-            log.warn("y_offset differs from zero: cluster={d} pos=({d},{d}) run_offset=({d},{d}) cell_offset.x={d} cps = {s}", .{
+            log.warn("run_offset.y differs from zero: cluster={d} pos=({d},{d}) run_offset=({d},{d}) cell_offset.x={d} cps = {s}", .{
                 cluster,
                 x_offset,
                 y_offset,
                 run_offset.x,
                 run_offset.y,
                 cell_offset.x,
-                formatted_cps,
+                formatted_cps.?,
             });
         }
 
@@ -420,7 +428,7 @@ pub const Shaper = struct {
                 run_offset.y,
                 cell_offset.x,
                 is_previous_codepoint_prepend,
-                formatted_cps,
+                formatted_cps.?,
             });
         }
     }
@@ -966,7 +974,7 @@ test "shape with empty cells in between" {
     }
 }
 
-test "shape Chinese characters" {
+test "shape Combining characters" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
@@ -1011,6 +1019,437 @@ test "shape Chinese characters" {
         try testing.expectEqual(@as(u16, 0), cells[1].x);
         try testing.expectEqual(@as(u16, 0), cells[2].x);
         try testing.expectEqual(@as(u16, 1), cells[3].x);
+    }
+    try testing.expectEqual(@as(usize, 1), count);
+}
+
+// This test exists because the string it uses causes HarfBuzz to output a
+// non-monotonic run with our cluster level set to `characters`, which we need
+// to handle by tracking the max cluster for the run.
+test "shape Devanagari string" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    // We need a font that supports devanagari for this to work, if we can't
+    // find Arial Unicode MS, which is a system font on macOS, we just skip
+    // the test.
+    var testdata = testShaperWithDiscoveredFont(
+        alloc,
+        "Arial Unicode MS",
+    ) catch return error.SkipZigTest;
+    defer testdata.deinit();
+
+    // Make a screen with some data
+    var t = try terminal.Terminal.init(alloc, .{ .cols = 30, .rows = 3 });
+    defer t.deinit(alloc);
+
+    // Disable grapheme clustering
+    t.modes.set(.grapheme_cluster, false);
+
+    var s = t.vtStream();
+    defer s.deinit();
+    try s.nextSlice("अपार्टमेंट");
+
+    var state: terminal.RenderState = .empty;
+    defer state.deinit(alloc);
+    try state.update(alloc, &t);
+
+    // Get our run iterator
+    var shaper = &testdata.shaper;
+    var it = shaper.runIterator(.{
+        .grid = testdata.grid,
+        .cells = state.row_data.get(0).cells.slice(),
+    });
+
+    const run = try it.next(alloc);
+    try testing.expect(run != null);
+    const cells = try shaper.shape(run.?);
+
+    try testing.expectEqual(@as(usize, 8), cells.len);
+    try testing.expectEqual(@as(u16, 0), cells[0].x);
+    try testing.expectEqual(@as(u16, 1), cells[1].x);
+    try testing.expectEqual(@as(u16, 2), cells[2].x);
+    try testing.expectEqual(@as(u16, 3), cells[3].x);
+    try testing.expectEqual(@as(u16, 4), cells[4].x);
+    try testing.expectEqual(@as(u16, 5), cells[5].x);
+    try testing.expectEqual(@as(u16, 5), cells[6].x);
+    try testing.expectEqual(@as(u16, 6), cells[7].x);
+
+    try testing.expect(try it.next(alloc) == null);
+}
+
+test "shape Tai Tham vowels (position differs from advance)" {
+    // Note that while this test was necessary for CoreText, the old logic was
+    // working for HarfBuzz. Still we keep it to ensure it has the correct
+    // behavior.
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    // We need a font that supports Tai Tham for this to work, if we can't find
+    // Noto Sans Tai Tham, which is a system font on macOS, we just skip the
+    // test.
+    var testdata = testShaperWithDiscoveredFont(
+        alloc,
+        "Noto Sans Tai Tham",
+    ) catch return error.SkipZigTest;
+    defer testdata.deinit();
+
+    var buf: [32]u8 = undefined;
+    var buf_idx: usize = 0;
+    buf_idx += try std.unicode.utf8Encode(0x1a2F, buf[buf_idx..]); // ᨯ
+    buf_idx += try std.unicode.utf8Encode(0x1a70, buf[buf_idx..]); //  ᩰ
+
+    // Make a screen with some data
+    var t = try terminal.Terminal.init(alloc, .{ .cols = 30, .rows = 3 });
+    defer t.deinit(alloc);
+
+    // Enable grapheme clustering
+    t.modes.set(.grapheme_cluster, true);
+
+    var s = t.vtStream();
+    defer s.deinit();
+    try s.nextSlice(buf[0..buf_idx]);
+
+    var state: terminal.RenderState = .empty;
+    defer state.deinit(alloc);
+    try state.update(alloc, &t);
+
+    // Get our run iterator
+    var shaper = &testdata.shaper;
+    var it = shaper.runIterator(.{
+        .grid = testdata.grid,
+        .cells = state.row_data.get(0).cells.slice(),
+    });
+    var count: usize = 0;
+    while (try it.next(alloc)) |run| {
+        count += 1;
+
+        const cells = try shaper.shape(run);
+        const cell_width = run.grid.metrics.cell_width;
+        try testing.expectEqual(@as(usize, 2), cells.len);
+        try testing.expectEqual(@as(u16, 0), cells[0].x);
+        try testing.expectEqual(@as(u16, 0), cells[1].x);
+
+        // The first glyph renders in the next cell
+        try testing.expectEqual(@as(i16, @intCast(cell_width)), cells[0].x_offset);
+        try testing.expectEqual(@as(i16, 0), cells[1].x_offset);
+    }
+    try testing.expectEqual(@as(usize, 1), count);
+}
+
+test "shape Tibetan characters" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    // We need a font that has multiple glyphs for this codepoint to reproduce
+    // the old broken behavior, and Noto Serif Tibetan is one of them. It's not
+    // a default Mac font, and if we can't find it we just skip the test.
+    var testdata = testShaperWithDiscoveredFont(
+        alloc,
+        "Noto Serif Tibetan",
+    ) catch return error.SkipZigTest;
+    defer testdata.deinit();
+
+    var buf: [32]u8 = undefined;
+    var buf_idx: usize = 0;
+    buf_idx += try std.unicode.utf8Encode(0x0f00, buf[buf_idx..]); // ༀ
+
+    // Make a screen with some data
+    var t = try terminal.Terminal.init(alloc, .{ .cols = 30, .rows = 3 });
+    defer t.deinit(alloc);
+
+    // Enable grapheme clustering
+    t.modes.set(.grapheme_cluster, true);
+
+    var s = t.vtStream();
+    defer s.deinit();
+    try s.nextSlice(buf[0..buf_idx]);
+
+    var state: terminal.RenderState = .empty;
+    defer state.deinit(alloc);
+    try state.update(alloc, &t);
+
+    // Get our run iterator
+    var shaper = &testdata.shaper;
+    var it = shaper.runIterator(.{
+        .grid = testdata.grid,
+        .cells = state.row_data.get(0).cells.slice(),
+    });
+    var count: usize = 0;
+    while (try it.next(alloc)) |run| {
+        count += 1;
+
+        const cells = try shaper.shape(run);
+        try testing.expectEqual(@as(usize, 2), cells.len);
+        try testing.expectEqual(@as(u16, 0), cells[0].x);
+        try testing.expectEqual(@as(u16, 0), cells[1].x);
+
+        // The second glyph renders at the correct location
+        try testing.expect(cells[1].x_offset < 2);
+    }
+    try testing.expectEqual(@as(usize, 1), count);
+}
+
+test "shape Tai Tham letters (run_offset.y differs from zero)" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    // We need a font that supports Tai Tham for this to work, if we can't find
+    // Noto Sans Tai Tham, which is a system font on macOS, we just skip the
+    // test.
+    var testdata = testShaperWithDiscoveredFont(
+        alloc,
+        "Noto Sans Tai Tham",
+    ) catch return error.SkipZigTest;
+    defer testdata.deinit();
+
+    var buf: [32]u8 = undefined;
+    var buf_idx: usize = 0;
+
+    // First grapheme cluster:
+    buf_idx += try std.unicode.utf8Encode(0x1a48, buf[buf_idx..]); // MA
+    buf_idx += try std.unicode.utf8Encode(0x1a60, buf[buf_idx..]); // SAKOT
+    buf_idx += try std.unicode.utf8Encode(0x1a3f, buf[buf_idx..]); // LOW LA
+    buf_idx += try std.unicode.utf8Encode(0x1a75, buf[buf_idx..]); // Tone-1
+    // Second grapheme cluster:
+    buf_idx += try std.unicode.utf8Encode(0x1a41, buf[buf_idx..]); // HIGH PA
+
+    // Make a screen with some data
+    var t = try terminal.Terminal.init(alloc, .{ .cols = 30, .rows = 3 });
+    defer t.deinit(alloc);
+
+    // Enable grapheme clustering
+    t.modes.set(.grapheme_cluster, true);
+
+    var s = t.vtStream();
+    defer s.deinit();
+    try s.nextSlice(buf[0..buf_idx]);
+
+    var state: terminal.RenderState = .empty;
+    defer state.deinit(alloc);
+    try state.update(alloc, &t);
+
+    // Get our run iterator
+    var shaper = &testdata.shaper;
+    var it = shaper.runIterator(.{
+        .grid = testdata.grid,
+        .cells = state.row_data.get(0).cells.slice(),
+    });
+    var count: usize = 0;
+    while (try it.next(alloc)) |run| {
+        count += 1;
+
+        const cells = try shaper.shape(run);
+        try testing.expectEqual(@as(usize, 3), cells.len);
+        try testing.expectEqual(@as(u16, 0), cells[0].x);
+        try testing.expectEqual(@as(u16, 0), cells[1].x);
+        try testing.expectEqual(@as(u16, 0), cells[2].x); // U from second grapheme
+
+        // The U glyph renders at a y below zero
+        try testing.expectEqual(@as(i16, -3), cells[2].y_offset);
+    }
+    try testing.expectEqual(@as(usize, 1), count);
+}
+
+test "shape Javanese ligatures" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    // We need a font that supports Javanese for this to work, if we can't find
+    // Noto Sans Javanese Regular, which is a system font on macOS, we just
+    // skip the test.
+    var testdata = testShaperWithDiscoveredFont(
+        alloc,
+        "Noto Sans Javanese",
+    ) catch return error.SkipZigTest;
+    defer testdata.deinit();
+
+    var buf: [32]u8 = undefined;
+    var buf_idx: usize = 0;
+
+    // First grapheme cluster:
+    buf_idx += try std.unicode.utf8Encode(0xa9a4, buf[buf_idx..]); // NA
+    buf_idx += try std.unicode.utf8Encode(0xa9c0, buf[buf_idx..]); // PANGKON
+    // Second grapheme cluster, combining with the first in a ligature:
+    buf_idx += try std.unicode.utf8Encode(0xa9b2, buf[buf_idx..]); // HA
+    buf_idx += try std.unicode.utf8Encode(0xa9b8, buf[buf_idx..]); // Vowel sign SUKU
+
+    // Make a screen with some data
+    var t = try terminal.Terminal.init(alloc, .{ .cols = 30, .rows = 3 });
+    defer t.deinit(alloc);
+
+    // Enable grapheme clustering
+    t.modes.set(.grapheme_cluster, true);
+
+    var s = t.vtStream();
+    defer s.deinit();
+    try s.nextSlice(buf[0..buf_idx]);
+
+    var state: terminal.RenderState = .empty;
+    defer state.deinit(alloc);
+    try state.update(alloc, &t);
+
+    // Get our run iterator
+    var shaper = &testdata.shaper;
+    var it = shaper.runIterator(.{
+        .grid = testdata.grid,
+        .cells = state.row_data.get(0).cells.slice(),
+    });
+    var count: usize = 0;
+    while (try it.next(alloc)) |run| {
+        count += 1;
+
+        const cells = try shaper.shape(run);
+        const cell_width = run.grid.metrics.cell_width;
+        try testing.expectEqual(@as(usize, 3), cells.len);
+        try testing.expectEqual(@as(u16, 0), cells[0].x);
+        try testing.expectEqual(@as(u16, 0), cells[1].x);
+        try testing.expectEqual(@as(u16, 0), cells[2].x);
+
+        // The vowel sign SUKU renders with correct x_offset
+        try testing.expect(cells[2].x_offset > 3 * cell_width);
+    }
+    try testing.expectEqual(@as(usize, 1), count);
+}
+
+test "shape Chakma vowel sign with ligature (vowel sign renders first)" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    // We need a font that supports Chakma for this to work, if we can't find
+    // Noto Sans Chakma Regular, which is a system font on macOS, we just skip
+    // the test.
+    var testdata = testShaperWithDiscoveredFont(
+        alloc,
+        "Noto Sans Chakma",
+    ) catch return error.SkipZigTest;
+    defer testdata.deinit();
+
+    var buf: [32]u8 = undefined;
+    var buf_idx: usize = 0;
+
+    // First grapheme cluster:
+    buf_idx += try std.unicode.utf8Encode(0x1111d, buf[buf_idx..]); // BAA
+    // Second grapheme cluster:
+    buf_idx += try std.unicode.utf8Encode(0x11116, buf[buf_idx..]); // TAA
+    buf_idx += try std.unicode.utf8Encode(0x11133, buf[buf_idx..]); // Virama
+    // Third grapheme cluster, combining with the second in a ligature:
+    buf_idx += try std.unicode.utf8Encode(0x11120, buf[buf_idx..]); // YYAA
+    buf_idx += try std.unicode.utf8Encode(0x1112c, buf[buf_idx..]); // Vowel Sign U
+
+    // Make a screen with some data
+    var t = try terminal.Terminal.init(alloc, .{ .cols = 30, .rows = 3 });
+    defer t.deinit(alloc);
+
+    // Enable grapheme clustering
+    t.modes.set(.grapheme_cluster, true);
+
+    var s = t.vtStream();
+    defer s.deinit();
+    try s.nextSlice(buf[0..buf_idx]);
+
+    var state: terminal.RenderState = .empty;
+    defer state.deinit(alloc);
+    try state.update(alloc, &t);
+
+    // Get our run iterator
+    var shaper = &testdata.shaper;
+    var it = shaper.runIterator(.{
+        .grid = testdata.grid,
+        .cells = state.row_data.get(0).cells.slice(),
+    });
+    var count: usize = 0;
+    while (try it.next(alloc)) |run| {
+        count += 1;
+
+        const cells = try shaper.shape(run);
+        try testing.expectEqual(@as(usize, 4), cells.len);
+        try testing.expectEqual(@as(u16, 0), cells[0].x);
+        // See the giant "We need to reset the `cell_offset`" comment, but here
+        // we should technically have the rest of these be `x` of 1, but that
+        // would require going back in the stream to adjust past cells, and
+        // we don't take on that complexity.
+        try testing.expectEqual(@as(u16, 0), cells[1].x);
+        try testing.expectEqual(@as(u16, 0), cells[2].x);
+        try testing.expectEqual(@as(u16, 0), cells[3].x);
+
+        // The vowel sign U renders before the TAA:
+        try testing.expect(cells[1].x_offset < cells[2].x_offset);
+    }
+    try testing.expectEqual(@as(usize, 1), count);
+}
+
+test "shape Bengali ligatures with out of order vowels" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    // We need a font that supports Bengali for this to work, if we can't find
+    // Arial Unicode MS, which is a system font on macOS, we just skip the
+    // test.
+    var testdata = testShaperWithDiscoveredFont(
+        alloc,
+        "Arial Unicode MS",
+    ) catch return error.SkipZigTest;
+    defer testdata.deinit();
+
+    var buf: [32]u8 = undefined;
+    var buf_idx: usize = 0;
+
+    // First grapheme cluster:
+    buf_idx += try std.unicode.utf8Encode(0x09b0, buf[buf_idx..]); // RA
+    buf_idx += try std.unicode.utf8Encode(0x09be, buf[buf_idx..]); // Vowel sign AA
+    // Second grapheme cluster:
+    buf_idx += try std.unicode.utf8Encode(0x09b7, buf[buf_idx..]); // SSA
+    buf_idx += try std.unicode.utf8Encode(0x09cd, buf[buf_idx..]); // Virama
+    // Third grapheme cluster, combining with the second in a ligature:
+    buf_idx += try std.unicode.utf8Encode(0x099f, buf[buf_idx..]); // TTA
+    buf_idx += try std.unicode.utf8Encode(0x09cd, buf[buf_idx..]); // Virama
+    // Fourth grapheme cluster, combining with the previous two in a ligature:
+    buf_idx += try std.unicode.utf8Encode(0x09b0, buf[buf_idx..]); // RA
+    buf_idx += try std.unicode.utf8Encode(0x09c7, buf[buf_idx..]); // Vowel sign E
+
+    // Make a screen with some data
+    var t = try terminal.Terminal.init(alloc, .{ .cols = 30, .rows = 3 });
+    defer t.deinit(alloc);
+
+    // Enable grapheme clustering
+    t.modes.set(.grapheme_cluster, true);
+
+    var s = t.vtStream();
+    defer s.deinit();
+    try s.nextSlice(buf[0..buf_idx]);
+
+    var state: terminal.RenderState = .empty;
+    defer state.deinit(alloc);
+    try state.update(alloc, &t);
+
+    // Get our run iterator
+    var shaper = &testdata.shaper;
+    var it = shaper.runIterator(.{
+        .grid = testdata.grid,
+        .cells = state.row_data.get(0).cells.slice(),
+    });
+    var count: usize = 0;
+    while (try it.next(alloc)) |run| {
+        count += 1;
+
+        const cells = try shaper.shape(run);
+        try testing.expectEqual(@as(usize, 8), cells.len);
+        try testing.expectEqual(@as(u16, 0), cells[0].x);
+        try testing.expectEqual(@as(u16, 0), cells[1].x);
+        // See the giant "We need to reset the `cell_offset`" comment, but here
+        // we should technically have the rest of these be `x` of 1, but that
+        // would require going back in the stream to adjust past cells, and
+        // we don't take on that complexity.
+        try testing.expectEqual(@as(u16, 0), cells[2].x);
+        try testing.expectEqual(@as(u16, 0), cells[3].x);
+        try testing.expectEqual(@as(u16, 0), cells[4].x);
+        try testing.expectEqual(@as(u16, 0), cells[5].x);
+        try testing.expectEqual(@as(u16, 0), cells[6].x);
+        try testing.expectEqual(@as(u16, 0), cells[7].x);
+
+        // The vowel sign E renders before the SSA:
+        try testing.expect(cells[2].x_offset < cells[3].x_offset);
     }
     try testing.expectEqual(@as(usize, 1), count);
 }
@@ -1706,319 +2145,4 @@ fn testShaperWithDiscoveredFont(alloc: Allocator, font_req: [:0]const u8) !TestS
         .grid = grid_ptr,
         .lib = lib,
     };
-}
-
-test "shape Tai Tham vowels (y_offset differs from zero)" {
-    const testing = std.testing;
-    const alloc = testing.allocator;
-
-    // We need a font that supports Tai Tham for this to work, if we can't find
-    // Noto Sans Tai Tham, we just skip the test.
-    var testdata = testShaperWithDiscoveredFont(
-        alloc,
-        "Noto Sans Tai Tham",
-    ) catch return error.SkipZigTest;
-    defer testdata.deinit();
-
-    var buf: [32]u8 = undefined;
-    var buf_idx: usize = 0;
-    buf_idx += try std.unicode.utf8Encode(0x1a2F, buf[buf_idx..]); // ᨯ
-    buf_idx += try std.unicode.utf8Encode(0x1a70, buf[buf_idx..]); //  ᩰ
-
-    // Make a screen with some data
-    var t = try terminal.Terminal.init(alloc, .{ .cols = 30, .rows = 3 });
-    defer t.deinit(alloc);
-
-    // Enable grapheme clustering
-    t.modes.set(.grapheme_cluster, true);
-
-    var s = t.vtStream();
-    defer s.deinit();
-    try s.nextSlice(buf[0..buf_idx]);
-
-    var state: terminal.RenderState = .empty;
-    defer state.deinit(alloc);
-    try state.update(alloc, &t);
-
-    // Get our run iterator
-    var shaper = &testdata.shaper;
-    var it = shaper.runIterator(.{
-        .grid = testdata.grid,
-        .cells = state.row_data.get(0).cells.slice(),
-    });
-    var count: usize = 0;
-    while (try it.next(alloc)) |run| {
-        count += 1;
-
-        const cells = try shaper.shape(run);
-        const cell_width = run.grid.metrics.cell_width;
-        try testing.expectEqual(@as(usize, 2), cells.len);
-        try testing.expectEqual(@as(u16, 0), cells[0].x);
-        try testing.expectEqual(@as(u16, 0), cells[1].x);
-
-        // The first glyph renders in the next cell
-        try testing.expectEqual(@as(i16, @intCast(cell_width)), cells[0].x_offset);
-        try testing.expectEqual(@as(i16, 0), cells[1].x_offset);
-    }
-    try testing.expectEqual(@as(usize, 1), count);
-}
-
-test "shape Tai Tham letters (y_offset differs from zero)" {
-    const testing = std.testing;
-    const alloc = testing.allocator;
-
-    // We need a font that supports Tai Tham for this to work, if we can't find
-    // Noto Sans Tai Tham, we just skip the test.
-    var testdata = testShaperWithDiscoveredFont(
-        alloc,
-        "Noto Sans Tai Tham",
-    ) catch return error.SkipZigTest;
-    defer testdata.deinit();
-
-    var buf: [32]u8 = undefined;
-    var buf_idx: usize = 0;
-
-    // First grapheme cluster:
-    buf_idx += try std.unicode.utf8Encode(0x1a48, buf[buf_idx..]); // MA
-    buf_idx += try std.unicode.utf8Encode(0x1a60, buf[buf_idx..]); // SAKOT
-    buf_idx += try std.unicode.utf8Encode(0x1a3f, buf[buf_idx..]); // LOW LA
-    buf_idx += try std.unicode.utf8Encode(0x1a75, buf[buf_idx..]); // Tone-1
-    // Second grapheme cluster:
-    buf_idx += try std.unicode.utf8Encode(0x1a41, buf[buf_idx..]); // HIGH PA
-
-    // Make a screen with some data
-    var t = try terminal.Terminal.init(alloc, .{ .cols = 30, .rows = 3 });
-    defer t.deinit(alloc);
-
-    // Enable grapheme clustering
-    t.modes.set(.grapheme_cluster, true);
-
-    var s = t.vtStream();
-    defer s.deinit();
-    try s.nextSlice(buf[0..buf_idx]);
-
-    var state: terminal.RenderState = .empty;
-    defer state.deinit(alloc);
-    try state.update(alloc, &t);
-
-    // Get our run iterator
-    var shaper = &testdata.shaper;
-    var it = shaper.runIterator(.{
-        .grid = testdata.grid,
-        .cells = state.row_data.get(0).cells.slice(),
-    });
-    var count: usize = 0;
-    while (try it.next(alloc)) |run| {
-        count += 1;
-
-        const cells = try shaper.shape(run);
-        try testing.expectEqual(@as(usize, 3), cells.len);
-        try testing.expectEqual(@as(u16, 0), cells[0].x);
-        try testing.expectEqual(@as(u16, 0), cells[1].x);
-        try testing.expectEqual(@as(u16, 0), cells[2].x); // U from second grapheme
-
-        // The U glyph renders at a y below zero
-        try testing.expectEqual(@as(i16, -3), cells[2].y_offset);
-    }
-    try testing.expectEqual(@as(usize, 1), count);
-}
-
-test "shape Javanese ligatures" {
-    const testing = std.testing;
-    const alloc = testing.allocator;
-
-    // We need a font that supports Javanese for this to work, if we can't find
-    // Noto Sans Javanese Regular, we just skip the test.
-    var testdata = testShaperWithDiscoveredFont(
-        alloc,
-        "Noto Sans Javanese",
-    ) catch return error.SkipZigTest;
-    defer testdata.deinit();
-
-    var buf: [32]u8 = undefined;
-    var buf_idx: usize = 0;
-
-    // First grapheme cluster:
-    buf_idx += try std.unicode.utf8Encode(0xa9a4, buf[buf_idx..]); // NA
-    buf_idx += try std.unicode.utf8Encode(0xa9c0, buf[buf_idx..]); // PANGKON
-    // Second grapheme cluster, combining with the first in a ligature:
-    buf_idx += try std.unicode.utf8Encode(0xa9b2, buf[buf_idx..]); // HA
-    buf_idx += try std.unicode.utf8Encode(0xa9b8, buf[buf_idx..]); // Vowel sign SUKU
-
-    // Make a screen with some data
-    var t = try terminal.Terminal.init(alloc, .{ .cols = 30, .rows = 3 });
-    defer t.deinit(alloc);
-
-    // Enable grapheme clustering
-    t.modes.set(.grapheme_cluster, true);
-
-    var s = t.vtStream();
-    defer s.deinit();
-    try s.nextSlice(buf[0..buf_idx]);
-
-    var state: terminal.RenderState = .empty;
-    defer state.deinit(alloc);
-    try state.update(alloc, &t);
-
-    // Get our run iterator
-    var shaper = &testdata.shaper;
-    var it = shaper.runIterator(.{
-        .grid = testdata.grid,
-        .cells = state.row_data.get(0).cells.slice(),
-    });
-    var count: usize = 0;
-    while (try it.next(alloc)) |run| {
-        count += 1;
-
-        const cells = try shaper.shape(run);
-        const cell_width = run.grid.metrics.cell_width;
-        try testing.expectEqual(@as(usize, 3), cells.len);
-        try testing.expectEqual(@as(u16, 0), cells[0].x);
-        try testing.expectEqual(@as(u16, 0), cells[1].x);
-        try testing.expectEqual(@as(u16, 0), cells[2].x);
-
-        // The vowel sign SUKU renders with correct x_offset
-        try testing.expect(cells[2].x_offset > 3 * cell_width);
-    }
-    try testing.expectEqual(@as(usize, 1), count);
-}
-
-test "shape Chakma vowel sign with ligature (vowel sign renders first)" {
-    const testing = std.testing;
-    const alloc = testing.allocator;
-
-    // We need a font that supports Chakma for this to work, if we can't find
-    // Noto Sans Chakma Regular, we just skip the test.
-    var testdata = testShaperWithDiscoveredFont(
-        alloc,
-        "Noto Sans Chakma",
-    ) catch return error.SkipZigTest;
-    defer testdata.deinit();
-
-    var buf: [32]u8 = undefined;
-    var buf_idx: usize = 0;
-
-    // First grapheme cluster:
-    buf_idx += try std.unicode.utf8Encode(0x1111d, buf[buf_idx..]); // BAA
-    // Second grapheme cluster:
-    buf_idx += try std.unicode.utf8Encode(0x11116, buf[buf_idx..]); // TAA
-    buf_idx += try std.unicode.utf8Encode(0x11133, buf[buf_idx..]); // Virama
-    // Third grapheme cluster, combining with the second in a ligature:
-    buf_idx += try std.unicode.utf8Encode(0x11120, buf[buf_idx..]); // YYAA
-    buf_idx += try std.unicode.utf8Encode(0x1112c, buf[buf_idx..]); // Vowel Sign U
-
-    // Make a screen with some data
-    var t = try terminal.Terminal.init(alloc, .{ .cols = 30, .rows = 3 });
-    defer t.deinit(alloc);
-
-    // Enable grapheme clustering
-    t.modes.set(.grapheme_cluster, true);
-
-    var s = t.vtStream();
-    defer s.deinit();
-    try s.nextSlice(buf[0..buf_idx]);
-
-    var state: terminal.RenderState = .empty;
-    defer state.deinit(alloc);
-    try state.update(alloc, &t);
-
-    // Get our run iterator
-    var shaper = &testdata.shaper;
-    var it = shaper.runIterator(.{
-        .grid = testdata.grid,
-        .cells = state.row_data.get(0).cells.slice(),
-    });
-    var count: usize = 0;
-    while (try it.next(alloc)) |run| {
-        count += 1;
-
-        const cells = try shaper.shape(run);
-        try testing.expectEqual(@as(usize, 4), cells.len);
-        try testing.expectEqual(@as(u16, 0), cells[0].x);
-        // See the giant "We need to reset the `cell_offset`" comment, but here
-        // we should technically have the rest of these be `x` of 1, but that
-        // would require going back in the stream to adjust past cells, and
-        // we don't take on that complexity.
-        try testing.expectEqual(@as(u16, 0), cells[1].x);
-        try testing.expectEqual(@as(u16, 0), cells[2].x);
-        try testing.expectEqual(@as(u16, 0), cells[3].x);
-
-        // The vowel sign U renders before the TAA:
-        try testing.expect(cells[1].x_offset < cells[2].x_offset);
-    }
-    try testing.expectEqual(@as(usize, 1), count);
-}
-
-test "shape Bengali ligatures with out of order vowels" {
-    const testing = std.testing;
-    const alloc = testing.allocator;
-
-    // We need a font that supports Bengali for this to work, if we can't find
-    // Arial Unicode MS, we just skip the test.
-    var testdata = testShaperWithDiscoveredFont(
-        alloc,
-        "Arial Unicode MS",
-    ) catch return error.SkipZigTest;
-    defer testdata.deinit();
-
-    var buf: [32]u8 = undefined;
-    var buf_idx: usize = 0;
-
-    // First grapheme cluster:
-    buf_idx += try std.unicode.utf8Encode(0x09b0, buf[buf_idx..]); // RA
-    buf_idx += try std.unicode.utf8Encode(0x09be, buf[buf_idx..]); // Vowel sign AA
-    // Second grapheme cluster:
-    buf_idx += try std.unicode.utf8Encode(0x09b7, buf[buf_idx..]); // SSA
-    buf_idx += try std.unicode.utf8Encode(0x09cd, buf[buf_idx..]); // Virama
-    // Third grapheme cluster, combining with the second in a ligature:
-    buf_idx += try std.unicode.utf8Encode(0x099f, buf[buf_idx..]); // TTA
-    buf_idx += try std.unicode.utf8Encode(0x09cd, buf[buf_idx..]); // Virama
-    // Fourth grapheme cluster, combining with the previous two in a ligature:
-    buf_idx += try std.unicode.utf8Encode(0x09b0, buf[buf_idx..]); // RA
-    buf_idx += try std.unicode.utf8Encode(0x09c7, buf[buf_idx..]); // Vowel sign E
-
-    // Make a screen with some data
-    var t = try terminal.Terminal.init(alloc, .{ .cols = 30, .rows = 3 });
-    defer t.deinit(alloc);
-
-    // Enable grapheme clustering
-    t.modes.set(.grapheme_cluster, true);
-
-    var s = t.vtStream();
-    defer s.deinit();
-    try s.nextSlice(buf[0..buf_idx]);
-
-    var state: terminal.RenderState = .empty;
-    defer state.deinit(alloc);
-    try state.update(alloc, &t);
-
-    // Get our run iterator
-    var shaper = &testdata.shaper;
-    var it = shaper.runIterator(.{
-        .grid = testdata.grid,
-        .cells = state.row_data.get(0).cells.slice(),
-    });
-    var count: usize = 0;
-    while (try it.next(alloc)) |run| {
-        count += 1;
-
-        const cells = try shaper.shape(run);
-        try testing.expectEqual(@as(usize, 8), cells.len);
-        try testing.expectEqual(@as(u16, 0), cells[0].x);
-        try testing.expectEqual(@as(u16, 0), cells[1].x);
-        // See the giant "We need to reset the `cell_offset`" comment, but here
-        // we should technically have the rest of these be `x` of 1, but that
-        // would require going back in the stream to adjust past cells, and
-        // we don't take on that complexity.
-        try testing.expectEqual(@as(u16, 0), cells[2].x);
-        try testing.expectEqual(@as(u16, 0), cells[3].x);
-        try testing.expectEqual(@as(u16, 0), cells[4].x);
-        try testing.expectEqual(@as(u16, 0), cells[5].x);
-        try testing.expectEqual(@as(u16, 0), cells[6].x);
-        try testing.expectEqual(@as(u16, 0), cells[7].x);
-
-        // The vowel sign E renders before the SSA:
-        try testing.expect(cells[2].x_offset < cells[3].x_offset);
-    }
-    try testing.expectEqual(@as(usize, 1), count);
 }
