@@ -992,32 +992,71 @@ fn resizeCols(
     } else null;
     defer if (preserved_cursor) |c| self.untrackPin(c.tracked_pin);
 
-    const first = self.pages.first.?;
-    var it = self.rowIterator(.right_down, .{ .screen = .{} }, null);
+    // Create the first node that contains our reflow.
+    const first_rewritten_node = node: {
+        const page = &self.pages.first.?.data;
+        const cap = page.capacity.adjust(
+            .{ .cols = cols },
+        ) catch |err| err: {
+            comptime assert(@TypeOf(err) == error{OutOfMemory});
 
-    const dst_node = try self.createPage(try first.data.capacity.adjust(.{ .cols = cols }));
-    dst_node.data.size.rows = 1;
+            // We verify all maxed out page layouts work.
+            var cap = page.capacity;
+            cap.cols = cols;
+
+            // We're growing columns so we can only get less rows so use
+            // the lesser of our capacity and size so we minimize wasted
+            // rows.
+            cap.rows = @min(page.size.rows, cap.rows);
+            break :err cap;
+        };
+
+        const node = try self.createPage(cap);
+        node.data.size.rows = 1;
+        break :node node;
+    };
+
+    // We need to grab our rowIterator now before we rewrite our
+    // linked list below.
+    var it = self.rowIterator(
+        .right_down,
+        .{ .screen = .{} },
+        null,
+    );
+    errdefer {
+        // If an error occurs, we're in a pretty disastrous broken state,
+        // but we should still try to clean up our leaked memory. Free
+        // any of the remaining orphaned pages from before. If we reflowed
+        // successfully this will be null.
+        var node_: ?*Node = if (it.chunk) |chunk| chunk.node else null;
+        while (node_) |node| {
+            node_ = node.next;
+            self.destroyNode(node);
+        }
+    }
 
     // Set our new page as the only page. This orphans the existing pages
     // in the list, but that's fine since we're gonna delete them anyway.
-    self.pages.first = dst_node;
-    self.pages.last = dst_node;
+    self.pages.first = first_rewritten_node;
+    self.pages.last = first_rewritten_node;
 
     // Reflow all our rows.
     {
-        var dst_cursor = ReflowCursor.init(dst_node);
+        var reflow_cursor: ReflowCursor = .init(first_rewritten_node);
         while (it.next()) |row| {
-            try dst_cursor.reflowRow(self, row);
+            try reflow_cursor.reflowRow(self, row);
 
-            // Once we're done reflowing a page, destroy it.
+            // Once we're done reflowing a page, destroy it immediately.
+            // This frees memory and makes it more likely in memory
+            // constrained environments that the next reflow will work.
             if (row.y == row.node.data.size.rows - 1) {
                 self.destroyNode(row.node);
             }
         }
 
         // At the end of the reflow, setup our total row cache
-        // log.warn("total old={} new={}", .{ self.total_rows, dst_cursor.total_rows });
-        self.total_rows = dst_cursor.total_rows;
+        // log.warn("total old={} new={}", .{ self.total_rows, reflow_cursor.total_rows });
+        self.total_rows = reflow_cursor.total_rows;
     }
 
     // If our total rows is less than our active rows, we need to grow.
@@ -1114,16 +1153,11 @@ const ReflowCursor = struct {
         const src_page: *Page = &row.node.data;
         const src_row = row.rowAndCell().row;
         const src_y = row.y;
-
-        // Inherit increased styles or grapheme bytes from
-        // the src page we're reflowing from for new pages.
-        const cap = try src_page.capacity.adjust(.{ .cols = self.page.size.cols });
-
         const cells = src_row.cells.ptr(src_page.memory)[0..src_page.size.cols];
 
+        // Calculate the columns in this row. First up we trim non-semantic
+        // rightmost blanks.
         var cols_len = src_page.size.cols;
-
-        // If the row is wrapped, all empty cells are meaningful.
         if (!src_row.wrap) {
             while (cols_len > 0) {
                 if (!cells[cols_len - 1].isEmpty()) break;
@@ -1145,9 +1179,10 @@ const ReflowCursor = struct {
                 // If this pin is in the blanks on the right and past the end
                 // of the dst col width then we move it to the end of the dst
                 // col width instead.
-                if (p.x >= cols_len) {
-                    p.x = @min(p.x, cap.cols - 1 - self.x);
-                }
+                if (p.x >= cols_len) p.x = @min(
+                    p.x,
+                    self.page.size.cols - 1 - self.x,
+                );
 
                 // We increase our col len to at least include this pin.
                 // This ensures that blank rows with pins are processed,
@@ -1162,16 +1197,29 @@ const ReflowCursor = struct {
             // If this blank row was a wrap continuation somehow
             // then we won't need to write it since it should be
             // a part of the previously written row.
-            if (!src_row.wrap_continuation) {
-                self.new_rows += 1;
-            }
+            if (!src_row.wrap_continuation) self.new_rows += 1;
             return;
         }
 
+        // Inherit increased styles or grapheme bytes from the src page
+        // we're reflowing from for new pages.
+        const cap = src_page.capacity.adjust(
+            .{ .cols = self.page.size.cols },
+        ) catch |err| err: {
+            comptime assert(@TypeOf(err) == error{OutOfMemory});
+
+            var cap = src_page.capacity;
+            cap.cols = self.page.size.cols;
+            // We're already a non-standard page. We don't want to
+            // inherit a massive set of rows, so cap it at our std size.
+            cap.rows = @min(src_page.size.rows, std_capacity.rows);
+            break :err cap;
+        };
+
         // Our row isn't blank, write any new rows we deferred.
         while (self.new_rows > 0) {
-            self.new_rows -= 1;
             try self.cursorScrollOrNewPage(list, cap);
+            self.new_rows -= 1;
         }
 
         self.copyRowMetadata(src_row);
@@ -1326,12 +1374,30 @@ const ReflowCursor = struct {
                     }
                 }
 
-                // This shouldn't fail since we made sure we have space above.
-                try self.page.setGraphemes(self.page_row, self.page_cell, cps);
+                self.page.setGraphemes(
+                    self.page_row,
+                    self.page_cell,
+                    cps,
+                ) catch |err| {
+                    // This shouldn't fail since we made sure we have space
+                    // above. There is no reasonable behavior we can take here
+                    // so we have a warn level log. This is ALMOST non-recoverable,
+                    // though we choose to recover by corrupting the cell
+                    // to a non-grapheme codepoint.
+                    log.err("setGraphemes failed after capacity increase err={}", .{err});
+                    if (comptime std.debug.runtime_safety) {
+                        // Force a crash with safe builds.
+                        unreachable;
+                    }
+
+                    // Unsafe builds we throw away grapheme data!
+                    cell.content_tag = .codepoint;
+                    cell.content = .{ .codepoint = 0xFFFD };
+                };
             }
 
             // Copy hyperlink data.
-            if (cell.hyperlink) {
+            if (cell.hyperlink) hyperlink: {
                 const src_id = src_page.lookupHyperlink(cell).?;
                 const src_link = src_page.hyperlink_set.get(src_page.memory, src_id);
 
@@ -1371,10 +1437,25 @@ const ReflowCursor = struct {
                     }
                 }
 
+                const dst_link = src_link.dupe(
+                    src_page,
+                    self.page,
+                ) catch |err| {
+                    // This shouldn't fail since we did a capacity
+                    // check above.
+                    log.err("link dupe failed with capacity check err={}", .{err});
+                    if (comptime std.debug.runtime_safety) {
+                        // Force a crash with safe builds.
+                        unreachable;
+                    }
+
+                    cell.hyperlink = false;
+                    break :hyperlink;
+                };
+
                 const dst_id = self.page.hyperlink_set.addWithIdContext(
                     self.page.memory,
-                    // We made sure there was enough capacity for this above.
-                    try src_link.dupe(src_page, self.page),
+                    dst_link,
                     src_id,
                     .{ .page = self.page },
                 ) catch |err| id: {
@@ -1387,29 +1468,80 @@ const ReflowCursor = struct {
                         error.NeedsRehash => null,
                     });
 
+                    // We dupe the link again, and don't have to worry about
+                    // freeing the other one because increasing the capacity
+                    // destroyed the prior page.
+                    const dst_link2 = src_link.dupe(
+                        src_page,
+                        self.page,
+                    ) catch |err2| {
+                        // This shouldn't fail since we did a capacity
+                        // check above.
+                        log.err("link dupe failed with capacity check err={}", .{err2});
+                        if (comptime std.debug.runtime_safety) {
+                            // Force a crash with safe builds.
+                            unreachable;
+                        }
+
+                        cell.hyperlink = false;
+                        break :hyperlink;
+                    };
+
                     // We assume this one will succeed. We dupe the link
                     // again, and don't have to worry about the other one
                     // because increasing the capacity naturally clears up
                     // any managed memory not associated with a cell yet.
-                    break :id try self.page.hyperlink_set.addWithIdContext(
+                    break :id self.page.hyperlink_set.addWithIdContext(
                         self.page.memory,
-                        try src_link.dupe(src_page, self.page),
+                        dst_link2,
                         src_id,
                         .{ .page = self.page },
-                    );
+                    ) catch |err2| {
+                        // This shouldn't happen since we increased capacity
+                        // above so we handle it like the other similar
+                        // cases and log it, crash in safe builds, and
+                        // remove the hyperlink in unsafe builds.
+                        log.err(
+                            "addWithIdContext failed after capacity increase err={}",
+                            .{err2},
+                        );
+                        if (comptime std.debug.runtime_safety) {
+                            // Force a crash with safe builds.
+                            unreachable;
+                        }
+
+                        dst_link2.free(self.page);
+                        cell.hyperlink = false;
+                        break :hyperlink;
+                    };
                 } orelse src_id;
 
-                // We expect this to succeed due to the
-                // hyperlinkCapacity check we did before.
-                try self.page.setHyperlink(
+                // We expect this to succeed due to the hyperlinkCapacity
+                // check we did before. If it doesn't succeed let's
+                // log it, crash (in safe builds), and clear our state.
+                self.page.setHyperlink(
                     self.page_row,
                     self.page_cell,
                     dst_id,
-                );
+                ) catch |err| {
+                    log.err(
+                        "setHyperlink failed after capacity increase err={}",
+                        .{err},
+                    );
+                    if (comptime std.debug.runtime_safety) {
+                        // Force a crash with safe builds.
+                        unreachable;
+                    }
+
+                    // Unsafe builds we throw away hyperlink data!
+                    self.page.hyperlink_set.release(self.page.memory, dst_id);
+                    cell.hyperlink = false;
+                    break :hyperlink;
+                };
             }
 
             // Copy style data.
-            if (cell.hasStyling()) {
+            if (cell.hasStyling()) style: {
                 const style = src_page.styles.get(
                     src_page.memory,
                     cell.style_id,
@@ -1430,15 +1562,29 @@ const ReflowCursor = struct {
                     });
 
                     // We assume this one will succeed.
-                    break :id try self.page.styles.addWithId(
+                    break :id self.page.styles.addWithId(
                         self.page.memory,
                         style,
                         cell.style_id,
-                    );
+                    ) catch |err2| {
+                        // Should not fail since we just modified capacity
+                        // above. Log it, crash in safe builds, clear style
+                        // in unsafe builds.
+                        log.err(
+                            "addWithId failed after capacity increase err={}",
+                            .{err2},
+                        );
+                        if (comptime std.debug.runtime_safety) {
+                            // Force a crash with safe builds.
+                            unreachable;
+                        }
+
+                        cell.style_id = stylepkg.default_id;
+                        break :style;
+                    };
                 } orelse cell.style_id;
 
                 self.page_row.styled = true;
-
                 self.page_cell.style_id = id;
             }
 
@@ -1574,12 +1720,13 @@ const ReflowCursor = struct {
         self: *ReflowCursor,
         list: *PageList,
         cap: Capacity,
-    ) !void {
+    ) Allocator.Error!void {
         // Remember our new row count so we can restore it
         // after reinitializing our cursor on the new page.
         const new_rows = self.new_rows;
 
         const node = try list.createPage(cap);
+        errdefer comptime unreachable;
         node.data.size.rows = 1;
         list.pages.insertAfter(self.node, node);
 
@@ -1594,7 +1741,7 @@ const ReflowCursor = struct {
         self: *ReflowCursor,
         list: *PageList,
         cap: Capacity,
-    ) !void {
+    ) Allocator.Error!void {
         // The functions below may overwrite self so we need to cache
         // our total rows. We add one because no matter what when this
         // returns we'll have one more row added.
