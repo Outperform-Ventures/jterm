@@ -2046,6 +2046,8 @@ test "Page.layout can take a maxed capacity" {
         @field(cap, field.name) = std.math.maxInt(field.type);
     }
 
+    // Note that a max capacity will exceed our max_page_size so we
+    // can't init a page with it, but it should layout.
     _ = Page.layout(cap);
 }
 

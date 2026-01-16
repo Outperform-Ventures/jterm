@@ -414,6 +414,10 @@ fn initPages(
     const pooled = layout.total_size <= std_size;
     const page_alloc = pool.pages.arena.child_allocator;
 
+    // Guaranteed by comptime checks in initialCapacity but
+    // redundant here for safety.
+    assert(layout.total_size <= size.max_page_size);
+
     var rem = rows;
     while (rem > 0) {
         const node = try pool.nodes.create();
@@ -2091,7 +2095,7 @@ fn resizeWithoutReflowGrowCols(
     ) catch |err| err: {
         comptime assert(@TypeOf(err) == error{OutOfMemory});
 
-        // We verify all maxed out page layouts work.
+        // We verify all maxed out page layouts don't overflow,
         var cap = page.capacity;
         cap.cols = cols;
 
@@ -3017,6 +3021,14 @@ pub fn increaseCapacity(
                 return error.OutOfSpace;
             };
             @field(cap, field_name) = new;
+
+            // If our capacity exceeds the maximum page size, treat it
+            // as an OutOfSpace because things like page splitting will
+            // help.
+            const layout = Page.layout(cap);
+            if (layout.total_size > size.max_page_size) {
+                return error.OutOfSpace;
+            }
         },
     };
 
@@ -3090,6 +3102,11 @@ inline fn createPageExt(
     const layout = Page.layout(cap);
     const pooled = layout.total_size <= std_size;
     const page_alloc = pool.pages.arena.child_allocator;
+
+    // It would be better to encode this into the Zig error handling
+    // system but that is a big undertaking and we only have a few
+    // centralized call sites so it is handled on its own currently.
+    assert(layout.total_size <= size.max_page_size);
 
     // Our page buffer comes from our standard memory pool if it
     // is within our standard size since this is what the pool
