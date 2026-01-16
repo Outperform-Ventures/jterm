@@ -348,6 +348,18 @@ test "OSC 133: prompt_start with special_key empty" {
     try testing.expect(cmd.prompt_start.special_key == false);
 }
 
+test "OSC 133: prompt_start with trailing ;" {
+    const testing = std.testing;
+
+    var p: Parser = .init(null);
+
+    const input = "133;A;";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end(null).?.*;
+    try testing.expect(cmd == .prompt_start);
+}
+
 test "OSC 133: prompt_start with click_events true" {
     const testing = std.testing;
 
