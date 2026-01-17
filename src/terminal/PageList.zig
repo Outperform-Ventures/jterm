@@ -2812,18 +2812,6 @@ pub fn maxSize(self: *const PageList) usize {
     return @max(self.explicit_max_size, self.min_max_size);
 }
 
-/// Returns true if we need to grow into our active area.
-inline fn growRequiredForActive(self: *const PageList) bool {
-    var rows: usize = 0;
-    var page = self.pages.last;
-    while (page) |p| : (page = p.prev) {
-        rows += p.data.size.rows;
-        if (rows >= self.rows) return false;
-    }
-
-    return true;
-}
-
 /// Grow the active area by exactly one row.
 ///
 /// This may allocate, but also may not if our current page has more
@@ -2864,15 +2852,21 @@ pub fn grow(self: *PageList) Allocator.Error!?*List.Node {
         self.pages.first != self.pages.last and
         self.page_size + PagePool.item_size > self.maxSize())
     prune: {
-        // If we need to add more memory to ensure our active area is
-        // satisfied then we do not prune.
-        if (self.growRequiredForActive()) break :prune;
-
         const first = self.pages.popFirst().?;
         assert(first != last);
 
         // Decrease our total row count from the pruned page
         self.total_rows -= first.data.size.rows;
+
+        // If our total row count is now less than our required
+        // rows then we can't prune. The "+ 1" is because we'll add one
+        // more row below.
+        if (self.total_rows + 1 < self.rows) {
+            self.pages.prepend(first);
+            assert(self.pages.first == first);
+            self.total_rows += first.data.size.rows;
+            break :prune;
+        }
 
         // If we have a pin viewport cache then we need to update it.
         if (self.viewport == .pin) viewport: {
@@ -2902,12 +2896,8 @@ pub fn grow(self: *PageList) Allocator.Error!?*List.Node {
         }
         self.viewport_pin.garbage = false;
 
-        // If our first node has non-standard memory size, we can't reuse
-        // it. This is because our initBuf below would change the underlying
-        // memory length which would break our memory free outside the pool.
-        // It is easiest in this case to prune the node.
+        // Non-standard pages can't be reused, just destroy them.
         if (first.data.memory.len > std_size) {
-            // Node is already removed so we can just destroy it.
             self.destroyNode(first);
             break :prune;
         }
@@ -11585,7 +11575,7 @@ test "PageList grow reuses non-standard page without leak" {
     try testing.expect(s.pages.first.?.data.memory.len > std_size);
 
     // Verify we have enough rows for active area (so prune path isn't skipped)
-    try testing.expect(!s.growRequiredForActive());
+    try testing.expect(s.totalRows() >= s.rows);
 
     // Verify last page is full (so grow will need to allocate/reuse)
     try testing.expect(s.pages.last.?.data.size.rows == s.pages.last.?.data.capacity.rows);
@@ -11618,4 +11608,74 @@ test "PageList grow reuses non-standard page without leak" {
     try testing.expectEqual(0, tracked_pin.x);
     try testing.expectEqual(0, tracked_pin.y);
     try testing.expect(tracked_pin.garbage);
+}
+
+test "PageList grow non-standard page prune protection" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    // This test specifically verifies the fix for the bug where pruning a
+    // non-standard page would cause totalRows() < self.rows.
+    //
+    // Bug trigger conditions (all must be true simultaneously):
+    // 1. first page is non-standard (memory.len > std_size)
+    // 2. page_size + PagePool.item_size > maxSize() (triggers prune consideration)
+    // 3. pages.first != pages.last (have multiple pages)
+    // 4. total_rows >= self.rows (have enough rows for active area)
+    // 5. total_rows - first.size.rows + 1 < self.rows (prune would lose too many)
+
+    // This is kind of magic and likely depends on std_size.
+    const rows_count = 600;
+    var s = try init(alloc, 80, rows_count, std_size);
+    defer s.deinit();
+
+    // Make the first page non-standard
+    while (s.pages.first.?.data.memory.len <= std_size) {
+        _ = try s.increaseCapacity(
+            s.pages.first.?,
+            .grapheme_bytes,
+        );
+    }
+    try testing.expect(s.pages.first.?.data.memory.len > std_size);
+
+    const first_page_node = s.pages.first.?;
+    const first_page_cap = first_page_node.data.capacity.rows;
+
+    // Fill first page to capacity
+    while (first_page_node.data.size.rows < first_page_cap) _ = try s.grow();
+
+    // Grow until we have a second page (first page fills up first)
+    var second_node: ?*List.Node = null;
+    while (s.pages.first == s.pages.last) second_node = try s.grow();
+    try testing.expect(s.pages.first != s.pages.last);
+
+    // Fill the second page to capacity so that the next grow() triggers prune
+    const last_node = s.pages.last.?;
+    const second_cap = last_node.data.capacity.rows;
+    while (last_node.data.size.rows < second_cap) _ = try s.grow();
+
+    // Now the last page is full. The next grow must either:
+    // 1. Prune the first page and reuse it, OR
+    // 2. Allocate a new page
+    const total = s.totalRows();
+    const would_remain = total - first_page_cap + 1;
+
+    // Verify the bug condition is present: pruning first page would leave < rows
+    try testing.expect(would_remain < s.rows);
+
+    // Verify prune path conditions are met
+    try testing.expect(s.pages.first != s.pages.last);
+    try testing.expect(s.page_size + PagePool.item_size > s.maxSize());
+    try testing.expect(s.totalRows() >= s.rows);
+
+    // Verify last page is at capacity (so grow must prune or allocate new)
+    try testing.expectEqual(second_cap, last_node.data.size.rows);
+
+    // The next grow should trigger prune consideration.
+    // Without the fix, this would destroy the non-standard first page,
+    // leaving only second_cap + 1 rows, which is < self.rows.
+    _ = try s.grow();
+
+    // Verify the invariant holds - the fix prevents the destructive prune
+    try testing.expect(s.totalRows() >= s.rows);
 }
