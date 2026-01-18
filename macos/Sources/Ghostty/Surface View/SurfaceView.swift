@@ -431,7 +431,12 @@ extension Ghostty {
                     }
 #if canImport(AppKit)
                     .onExitCommand {
-                        Ghostty.moveFocus(to: surfaceView)
+                        if searchState.needle.isEmpty {
+                            Ghostty.moveFocus(to: surfaceView)
+                            onClose()
+                        } else {
+                            Ghostty.moveFocus(to: surfaceView)
+                        }
                     }
 #endif
                     .backport.onKeyPress(.return) { modifiers in
