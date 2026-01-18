@@ -3045,6 +3045,9 @@ pub fn increaseCapacity(
         @panic("unexpected clone failure");
     };
 
+    // Preserve page-level dirty flag (cloneFrom only copies row data)
+    new_page.dirty = page.dirty;
+
     // Must not fail after this because the operations we do after this
     // can't be recovered.
     errdefer comptime unreachable;
@@ -6940,6 +6943,37 @@ test "PageList increaseCapacity multi-page" {
         page2_styles_cap,
         s.pages.last.?.data.capacity.styles,
     );
+}
+
+test "PageList increaseCapacity preserves dirty flag" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 2, 4, 0);
+    defer s.deinit();
+
+    // Set page dirty flag and mark some rows as dirty
+    const page = &s.pages.first.?.data;
+    page.dirty = true;
+
+    const rows = page.rows.ptr(page.memory);
+    rows[0].dirty = true;
+    rows[1].dirty = false;
+    rows[2].dirty = true;
+    rows[3].dirty = false;
+
+    // Increase capacity
+    const new_node = try s.increaseCapacity(s.pages.first.?, .styles);
+
+    // The page dirty flag should be preserved
+    try testing.expect(new_node.data.dirty);
+
+    // Row dirty flags should be preserved
+    const new_rows = new_node.data.rows.ptr(new_node.data.memory);
+    try testing.expect(new_rows[0].dirty);
+    try testing.expect(!new_rows[1].dirty);
+    try testing.expect(new_rows[2].dirty);
+    try testing.expect(!new_rows[3].dirty);
 }
 
 test "PageList pageIterator single page" {
