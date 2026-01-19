@@ -9350,17 +9350,21 @@ test "Screen setAttribute increases capacity when style map is full" {
     const page = &s.cursor.page_pin.node.data;
     const original_styles_capacity = page.capacity.styles;
 
-    // Fill the style map to capacity
+    // Fill the style map to capacity using the StyleSet's layout capacity
+    // which accounts for the load factor
     {
         page.pauseIntegrityChecks(true);
         defer page.pauseIntegrityChecks(false);
         defer page.assertIntegrity();
 
-        var n: u24 = 1;
-        while (page.styles.add(
-            page.memory,
-            .{ .bg_color = .{ .rgb = @bitCast(n) } },
-        )) |_| n += 1 else |_| {}
+        const max_items = page.styles.layout.cap;
+        var n: usize = 1;
+        while (n < max_items) : (n += 1) {
+            _ = page.styles.add(
+                page.memory,
+                .{ .bg_color = .{ .rgb = @bitCast(@as(u24, @intCast(n))) } },
+            ) catch break;
+        }
     }
 
     // Now try to set a new unique attribute that would require a new style slot
@@ -9411,17 +9415,21 @@ test "Screen setAttribute splits page on OutOfSpace at max styles" {
     var page = &s.cursor.page_pin.node.data;
     try testing.expectEqual(max_styles, page.capacity.styles);
 
-    // Fill the style map to capacity
+    // Fill the style map to capacity using the StyleSet's layout capacity
+    // which accounts for the load factor
     {
         page.pauseIntegrityChecks(true);
         defer page.pauseIntegrityChecks(false);
         defer page.assertIntegrity();
 
-        var n: u24 = 1;
-        while (page.styles.add(
-            page.memory,
-            .{ .bg_color = .{ .rgb = @bitCast(n) } },
-        )) |_| n += 1 else |_| {}
+        const max_items = page.styles.layout.cap;
+        var n: usize = 1;
+        while (n < max_items) : (n += 1) {
+            _ = page.styles.add(
+                page.memory,
+                .{ .bg_color = .{ .rgb = @bitCast(@as(u24, @intCast(n))) } },
+            ) catch break;
+        }
     }
 
     // Track the node before setAttribute
