@@ -1017,7 +1017,7 @@ pub fn restoreCursor(self: *Terminal) void {
         log.warn("restoreCursor error updating style err={}", .{err});
         const screen: *Screen = self.screens.active;
         screen.cursor.style = .{};
-        screen.cursor.style_id = style.default_id;
+        self.screens.active.manualStyleUpdate() catch unreachable;
     };
 
     self.screens.active.charset = saved.charset;

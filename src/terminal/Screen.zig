@@ -1804,7 +1804,7 @@ pub fn setAttribute(
         self.manualStyleUpdate() catch |err| {
             log.warn("setAttribute error restoring old style after failure err={}", .{err});
             self.cursor.style = .{};
-            self.cursor.style_id = style.default_id;
+            self.manualStyleUpdate() catch unreachable;
         };
     }
 
@@ -1951,17 +1951,18 @@ pub fn setAttribute(
 
 /// Call this whenever you manually change the cursor style.
 ///
+/// This function can NOT fail if the cursor style is changing to the
+/// default style.
+///
 /// If this returns an error, the style change did not take effect and
-/// the cursor style is reverted back to the default.
+/// the cursor style is reverted back to the default. The only scenario
+/// this returns an error is if there is a physical memory allocation failure
+/// or if there is no possible way to increase style capacity to store
+/// the style.
 ///
-/// Note that this can return any PageList capacity error, because it
-/// is possible for the internal pagelist to not accommodate the new style
-/// at all. This WILL attempt to resize our internal pages to fit the style
-/// but it is possible that it cannot be done, in which case upstream callers
-/// need to split the page or do something else.
-///
-/// NOTE(mitchellh): I think in the future we'll do page splitting
-/// automatically here and remove this failure scenario.
+/// This function WILL split pages as necessary to accommodate the new style.
+/// So if OutOfSpace is returned, it means that even after splitting the page
+/// there was still no room for the new style.
 pub fn manualStyleUpdate(self: *Screen) PageList.IncreaseCapacityError!void {
     defer self.assertIntegrity();
     var page: *Page = &self.cursor.page_pin.node.data;
