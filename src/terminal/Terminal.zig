@@ -996,7 +996,7 @@ pub fn saveCursor(self: *Terminal) void {
 ///
 /// The primary and alternate screen have distinct save state.
 /// If no save was done before values are reset to their initial values.
-pub fn restoreCursor(self: *Terminal) !void {
+pub fn restoreCursor(self: *Terminal) void {
     const saved: Screen.SavedCursor = self.screens.active.saved_cursor orelse .{
         .x = 0,
         .y = 0,
@@ -1008,10 +1008,17 @@ pub fn restoreCursor(self: *Terminal) !void {
     };
 
     // Set the style first because it can fail
-    const old_style = self.screens.active.cursor.style;
     self.screens.active.cursor.style = saved.style;
-    errdefer self.screens.active.cursor.style = old_style;
-    try self.screens.active.manualStyleUpdate();
+    self.screens.active.manualStyleUpdate() catch |err| {
+        // Regardless of the error here, we revert back to an unstyled
+        // cursor. It is more important that the restore succeeds in
+        // other attributes because terminals have no way to communicate
+        // failure back.
+        log.warn("restoreCursor error updating style err={}", .{err});
+        const screen: *Screen = self.screens.active;
+        screen.cursor.style = .{};
+        self.screens.active.manualStyleUpdate() catch unreachable;
+    };
 
     self.screens.active.charset = saved.charset;
     self.modes.set(.origin, saved.origin);
@@ -2747,12 +2754,7 @@ pub fn switchScreenMode(
             }
         } else {
             assert(self.screens.active_key == .primary);
-            self.restoreCursor() catch |err| {
-                log.warn(
-                    "restore cursor on switch screen failed to={} err={}",
-                    .{ to, err },
-                );
-            };
+            self.restoreCursor();
         },
     }
 }
@@ -4807,7 +4809,7 @@ test "Terminal: horizontal tab back with cursor before left margin" {
     t.saveCursor();
     t.modes.set(.enable_left_and_right_margin, true);
     t.setLeftAndRightMargin(5, 0);
-    try t.restoreCursor();
+    t.restoreCursor();
     try t.horizontalTabBack();
     try t.print('X');
 
@@ -9873,7 +9875,7 @@ test "Terminal: saveCursor" {
     t.screens.active.charset.gr = .G0;
     try t.setAttribute(.{ .unset = {} });
     t.modes.set(.origin, false);
-    try t.restoreCursor();
+    t.restoreCursor();
     try testing.expect(t.screens.active.cursor.style.flags.bold);
     try testing.expect(t.screens.active.charset.gr == .G3);
     try testing.expect(t.modes.get(.origin));
@@ -9889,7 +9891,7 @@ test "Terminal: saveCursor position" {
     t.saveCursor();
     t.setCursorPos(1, 1);
     try t.print('B');
-    try t.restoreCursor();
+    t.restoreCursor();
     try t.print('X');
 
     {
@@ -9909,7 +9911,7 @@ test "Terminal: saveCursor pending wrap state" {
     t.saveCursor();
     t.setCursorPos(1, 1);
     try t.print('B');
-    try t.restoreCursor();
+    t.restoreCursor();
     try t.print('X');
 
     {
@@ -9929,7 +9931,7 @@ test "Terminal: saveCursor origin mode" {
     t.modes.set(.enable_left_and_right_margin, true);
     t.setLeftAndRightMargin(3, 5);
     t.setTopAndBottomMargin(2, 4);
-    try t.restoreCursor();
+    t.restoreCursor();
     try t.print('X');
 
     {
@@ -9947,7 +9949,7 @@ test "Terminal: saveCursor resize" {
     t.setCursorPos(1, 10);
     t.saveCursor();
     try t.resize(alloc, 5, 5);
-    try t.restoreCursor();
+    t.restoreCursor();
     try t.print('X');
 
     {
@@ -9968,7 +9970,7 @@ test "Terminal: saveCursor protected pen" {
     t.saveCursor();
     t.setProtectedMode(.off);
     try testing.expect(!t.screens.active.cursor.protected);
-    try t.restoreCursor();
+    t.restoreCursor();
     try testing.expect(t.screens.active.cursor.protected);
 }
 
@@ -9981,8 +9983,65 @@ test "Terminal: saveCursor doesn't modify hyperlink state" {
     const id = t.screens.active.cursor.hyperlink_id;
     t.saveCursor();
     try testing.expectEqual(id, t.screens.active.cursor.hyperlink_id);
-    try t.restoreCursor();
+    t.restoreCursor();
     try testing.expectEqual(id, t.screens.active.cursor.hyperlink_id);
+}
+
+test "Terminal: restoreCursor uses default style on OutOfSpace" {
+    // Tests that restoreCursor falls back to default style when
+    // manualStyleUpdate fails with OutOfSpace (can't split a 1-row page
+    // and styles are at max capacity).
+    const alloc = testing.allocator;
+
+    // Use a single row so the page can't be split
+    var t = try init(alloc, .{ .cols = 10, .rows = 1 });
+    defer t.deinit(alloc);
+
+    // Set a style and save the cursor
+    try t.setAttribute(.{ .bold = {} });
+    t.saveCursor();
+
+    // Clear the style
+    try t.setAttribute(.{ .unset = {} });
+    try testing.expect(!t.screens.active.cursor.style.flags.bold);
+
+    // Fill the style map to max capacity
+    const max_styles = std.math.maxInt(size.CellCountInt);
+    while (t.screens.active.cursor.page_pin.node.data.capacity.styles < max_styles) {
+        _ = t.screens.active.increaseCapacity(
+            t.screens.active.cursor.page_pin.node,
+            .styles,
+        ) catch break;
+    }
+
+    const page = &t.screens.active.cursor.page_pin.node.data;
+    try testing.expectEqual(max_styles, page.capacity.styles);
+
+    // Fill all style slots using the StyleSet's layout capacity which accounts
+    // for the load factor. The capacity in the layout is the actual max number
+    // of items that can be stored.
+    {
+        page.pauseIntegrityChecks(true);
+        defer page.pauseIntegrityChecks(false);
+        defer page.assertIntegrity();
+
+        const max_items = page.styles.layout.cap;
+        var n: usize = 1;
+        while (n < max_items) : (n += 1) {
+            _ = page.styles.add(
+                page.memory,
+                .{ .bg_color = .{ .rgb = @bitCast(@as(u24, @intCast(n))) } },
+            ) catch break;
+        }
+    }
+
+    // Restore cursor - should fall back to default style since page
+    // can't be split (1 row) and styles are at max capacity
+    t.restoreCursor();
+
+    // The style should be reset to default because OutOfSpace occurred
+    try testing.expect(!t.screens.active.cursor.style.flags.bold);
+    try testing.expectEqual(style.default_id, t.screens.active.cursor.style_id);
 }
 
 test "Terminal: setProtectedMode" {
@@ -11376,7 +11435,7 @@ test "Terminal: resize with reflow and saved cursor" {
 
     t.saveCursor();
     try t.resize(alloc, 5, 3);
-    try t.restoreCursor();
+    t.restoreCursor();
 
     {
         const str = try t.plainString(testing.allocator);
@@ -11417,7 +11476,7 @@ test "Terminal: resize with reflow and saved cursor pending wrap" {
 
     t.saveCursor();
     try t.resize(alloc, 5, 3);
-    try t.restoreCursor();
+    t.restoreCursor();
 
     {
         const str = try t.plainString(testing.allocator);

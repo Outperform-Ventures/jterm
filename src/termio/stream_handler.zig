@@ -721,7 +721,7 @@ pub const StreamHandler = struct {
                 if (enabled) {
                     self.terminal.saveCursor();
                 } else {
-                    try self.terminal.restoreCursor();
+                    self.terminal.restoreCursor();
                 }
             },
 
@@ -933,7 +933,7 @@ pub const StreamHandler = struct {
     }
 
     pub inline fn restoreCursor(self: *StreamHandler) !void {
-        try self.terminal.restoreCursor();
+        self.terminal.restoreCursor();
     }
 
     pub fn enquiry(self: *StreamHandler) !void {
