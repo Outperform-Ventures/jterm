@@ -170,6 +170,19 @@ pub fn SplitTree(comptime V: type) type {
             return self.nodes.len == 0;
         }
 
+        /// Returns true if this tree has more than one split (i.e., the root
+        /// is a split node). This is useful for determining if actions like
+        /// resize_split or toggle_split_zoom are performable.
+        pub fn isSplit(self: *const Self) bool {
+            // An empty tree is not split.
+            if (self.isEmpty()) return false;
+            // The root node is at index 0. If it's a split, we have multiple splits.
+            return switch (self.nodes[0]) {
+                .split => true,
+                .leaf => false,
+            };
+        }
+
         /// An iterator over all the views in the tree.
         pub fn iterator(
             self: *const Self,
@@ -1325,6 +1338,34 @@ const TestView = struct {
         return self.label;
     }
 };
+
+test "SplitTree: isSplit" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    // Empty tree should not be split
+    var empty: TestTree = .empty;
+    defer empty.deinit();
+    try testing.expect(!empty.isSplit());
+
+    // Single node tree should not be split
+    var v1: TestView = .{ .label = "A" };
+    var single: TestTree = try TestTree.init(alloc, &v1);
+    defer single.deinit();
+    try testing.expect(!single.isSplit());
+
+    // Split tree should be split
+    var v2: TestView = .{ .label = "B" };
+    var split = try single.split(
+        alloc,
+        .root,
+        .right,
+        0.5,
+        &v2,
+    );
+    defer split.deinit();
+    try testing.expect(split.isSplit());
+}
 
 test "SplitTree: empty tree" {
     const testing = std.testing;
