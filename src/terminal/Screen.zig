@@ -1789,9 +1789,22 @@ fn resizeInternal(
 
 /// Set a style attribute for the current cursor.
 ///
-/// This can cause a page split if the current page cannot fit this style.
-/// This is the only scenario an error return is possible.
+/// If the style can't be set due to any internal errors (memory-related),
+/// then this will revert back to the existing style and return an error.
 pub fn setAttribute(self: *Screen, attr: sgr.Attribute) !void {
+    // If we fail to set our style for any reason, we should revert
+    // back to the old style. If we fail to do that, we revert back to
+    // the default style.
+    const old_style = self.cursor.style;
+    errdefer {
+        self.cursor.style = old_style;
+        self.manualStyleUpdate() catch |err| {
+            log.warn("setAttribute error restoring old style after failure err={}", .{err});
+            self.cursor.style = .{};
+            self.cursor.style_id = style.default_id;
+        };
+    }
+
     switch (attr) {
         .unset => {
             self.cursor.style = .{};
@@ -1934,6 +1947,9 @@ pub fn setAttribute(self: *Screen, attr: sgr.Attribute) !void {
 }
 
 /// Call this whenever you manually change the cursor style.
+///
+/// If this returns an error, the style change did not take effect and
+/// the cursor style is reverted back to the default.
 ///
 /// Note that this can return any PageList capacity error, because it
 /// is possible for the internal pagelist to not accommodate the new style
@@ -9246,4 +9262,50 @@ test "Screen: cursorDown to page with insufficient capacity" {
         // Didn't find boundary
         try testing.expect(false);
     }
+}
+
+test "Screen setAttribute returns OutOfSpace at max styles" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, .{ .cols = 10, .rows = 10, .max_scrollback = 0 });
+    defer s.deinit();
+
+    // Increase the page's style capacity to max by repeatedly calling increaseCapacity
+    const max_styles = std.math.maxInt(size.CellCountInt);
+    while (s.cursor.page_pin.node.data.capacity.styles < max_styles) {
+        _ = s.pages.increaseCapacity(
+            s.cursor.page_pin.node,
+            .styles,
+        ) catch break;
+    }
+
+    // Get the page reference after increaseCapacity
+    const page = &s.cursor.page_pin.node.data;
+    try testing.expectEqual(max_styles, page.capacity.styles);
+
+    // Fill up all style slots
+    page.pauseIntegrityChecks(true);
+    var n: u24 = 1;
+    while (page.styles.add(
+        page.memory,
+        .{ .bg_color = .{ .rgb = @bitCast(n) } },
+    )) |_| n += 1 else |_| {}
+    page.pauseIntegrityChecks(false);
+
+    // Set a style that we can track as "prior"
+    // Use a style that's already in the page by reusing one we added
+    s.cursor.style = .{ .bg_color = .{ .rgb = @bitCast(@as(u24, 1)) } };
+    const prior_id = page.styles.add(page.memory, s.cursor.style) catch unreachable;
+    s.cursor.style_id = prior_id;
+
+    // Now try to set a new unique attribute that would require a new style slot
+    // This should fail with OutOfSpace since we're at max capacity
+    const result = s.setAttribute(.bold);
+
+    // Should return OutOfSpace error
+    try testing.expectError(error.OutOfSpace, result);
+
+    // The cursor style_id should remain the prior one
+    try testing.expectEqual(prior_id, s.cursor.style_id);
 }
