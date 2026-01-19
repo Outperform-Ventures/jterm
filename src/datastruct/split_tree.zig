@@ -1356,12 +1356,14 @@ test "SplitTree: isSplit" {
 
     // Split tree should be split
     var v2: TestView = .{ .label = "B" };
+    var tree2: TestTree = try TestTree.init(alloc, &v2);
+    defer tree2.deinit();
     var split = try single.split(
         alloc,
         .root,
         .right,
         0.5,
-        &v2,
+        &tree2,
     );
     defer split.deinit();
     try testing.expect(split.isSplit());
