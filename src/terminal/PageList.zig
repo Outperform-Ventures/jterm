@@ -485,10 +485,11 @@ pub inline fn pauseIntegrityChecks(self: *PageList, pause: bool) void {
 }
 
 const IntegrityError = error{
+    PageSerialInvalid,
     TotalRowsMismatch,
+    TrackedPinInvalid,
     ViewportPinOffsetMismatch,
     ViewportPinInsufficientRows,
-    PageSerialInvalid,
 };
 
 /// Verify the integrity of the PageList. This is expensive and should
@@ -527,6 +528,11 @@ fn verifyIntegrity(self: *const PageList) IntegrityError!void {
             .{ self.total_rows, actual_total },
         );
         return IntegrityError.TotalRowsMismatch;
+    }
+
+    // Verify that all our tracked pins point to valid pages.
+    for (self.tracked_pins.keys()) |p| {
+        if (!self.pinIsValid(p.*)) return error.TrackedPinInvalid;
     }
 
     if (self.viewport == .pin) {
@@ -750,8 +756,8 @@ pub fn clone(
     );
     errdefer pool.deinit();
 
-    // Our viewport pin is always undefined since our viewport in a clones
-    // goes back to the top
+    // Create our viewport. In a clone, the viewport always goes
+    // to the top.
     const viewport_pin = try pool.pins.create();
     var tracked_pins: PinSet = .{};
     errdefer tracked_pins.deinit(pool.alloc);
@@ -816,6 +822,10 @@ pub fn clone(
             }
         }
     }
+
+    // Initialize our viewport pin to point to the first cloned page
+    // so it points to valid memory.
+    viewport_pin.* = .{ .node = page_list.first.? };
 
     var result: PageList = .{
         .pool = pool,
@@ -1259,9 +1269,26 @@ const ReflowCursor = struct {
             )) |result| switch (result) {
                 // Wrote the cell, move to the next.
                 .success => x += 1,
+
                 // Wrote the cell but request to skip the next so skip it.
                 // This is used for things like spacers.
-                .skip_next => x += 2,
+                .skip_next => {
+                    // Remap any tracked pins at the skipped position (x+1)
+                    // since we won't process that cell in the loop.
+                    const pin_keys = list.tracked_pins.keys();
+                    for (pin_keys) |p| {
+                        if (&p.node.data != src_page or
+                            p.y != src_y or
+                            p.x != x + 1) continue;
+
+                        p.node = self.node;
+                        p.x = self.x;
+                        p.y = self.y;
+                    }
+
+                    x += 2;
+                },
+
                 // Didn't write the cell, repeat writing this same cell.
                 .repeat => {},
             } else |err| switch (err) {
@@ -2167,6 +2194,14 @@ fn resizeWithoutReflowGrowCols(
 
         assert(copied == len);
         assert(prev_page.size.rows <= prev_page.capacity.rows);
+
+        // Remap any tracked pins that pointed to rows we just copied to prev.
+        const pin_keys = self.tracked_pins.keys();
+        for (pin_keys) |p| {
+            if (p.node != chunk.node or p.y >= len) continue;
+            p.node = prev_node;
+            p.y += prev_page.size.rows - len;
+        }
     }
 
     // If we have an error, we clear the rows we just added to our prev page.
@@ -11712,4 +11747,67 @@ test "PageList grow non-standard page prune protection" {
 
     // Verify the invariant holds - the fix prevents the destructive prune
     try testing.expect(s.totalRows() >= s.rows);
+}
+
+test "PageList resize (no reflow) more cols remaps pins in backfill path" {
+    // Regression test: when resizeWithoutReflowGrowCols copies rows to a previous
+    // page with spare capacity, tracked pins in those rows must be remapped.
+    // Without the fix, pins become dangling pointers when the original page is destroyed.
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    const cols: size.CellCountInt = 5;
+    const cap = try std_capacity.adjust(.{ .cols = cols });
+    var s = try init(alloc, cols, cap.rows, null);
+    defer s.deinit();
+
+    // Grow until we have two pages.
+    while (s.pages.first == s.pages.last) {
+        _ = try s.grow();
+    }
+    const first_page = s.pages.first.?;
+    const second_page = s.pages.last.?;
+    try testing.expect(first_page != second_page);
+
+    // Trim a history row so the first page has spare capacity.
+    // This triggers the backfill path in resizeWithoutReflowGrowCols.
+    s.eraseRows(.{ .history = .{} }, .{ .history = .{ .y = 0 } });
+    try testing.expect(first_page.data.size.rows < first_page.data.capacity.rows);
+
+    // Ensure the resize takes the slow path (new capacity > current capacity).
+    const new_cols: size.CellCountInt = cols + 1;
+    const adjusted = try second_page.data.capacity.adjust(.{ .cols = new_cols });
+    try testing.expect(second_page.data.capacity.cols < adjusted.cols);
+
+    // Track a pin in row 0 of the second page. This row will be copied
+    // to the first page during backfill and the pin must be remapped.
+    const tracked = try s.trackPin(.{ .node = second_page, .x = 0, .y = 0 });
+    defer s.untrackPin(tracked);
+
+    // Write a marker character to the tracked cell so we can verify
+    // the pin points to the correct cell after resize.
+    const marker: u21 = 'X';
+    tracked.rowAndCell().cell.* = .{
+        .content_tag = .codepoint,
+        .content = .{ .codepoint = marker },
+    };
+
+    try s.resize(.{ .cols = new_cols, .reflow = false });
+
+    // Verify the pin points to a valid node still in the page list.
+    var found = false;
+    var it = s.pages.first;
+    while (it) |node| : (it = node.next) {
+        if (node == tracked.node) {
+            found = true;
+            break;
+        }
+    }
+    try testing.expect(found);
+    try testing.expect(tracked.y < tracked.node.data.size.rows);
+
+    // Verify the pin still points to the cell with our marker content.
+    const cell = tracked.rowAndCell().cell;
+    try testing.expectEqual(.codepoint, cell.content_tag);
+    try testing.expectEqual(marker, cell.content.codepoint);
 }
