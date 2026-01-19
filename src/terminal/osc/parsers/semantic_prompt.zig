@@ -33,64 +33,69 @@ pub fn parse(parser: *Parser, _: ?u8) ?*Command {
                 return null;
             };
             while (it.next()) |kv| {
-                if (std.mem.eql(u8, kv.key, "aid")) {
+                const key = kv.key orelse continue;
+                if (std.mem.eql(u8, key, "aid")) {
                     parser.command.prompt_start.aid = kv.value;
-                } else if (std.mem.eql(u8, kv.key, "redraw")) redraw: {
+                } else if (std.mem.eql(u8, key, "redraw")) redraw: {
                     // https://sw.kovidgoyal.net/kitty/shell-integration/#notes-for-shell-developers
                     // Kitty supports a "redraw" option for prompt_start. I can't find
                     // this documented anywhere but can see in the code that this is used
                     // by shell environments to tell the terminal that the shell will NOT
                     // redraw the prompt so we should attempt to resize it.
                     parser.command.prompt_start.redraw = (value: {
-                        if (kv.value.len != 1) break :value null;
-                        switch (kv.value[0]) {
+                        const value = kv.value orelse break :value null;
+                        if (value.len != 1) break :value null;
+                        switch (value[0]) {
                             '0' => break :value false,
                             '1' => break :value true,
                             else => break :value null,
                         }
                     }) orelse {
-                        log.info("OSC 133 A: invalid redraw value: {s}", .{kv.value});
+                        log.info("OSC 133 A: invalid redraw value: {?s}", .{kv.value});
                         break :redraw;
                     };
-                } else if (std.mem.eql(u8, kv.key, "special_key")) redraw: {
+                } else if (std.mem.eql(u8, key, "special_key")) redraw: {
                     // https://sw.kovidgoyal.net/kitty/shell-integration/#notes-for-shell-developers
                     parser.command.prompt_start.special_key = (value: {
-                        if (kv.value.len != 1) break :value null;
-                        switch (kv.value[0]) {
+                        const value = kv.value orelse break :value null;
+                        if (value.len != 1) break :value null;
+                        switch (value[0]) {
                             '0' => break :value false,
                             '1' => break :value true,
                             else => break :value null,
                         }
                     }) orelse {
-                        log.info("OSC 133 A invalid special_key value: {s}", .{kv.value});
+                        log.info("OSC 133 A invalid special_key value: {?s}", .{kv.value});
                         break :redraw;
                     };
-                } else if (std.mem.eql(u8, kv.key, "click_events")) redraw: {
+                } else if (std.mem.eql(u8, key, "click_events")) redraw: {
                     // https://sw.kovidgoyal.net/kitty/shell-integration/#notes-for-shell-developers
                     parser.command.prompt_start.click_events = (value: {
-                        if (kv.value.len != 1) break :value null;
-                        switch (kv.value[0]) {
+                        const value = kv.value orelse break :value null;
+                        if (value.len != 1) break :value null;
+                        switch (value[0]) {
                             '0' => break :value false,
                             '1' => break :value true,
                             else => break :value null,
                         }
                     }) orelse {
-                        log.info("OSC 133 A invalid click_events value: {s}", .{kv.value});
+                        log.info("OSC 133 A invalid click_events value: {?s}", .{kv.value});
                         break :redraw;
                     };
-                } else if (std.mem.eql(u8, kv.key, "k")) k: {
+                } else if (std.mem.eql(u8, key, "k")) k: {
                     // The "k" marks the kind of prompt, or "primary" if we don't know.
                     // This can be used to distinguish between the first (initial) prompt,
                     // a continuation, etc.
-                    if (kv.value.len != 1) break :k;
-                    parser.command.prompt_start.kind = switch (kv.value[0]) {
+                    const value = kv.value orelse break :k;
+                    if (value.len != 1) break :k;
+                    parser.command.prompt_start.kind = switch (value[0]) {
                         'c' => .continuation,
                         's' => .secondary,
                         'r' => .right,
                         'i' => .primary,
                         else => .primary,
                     };
-                } else log.info("OSC 133 A: unknown semantic prompt option: {s}", .{kv.key});
+                } else log.info("OSC 133 A: unknown semantic prompt option: {?s}", .{kv.key});
             }
         },
         'B' => prompt_end: {
@@ -105,7 +110,7 @@ pub fn parse(parser: *Parser, _: ?u8) ?*Command {
                 return null;
             };
             while (it.next()) |kv| {
-                log.info("OSC 133 B: unknown semantic prompt option: {s}", .{kv.key});
+                log.info("OSC 133 B: unknown semantic prompt option: {?s}", .{kv.key});
             }
         },
         'C' => end_of_input: {
@@ -122,12 +127,13 @@ pub fn parse(parser: *Parser, _: ?u8) ?*Command {
                 return null;
             };
             while (it.next()) |kv| {
-                if (std.mem.eql(u8, kv.key, "cmdline")) {
-                    parser.command.end_of_input.cmdline = string_encoding.printfQDecode(kv.value) catch null;
-                } else if (std.mem.eql(u8, kv.key, "cmdline_url")) {
-                    parser.command.end_of_input.cmdline = string_encoding.urlPercentDecode(kv.value) catch null;
+                const key = kv.key orelse continue;
+                if (std.mem.eql(u8, key, "cmdline")) {
+                    parser.command.end_of_input.cmdline = if (kv.value) |value| string_encoding.printfQDecode(value) catch null else null;
+                } else if (std.mem.eql(u8, key, "cmdline_url")) {
+                    parser.command.end_of_input.cmdline = if (kv.value) |value| string_encoding.urlPercentDecode(value) catch null else null;
                 } else {
-                    log.info("OSC 133 C: unknown semantic prompt option: {s}", .{kv.key});
+                    log.info("OSC 133 C: unknown semantic prompt option: {s}", .{key});
                 }
             }
         },
@@ -159,8 +165,8 @@ const SemanticPromptKVIterator = struct {
     string: []u8,
 
     pub const SemanticPromptKV = struct {
-        key: [:0]u8,
-        value: [:0]u8,
+        key: ?[:0]u8,
+        value: ?[:0]u8,
     };
 
     pub fn init(writer: *std.Io.Writer) std.Io.Writer.Error!SemanticPromptKVIterator {
@@ -186,17 +192,24 @@ const SemanticPromptKVIterator = struct {
             break :kv kv;
         };
 
-        // If we have an empty item, we return an empty key and value.
+        // If we have an empty item, we return a null key and value.
         //
         // This allows for trailing semicolons, but also lets us parse
         // (or rather, ignore) empty fields; for example `a=b;;e=f`.
         if (kv.len < 1) return .{
-            .key = kv,
-            .value = kv,
+            .key = null,
+            .value = null,
         };
 
         const key = key: {
-            const index = std.mem.indexOfScalar(u8, kv, '=') orelse break :key kv;
+            const index = std.mem.indexOfScalar(u8, kv, '=') orelse {
+                // If there is no '=' return entire `kv` string as the key and
+                // a null value.
+                return .{
+                    .key = kv,
+                    .value = null,
+                };
+            };
             kv[index] = 0;
             const key = kv[0..index :0];
             break :key key;
@@ -405,6 +418,36 @@ test "OSC 133: prompt_start with click_events empty" {
 
     const cmd = p.end(null).?.*;
     try testing.expect(cmd == .prompt_start);
+    try testing.expect(cmd.prompt_start.click_events == false);
+}
+
+test "OSC 133: prompt_start with click_events bare key" {
+    const testing = std.testing;
+
+    var p: Parser = .init(null);
+
+    const input = "133;A;click_events";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end(null).?.*;
+    try testing.expect(cmd == .prompt_start);
+    try testing.expect(cmd.prompt_start.click_events == false);
+}
+
+test "OSC 133: prompt_start with invalid bare key" {
+    const testing = std.testing;
+
+    var p: Parser = .init(null);
+
+    const input = "133;A;barekey";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end(null).?.*;
+    try testing.expect(cmd == .prompt_start);
+    try testing.expect(cmd.prompt_start.aid == null);
+    try testing.expectEqual(.primary, cmd.prompt_start.kind);
+    try testing.expect(cmd.prompt_start.redraw == true);
+    try testing.expect(cmd.prompt_start.special_key == false);
     try testing.expect(cmd.prompt_start.click_events == false);
 }
 
@@ -707,6 +750,19 @@ test "OSC 133: end_of_input with cmdline_url 9" {
     var p: Parser = .init(null);
 
     const input = "133;C;cmdline_url=echo bobr kurwa%2";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end(null).?.*;
+    try testing.expect(cmd == .end_of_input);
+    try testing.expect(cmd.end_of_input.cmdline == null);
+}
+
+test "OSC 133: end_of_input with bare key" {
+    const testing = std.testing;
+
+    var p: Parser = .init(null);
+
+    const input = "133;C;cmdline_url";
     for (input) |ch| p.next(ch);
 
     const cmd = p.end(null).?.*;
