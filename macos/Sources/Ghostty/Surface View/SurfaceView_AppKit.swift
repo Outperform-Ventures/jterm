@@ -860,16 +860,16 @@ extension Ghostty {
 
         override func otherMouseDown(with event: NSEvent) {
             guard let surface = self.surface else { return }
-            guard event.buttonNumber == 2 else { return }
             let mods = Ghostty.ghosttyMods(event.modifierFlags)
-            ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_MIDDLE, mods)
+            let button = Ghostty.Input.MouseButton(fromNSEventButtonNumber: event.buttonNumber)
+            ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, button.cMouseButton, mods)
         }
 
         override func otherMouseUp(with event: NSEvent) {
             guard let surface = self.surface else { return }
-            guard event.buttonNumber == 2 else { return }
             let mods = Ghostty.ghosttyMods(event.modifierFlags)
-            ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_MIDDLE, mods)
+            let button = Ghostty.Input.MouseButton(fromNSEventButtonNumber: event.buttonNumber)
+            ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, button.cMouseButton, mods)
         }
 
 
