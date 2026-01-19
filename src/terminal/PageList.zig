@@ -2776,7 +2776,7 @@ pub fn split(
 
     // Ran into a bug that I can only explain via aliasing. If a tracked
     // pin is passed in, its possible Zig will alias the memory and then
-    // when we modify it later it updates our p here. Coyping the node
+    // when we modify it later it updates our p here. Copying the node
     // fixes this.
     const original_node = p.node;
     const page: *Page = &original_node.data;

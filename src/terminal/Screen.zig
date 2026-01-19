@@ -1791,7 +1791,10 @@ fn resizeInternal(
 ///
 /// If the style can't be set due to any internal errors (memory-related),
 /// then this will revert back to the existing style and return an error.
-pub fn setAttribute(self: *Screen, attr: sgr.Attribute) !void {
+pub fn setAttribute(
+    self: *Screen,
+    attr: sgr.Attribute,
+) PageList.IncreaseCapacityError!void {
     // If we fail to set our style for any reason, we should revert
     // back to the old style. If we fail to do that, we revert back to
     // the default style.
@@ -1995,13 +1998,22 @@ pub fn manualStyleUpdate(self: *Screen) PageList.IncreaseCapacityError!void {
     ) catch |err| id: {
         // Our style map is full or needs to be rehashed, so we need to
         // increase style capacity (or rehash).
-        const node = try self.increaseCapacity(
+        const node = self.increaseCapacity(
             self.cursor.page_pin.node,
             switch (err) {
                 error.OutOfMemory => .styles,
                 error.NeedsRehash => null,
             },
-        );
+        ) catch |increase_err| switch (increase_err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            error.OutOfSpace => space: {
+                // Out of space, we need to split the page. Split wherever
+                // is using less capacity and hope that works. If it doesn't
+                // work, we tried.
+                try self.splitForCapacity(self.cursor.page_pin.*);
+                break :space self.cursor.page_pin.node;
+            },
+        };
 
         page = &node.data;
         break :id page.styles.add(
@@ -2029,6 +2041,62 @@ pub fn manualStyleUpdate(self: *Screen) PageList.IncreaseCapacityError!void {
     errdefer page.styles.release(page.memory, id);
 
     self.cursor.style_id = id;
+}
+
+/// Split at the given pin so that the pinned row moves to the page
+/// with less used capacity after the split.
+///
+/// The primary use case for this is to handle IncreaseCapacityError
+/// OutOfSpace conditions where we need to split the page in order
+/// to make room for more managed memory.
+///
+/// If the caller cares about where the pin moves to, they should
+/// setup a tracked pin before calling this and then check that.
+/// In many calling cases, the input pin is tracked (e.g. the cursor
+/// pin).
+///
+/// If this returns OOM then its a system OOM. If this returns OutOfSpace
+/// then it means the page can't be split further.
+fn splitForCapacity(
+    self: *Screen,
+    pin: Pin,
+) PageList.SplitError!void {
+    // Get our capacities. We include our target row because its
+    // capacity will be preserved.
+    const bytes_above = Page.layout(pin.node.data.exactRowCapacity(
+        0,
+        pin.y + 1,
+    )).total_size;
+    const bytes_below = Page.layout(pin.node.data.exactRowCapacity(
+        pin.y,
+        pin.node.data.size.rows,
+    )).total_size;
+
+    // We need to track the old cursor pin because if our split
+    // moves the cursor pin we need to update our accounting.
+    const old_cursor = self.cursor.page_pin.*;
+
+    // If our bytes above are less than bytes below, we move the pin
+    // to split down one since splitting includes the pinned row in
+    // the new node.
+    try self.pages.split(if (bytes_above < bytes_below)
+        pin.down(1) orelse pin
+    else
+        pin);
+
+    // Cursor didn't change nodes, we're done.
+    if (self.cursor.page_pin.node == old_cursor.node) return;
+
+    // Cursor changed, we need to restore the old pin then use
+    // cursorChangePin to move to the new pin. The old node is guaranteed
+    // to still exist, just not the row.
+    //
+    // Note that page_row and all that will be invalid, it points to the
+    // new node, but at the time of writing this we don't need any of that
+    // to be right in cursorChangePin.
+    const new_cursor = self.cursor.page_pin.*;
+    self.cursor.page_pin.* = old_cursor;
+    self.cursorChangePin(new_cursor);
 }
 
 /// Append a grapheme to the given cell within the current cursor row.
@@ -9264,48 +9332,115 @@ test "Screen: cursorDown to page with insufficient capacity" {
     }
 }
 
-test "Screen setAttribute returns OutOfSpace at max styles" {
+test "Screen setAttribute increases capacity when style map is full" {
+    // Tests that setAttribute succeeds when the style map is full by
+    // increasing page capacity. When capacity is at max and increaseCapacity
+    // returns OutOfSpace, manualStyleUpdate will split the page instead.
     const testing = std.testing;
     const alloc = testing.allocator;
 
-    var s = try init(alloc, .{ .cols = 10, .rows = 10, .max_scrollback = 0 });
+    // Use a small screen with multiple rows
+    var s = try init(alloc, .{ .cols = 10, .rows = 5, .max_scrollback = 10 });
     defer s.deinit();
 
+    // Write content to multiple rows
+    try s.testWriteString("line1\nline2\nline3\nline4\nline5");
+
+    // Get the page and fill its style map to capacity
+    const page = &s.cursor.page_pin.node.data;
+    const original_styles_capacity = page.capacity.styles;
+
+    // Fill the style map to capacity
+    {
+        page.pauseIntegrityChecks(true);
+        defer page.pauseIntegrityChecks(false);
+        defer page.assertIntegrity();
+
+        var n: u24 = 1;
+        while (page.styles.add(
+            page.memory,
+            .{ .bg_color = .{ .rgb = @bitCast(n) } },
+        )) |_| n += 1 else |_| {}
+    }
+
+    // Now try to set a new unique attribute that would require a new style slot
+    // This should succeed by increasing capacity (or splitting if at max capacity)
+    try s.setAttribute(.bold);
+
+    // The style should have been applied (bold flag set)
+    try testing.expect(s.cursor.style.flags.bold);
+
+    // The cursor should have a valid non-default style_id
+    try testing.expect(s.cursor.style_id != style.default_id);
+
+    // Either the capacity increased or the page was split/changed
+    const current_page = &s.cursor.page_pin.node.data;
+    const capacity_increased = current_page.capacity.styles > original_styles_capacity;
+    const page_changed = current_page != page;
+    try testing.expect(capacity_increased or page_changed);
+}
+
+test "Screen setAttribute splits page on OutOfSpace at max styles" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, .{
+        .cols = 10,
+        .rows = 10,
+        .max_scrollback = 0,
+    });
+    defer s.deinit();
+
+    // Write content to multiple rows so we have something to split
+    try s.testWriteString("line1\nline2\nline3\nline4\nline5");
+
+    // Remember the original node
+    const original_node = s.cursor.page_pin.node;
+
     // Increase the page's style capacity to max by repeatedly calling increaseCapacity
+    // Use Screen.increaseCapacity to properly maintain cursor state
     const max_styles = std.math.maxInt(size.CellCountInt);
     while (s.cursor.page_pin.node.data.capacity.styles < max_styles) {
-        _ = s.pages.increaseCapacity(
+        _ = s.increaseCapacity(
             s.cursor.page_pin.node,
             .styles,
         ) catch break;
     }
 
-    // Get the page reference after increaseCapacity
-    const page = &s.cursor.page_pin.node.data;
+    // Get the page reference after increaseCapacity - cursor may have moved
+    var page = &s.cursor.page_pin.node.data;
     try testing.expectEqual(max_styles, page.capacity.styles);
 
-    // Fill up all style slots
-    page.pauseIntegrityChecks(true);
-    var n: u24 = 1;
-    while (page.styles.add(
-        page.memory,
-        .{ .bg_color = .{ .rgb = @bitCast(n) } },
-    )) |_| n += 1 else |_| {}
-    page.pauseIntegrityChecks(false);
+    // Fill the style map to capacity
+    {
+        page.pauseIntegrityChecks(true);
+        defer page.pauseIntegrityChecks(false);
+        defer page.assertIntegrity();
 
-    // Set a style that we can track as "prior"
-    // Use a style that's already in the page by reusing one we added
-    s.cursor.style = .{ .bg_color = .{ .rgb = @bitCast(@as(u24, 1)) } };
-    const prior_id = page.styles.add(page.memory, s.cursor.style) catch unreachable;
-    s.cursor.style_id = prior_id;
+        var n: u24 = 1;
+        while (page.styles.add(
+            page.memory,
+            .{ .bg_color = .{ .rgb = @bitCast(n) } },
+        )) |_| n += 1 else |_| {}
+    }
+
+    // Track the node before setAttribute
+    const node_before_set = s.cursor.page_pin.node;
 
     // Now try to set a new unique attribute that would require a new style slot
-    // This should fail with OutOfSpace since we're at max capacity
-    const result = s.setAttribute(.bold);
+    // At max capacity, increaseCapacity will return OutOfSpace, triggering page split
+    try s.setAttribute(.bold);
 
-    // Should return OutOfSpace error
-    try testing.expectError(error.OutOfSpace, result);
+    // The style should have been applied (bold flag set)
+    try testing.expect(s.cursor.style.flags.bold);
 
-    // The cursor style_id should remain the prior one
-    try testing.expectEqual(prior_id, s.cursor.style_id);
+    // The cursor should have a valid non-default style_id
+    try testing.expect(s.cursor.style_id != style.default_id);
+
+    // The page should have been split
+    const page_was_split = s.cursor.page_pin.node != node_before_set or
+        node_before_set.next != null or
+        node_before_set.prev != null or
+        s.cursor.page_pin.node != original_node;
+    try testing.expect(page_was_split);
 }
