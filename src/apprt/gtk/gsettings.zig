@@ -18,16 +18,15 @@ pub const Key = enum {
 
     fn GValueType(comptime self: Key) type {
         return switch (self.Type()) {
-            bool => c_int, // Booleans are stored as integers in GTK's internal representation
+            bool => c_int,
             c_int => c_int,
-            []const u8 => ?[*:0]const u8, // Strings (returned as null-terminated C strings from GTK)
+            []const u8 => ?[*:0]const u8,
             else => @compileError("Unsupported type for GTK settings"),
         };
     }
 
     /// Returns true if this setting type requires memory allocation.
-    /// this is defensive: types that do not need allocation need to be
-    /// explicitly marked here
+    /// Types that do not need allocation must be explicitly marked.
     fn requiresAllocation(comptime self: Key) bool {
         const T = self.Type();
         return switch (T) {
@@ -37,14 +36,9 @@ pub const Key = enum {
     }
 };
 
-/// Reads a GTK setting using the GTK Settings API for non-allocating types.
-/// This automatically uses XDG Desktop Portal in Flatpak environments.
-///
-/// No allocator is required or used. Returns null if the setting is not available or cannot be read.
-///
-/// Example usage:
-///   const enabled = get(.@"gtk-enable-primary-paste");
-///   const dpi = get(.@"gtk-xft-dpi");
+/// Reads a GTK setting for non-allocating types.
+/// Automatically uses XDG Desktop Portal in Flatpak environments.
+/// Returns null if the setting is unavailable.
 pub fn get(comptime key: Key) ?key.Type() {
     if (comptime key.requiresAllocation()) {
         @compileError("Allocating types require an allocator; use getAlloc() instead");
@@ -53,25 +47,15 @@ pub fn get(comptime key: Key) ?key.Type() {
     return getImpl(settings, null, key) catch unreachable;
 }
 
-/// Reads a GTK setting using the GTK Settings API, allocating if necessary.
-/// This automatically uses XDG Desktop Portal in Flatpak environments.
-///
-/// The caller must free any returned allocated memory with the provided allocator.
-/// Returns null if the setting is not available or cannot be read.
-/// May return an allocation error if memory allocation fails.
-///
-/// Example usage:
-///   const theme = try getAlloc(allocator, .gtk_theme_name);
-///   defer if (theme) |t| allocator.free(t);
+/// Reads a GTK setting, allocating memory if necessary.
+/// Automatically uses XDG Desktop Portal in Flatpak environments.
+/// Caller must free returned memory with the provided allocator.
+/// Returns null if the setting is unavailable.
 pub fn getAlloc(allocator: std.mem.Allocator, comptime key: Key) !?key.Type() {
     const settings = gtk.Settings.getDefault() orelse return null;
     return getImpl(settings, allocator, key);
 }
 
-/// Shared implementation for reading GTK settings.
-/// If allocator is null, only non-allocating types can be used.
-/// Note: When adding a new type, research if it requires allocation (strings and boxed types do)
-/// if allocation is NOT needed, list it inside the switch statement in the function requiresAllocation()
 fn getImpl(settings: *gtk.Settings, allocator: ?std.mem.Allocator, comptime key: Key) !?key.Type() {
     const GValType = key.GValueType();
     var value = gobject.ext.Value.new(GValType);
@@ -80,13 +64,9 @@ fn getImpl(settings: *gtk.Settings, allocator: ?std.mem.Allocator, comptime key:
     settings.as(gobject.Object).getProperty(@tagName(key).ptr, &value);
 
     return switch (key.Type()) {
-        bool => value.getInt() != 0, // Booleans are stored as integers in GTK, convert to bool
-        c_int => value.getInt(), // Integer types are returned directly
+        bool => value.getInt() != 0,
+        c_int => value.getInt(),
         []const u8 => blk: {
-            // Strings: GTK owns the GValue's pointer, so we must duplicate it
-            // before the GValue is destroyed by defer value.unset()
-            // This is defensive: we have already checked at compile-time that
-            // an allocator is provided for allocating types
             const alloc = allocator.?;
             const ptr = value.getString() orelse break :blk null;
             const str = std.mem.span(ptr);

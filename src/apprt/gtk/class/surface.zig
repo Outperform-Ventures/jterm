@@ -675,8 +675,7 @@ pub const Surface = extern struct {
         /// The context for this surface (window, tab, or split)
         context: apprt.surface.NewSurfaceContext = .window,
 
-        /// Whether primary paste (middle-click paste) is enabled via GNOME settings.
-        /// If true, middle-click paste is enabled. If false, it's disabled.
+        /// Whether primary paste (middle-click paste) is enabled.
         gtk_enable_primary_paste: bool = true,
 
         pub var offset: c_int = 0;
@@ -1770,12 +1769,8 @@ pub const Surface = extern struct {
         priv.im_composing = false;
         priv.im_len = 0;
 
-        // Read GNOME desktop interface settings for primary paste (middle-click)
-        // This is only relevant on Linux systems with GNOME settings available
-        priv.gtk_enable_primary_paste = gsettings.get(.@"gtk-enable-primary-paste") orelse blk: {
-            log.warn("gtk-enable-primary-paste was not set, using default value", .{});
-            break :blk false;
-        };
+        // Read GTK primary paste setting
+        priv.gtk_enable_primary_paste = gsettings.get(.@"gtk-enable-primary-paste") orelse true;
 
         // Set up to handle items being dropped on our surface. Files can be dropped
         // from Nautilus and strings can be dropped from many programs. The order
@@ -2696,8 +2691,6 @@ pub const Surface = extern struct {
         // Report the event
         const button = translateMouseButton(gesture.as(gtk.GestureSingle).getCurrentButton());
 
-        // Check if middle button paste should be disabled based on GNOME settings
-        // If gtk_enable_primary_paste is explicitly false, skip processing middle button
         if (button == .middle and !priv.gtk_enable_primary_paste) {
             return;
         }
@@ -2753,8 +2746,6 @@ pub const Surface = extern struct {
         const gtk_mods = event.getModifierState();
         const button = translateMouseButton(gesture.as(gtk.GestureSingle).getCurrentButton());
 
-        // Check if middle button paste should be disabled based on GNOME settings
-        // If gtk_enable_primary_paste is explicitly false, skip processing middle button
         if (button == .middle and !priv.gtk_enable_primary_paste) {
             return;
         }
