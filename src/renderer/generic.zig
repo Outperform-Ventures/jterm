@@ -2315,14 +2315,12 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 0,
             };
 
-            // Renderer state required for getting the colors
-            const state: *renderer.State = &self.surface_mailbox.surface.renderer_state;
-
             // (Updates on OSC sequence changes and configuration changes)
             if (self.palette_dirty) {
+                const colors: *const terminal.RenderState.Colors = &self.terminal_state.colors;
 
                 // 256-color palette
-                for (state.terminal.colors.palette.current, 0..) |color, i| {
+                for (colors.palette, 0..) |color, i| {
                     self.custom_shader_uniforms.palette[i] = .{
                         @as(f32, @floatFromInt(color.r)) / 255.0,
                         @as(f32, @floatFromInt(color.g)) / 255.0,
@@ -2332,27 +2330,23 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 }
 
                 // Background color
-                if (state.terminal.colors.background.get()) |bg| {
-                    self.custom_shader_uniforms.background_color = .{
-                        @as(f32, @floatFromInt(bg.r)) / 255.0,
-                        @as(f32, @floatFromInt(bg.g)) / 255.0,
-                        @as(f32, @floatFromInt(bg.b)) / 255.0,
-                        1.0,
-                    };
-                }
+                self.custom_shader_uniforms.background_color = .{
+                    @as(f32, @floatFromInt(colors.background.r)) / 255.0,
+                    @as(f32, @floatFromInt(colors.background.g)) / 255.0,
+                    @as(f32, @floatFromInt(colors.background.b)) / 255.0,
+                    1.0,
+                };
 
                 // Foreground color
-                if (state.terminal.colors.foreground.get()) |fg| {
-                    self.custom_shader_uniforms.foreground_color = .{
-                        @as(f32, @floatFromInt(fg.r)) / 255.0,
-                        @as(f32, @floatFromInt(fg.g)) / 255.0,
-                        @as(f32, @floatFromInt(fg.b)) / 255.0,
-                        1.0,
-                    };
-                }
+                self.custom_shader_uniforms.foreground_color = .{
+                    @as(f32, @floatFromInt(colors.foreground.r)) / 255.0,
+                    @as(f32, @floatFromInt(colors.foreground.g)) / 255.0,
+                    @as(f32, @floatFromInt(colors.foreground.b)) / 255.0,
+                    1.0,
+                };
 
                 // Cursor color
-                if (state.terminal.colors.cursor.get()) |cursor_color| {
+                if (colors.cursor) |cursor_color| {
                     self.custom_shader_uniforms.cursor_color = .{
                         @as(f32, @floatFromInt(cursor_color.r)) / 255.0,
                         @as(f32, @floatFromInt(cursor_color.g)) / 255.0,
@@ -2376,11 +2370,11 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 }
 
                 // Selection background color
-                if (self.config.selection_background) |seletion_bg| {
+                if (self.config.selection_background) |selection_bg| {
                     self.custom_shader_uniforms.selection_background_color = .{
-                        @as(f32, @floatFromInt(seletion_bg.color.r)) / 255.0,
-                        @as(f32, @floatFromInt(seletion_bg.color.g)) / 255.0,
-                        @as(f32, @floatFromInt(seletion_bg.color.b)) / 255.0,
+                        @as(f32, @floatFromInt(selection_bg.color.r)) / 255.0,
+                        @as(f32, @floatFromInt(selection_bg.color.g)) / 255.0,
+                        @as(f32, @floatFromInt(selection_bg.color.b)) / 255.0,
                         1.0,
                     };
                 }
