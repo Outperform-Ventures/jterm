@@ -227,13 +227,6 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
         /// a large screen.
         terminal_state_frame_count: usize = 0,
 
-        /// Captured dirty for reference after updateFrame() clears the flag
-        /// To be used for shader uniforms.
-        ///
-        /// Initialized to true because we need to get the correct palette even on
-        /// a new Surface. Otherwise we end up with it initialized to 0's
-        palette_dirty: bool = true,
-
         const HighlightTag = enum(u8) {
             search_match,
             search_match_selected,
@@ -1222,8 +1215,6 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     };
                 };
 
-                self.palette_dirty |= state.terminal.flags.dirty.palette;
-
                 break :critical .{
                     .links = links,
                     .mouse = state.mouse,
@@ -1291,25 +1282,24 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 }
             }
 
-            // Build our GPU cells
-            try self.rebuildCells(
-                critical.preedit,
-                renderer.cursorStyle(&self.terminal_state, .{
-                    .preedit = critical.preedit != null,
-                    .focused = self.focused,
-                    .blink_visible = cursor_blink_visible,
-                }),
-                &critical.links,
-            );
+            // Reset our dirty state after updating.
+            defer self.terminal_state.dirty = .false;
 
-            // Notify our shaper we're done for the frame. For some shapers,
-            // such as CoreText, this triggers off-thread cleanup logic.
-            self.font_shaper.endFrame();
-
-            // Acquire the draw mutex because we're modifying state here.
+            // Acquire the draw mutex for all remaining state updates.
             {
                 self.draw_mutex.lock();
                 defer self.draw_mutex.unlock();
+
+                // Build our GPU cells
+                try self.rebuildCells(
+                    critical.preedit,
+                    renderer.cursorStyle(&self.terminal_state, .{
+                        .preedit = critical.preedit != null,
+                        .focused = self.focused,
+                        .blink_visible = cursor_blink_visible,
+                    }),
+                    &critical.links,
+                );
 
                 // The scrollbar is only emitted during draws so we also
                 // check the scrollbar cache here and update if needed.
@@ -1337,7 +1327,14 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
                     else => {},
                 };
+
+                // Update custom shader uniforms that depend on terminal state.
+                self.updateCustomShaderUniformsFromState();
             }
+
+            // Notify our shaper we're done for the frame. For some shapers,
+            // such as CoreText, this triggers off-thread cleanup logic.
+            self.font_shaper.endFrame();
         }
 
         /// Draw the frame to the screen.
@@ -1459,8 +1456,8 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             // Upload the background image to the GPU as necessary.
             try self.uploadBackgroundImage();
 
-            // Update custom shader uniforms if necessary.
-            try self.updateCustomShaderUniforms();
+            // Update per-frame custom shader uniforms.
+            try self.updateCustomShaderUniformsForFrame();
 
             // Setup our frame data
             try frame.uniforms.sync(&.{self.uniforms});
@@ -2274,10 +2271,93 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             self.bg_image_buffer_modified +%= 1;
         }
 
-        /// Update uniforms for the custom shaders, if necessary.
+        /// Update custom shader uniforms that depend on terminal state.
+        ///
+        /// This should be called in `updateFrame` when terminal state changes.
+        fn updateCustomShaderUniformsFromState(self: *Self) void {
+            // We only need to do this if we have custom shaders.
+            if (!self.has_custom_shaders) return;
+
+            // Only update when terminal state is dirty.
+            if (self.terminal_state.dirty == .false) return;
+
+            const colors: *const terminal.RenderState.Colors = &self.terminal_state.colors;
+
+            // 256-color palette
+            for (colors.palette, 0..) |color, i| {
+                self.custom_shader_uniforms.palette[i] = .{
+                    @as(f32, @floatFromInt(color.r)) / 255.0,
+                    @as(f32, @floatFromInt(color.g)) / 255.0,
+                    @as(f32, @floatFromInt(color.b)) / 255.0,
+                    1.0,
+                };
+            }
+
+            // Background color
+            self.custom_shader_uniforms.background_color = .{
+                @as(f32, @floatFromInt(colors.background.r)) / 255.0,
+                @as(f32, @floatFromInt(colors.background.g)) / 255.0,
+                @as(f32, @floatFromInt(colors.background.b)) / 255.0,
+                1.0,
+            };
+
+            // Foreground color
+            self.custom_shader_uniforms.foreground_color = .{
+                @as(f32, @floatFromInt(colors.foreground.r)) / 255.0,
+                @as(f32, @floatFromInt(colors.foreground.g)) / 255.0,
+                @as(f32, @floatFromInt(colors.foreground.b)) / 255.0,
+                1.0,
+            };
+
+            // Cursor color
+            if (colors.cursor) |cursor_color| {
+                self.custom_shader_uniforms.cursor_color = .{
+                    @as(f32, @floatFromInt(cursor_color.r)) / 255.0,
+                    @as(f32, @floatFromInt(cursor_color.g)) / 255.0,
+                    @as(f32, @floatFromInt(cursor_color.b)) / 255.0,
+                    1.0,
+                };
+            }
+
+            // NOTE: the following could be optimized to follow a change in
+            // config for a slight optimization however this is only 12 bytes
+            // each being updated and likely isn't a cause for concern
+
+            // Cursor text color
+            if (self.config.cursor_text) |cursor_text| {
+                self.custom_shader_uniforms.cursor_text = .{
+                    @as(f32, @floatFromInt(cursor_text.color.r)) / 255.0,
+                    @as(f32, @floatFromInt(cursor_text.color.g)) / 255.0,
+                    @as(f32, @floatFromInt(cursor_text.color.b)) / 255.0,
+                    1.0,
+                };
+            }
+
+            // Selection background color
+            if (self.config.selection_background) |selection_bg| {
+                self.custom_shader_uniforms.selection_background_color = .{
+                    @as(f32, @floatFromInt(selection_bg.color.r)) / 255.0,
+                    @as(f32, @floatFromInt(selection_bg.color.g)) / 255.0,
+                    @as(f32, @floatFromInt(selection_bg.color.b)) / 255.0,
+                    1.0,
+                };
+            }
+
+            // Selection foreground color
+            if (self.config.selection_foreground) |selection_fg| {
+                self.custom_shader_uniforms.selection_foreground_color = .{
+                    @as(f32, @floatFromInt(selection_fg.color.r)) / 255.0,
+                    @as(f32, @floatFromInt(selection_fg.color.g)) / 255.0,
+                    @as(f32, @floatFromInt(selection_fg.color.b)) / 255.0,
+                    1.0,
+                };
+            }
+        }
+
+        /// Update per-frame custom shader uniforms.
         ///
         /// This should be called exactly once per frame, inside `drawFrame`.
-        fn updateCustomShaderUniforms(self: *Self) !void {
+        fn updateCustomShaderUniformsForFrame(self: *Self) !void {
             // We only need to do this if we have custom shaders.
             if (!self.has_custom_shaders) return;
 
@@ -2314,83 +2394,6 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 1,
                 0,
             };
-
-            // (Updates on OSC sequence changes and configuration changes)
-            if (self.palette_dirty) {
-                const colors: *const terminal.RenderState.Colors = &self.terminal_state.colors;
-
-                // 256-color palette
-                for (colors.palette, 0..) |color, i| {
-                    self.custom_shader_uniforms.palette[i] = .{
-                        @as(f32, @floatFromInt(color.r)) / 255.0,
-                        @as(f32, @floatFromInt(color.g)) / 255.0,
-                        @as(f32, @floatFromInt(color.b)) / 255.0,
-                        1.0,
-                    };
-                }
-
-                // Background color
-                self.custom_shader_uniforms.background_color = .{
-                    @as(f32, @floatFromInt(colors.background.r)) / 255.0,
-                    @as(f32, @floatFromInt(colors.background.g)) / 255.0,
-                    @as(f32, @floatFromInt(colors.background.b)) / 255.0,
-                    1.0,
-                };
-
-                // Foreground color
-                self.custom_shader_uniforms.foreground_color = .{
-                    @as(f32, @floatFromInt(colors.foreground.r)) / 255.0,
-                    @as(f32, @floatFromInt(colors.foreground.g)) / 255.0,
-                    @as(f32, @floatFromInt(colors.foreground.b)) / 255.0,
-                    1.0,
-                };
-
-                // Cursor color
-                if (colors.cursor) |cursor_color| {
-                    self.custom_shader_uniforms.cursor_color = .{
-                        @as(f32, @floatFromInt(cursor_color.r)) / 255.0,
-                        @as(f32, @floatFromInt(cursor_color.g)) / 255.0,
-                        @as(f32, @floatFromInt(cursor_color.b)) / 255.0,
-                        1.0,
-                    };
-                }
-
-                // NOTE: the following could be optimized to follow a change in
-                // config for a slight optimization however this is only 12 bytes
-                // each being updated and likely isn't a cause for concern
-
-                // Cursor text color
-                if (self.config.cursor_text) |cursor_text| {
-                    self.custom_shader_uniforms.cursor_text = .{
-                        @as(f32, @floatFromInt(cursor_text.color.r)) / 255.0,
-                        @as(f32, @floatFromInt(cursor_text.color.g)) / 255.0,
-                        @as(f32, @floatFromInt(cursor_text.color.b)) / 255.0,
-                        1.0,
-                    };
-                }
-
-                // Selection background color
-                if (self.config.selection_background) |selection_bg| {
-                    self.custom_shader_uniforms.selection_background_color = .{
-                        @as(f32, @floatFromInt(selection_bg.color.r)) / 255.0,
-                        @as(f32, @floatFromInt(selection_bg.color.g)) / 255.0,
-                        @as(f32, @floatFromInt(selection_bg.color.b)) / 255.0,
-                        1.0,
-                    };
-                }
-
-                // Selection foreground color
-                if (self.config.selection_foreground) |selection_fg| {
-                    self.custom_shader_uniforms.selection_foreground_color = .{
-                        @as(f32, @floatFromInt(selection_fg.color.r)) / 255.0,
-                        @as(f32, @floatFromInt(selection_fg.color.g)) / 255.0,
-                        @as(f32, @floatFromInt(selection_fg.color.b)) / 255.0,
-                        1.0,
-                    };
-                }
-
-                self.palette_dirty = false;
-            }
 
             // Update custom cursor uniforms, if we have a cursor.
             if (self.cells.getCursorGlyph()) |cursor| {
@@ -2480,6 +2483,10 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
         /// Convert the terminal state to GPU cells stored in CPU memory. These
         /// are then synced to the GPU in the next frame. This only updates CPU
         /// memory and doesn't touch the GPU.
+        ///
+        /// This requires the draw mutex.
+        ///
+        /// Dirty state on terminal state won't be reset by this.
         fn rebuildCells(
             self: *Self,
             preedit: ?renderer.State.Preedit,
@@ -2487,10 +2494,6 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             links: *const terminal.RenderState.CellSet,
         ) !void {
             const state: *terminal.RenderState = &self.terminal_state;
-            defer state.dirty = .false;
-
-            self.draw_mutex.lock();
-            defer self.draw_mutex.unlock();
 
             // const start = try std.time.Instant.now();
             // const start_micro = std.time.microTimestamp();
