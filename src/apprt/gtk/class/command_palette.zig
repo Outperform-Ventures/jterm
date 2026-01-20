@@ -250,12 +250,10 @@ pub const CommandPalette = extern struct {
         const b_title = b.propGetTitle() orelse return true;
 
         // Compare case-insensitively with colon normalization
-        var i: usize = 0;
-        var j: usize = 0;
-        while (i < a_title.len and j < b_title.len) {
+        for (0..@min(a_title.len, b_title.len)) |i| {
             // Get characters, replacing ':' with '\t'
             const a_char = if (a_title[i] == ':') '\t' else a_title[i];
-            const b_char = if (b_title[j] == ':') '\t' else b_title[j];
+            const b_char = if (b_title[i] == ':') '\t' else b_title[i];
 
             const a_lower = std.ascii.toLower(a_char);
             const b_lower = std.ascii.toLower(b_char);
@@ -263,9 +261,6 @@ pub const CommandPalette = extern struct {
             if (a_lower != b_lower) {
                 return a_lower < b_lower;
             }
-
-            i += 1;
-            j += 1;
         }
 
         // If one title is a prefix of the other, shorter one comes first
@@ -273,23 +268,17 @@ pub const CommandPalette = extern struct {
             return a_title.len < b_title.len;
         }
 
-        // Titles are equal - use sort_key as tie-breaker if both have one
-        const a_priv = a.private();
-        const b_priv = b.private();
-
-        const a_sort_key = switch (a_priv.data) {
-            .regular => 0,
+        // Titles are equal - use sort_key as tie-breaker if both are jump commands
+        const a_sort_key = switch (a.private().data) {
+            .regular => return false,
             .jump => |*ja| ja.sort_key,
         };
-        const b_sort_key = switch (b_priv.data) {
-            .regular => 0,
+        const b_sort_key = switch (b.private().data) {
+            .regular => return false,
             .jump => |*jb| jb.sort_key,
         };
 
-        if (a_sort_key != 0 and b_sort_key != 0) {
-            return a_sort_key < b_sort_key;
-        }
-        return false;
+        return a_sort_key < b_sort_key;
     }
 
     fn close(self: *CommandPalette) void {
