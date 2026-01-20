@@ -517,39 +517,38 @@ pub fn clone(
     result.assertIntegrity();
     return result;
 }
-
-/// Adjust the capacity of a page within the pagelist of this screen.
-/// This handles some accounting if the page being modified is the
-/// cursor page.
-pub fn adjustCapacity(
+pub fn increaseCapacity(
     self: *Screen,
     node: *PageList.List.Node,
-    adjustment: PageList.AdjustCapacity,
-) PageList.AdjustCapacityError!*PageList.List.Node {
+    adjustment: ?PageList.IncreaseCapacity,
+) PageList.IncreaseCapacityError!*PageList.List.Node {
     // If the page being modified isn't our cursor page then
     // this is a quick operation because we have no additional
-    // accounting.
-    if (node != self.cursor.page_pin.node) {
-        return try self.pages.adjustCapacity(node, adjustment);
-    }
+    // accounting. We have to do this check here BEFORE calling
+    // increaseCapacity because increaseCapacity will update all
+    // our tracked pins (including our cursor).
+    if (node != self.cursor.page_pin.node) return try self.pages.increaseCapacity(
+        node,
+        adjustment,
+    );
 
-    // We're modifying the cursor page. When we adjust the
+    // We're modifying the cursor page. When we increase the
     // capacity below it will be short the ref count on our
     // current style and hyperlink, so we need to init those.
-    const new_node = try self.pages.adjustCapacity(node, adjustment);
+    const new_node = try self.pages.increaseCapacity(node, adjustment);
     const new_page: *Page = &new_node.data;
 
     // Re-add the style, if the page somehow doesn't have enough
     // memory to add it, we emit a warning and gracefully degrade
     // to the default style for the cursor.
-    if (self.cursor.style_id != 0) {
+    if (self.cursor.style_id != style.default_id) {
         self.cursor.style_id = new_page.styles.add(
             new_page.memory,
             self.cursor.style,
         ) catch |err| id: {
             // TODO: Should we increase the capacity further in this case?
             log.warn(
-                "(Screen.adjustCapacity) Failed to add cursor style back to page, err={}",
+                "(Screen.increaseCapacity) Failed to add cursor style back to page, err={}",
                 .{err},
             );
 
@@ -571,7 +570,7 @@ pub fn adjustCapacity(
         self.startHyperlinkOnce(link.*) catch |err| {
             // TODO: Should we increase the capacity further in this case?
             log.warn(
-                "(Screen.adjustCapacity) Failed to add cursor hyperlink back to page, err={}",
+                "(Screen.increaseCapacity) Failed to add cursor hyperlink back to page, err={}",
                 .{err},
             );
         };
@@ -640,9 +639,8 @@ pub fn cursorUp(self: *Screen, n: size.CellCountInt) void {
     defer self.assertIntegrity();
 
     self.cursor.y -= n; // Must be set before cursorChangePin
-    const page_pin = self.cursor.page_pin.up(n).?;
-    self.cursorChangePin(page_pin);
-    const page_rac = page_pin.rowAndCell();
+    self.cursorChangePin(self.cursor.page_pin.up(n).?);
+    const page_rac = self.cursor.page_pin.rowAndCell();
     self.cursor.page_row = page_rac.row;
     self.cursor.page_cell = page_rac.cell;
 }
@@ -667,9 +665,8 @@ pub fn cursorDown(self: *Screen, n: size.CellCountInt) void {
 
     // We move the offset into our page list to the next row and then
     // get the pointers to the row/cell and set all the cursor state up.
-    const page_pin = self.cursor.page_pin.down(n).?;
-    self.cursorChangePin(page_pin);
-    const page_rac = page_pin.rowAndCell();
+    self.cursorChangePin(self.cursor.page_pin.down(n).?);
+    const page_rac = self.cursor.page_pin.rowAndCell();
     self.cursor.page_row = page_rac.row;
     self.cursor.page_cell = page_rac.cell;
 }
@@ -800,31 +797,37 @@ pub fn cursorDownScroll(self: *Screen) !void {
         // allocate, prune scrollback, whatever.
         _ = try self.pages.grow();
 
-        // If our pin page change it means that the page that the pin
-        // was on was pruned. In this case, grow() moves the pin to
-        // the top-left of the new page. This effectively moves it by
-        // one already, we just need to fix up the x value.
-        const page_pin = if (old_pin.node == self.cursor.page_pin.node)
-            self.cursor.page_pin.down(1).?
-        else reuse: {
-            var pin = self.cursor.page_pin.*;
-            pin.x = self.cursor.x;
-            break :reuse pin;
-        };
+        self.cursorChangePin(new_pin: {
+            // We do this all in a block here because referencing this pin
+            // after cursorChangePin is unsafe, and we want to keep it out
+            // of scope.
 
-        // These assertions help catch some pagelist math errors. Our
-        // x/y should be unchanged after the grow.
-        if (build_options.slow_runtime_safety) {
-            const active = self.pages.pointFromPin(
-                .active,
-                page_pin,
-            ).?.active;
-            assert(active.x == self.cursor.x);
-            assert(active.y == self.cursor.y);
-        }
+            // If our pin page change it means that the page that the pin
+            // was on was pruned. In this case, grow() moves the pin to
+            // the top-left of the new page. This effectively moves it by
+            // one already, we just need to fix up the x value.
+            const page_pin = if (old_pin.node == self.cursor.page_pin.node)
+                self.cursor.page_pin.down(1).?
+            else reuse: {
+                var pin = self.cursor.page_pin.*;
+                pin.x = self.cursor.x;
+                break :reuse pin;
+            };
 
-        self.cursorChangePin(page_pin);
-        const page_rac = page_pin.rowAndCell();
+            // These assertions help catch some pagelist math errors. Our
+            // x/y should be unchanged after the grow.
+            if (build_options.slow_runtime_safety) {
+                const active = self.pages.pointFromPin(
+                    .active,
+                    page_pin,
+                ).?.active;
+                assert(active.x == self.cursor.x);
+                assert(active.y == self.cursor.y);
+            }
+
+            break :new_pin page_pin;
+        });
+        const page_rac = self.cursor.page_pin.rowAndCell();
         self.cursor.page_row = page_rac.row;
         self.cursor.page_cell = page_rac.cell;
 
@@ -834,7 +837,7 @@ pub fn cursorDownScroll(self: *Screen) !void {
         // Clear the new row so it gets our bg color. We only do this
         // if we have a bg color at all.
         if (self.cursor.style.bg_color != .none) {
-            const page: *Page = &page_pin.node.data;
+            const page: *Page = &self.cursor.page_pin.node.data;
             self.clearCells(
                 page,
                 self.cursor.page_row,
@@ -1081,6 +1084,11 @@ pub fn cursorCopy(self: *Screen, other: Cursor, opts: struct {
 /// page than the old AND we have a style or hyperlink set. In that case,
 /// we must release our old one and insert the new one, since styles are
 /// stored per-page.
+///
+/// Note that this can change the cursor pin AGAIN if the process of
+/// setting up our cursor forces a capacity adjustment of the underlying
+/// cursor page, so any references to the page pin should be re-read
+/// from `self.cursor.page_pin` after calling this.
 inline fn cursorChangePin(self: *Screen, new: Pin) void {
     // Moving the cursor affects text run splitting (ligatures) so
     // we must mark the old and new page dirty. We do this as long
@@ -1097,14 +1105,19 @@ inline fn cursorChangePin(self: *Screen, new: Pin) void {
         return;
     }
 
-    // If we have a old style then we need to release it from the old page.
+    // If we have an old style then we need to release it from the old page.
     const old_style_: ?style.Style = if (self.cursor.style_id == style.default_id)
         null
     else
         self.cursor.style;
     if (old_style_ != null) {
+        // Release the style directly from the old page instead of going through
+        // manualStyleUpdate, because the cursor position may have already been
+        // updated but the pin has not, which would fail integrity checks.
+        const old_page: *Page = &self.cursor.page_pin.node.data;
+        old_page.styles.release(old_page.memory, self.cursor.style_id);
         self.cursor.style = .{};
-        self.manualStyleUpdate() catch unreachable; // Removing a style should never fail
+        self.cursor.style_id = style.default_id;
     }
 
     // If we have a hyperlink then we need to release it from the old page.
@@ -1776,9 +1789,25 @@ fn resizeInternal(
 
 /// Set a style attribute for the current cursor.
 ///
-/// This can cause a page split if the current page cannot fit this style.
-/// This is the only scenario an error return is possible.
-pub fn setAttribute(self: *Screen, attr: sgr.Attribute) !void {
+/// If the style can't be set due to any internal errors (memory-related),
+/// then this will revert back to the existing style and return an error.
+pub fn setAttribute(
+    self: *Screen,
+    attr: sgr.Attribute,
+) PageList.IncreaseCapacityError!void {
+    // If we fail to set our style for any reason, we should revert
+    // back to the old style. If we fail to do that, we revert back to
+    // the default style.
+    const old_style = self.cursor.style;
+    errdefer {
+        self.cursor.style = old_style;
+        self.manualStyleUpdate() catch |err| {
+            log.warn("setAttribute error restoring old style after failure err={}", .{err});
+            self.cursor.style = .{};
+            self.manualStyleUpdate() catch unreachable;
+        };
+    }
+
     switch (attr) {
         .unset => {
             self.cursor.style = .{};
@@ -1921,7 +1950,21 @@ pub fn setAttribute(self: *Screen, attr: sgr.Attribute) !void {
 }
 
 /// Call this whenever you manually change the cursor style.
-pub fn manualStyleUpdate(self: *Screen) !void {
+///
+/// This function can NOT fail if the cursor style is changing to the
+/// default style.
+///
+/// If this returns an error, the style change did not take effect and
+/// the cursor style is reverted back to the default. The only scenario
+/// this returns an error is if there is a physical memory allocation failure
+/// or if there is no possible way to increase style capacity to store
+/// the style.
+///
+/// This function WILL split pages as necessary to accommodate the new style.
+/// So if OutOfSpace is returned, it means that even after splitting the page
+/// there was still no room for the new style.
+pub fn manualStyleUpdate(self: *Screen) PageList.IncreaseCapacityError!void {
+    defer self.assertIntegrity();
     var page: *Page = &self.cursor.page_pin.node.data;
 
     // std.log.warn("active styles={}", .{page.styles.count()});
@@ -1940,6 +1983,9 @@ pub fn manualStyleUpdate(self: *Screen) !void {
     // Clear the cursor style ID to prevent weird things from happening
     // if the page capacity has to be adjusted which would end up calling
     // manualStyleUpdate again.
+    //
+    // This also ensures that if anything fails below, we fall back to
+    // clearing our style.
     self.cursor.style_id = style.default_id;
 
     // After setting the style, we need to update our style map.
@@ -1951,30 +1997,115 @@ pub fn manualStyleUpdate(self: *Screen) !void {
         page.memory,
         self.cursor.style,
     ) catch |err| id: {
-        // Our style map is full or needs to be rehashed,
-        // so we allocate a new page, which will rehash,
-        // and double the style capacity for it if it was
-        // full.
-        const node = try self.adjustCapacity(
+        // Our style map is full or needs to be rehashed, so we need to
+        // increase style capacity (or rehash).
+        const node = self.increaseCapacity(
             self.cursor.page_pin.node,
             switch (err) {
-                error.OutOfMemory => .{ .styles = page.capacity.styles * 2 },
-                error.NeedsRehash => .{},
+                error.OutOfMemory => .styles,
+                error.NeedsRehash => null,
             },
-        );
+        ) catch |increase_err| switch (increase_err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            error.OutOfSpace => space: {
+                // Out of space, we need to split the page. Split wherever
+                // is using less capacity and hope that works. If it doesn't
+                // work, we tried.
+                try self.splitForCapacity(self.cursor.page_pin.*);
+                break :space self.cursor.page_pin.node;
+            },
+        };
 
         page = &node.data;
-        break :id try page.styles.add(
+        break :id page.styles.add(
             page.memory,
             self.cursor.style,
-        );
+        ) catch |err2| switch (err2) {
+            error.OutOfMemory => {
+                // This shouldn't happen because increaseCapacity is
+                // guaranteed to increase our capacity by at least one and
+                // we only need one space, but again, I don't want to crash
+                // here so let's log loudly and reset.
+                log.err("style addition failed after capacity increase", .{});
+                return error.OutOfMemory;
+            },
+            error.NeedsRehash => {
+                // This should be impossible because we rehash above
+                // and rehashing should never result in a duplicate. But
+                // we don't want to simply hard crash so log it and
+                // clear our style.
+                log.err("style rehash resulted in needs rehash", .{});
+                return;
+            },
+        };
     };
+    errdefer page.styles.release(page.memory, id);
+
     self.cursor.style_id = id;
-    self.assertIntegrity();
+}
+
+/// Split at the given pin so that the pinned row moves to the page
+/// with less used capacity after the split.
+///
+/// The primary use case for this is to handle IncreaseCapacityError
+/// OutOfSpace conditions where we need to split the page in order
+/// to make room for more managed memory.
+///
+/// If the caller cares about where the pin moves to, they should
+/// setup a tracked pin before calling this and then check that.
+/// In many calling cases, the input pin is tracked (e.g. the cursor
+/// pin).
+///
+/// If this returns OOM then its a system OOM. If this returns OutOfSpace
+/// then it means the page can't be split further.
+fn splitForCapacity(
+    self: *Screen,
+    pin: Pin,
+) PageList.SplitError!void {
+    // Get our capacities. We include our target row because its
+    // capacity will be preserved.
+    const bytes_above = Page.layout(pin.node.data.exactRowCapacity(
+        0,
+        pin.y + 1,
+    )).total_size;
+    const bytes_below = Page.layout(pin.node.data.exactRowCapacity(
+        pin.y,
+        pin.node.data.size.rows,
+    )).total_size;
+
+    // We need to track the old cursor pin because if our split
+    // moves the cursor pin we need to update our accounting.
+    const old_cursor = self.cursor.page_pin.*;
+
+    // If our bytes above are less than bytes below, we move the pin
+    // to split down one since splitting includes the pinned row in
+    // the new node.
+    try self.pages.split(if (bytes_above < bytes_below)
+        pin.down(1) orelse pin
+    else
+        pin);
+
+    // Cursor didn't change nodes, we're done.
+    if (self.cursor.page_pin.node == old_cursor.node) return;
+
+    // Cursor changed, we need to restore the old pin then use
+    // cursorChangePin to move to the new pin. The old node is guaranteed
+    // to still exist, just not the row.
+    //
+    // Note that page_row and all that will be invalid, it points to the
+    // new node, but at the time of writing this we don't need any of that
+    // to be right in cursorChangePin.
+    const new_cursor = self.cursor.page_pin.*;
+    self.cursor.page_pin.* = old_cursor;
+    self.cursorChangePin(new_cursor);
 }
 
 /// Append a grapheme to the given cell within the current cursor row.
-pub fn appendGrapheme(self: *Screen, cell: *Cell, cp: u21) !void {
+pub fn appendGrapheme(
+    self: *Screen,
+    cell: *Cell,
+    cp: u21,
+) PageList.IncreaseCapacityError!void {
     defer self.cursor.page_pin.node.data.assertIntegrity();
     self.cursor.page_pin.node.data.appendGrapheme(
         self.cursor.page_row,
@@ -1994,11 +2125,9 @@ pub fn appendGrapheme(self: *Screen, cell: *Cell, cp: u21) !void {
 
             // Adjust our capacity. This will update our cursor page pin and
             // force us to reload.
-            const original_node = self.cursor.page_pin.node;
-            const new_bytes = original_node.data.capacity.grapheme_bytes * 2;
-            _ = try self.adjustCapacity(
-                original_node,
-                .{ .grapheme_bytes = new_bytes },
+            _ = try self.increaseCapacity(
+                self.cursor.page_pin.node,
+                .grapheme_bytes,
             );
 
             // The cell pointer is now invalid, so we need to get it from
@@ -2009,16 +2138,21 @@ pub fn appendGrapheme(self: *Screen, cell: *Cell, cp: u21) !void {
                 .gt => self.cursorCellRight(@intCast(cell_idx - self.cursor.x)),
             };
 
-            try self.cursor.page_pin.node.data.appendGrapheme(
+            self.cursor.page_pin.node.data.appendGrapheme(
                 self.cursor.page_row,
                 reloaded_cell,
                 cp,
-            );
+            ) catch |err2| {
+                comptime assert(@TypeOf(err2) == error{OutOfMemory});
+                // This should never happen because we just increased capacity.
+                // Log loudly but still return an error so we don't just
+                // crash.
+                log.err("grapheme append failed after capacity increase", .{});
+                return err2;
+            };
         },
     };
 }
-
-pub const StartHyperlinkError = Allocator.Error || PageList.AdjustCapacityError;
 
 /// Start the hyperlink state. Future cells will be marked as hyperlinks with
 /// this state. Note that various terminal operations may clear the hyperlink
@@ -2027,7 +2161,7 @@ pub fn startHyperlink(
     self: *Screen,
     uri: []const u8,
     id_: ?[]const u8,
-) StartHyperlinkError!void {
+) PageList.IncreaseCapacityError!void {
     // Create our pending entry.
     const link: hyperlink.Hyperlink = .{
         .uri = uri,
@@ -2052,21 +2186,21 @@ pub fn startHyperlink(
             error.OutOfMemory => return error.OutOfMemory,
 
             // strings table is out of memory, adjust it up
-            error.StringsOutOfMemory => _ = try self.adjustCapacity(
+            error.StringsOutOfMemory => _ = try self.increaseCapacity(
                 self.cursor.page_pin.node,
-                .{ .string_bytes = self.cursor.page_pin.node.data.capacity.string_bytes * 2 },
+                .string_bytes,
             ),
 
             // hyperlink set is out of memory, adjust it up
-            error.SetOutOfMemory => _ = try self.adjustCapacity(
+            error.SetOutOfMemory => _ = try self.increaseCapacity(
                 self.cursor.page_pin.node,
-                .{ .hyperlink_bytes = self.cursor.page_pin.node.data.capacity.hyperlink_bytes * 2 },
+                .hyperlink_bytes,
             ),
 
             // hyperlink set is too full, rehash it
-            error.SetNeedsRehash => _ = try self.adjustCapacity(
+            error.SetNeedsRehash => _ = try self.increaseCapacity(
                 self.cursor.page_pin.node,
-                .{},
+                null,
             ),
         }
 
@@ -2128,7 +2262,7 @@ pub fn endHyperlink(self: *Screen) void {
 }
 
 /// Set the current hyperlink state on the current cell.
-pub fn cursorSetHyperlink(self: *Screen) !void {
+pub fn cursorSetHyperlink(self: *Screen) PageList.IncreaseCapacityError!void {
     assert(self.cursor.hyperlink_id != 0);
 
     var page = &self.cursor.page_pin.node.data;
@@ -2143,40 +2277,38 @@ pub fn cursorSetHyperlink(self: *Screen) !void {
     } else |err| switch (err) {
         // hyperlink_map is out of space, realloc the page to be larger
         error.HyperlinkMapOutOfMemory => {
-            const uri_size = if (self.cursor.hyperlink) |link| link.uri.len else 0;
-
-            var string_bytes = page.capacity.string_bytes;
-
             // Attempt to allocate the space that would be required to
             // insert a new copy of the cursor hyperlink uri in to the
-            // string alloc, since right now adjustCapacity always just
+            // string alloc, since right now increaseCapacity always just
             // adds an extra copy even if one already exists in the page.
             // If this alloc fails then we know we also need to grow our
             // string bytes.
             //
-            // FIXME: This SUCKS
-            if (page.string_alloc.alloc(
-                u8,
-                page.memory,
-                uri_size,
-            )) |slice| {
-                // We don't bother freeing because we're
-                // about to free the entire page anyway.
-                _ = &slice;
-            } else |_| {
-                // We didn't have enough room, let's just double our
-                // string bytes until there's definitely enough room
-                // for our uri.
-                const before = string_bytes;
-                while (string_bytes - before < uri_size) string_bytes *= 2;
+            // FIXME: increaseCapacity should not do this.
+            while (self.cursor.hyperlink) |link| {
+                if (page.string_alloc.alloc(
+                    u8,
+                    page.memory,
+                    link.uri.len,
+                )) |slice| {
+                    // We don't bother freeing because we're
+                    // about to free the entire page anyway.
+                    _ = slice;
+                    break;
+                } else |_| {}
+
+                // We didn't have enough room, let's increase string bytes
+                const new_node = try self.increaseCapacity(
+                    self.cursor.page_pin.node,
+                    .string_bytes,
+                );
+                assert(new_node == self.cursor.page_pin.node);
+                page = &new_node.data;
             }
 
-            _ = try self.adjustCapacity(
+            _ = try self.increaseCapacity(
                 self.cursor.page_pin.node,
-                .{
-                    .hyperlink_bytes = page.capacity.hyperlink_bytes * 2,
-                    .string_bytes = string_bytes,
-                },
+                .hyperlink_bytes,
             );
 
             // Retry
@@ -2998,15 +3130,15 @@ pub fn testWriteString(self: *Screen, text: []const u8) !void {
                     .protected = self.cursor.protected,
                 };
 
-                // If we have a hyperlink, add it to the cell.
-                if (self.cursor.hyperlink_id > 0) try self.cursorSetHyperlink();
-
                 // If we have a ref-counted style, increase.
                 if (self.cursor.style_id != style.default_id) {
                     const page = self.cursor.page_pin.node.data;
                     page.styles.use(page.memory, self.cursor.style_id);
                     self.cursor.page_row.styled = true;
                 }
+
+                // If we have a hyperlink, add it to the cell.
+                if (self.cursor.hyperlink_id > 0) try self.cursorSetHyperlink();
             },
 
             2 => {
@@ -8887,132 +9019,437 @@ test "Screen: cursorSetHyperlink OOM + URI too large for string alloc" {
     try testing.expect(base_string_bytes < s.cursor.page_pin.node.data.capacity.string_bytes);
 }
 
-test "Screen: adjustCapacity cursor style ref count" {
+test "Screen: increaseCapacity cursor style ref count preserved" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
-    var s = try init(alloc, .{ .cols = 5, .rows = 5, .max_scrollback = 0 });
+    var s = try init(alloc, .{
+        .cols = 5,
+        .rows = 5,
+        .max_scrollback = 0,
+    });
     defer s.deinit();
-
-    try s.setAttribute(.{ .bold = {} });
+    try s.setAttribute(.bold);
     try s.testWriteString("1ABCD");
 
+    // We should have one page and it should be our cursor page
+    try testing.expect(s.pages.pages.first == s.pages.pages.last);
+    try testing.expect(s.pages.pages.first == s.cursor.page_pin.node);
+
+    const old_style = s.cursor.style;
+
     {
         const page = &s.pages.pages.last.?.data;
+        // 5 chars + cursor = 6 refs
         try testing.expectEqual(
-            6, // All chars + cursor
+            6,
             page.styles.refCount(page.memory, s.cursor.style_id),
         );
     }
 
-    // This forces the page to change.
-    _ = try s.adjustCapacity(
+    // This forces the page to change via increaseCapacity.
+    const new_node = try s.increaseCapacity(
         s.cursor.page_pin.node,
-        .{ .grapheme_bytes = s.cursor.page_pin.node.data.capacity.grapheme_bytes * 2 },
+        .grapheme_bytes,
     );
 
-    // Our ref counts should still be the same
+    // Cursor's page_pin should now point to the new node
+    try testing.expect(s.cursor.page_pin.node == new_node);
+
+    // Verify cursor's page_cell and page_row are correctly reloaded from the pin
+    const page_rac = s.cursor.page_pin.rowAndCell();
+    try testing.expect(s.cursor.page_row == page_rac.row);
+    try testing.expect(s.cursor.page_cell == page_rac.cell);
+
+    // Style should be preserved
+    try testing.expectEqual(old_style, s.cursor.style);
+    try testing.expect(s.cursor.style_id != style.default_id);
+
+    // After increaseCapacity, the 5 chars are cloned (5 refs) and
+    // the cursor's style is re-added (1 ref) = 6 total.
     {
         const page = &s.pages.pages.last.?.data;
-        try testing.expectEqual(
-            6, // All chars + cursor
-            page.styles.refCount(page.memory, s.cursor.style_id),
-        );
+        const ref_count = page.styles.refCount(page.memory, s.cursor.style_id);
+        try testing.expectEqual(6, ref_count);
     }
 }
 
-test "Screen: adjustCapacity cursor hyperlink exceeds string alloc size" {
+test "Screen: increaseCapacity cursor hyperlink ref count preserved" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
-    var s = try init(alloc, .{ .cols = 80, .rows = 24, .max_scrollback = 0 });
+    var s = try init(alloc, .{
+        .cols = 5,
+        .rows = 5,
+        .max_scrollback = 0,
+    });
     defer s.deinit();
+    try s.startHyperlink("https://example.com/", null);
+    try s.testWriteString("1ABCD");
 
-    // Start a hyperlink with a URI that just barely fits in the string alloc.
-    // This will ensure that the redundant copy added in `adjustCapacity` won't
-    // fit in the available string alloc space.
-    const uri = "a" ** (pagepkg.std_capacity.string_bytes - 8);
-    try s.startHyperlink(uri, null);
+    // We should have one page and it should be our cursor page
+    try testing.expect(s.pages.pages.first == s.pages.pages.last);
+    try testing.expect(s.pages.pages.first == s.cursor.page_pin.node);
 
-    // Write some characters with this so that the URI
-    // is copied to the new page when adjusting capacity.
-    try s.testWriteString("Hello");
+    {
+        const page = &s.pages.pages.last.?.data;
+        // Cursor has the hyperlink active = 1 count in hyperlink_set
+        try testing.expectEqual(1, page.hyperlink_set.count());
+        try testing.expect(s.cursor.hyperlink_id != 0);
+        try testing.expect(s.cursor.hyperlink != null);
+    }
 
-    // Adjust the capacity, right now this will cause a redundant copy of
-    // the URI to be added to the string alloc, but since there isn't room
-    // for this this will clear the cursor hyperlink.
-    _ = try s.adjustCapacity(s.cursor.page_pin.node, .{});
+    // This forces the page to change via increaseCapacity.
+    _ = try s.increaseCapacity(
+        s.cursor.page_pin.node,
+        .grapheme_bytes,
+    );
 
-    // The cursor hyperlink should have been cleared by the `adjustCapacity`
-    // call, because there isn't enough room to add the redundant URI string.
-    //
-    // This behavior will change, causing this test to fail, if any of these
-    // changes are made:
-    //
-    // - The string alloc is changed to intern strings.
-    //
-    // - The adjustCapacity function is changed to ensure the new
-    //   capacity will fit the redundant copy of the hyperlink uri.
-    //
-    // - The cursor managed memory handling is reworked so that it
-    //   doesn't reside in the pages anymore and doesn't need this
-    //   accounting.
-    //
-    // In such a case, adjust this test accordingly.
-    try testing.expectEqual(null, s.cursor.hyperlink);
-    try testing.expectEqual(0, s.cursor.hyperlink_id);
+    // Hyperlink should be preserved with correct URI
+    try testing.expect(s.cursor.hyperlink != null);
+    try testing.expect(s.cursor.hyperlink_id != 0);
+    try testing.expectEqualStrings("https://example.com/", s.cursor.hyperlink.?.uri);
+
+    // After increaseCapacity, the hyperlink is re-added to the new page.
+    {
+        const page = &s.pages.pages.last.?.data;
+        try testing.expectEqual(1, page.hyperlink_set.count());
+    }
 }
 
-test "Screen: adjustCapacity cursor style exceeds style set capacity" {
+test "Screen: increaseCapacity cursor with both style and hyperlink preserved" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
-    var s = try init(alloc, .{ .cols = 80, .rows = 24, .max_scrollback = 1000 });
+    var s = try init(alloc, .{
+        .cols = 5,
+        .rows = 5,
+        .max_scrollback = 0,
+    });
     defer s.deinit();
 
+    // Set both a non-default style AND an active hyperlink.
+    // Write one character first with bold to mark the row as styled,
+    // then start the hyperlink and write more characters.
+    try s.setAttribute(.bold);
+    try s.startHyperlink("https://example.com/", null);
+    try s.testWriteString("1ABCD");
+
+    // We should have one page and it should be our cursor page
+    try testing.expect(s.pages.pages.first == s.pages.pages.last);
+    try testing.expect(s.pages.pages.first == s.cursor.page_pin.node);
+
+    const old_style = s.cursor.style;
+
+    {
+        const page = &s.pages.pages.last.?.data;
+        // 5 chars + cursor = 6 refs for bold style
+        try testing.expectEqual(
+            6,
+            page.styles.refCount(page.memory, s.cursor.style_id),
+        );
+        // Cursor has the hyperlink active = 1 count in hyperlink_set
+        try testing.expectEqual(1, page.hyperlink_set.count());
+        try testing.expect(s.cursor.style_id != style.default_id);
+        try testing.expect(s.cursor.hyperlink_id != 0);
+        try testing.expect(s.cursor.hyperlink != null);
+    }
+
+    // This forces the page to change via increaseCapacity.
+    _ = try s.increaseCapacity(
+        s.cursor.page_pin.node,
+        .grapheme_bytes,
+    );
+
+    // Style should be preserved
+    try testing.expectEqual(old_style, s.cursor.style);
+    try testing.expect(s.cursor.style_id != style.default_id);
+
+    // Hyperlink should be preserved with correct URI
+    try testing.expect(s.cursor.hyperlink != null);
+    try testing.expect(s.cursor.hyperlink_id != 0);
+    try testing.expectEqualStrings("https://example.com/", s.cursor.hyperlink.?.uri);
+
+    // After increaseCapacity, both style and hyperlink are re-added to the new page.
+    {
+        const page = &s.pages.pages.last.?.data;
+        const ref_count = page.styles.refCount(page.memory, s.cursor.style_id);
+        try testing.expectEqual(6, ref_count);
+        try testing.expectEqual(1, page.hyperlink_set.count());
+    }
+}
+
+test "Screen: increaseCapacity non-cursor page returns early" {
+    // Test that calling increaseCapacity on a page that is NOT the cursor's
+    // page properly delegates to pages.increaseCapacity without doing the
+    // extra cursor accounting (style/hyperlink re-adding).
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, .{
+        .cols = 80,
+        .rows = 24,
+        .max_scrollback = 10000,
+    });
+    defer s.deinit();
+
+    // Set up a custom style and hyperlink on the cursor
+    try s.setAttribute(.bold);
+    try s.startHyperlink("https://example.com/", null);
+    try s.testWriteString("Hello");
+
+    // Store cursor state before growing pages
+    const old_style = s.cursor.style;
+    const old_style_id = s.cursor.style_id;
+    const old_hyperlink = s.cursor.hyperlink;
+    const old_hyperlink_id = s.cursor.hyperlink_id;
+
+    // The cursor is on the first (and only) page
+    try testing.expect(s.pages.pages.first == s.pages.pages.last);
+    try testing.expect(s.cursor.page_pin.node == s.pages.pages.first.?);
+
+    // Grow pages until we have multiple pages. The cursor's pin stays on
+    // the first page since we're just adding rows.
+    const first_page_node = s.pages.pages.first.?;
+    first_page_node.data.pauseIntegrityChecks(true);
+    for (0..first_page_node.data.capacity.rows - first_page_node.data.size.rows) |_| {
+        _ = try s.pages.grow();
+    }
+    first_page_node.data.pauseIntegrityChecks(false);
+    _ = try s.pages.grow();
+
+    // Now we have two pages
+    try testing.expect(s.pages.pages.first != s.pages.pages.last);
+    const second_page = s.pages.pages.last.?;
+
+    // Cursor should still be on the first page (where it was created)
+    try testing.expect(s.cursor.page_pin.node == s.pages.pages.first.?);
+    try testing.expect(s.cursor.page_pin.node != second_page);
+
+    const second_page_styles_cap = second_page.data.capacity.styles;
+    const cursor_page_styles_cap = s.cursor.page_pin.node.data.capacity.styles;
+
+    // Call increaseCapacity on the second page (NOT the cursor's page)
+    const new_second_page = try s.increaseCapacity(second_page, .styles);
+
+    // The second page should have increased capacity
+    try testing.expectEqual(
+        second_page_styles_cap * 2,
+        new_second_page.data.capacity.styles,
+    );
+
+    // The cursor's page (first page) should be unchanged
+    try testing.expectEqual(
+        cursor_page_styles_cap,
+        s.cursor.page_pin.node.data.capacity.styles,
+    );
+
+    // Cursor state should be completely unchanged since we didn't touch its page
+    try testing.expectEqual(old_style, s.cursor.style);
+    try testing.expectEqual(old_style_id, s.cursor.style_id);
+    try testing.expectEqual(old_hyperlink, s.cursor.hyperlink);
+    try testing.expectEqual(old_hyperlink_id, s.cursor.hyperlink_id);
+
+    // Verify hyperlink is still valid
+    try testing.expect(s.cursor.hyperlink != null);
+    try testing.expectEqualStrings("https://example.com/", s.cursor.hyperlink.?.uri);
+}
+
+test "Screen: cursorDown to page with insufficient capacity" {
+    // Regression test for https://github.com/ghostty-org/ghostty/issues/10282
+    //
+    // This test exposes a use-after-realloc bug in cursorDown (and similar
+    // cursor movement functions). The bug pattern:
+    //
+    // 1. cursorDown creates a by-value copy of the pin via page_pin.down(n)
+    // 2. cursorChangePin is called, which may trigger adjustCapacity
+    //    if the target page's style map is full
+    // 3. adjustCapacity frees the old page and creates a new one
+    // 4. The local pin copy still points to the freed page
+    // 5. rowAndCell() on the stale pin accesses freed memory
+
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    // Small screen to make page boundary crossing easy to set up
+    var s = try init(alloc, .{ .cols = 10, .rows = 3, .max_scrollback = 1 });
+    defer s.deinit();
+
+    // Scroll down enough to create a second page
+    const start_page = &s.pages.pages.last.?.data;
+    const rem = start_page.capacity.rows;
+    start_page.pauseIntegrityChecks(true);
+    for (0..rem) |_| try s.cursorDownOrScroll();
+    start_page.pauseIntegrityChecks(false);
+
+    // Cursor should now be on a new page
+    const new_page = &s.cursor.page_pin.node.data;
+    try testing.expect(start_page != new_page);
+
+    // Fill new_page's style map to capacity. When we move INTO this page
+    // with a style set, adjustCapacity will be triggered.
+    {
+        new_page.pauseIntegrityChecks(true);
+        defer new_page.pauseIntegrityChecks(false);
+        defer new_page.assertIntegrity();
+
+        var n: u24 = 1;
+        while (new_page.styles.add(
+            new_page.memory,
+            .{ .bg_color = .{ .rgb = @bitCast(n) } },
+        )) |_| n += 1 else |_| {}
+    }
+
+    // Move cursor to start of active area and set a style
+    s.cursorAbsolute(0, 0);
+    try s.setAttribute(.bold);
+    try testing.expect(s.cursor.style.flags.bold);
+    try testing.expect(s.cursor.style_id != style.default_id);
+
+    // Find the row just before the page boundary
+    for (0..s.pages.rows - 1) |row| {
+        s.cursorAbsolute(0, @intCast(row));
+        const cur_node = s.cursor.page_pin.node;
+        if (s.cursor.page_pin.down(1)) |next_pin| {
+            if (next_pin.node != cur_node) {
+                // Cursor is at 'row', moving down crosses to new_page
+                try testing.expect(&next_pin.node.data == new_page);
+
+                // This cursorDown triggers the bug: the local page_pin copy
+                // becomes stale after adjustCapacity, causing rowAndCell()
+                // to access freed memory.
+                s.cursorDown(1);
+
+                // If the fix is applied, verify correct state
+                try testing.expect(s.cursor.y == row + 1);
+                try testing.expect(s.cursor.style.flags.bold);
+
+                break;
+            }
+        }
+    } else {
+        // Didn't find boundary
+        try testing.expect(false);
+    }
+}
+
+test "Screen setAttribute increases capacity when style map is full" {
+    // Tests that setAttribute succeeds when the style map is full by
+    // increasing page capacity. When capacity is at max and increaseCapacity
+    // returns OutOfSpace, manualStyleUpdate will split the page instead.
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    // Use a small screen with multiple rows
+    var s = try init(alloc, .{ .cols = 10, .rows = 5, .max_scrollback = 10 });
+    defer s.deinit();
+
+    // Write content to multiple rows
+    try s.testWriteString("line1\nline2\nline3\nline4\nline5");
+
+    // Get the page and fill its style map to capacity
     const page = &s.cursor.page_pin.node.data;
+    const original_styles_capacity = page.capacity.styles;
 
-    // We add unique styles to the page until no more will fit.
-    fill: for (0..255) |bg| {
-        for (0..255) |fg| {
-            const st: style.Style = .{
-                .bg_color = .{ .palette = @intCast(bg) },
-                .fg_color = .{ .palette = @intCast(fg) },
-            };
+    // Fill the style map to capacity using the StyleSet's layout capacity
+    // which accounts for the load factor
+    {
+        page.pauseIntegrityChecks(true);
+        defer page.pauseIntegrityChecks(false);
+        defer page.assertIntegrity();
 
-            s.cursor.style = st;
-
-            // Try to insert the new style, if it doesn't fit then
-            // we succeeded in filling the style set, so we break.
-            s.cursor.style_id = page.styles.add(
+        const max_items = page.styles.layout.cap;
+        var n: usize = 1;
+        while (n < max_items) : (n += 1) {
+            _ = page.styles.add(
                 page.memory,
-                s.cursor.style,
-            ) catch break :fill;
-
-            try s.testWriteString("a");
+                .{ .bg_color = .{ .rgb = @bitCast(@as(u24, @intCast(n))) } },
+            ) catch break;
         }
     }
 
-    // Adjust the capacity, this should cause the style set to reach the
-    // same state it was in to begin with, since it will clone the page
-    // in the same order as the styles were added to begin with, meaning
-    // the cursor style will not be able to be added to the set, which
-    // should, right now, result in the cursor style being cleared.
-    _ = try s.adjustCapacity(s.cursor.page_pin.node, .{});
+    // Now try to set a new unique attribute that would require a new style slot
+    // This should succeed by increasing capacity (or splitting if at max capacity)
+    try s.setAttribute(.bold);
 
-    // The cursor style should have been cleared by the `adjustCapacity`.
-    //
-    // This behavior will change, causing this test to fail, if either
-    // of these changes are made:
-    //
-    // - The adjustCapacity function is changed to ensure the
-    //   new capacity will definitely fit the cursor style.
-    //
-    // - The cursor managed memory handling is reworked so that it
-    //   doesn't reside in the pages anymore and doesn't need this
-    //   accounting.
-    //
-    // In such a case, adjust this test accordingly.
-    try testing.expect(s.cursor.style.default());
-    try testing.expectEqual(style.default_id, s.cursor.style_id);
+    // The style should have been applied (bold flag set)
+    try testing.expect(s.cursor.style.flags.bold);
+
+    // The cursor should have a valid non-default style_id
+    try testing.expect(s.cursor.style_id != style.default_id);
+
+    // Either the capacity increased or the page was split/changed
+    const current_page = &s.cursor.page_pin.node.data;
+    const capacity_increased = current_page.capacity.styles > original_styles_capacity;
+    const page_changed = current_page != page;
+    try testing.expect(capacity_increased or page_changed);
+}
+
+test "Screen setAttribute splits page on OutOfSpace at max styles" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, .{
+        .cols = 10,
+        .rows = 10,
+        .max_scrollback = 0,
+    });
+    defer s.deinit();
+
+    // Write content to multiple rows so we have something to split
+    try s.testWriteString("line1\nline2\nline3\nline4\nline5");
+
+    // Remember the original node
+    const original_node = s.cursor.page_pin.node;
+
+    // Increase the page's style capacity to max by repeatedly calling increaseCapacity
+    // Use Screen.increaseCapacity to properly maintain cursor state
+    const max_styles = std.math.maxInt(size.CellCountInt);
+    while (s.cursor.page_pin.node.data.capacity.styles < max_styles) {
+        _ = s.increaseCapacity(
+            s.cursor.page_pin.node,
+            .styles,
+        ) catch break;
+    }
+
+    // Get the page reference after increaseCapacity - cursor may have moved
+    var page = &s.cursor.page_pin.node.data;
+    try testing.expectEqual(max_styles, page.capacity.styles);
+
+    // Fill the style map to capacity using the StyleSet's layout capacity
+    // which accounts for the load factor
+    {
+        page.pauseIntegrityChecks(true);
+        defer page.pauseIntegrityChecks(false);
+        defer page.assertIntegrity();
+
+        const max_items = page.styles.layout.cap;
+        var n: usize = 1;
+        while (n < max_items) : (n += 1) {
+            _ = page.styles.add(
+                page.memory,
+                .{ .bg_color = .{ .rgb = @bitCast(@as(u24, @intCast(n))) } },
+            ) catch break;
+        }
+    }
+
+    // Track the node before setAttribute
+    const node_before_set = s.cursor.page_pin.node;
+
+    // Now try to set a new unique attribute that would require a new style slot
+    // At max capacity, increaseCapacity will return OutOfSpace, triggering page split
+    try s.setAttribute(.bold);
+
+    // The style should have been applied (bold flag set)
+    try testing.expect(s.cursor.style.flags.bold);
+
+    // The cursor should have a valid non-default style_id
+    try testing.expect(s.cursor.style_id != style.default_id);
+
+    // The page should have been split
+    const page_was_split = s.cursor.page_pin.node != node_before_set or
+        node_before_set.next != null or
+        node_before_set.prev != null or
+        s.cursor.page_pin.node != original_node;
+    try testing.expect(page_was_split);
 }

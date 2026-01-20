@@ -978,8 +978,6 @@ jobs:
             --check-sourced \
             --color=always \
             --severity=warning \
-            --shell=bash \
-            --external-sources \
             $(find . \( -name "*.sh" -o -name "*.bash" \) -type f ! -path "./zig-out/*" ! -path "./macos/build/*" ! -path "./.git/*" | sort)
 
   translations:

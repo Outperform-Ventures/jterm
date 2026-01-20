@@ -164,6 +164,28 @@ alejandra .
 
 Make sure your Alejandra version matches the version of Alejandra in [devShell.nix](https://github.com/ghostty-org/ghostty/blob/main/nix/devShell.nix).
 
+### ShellCheck
+
+Bash scripts are checked with [ShellCheck](https://www.shellcheck.net/) in CI.
+
+Nix users can use the following command to run ShellCheck over all of our scripts:
+
+```
+nix develop -c shellcheck \
+    --check-sourced \
+    --severity=warning \
+    $(find . \( -name "*.sh" -o -name "*.bash" \) -type f ! -path "./zig-out/*" ! -path "./macos/build/*" ! -path "./.git/*" | sort)
+```
+
+Non-Nix users can [install ShellCheck](https://github.com/koalaman/shellcheck#user-content-installing) and then run:
+
+```
+shellcheck \
+    --check-sourced \
+    --severity=warning \
+    $(find . \( -name "*.sh" -o -name "*.bash" \) -type f ! -path "./zig-out/*" ! -path "./macos/build/*" ! -path "./.git/*" | sort)
+```
+
 ### Updating the Zig Cache Fixed-Output Derivation Hash
 
 The Nix package depends on a [fixed-output

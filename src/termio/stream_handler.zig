@@ -398,11 +398,16 @@ pub const StreamHandler = struct {
                         break :tmux;
                     },
 
-                    .exit => if (self.tmux_viewer) |viewer| {
-                        // Free our viewer state
-                        viewer.deinit();
-                        self.alloc.destroy(viewer);
-                        self.tmux_viewer = null;
+                    .exit => {
+                        // Free our viewer state if we have one
+                        if (self.tmux_viewer) |viewer| {
+                            viewer.deinit();
+                            self.alloc.destroy(viewer);
+                            self.tmux_viewer = null;
+                        }
+
+                        // And always break since we assert below
+                        // that we're not handling an exit command.
                         break :tmux;
                     },
 
@@ -716,7 +721,7 @@ pub const StreamHandler = struct {
                 if (enabled) {
                     self.terminal.saveCursor();
                 } else {
-                    try self.terminal.restoreCursor();
+                    self.terminal.restoreCursor();
                 }
             },
 
@@ -928,7 +933,7 @@ pub const StreamHandler = struct {
     }
 
     pub inline fn restoreCursor(self: *StreamHandler) !void {
-        try self.terminal.restoreCursor();
+        self.terminal.restoreCursor();
     }
 
     pub fn enquiry(self: *StreamHandler) !void {
