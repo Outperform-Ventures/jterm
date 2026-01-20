@@ -17,18 +17,11 @@ pub const Key = enum {
     }
 
     fn GValueType(comptime self: Key) type {
-        return switch (self) {
-            // Booleans are stored as integers in GTK's internal representation
-            .@"gtk-enable-primary-paste",
-            => c_int,
-
-            // Integer types
-            .@"gtk-xft-dpi",
-            => c_int,
-
-            // String types (returned as null-terminated C strings from GTK)
-            .@"gtk-font-name",
-            => ?[*:0]const u8,
+        return switch (self.Type()) {
+            bool => c_int, // Booleans are stored as integers in GTK's internal representation
+            c_int => c_int,
+            []const u8 => ?[*:0]const u8, // Strings (returned as null-terminated C strings from GTK)
+            else => @compileError("Unsupported type for GTK settings"),
         };
     }
 
@@ -86,19 +79,12 @@ fn getImpl(settings: *gtk.Settings, allocator: ?std.mem.Allocator, comptime key:
 
     settings.as(gobject.Object).getProperty(@tagName(key).ptr, &value);
 
-    return switch (key) {
-        // Booleans are stored as integers in GTK, convert to bool
-        .@"gtk-enable-primary-paste",
-        => value.getInt() != 0,
-
-        // Integer types are returned directly
-        .@"gtk-xft-dpi",
-        => value.getInt(),
-
-        // Strings: GTK owns the GValue's pointer, so we must duplicate it
-        // before the GValue is destroyed by defer value.unset()
-        .@"gtk-font-name",
-        => blk: {
+    return switch (key.Type()) {
+        bool => value.getInt() != 0, // Booleans are stored as integers in GTK, convert to bool
+        c_int => value.getInt(), // Integer types are returned directly
+        []const u8 => blk: {
+            // Strings: GTK owns the GValue's pointer, so we must duplicate it
+            // before the GValue is destroyed by defer value.unset()
             // This is defensive: we have already checked at compile-time that
             // an allocator is provided for allocating types
             const alloc = allocator.?;
@@ -106,6 +92,7 @@ fn getImpl(settings: *gtk.Settings, allocator: ?std.mem.Allocator, comptime key:
             const str = std.mem.span(ptr);
             break :blk try alloc.dupe(u8, str);
         },
+        else => @compileError("Unsupported type for GTK settings"),
     };
 }
 
