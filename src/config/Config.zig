@@ -722,7 +722,8 @@ foreground: Color = .{ .r = 0xFF, .g = 0xFF, .b = 0xFF },
 /// words in code and prose.
 ///
 /// Each character in this string becomes a word boundary. Multi-byte UTF-8
-/// characters are supported.
+/// characters are supported, but only single codepoints can be specified.
+/// Multi-codepoint sequences (e.g. emoji) are not supported.
 ///
 /// The null character (U+0000) is always treated as a boundary and does not
 /// need to be included in this configuration.
@@ -733,6 +734,8 @@ foreground: Color = .{ .r = 0xFF, .g = 0xFF, .b = 0xFF },
 /// For example, to treat semicolons as part of words:
 ///
 ///     selection-word-chars = " \t'\"│`|:,()[]{}<>$"
+///
+/// Available since: 1.3.0
 @"selection-word-chars": SelectionWordChars = .{},
 
 /// The minimum contrast ratio between the foreground and background colors.

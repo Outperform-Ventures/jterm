@@ -393,7 +393,7 @@ const DerivedConfig = struct {
             .macos_option_as_alt = config.@"macos-option-as-alt",
             .selection_clear_on_copy = config.@"selection-clear-on-copy",
             .selection_clear_on_typing = config.@"selection-clear-on-typing",
-            .selection_word_chars = config.@"selection-word-chars".codepoints,
+            .selection_word_chars = try alloc.dupe(u21, config.@"selection-word-chars".codepoints),
             .vt_kam_allowed = config.@"vt-kam-allowed",
             .wait_after_command = config.@"wait-after-command",
             .window_padding_top = config.@"window-padding-y".top_left,
@@ -4264,7 +4264,10 @@ pub fn mouseButtonCallback(
                 if (try self.linkAtPos(pos)) |link| {
                     try self.setSelection(link.selection);
                 } else {
-                    const sel = screen.selectWord(pin, self.config.selection_word_chars) orelse break :sel;
+                    const sel = screen.selectWord(
+                        pin,
+                        self.config.selection_word_chars,
+                    ) orelse break :sel;
                     try self.setSelection(sel);
                 }
                 try self.queueRender();
