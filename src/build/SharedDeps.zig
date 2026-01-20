@@ -412,14 +412,7 @@ pub fn add(
     })) |dep| {
         step.root_module.addImport("z2d", dep.module("z2d"));
     }
-    if (b.lazyDependency("uucode", .{
-        .target = target,
-        .optimize = optimize,
-        .tables_path = self.uucode_tables,
-        .build_config_path = b.path("src/build/uucode_config.zig"),
-    })) |dep| {
-        step.root_module.addImport("uucode", dep.module("uucode"));
-    }
+    self.addUucode(b, step.root_module, target, optimize);
     if (b.lazyDependency("zf", .{
         .target = target,
         .optimize = optimize,
@@ -876,6 +869,23 @@ pub fn gtkNgDistResources(
             .generated = resources_h,
         },
     };
+}
+
+pub fn addUucode(
+    self: *const SharedDeps,
+    b: *std.Build,
+    module: *std.Build.Module,
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+) void {
+    if (b.lazyDependency("uucode", .{
+        .target = target,
+        .optimize = optimize,
+        .tables_path = self.uucode_tables,
+        .build_config_path = b.path("src/build/uucode_config.zig"),
+    })) |dep| {
+        module.addImport("uucode", dep.module("uucode"));
+    }
 }
 
 // For dynamic linking, we prefer dynamic linking and to search by
