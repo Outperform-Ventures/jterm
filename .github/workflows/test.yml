@@ -844,6 +844,8 @@ jobs:
     if: github.repository == 'ghostty-org/ghostty'
     runs-on: namespace-profile-ghostty-xsm
     timeout-minutes: 60
+    permissions:
+      contents: read
     env:
       ZIG_LOCAL_CACHE_DIR: /zig/local-cache
       ZIG_GLOBAL_CACHE_DIR: /zig/global-cache
@@ -866,6 +868,8 @@ jobs:
           useDaemon: false # sometimes fails on short jobs
       - name: pinact check
         run: nix develop -c pinact run --check
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   prettier:
     if: github.repository == 'ghostty-org/ghostty'
