@@ -582,6 +582,7 @@ const Command = extern struct {
         const priv = self.private();
         priv.data = .{
             .jump = .{
+                // TODO: Replace with surface id whenever Ghostty adds one
                 .sort_key = @intFromPtr(surface),
             },
         };
