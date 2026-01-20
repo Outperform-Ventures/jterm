@@ -1282,6 +1282,9 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 }
             }
 
+            // From this point forward no more errors.
+            errdefer comptime unreachable;
+
             // Reset our dirty state after updating.
             defer self.terminal_state.dirty = .false;
 
@@ -1291,7 +1294,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 defer self.draw_mutex.unlock();
 
                 // Build our GPU cells
-                try self.rebuildCells(
+                self.rebuildCells(
                     critical.preedit,
                     renderer.cursorStyle(&self.terminal_state, .{
                         .preedit = critical.preedit != null,
@@ -1299,7 +1302,13 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                         .blink_visible = cursor_blink_visible,
                     }),
                     &critical.links,
-                );
+                ) catch |err| {
+                    // This means we weren't able to allocate our buffer
+                    // to update the cells. In this case, we continue with
+                    // our old buffer (frozen contents) and log it.
+                    comptime assert(@TypeOf(err) == error{OutOfMemory});
+                    log.warn("error rebuilding GPU cells err={}", .{err});
+                };
 
                 // The scrollbar is only emitted during draws so we also
                 // check the scrollbar cache here and update if needed.
@@ -2498,7 +2507,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             preedit: ?renderer.State.Preedit,
             cursor_style_: ?renderer.CursorStyle,
             links: *const terminal.RenderState.CellSet,
-        ) !void {
+        ) Allocator.Error!void {
             const state: *terminal.RenderState = &self.terminal_state;
 
             // const start = try std.time.Instant.now();
@@ -2566,6 +2575,10 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 }
             }
 
+            // From this point on we never fail. We produce some kind of
+            // working terminal state, even if incorrect.
+            errdefer comptime unreachable;
+
             // Get our row data from our state
             const row_data = state.row_data.slice();
             const row_raws = row_data.items(.raw);
@@ -2603,7 +2616,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 // Unmark the dirty state in our render state.
                 dirty.* = false;
 
-                try self.rebuildRow(
+                self.rebuildRow(
                     y,
                     row,
                     cells,
@@ -2611,7 +2624,14 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     selection,
                     highlights,
                     links,
-                );
+                ) catch |err| {
+                    // This should never happen except under exceptional
+                    // scenarios. In this case, we don't want to corrupt
+                    // our render state so just clear this row and keep
+                    // trying to finish it out.
+                    log.warn("error building row y={} err={}", .{ y, err });
+                    self.cells.clear(y);
+                };
             }
 
             // Setup our cursor rendering information.
