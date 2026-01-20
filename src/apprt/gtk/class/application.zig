@@ -2406,7 +2406,7 @@ const Action = struct {
 
                 // If the tree has no splits (only one leaf), this action is not performable.
                 // This allows the key event to pass through to the terminal.
-                if (!tree.isSplit()) return false;
+                if (!tree.getIsSplit()) return false;
 
                 return tree.resize(
                     switch (value.direction) {
@@ -2564,7 +2564,7 @@ const Action = struct {
 
                 // If the tree has no splits (only one leaf), this action is not performable.
                 // This allows the key event to pass through to the terminal.
-                if (!tree.isSplit()) return false;
+                if (!tree.getIsSplit()) return false;
 
                 return surface.as(gtk.Widget).activateAction("split-tree.zoom", null) != 0;
             },
