@@ -1117,7 +1117,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             self: *Self,
             state: *renderer.State,
             cursor_blink_visible: bool,
-        ) !void {
+        ) Allocator.Error!void {
             // We fully deinit and reset the terminal state every so often
             // so that a particularly large terminal state doesn't cause
             // the renderer to hold on to retained memory.
@@ -1193,7 +1193,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 if (state.terminal.screens.active.kitty_images.dirty or
                     self.image_virtual)
                 {
-                    try self.prepKittyGraphics(state.terminal);
+                    self.prepKittyGraphics(state.terminal);
                 }
 
                 // Get our OSC8 links we're hovering if we have a mouse.
@@ -1712,7 +1712,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
         fn prepKittyGraphics(
             self: *Self,
             t: *terminal.Terminal,
-        ) !void {
+        ) void {
             self.draw_mutex.lock();
             defer self.draw_mutex.unlock();
 
@@ -1776,16 +1776,32 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     continue;
                 };
 
-                try self.prepKittyPlacement(t, top_y, bot_y, &image, p);
+                self.prepKittyPlacement(
+                    t,
+                    top_y,
+                    bot_y,
+                    &image,
+                    p,
+                ) catch |err| {
+                    // For errors we log and continue. We try to place
+                    // other placements even if one fails.
+                    log.warn("error preparing kitty placement err={}", .{err});
+                };
             }
 
             // If we have virtual placements then we need to scan for placeholders.
             if (self.image_virtual) {
                 var v_it = terminal.kitty.graphics.unicode.placementIterator(top, bot);
-                while (v_it.next()) |virtual_p| try self.prepKittyVirtualPlacement(
-                    t,
-                    &virtual_p,
-                );
+                while (v_it.next()) |virtual_p| {
+                    self.prepKittyVirtualPlacement(
+                        t,
+                        &virtual_p,
+                    ) catch |err| {
+                        // For errors we log and continue. We try to place
+                        // other placements even if one fails.
+                        log.warn("error preparing kitty placement err={}", .{err});
+                    };
+                }
             }
 
             // Sort the placements by their Z value.
@@ -1833,7 +1849,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             self: *Self,
             t: *terminal.Terminal,
             p: *const terminal.kitty.graphics.unicode.Placement,
-        ) !void {
+        ) PrepKittyImageError!void {
             const storage = &t.screens.active.kitty_images;
             const image = storage.imageById(p.image_id) orelse {
                 log.warn(
@@ -1894,7 +1910,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             bot_y: u32,
             image: *const terminal.kitty.graphics.Image,
             p: *const terminal.kitty.graphics.ImageStorage.Placement,
-        ) !void {
+        ) PrepKittyImageError!void {
             // Get the rect for the placement. If this placement doesn't have
             // a rect then its virtual or something so skip it.
             const rect = p.rect(image.*, t) orelse return;
@@ -1950,12 +1966,17 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             }
         }
 
+        const PrepKittyImageError = error{
+            OutOfMemory,
+            ImageConversionError,
+        };
+
         /// Prepare the provided image for upload to the GPU by copying its
         /// data with our allocator and setting it to the pending state.
         fn prepKittyImage(
             self: *Self,
             image: *const terminal.kitty.graphics.Image,
-        ) !void {
+        ) PrepKittyImageError!void {
             // If this image exists and its transmit time is the same we assume
             // it is the identical image so we don't need to send it to the GPU.
             const gop = try self.images.getOrPut(self.alloc, image.id);
@@ -1966,39 +1987,60 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             }
 
             // Copy the data into the pending state.
-            const data = try self.alloc.dupe(u8, image.data);
-            errdefer self.alloc.free(data);
+            const data = if (self.alloc.dupe(
+                u8,
+                image.data,
+            )) |v| v else |_| {
+                if (!gop.found_existing) {
+                    // If this is a new entry we can just remove it since it
+                    // was never sent to the GPU.
+                    _ = self.images.remove(image.id);
+                } else {
+                    // If this was an existing entry, it is invalid and
+                    // we must unload it.
+                    gop.value_ptr.image.markForUnload();
+                }
+
+                return error.OutOfMemory;
+            };
+            // Note: we don't need to errdefer free the data because it is
+            // put into the map immediately below and our errdefer to
+            // handle our map state will fix this up.
 
             // Store it in the map
-            const pending: Image.Pending = .{
-                .width = image.width,
-                .height = image.height,
-                .pixel_format = switch (image.format) {
-                    .gray => .gray,
-                    .gray_alpha => .gray_alpha,
-                    .rgb => .rgb,
-                    .rgba => .rgba,
-                    .png => unreachable, // should be decoded by now
+            const new_image: Image = .{
+                .pending = .{
+                    .width = image.width,
+                    .height = image.height,
+                    .pixel_format = switch (image.format) {
+                        .gray => .gray,
+                        .gray_alpha => .gray_alpha,
+                        .rgb => .rgb,
+                        .rgba => .rgba,
+                        .png => unreachable, // should be decoded by now
+                    },
+                    .data = data.ptr,
                 },
-                .data = data.ptr,
             };
-
-            const new_image: Image = .{ .pending = pending };
-
             if (!gop.found_existing) {
                 gop.value_ptr.* = .{
                     .image = new_image,
                     .transmit_time = undefined,
                 };
             } else {
-                try gop.value_ptr.image.markForReplace(
+                gop.value_ptr.image.markForReplace(
                     self.alloc,
                     new_image,
                 );
             }
 
-            try gop.value_ptr.image.prepForUpload(self.alloc);
+            // If any error happens, we unload the image and it is invalid.
+            errdefer gop.value_ptr.image.markForUnload();
 
+            gop.value_ptr.image.prepForUpload(self.alloc) catch |err| {
+                log.warn("error preparing kitty image for upload err={}", .{err});
+                return error.ImageConversionError;
+            };
             gop.value_ptr.transmit_time = image.transmit_time;
         }
 
@@ -2090,7 +2132,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 // If we have an existing background image, replace it.
                 // Otherwise, set this as our background image directly.
                 if (self.bg_image) |*img| {
-                    try img.markForReplace(self.alloc, image);
+                    img.markForReplace(self.alloc, image);
                 } else {
                     self.bg_image = image;
                 }
