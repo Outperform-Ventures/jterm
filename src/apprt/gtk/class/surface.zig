@@ -1516,7 +1516,7 @@ pub const Surface = extern struct {
         const xft_dpi_scale = xft_scale: {
             // gtk-xft-dpi is font DPI multiplied by 1024. See
             // https://docs.gtk.org/gtk4/property.Settings.gtk-xft-dpi.html
-            const gtk_xft_dpi = gsettings.get(.gtk_xft_dpi) orelse {
+            const gtk_xft_dpi = gsettings.get(.@"gtk-xft-dpi") orelse {
                 log.warn("gtk-xft-dpi was not set, using default value", .{});
                 break :xft_scale 1.0;
             };
@@ -1772,7 +1772,7 @@ pub const Surface = extern struct {
 
         // Read GNOME desktop interface settings for primary paste (middle-click)
         // This is only relevant on Linux systems with GNOME settings available
-        priv.gtk_enable_primary_paste = gsettings.get(.gtk_enable_primary_paste) orelse blk: {
+        priv.gtk_enable_primary_paste = gsettings.get(.@"gtk-enable-primary-paste") orelse blk: {
             log.warn("gtk-enable-primary-paste was not set, using default value", .{});
             break :blk false;
         };

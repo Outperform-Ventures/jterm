@@ -4,39 +4,31 @@ const gobject = @import("gobject");
 
 /// GTK Settings keys with well-defined types.
 pub const Key = enum {
-    gtk_enable_primary_paste,
-    gtk_xft_dpi,
-    gtk_font_name,
+    @"gtk-enable-primary-paste",
+    @"gtk-xft-dpi",
+    @"gtk-font-name",
 
     fn Type(comptime self: Key) type {
         return switch (self) {
-            .gtk_enable_primary_paste => bool,
-            .gtk_xft_dpi => c_int,
-            .gtk_font_name => []const u8,
+            .@"gtk-enable-primary-paste" => bool,
+            .@"gtk-xft-dpi" => c_int,
+            .@"gtk-font-name" => []const u8,
         };
     }
 
     fn GValueType(comptime self: Key) type {
         return switch (self) {
             // Booleans are stored as integers in GTK's internal representation
-            .gtk_enable_primary_paste,
+            .@"gtk-enable-primary-paste",
             => c_int,
 
             // Integer types
-            .gtk_xft_dpi,
+            .@"gtk-xft-dpi",
             => c_int,
 
             // String types (returned as null-terminated C strings from GTK)
-            .gtk_font_name,
+            .@"gtk-font-name",
             => ?[*:0]const u8,
-        };
-    }
-
-    fn propertyName(comptime self: Key) [*:0]const u8 {
-        return switch (self) {
-            .gtk_enable_primary_paste => "gtk-enable-primary-paste",
-            .gtk_xft_dpi => "gtk-xft-dpi",
-            .gtk_font_name => "gtk-font-name",
         };
     }
 
@@ -58,8 +50,8 @@ pub const Key = enum {
 /// No allocator is required or used. Returns null if the setting is not available or cannot be read.
 ///
 /// Example usage:
-///   const enabled = get(.gtk_enable_primary_paste);
-///   const dpi = get(.gtk_xft_dpi);
+///   const enabled = get(.@"gtk-enable-primary-paste");
+///   const dpi = get(.@"gtk-xft-dpi");
 pub fn get(comptime key: Key) ?key.Type() {
     if (comptime key.requiresAllocation()) {
         @compileError("Allocating types require an allocator; use getAlloc() instead");
@@ -92,20 +84,20 @@ fn getImpl(settings: *gtk.Settings, allocator: ?std.mem.Allocator, comptime key:
     var value = gobject.ext.Value.new(GValType);
     defer value.unset();
 
-    settings.as(gobject.Object).getProperty(key.propertyName(), &value);
+    settings.as(gobject.Object).getProperty(@tagName(key).ptr, &value);
 
     return switch (key) {
         // Booleans are stored as integers in GTK, convert to bool
-        .gtk_enable_primary_paste,
+        .@"gtk-enable-primary-paste",
         => value.getInt() != 0,
 
         // Integer types are returned directly
-        .gtk_xft_dpi,
+        .@"gtk-xft-dpi",
         => value.getInt(),
 
         // Strings: GTK owns the GValue's pointer, so we must duplicate it
         // before the GValue is destroyed by defer value.unset()
-        .gtk_font_name,
+        .@"gtk-font-name",
         => blk: {
             // This is defensive: we have already checked at compile-time that
             // an allocator is provided for allocating types
@@ -118,25 +110,25 @@ fn getImpl(settings: *gtk.Settings, allocator: ?std.mem.Allocator, comptime key:
 }
 
 test "Key.Type returns correct types" {
-    try std.testing.expectEqual(bool, Key.gtk_enable_primary_paste.Type());
-    try std.testing.expectEqual(c_int, Key.gtk_xft_dpi.Type());
-    try std.testing.expectEqual([]const u8, Key.gtk_font_name.Type());
+    try std.testing.expectEqual(bool, Key.@"gtk-enable-primary-paste".Type());
+    try std.testing.expectEqual(c_int, Key.@"gtk-xft-dpi".Type());
+    try std.testing.expectEqual([]const u8, Key.@"gtk-font-name".Type());
 }
 
 test "Key.requiresAllocation identifies allocating types" {
-    try std.testing.expectEqual(false, Key.gtk_enable_primary_paste.requiresAllocation());
-    try std.testing.expectEqual(false, Key.gtk_xft_dpi.requiresAllocation());
-    try std.testing.expectEqual(true, Key.gtk_font_name.requiresAllocation());
+    try std.testing.expectEqual(false, Key.@"gtk-enable-primary-paste".requiresAllocation());
+    try std.testing.expectEqual(false, Key.@"gtk-xft-dpi".requiresAllocation());
+    try std.testing.expectEqual(true, Key.@"gtk-font-name".requiresAllocation());
 }
 
 test "Key.GValueType returns correct GObject types" {
-    try std.testing.expectEqual(c_int, Key.gtk_enable_primary_paste.GValueType());
-    try std.testing.expectEqual(c_int, Key.gtk_xft_dpi.GValueType());
-    try std.testing.expectEqual(?[*:0]const u8, Key.gtk_font_name.GValueType());
+    try std.testing.expectEqual(c_int, Key.@"gtk-enable-primary-paste".GValueType());
+    try std.testing.expectEqual(c_int, Key.@"gtk-xft-dpi".GValueType());
+    try std.testing.expectEqual(?[*:0]const u8, Key.@"gtk-font-name".GValueType());
 }
 
-test "Key.propertyName returns correct GTK property names" {
-    try std.testing.expectEqualSlices(u8, "gtk-enable-primary-paste", std.mem.span(Key.gtk_enable_primary_paste.propertyName()));
-    try std.testing.expectEqualSlices(u8, "gtk-xft-dpi", std.mem.span(Key.gtk_xft_dpi.propertyName()));
-    try std.testing.expectEqualSlices(u8, "gtk-font-name", std.mem.span(Key.gtk_font_name.propertyName()));
+test "@tagName returns correct GTK property names" {
+    try std.testing.expectEqualStrings("gtk-enable-primary-paste", @tagName(Key.@"gtk-enable-primary-paste"));
+    try std.testing.expectEqualStrings("gtk-xft-dpi", @tagName(Key.@"gtk-xft-dpi"));
+    try std.testing.expectEqualStrings("gtk-font-name", @tagName(Key.@"gtk-font-name"));
 }
