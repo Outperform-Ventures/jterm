@@ -773,9 +773,9 @@ pub fn SplitTree(comptime V: type) type {
         /// Resize the nearest split matching the layout by the given ratio.
         /// Positive is right and down.
         ///
-        /// The ratio is a value between 0 and 1 representing the percentage
-        /// to move the divider in the given direction. The percentage is
-        /// of the entire grid size, not just the specific split size.
+        /// The ratio is a signed delta representing the percentage to move
+        /// the divider. The percentage is of the entire grid size, not just
+        /// the specific split size.
         /// We use the entire grid size because that's what Ghostty's
         /// `resize_split` keybind does, because it maps to a general human
         /// understanding of moving a split relative to the entire window
@@ -794,7 +794,6 @@ pub fn SplitTree(comptime V: type) type {
             layout: Split.Layout,
             ratio: f16,
         ) Allocator.Error!Self {
-            assert(ratio >= 0 and ratio <= 1);
             assert(!std.math.isNan(ratio));
             assert(!std.math.isInf(ratio));
 
@@ -2047,6 +2046,32 @@ test "SplitTree: resize" {
             \\+-------------++---+
             \\|      A      || B |
             \\+-------------++---+
+            \\
+        );
+    }
+
+    // Resize the other direction (negative ratio)
+    {
+        var resized = try split.resize(
+            alloc,
+            at: {
+                var it = split.iterator();
+                break :at while (it.next()) |entry| {
+                    if (std.mem.eql(u8, entry.view.label, "B")) {
+                        break entry.handle;
+                    }
+                } else return error.NotFound;
+            },
+            .horizontal, // resize left
+            -0.25,
+        );
+        defer resized.deinit();
+        const str = try std.fmt.allocPrint(alloc, "{f}", .{std.fmt.alt(resized, .formatDiagram)});
+        defer alloc.free(str);
+        try testing.expectEqualStrings(str,
+            \\+---++-------------+
+            \\| A ||      B      |
+            \\+---++-------------+
             \\
         );
     }
