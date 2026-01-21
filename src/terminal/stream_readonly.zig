@@ -102,8 +102,8 @@ pub const Handler = struct {
             .delete_lines => self.terminal.deleteLines(value),
             .scroll_up => try self.terminal.scrollUp(value),
             .scroll_down => self.terminal.scrollDown(value),
-            .horizontal_tab => try self.horizontalTab(value),
-            .horizontal_tab_back => try self.horizontalTabBack(value),
+            .horizontal_tab => self.horizontalTab(value),
+            .horizontal_tab_back => self.horizontalTabBack(value),
             .tab_clear_current => self.terminal.tabClear(.current),
             .tab_clear_all => self.terminal.tabClear(.all),
             .tab_set => self.terminal.tabSet(),
@@ -200,18 +200,18 @@ pub const Handler = struct {
         }
     }
 
-    inline fn horizontalTab(self: *Handler, count: u16) !void {
+    inline fn horizontalTab(self: *Handler, count: u16) void {
         for (0..count) |_| {
             const x = self.terminal.screens.active.cursor.x;
-            try self.terminal.horizontalTab();
+            self.terminal.horizontalTab();
             if (x == self.terminal.screens.active.cursor.x) break;
         }
     }
 
-    inline fn horizontalTabBack(self: *Handler, count: u16) !void {
+    inline fn horizontalTabBack(self: *Handler, count: u16) void {
         for (0..count) |_| {
             const x = self.terminal.screens.active.cursor.x;
-            try self.terminal.horizontalTabBack();
+            self.terminal.horizontalTabBack();
             if (x == self.terminal.screens.active.cursor.x) break;
         }
     }

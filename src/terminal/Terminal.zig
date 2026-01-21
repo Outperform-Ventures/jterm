@@ -1118,7 +1118,7 @@ pub fn cursorIsAtPrompt(self: *Terminal) bool {
 
 /// Horizontal tab moves the cursor to the next tabstop, clearing
 /// the screen to the left the tabstop.
-pub fn horizontalTab(self: *Terminal) !void {
+pub fn horizontalTab(self: *Terminal) void {
     while (self.screens.active.cursor.x < self.scrolling_region.right) {
         // Move the cursor right
         self.screens.active.cursorRight(1);
@@ -1131,7 +1131,7 @@ pub fn horizontalTab(self: *Terminal) !void {
 }
 
 // Same as horizontalTab but moves to the previous tabstop instead of the next.
-pub fn horizontalTabBack(self: *Terminal) !void {
+pub fn horizontalTabBack(self: *Terminal) void {
     // With origin mode enabled, our leftmost limit is the left margin.
     const left_limit = if (self.modes.get(.origin)) self.scrolling_region.left else 0;
 
@@ -4736,17 +4736,17 @@ test "Terminal: horizontal tabs" {
 
     // HT
     try t.print('1');
-    try t.horizontalTab();
+    t.horizontalTab();
     try testing.expectEqual(@as(usize, 8), t.screens.active.cursor.x);
 
     // HT
-    try t.horizontalTab();
+    t.horizontalTab();
     try testing.expectEqual(@as(usize, 16), t.screens.active.cursor.x);
 
     // HT at the end
-    try t.horizontalTab();
+    t.horizontalTab();
     try testing.expectEqual(@as(usize, 19), t.screens.active.cursor.x);
-    try t.horizontalTab();
+    t.horizontalTab();
     try testing.expectEqual(@as(usize, 19), t.screens.active.cursor.x);
 }
 
@@ -4758,7 +4758,7 @@ test "Terminal: horizontal tabs starting on tabstop" {
     t.setCursorPos(t.screens.active.cursor.y, 9);
     try t.print('X');
     t.setCursorPos(t.screens.active.cursor.y, 9);
-    try t.horizontalTab();
+    t.horizontalTab();
     try t.print('A');
 
     {
@@ -4777,7 +4777,7 @@ test "Terminal: horizontal tabs with right margin" {
     t.scrolling_region.right = 5;
     t.setCursorPos(t.screens.active.cursor.y, 1);
     try t.print('X');
-    try t.horizontalTab();
+    t.horizontalTab();
     try t.print('A');
 
     {
@@ -4796,17 +4796,17 @@ test "Terminal: horizontal tabs back" {
     t.setCursorPos(t.screens.active.cursor.y, 20);
 
     // HT
-    try t.horizontalTabBack();
+    t.horizontalTabBack();
     try testing.expectEqual(@as(usize, 16), t.screens.active.cursor.x);
 
     // HT
-    try t.horizontalTabBack();
+    t.horizontalTabBack();
     try testing.expectEqual(@as(usize, 8), t.screens.active.cursor.x);
 
     // HT
-    try t.horizontalTabBack();
+    t.horizontalTabBack();
     try testing.expectEqual(@as(usize, 0), t.screens.active.cursor.x);
-    try t.horizontalTabBack();
+    t.horizontalTabBack();
     try testing.expectEqual(@as(usize, 0), t.screens.active.cursor.x);
 }
 
@@ -4818,7 +4818,7 @@ test "Terminal: horizontal tabs back starting on tabstop" {
     t.setCursorPos(t.screens.active.cursor.y, 9);
     try t.print('X');
     t.setCursorPos(t.screens.active.cursor.y, 9);
-    try t.horizontalTabBack();
+    t.horizontalTabBack();
     try t.print('A');
 
     {
@@ -4838,7 +4838,7 @@ test "Terminal: horizontal tabs with left margin in origin mode" {
     t.scrolling_region.right = 5;
     t.setCursorPos(1, 2);
     try t.print('X');
-    try t.horizontalTabBack();
+    t.horizontalTabBack();
     try t.print('A');
 
     {
@@ -4858,7 +4858,7 @@ test "Terminal: horizontal tab back with cursor before left margin" {
     t.modes.set(.enable_left_and_right_margin, true);
     t.setLeftAndRightMargin(5, 0);
     t.restoreCursor();
-    try t.horizontalTabBack();
+    t.horizontalTabBack();
     try t.print('X');
 
     {
@@ -10593,11 +10593,11 @@ test "Terminal: tabClear single" {
     var t = try init(alloc, .{ .cols = 30, .rows = 5 });
     defer t.deinit(alloc);
 
-    try t.horizontalTab();
+    t.horizontalTab();
     t.tabClear(.current);
     try testing.expect(!t.isDirty(.{ .active = .{ .x = 0, .y = 0 } }));
     t.setCursorPos(1, 1);
-    try t.horizontalTab();
+    t.horizontalTab();
     try testing.expectEqual(@as(usize, 16), t.screens.active.cursor.x);
 }
 
@@ -10609,7 +10609,7 @@ test "Terminal: tabClear all" {
     t.tabClear(.all);
     try testing.expect(!t.isDirty(.{ .active = .{ .x = 0, .y = 0 } }));
     t.setCursorPos(1, 1);
-    try t.horizontalTab();
+    t.horizontalTab();
     try testing.expectEqual(@as(usize, 29), t.screens.active.cursor.x);
 }
 

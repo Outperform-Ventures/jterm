@@ -44,16 +44,23 @@ pub const OSC = struct {
         return {};
     }
 
-    fn update(self: *OSC, key: u8, value: []const u8) !void {
+    fn update(self: *OSC, key: u8, value: []const u8) error{
+        UnknownKey,
+        InvalidValue,
+    }!void {
         // All values are numeric, so we can do a small hack here
-        const v = try std.fmt.parseInt(u4, value, 10);
+        const v = std.fmt.parseInt(
+            u4,
+            value,
+            10,
+        ) catch return error.InvalidValue;
 
         switch (key) {
             's' => {
                 if (v == 0) return error.InvalidValue;
-                self.scale = std.math.cast(u3, v) orelse return error.Overflow;
+                self.scale = std.math.cast(u3, v) orelse return error.InvalidValue;
             },
-            'w' => self.width = std.math.cast(u3, v) orelse return error.Overflow,
+            'w' => self.width = std.math.cast(u3, v) orelse return error.InvalidValue,
             'n' => self.numerator = v,
             'd' => self.denominator = v,
             'v' => self.valign = std.enums.fromInt(VAlign, v) orelse return error.InvalidValue,
@@ -130,7 +137,7 @@ pub fn parse(parser: *Parser, _: ?u8) ?*Command {
             cmd.update(k[0], value) catch |err| {
                 switch (err) {
                     error.UnknownKey => log.warn("unknown key: '{c}'", .{k[0]}),
-                    else => log.warn("invalid value for key '{c}': {}", .{ k[0], err }),
+                    error.InvalidValue => log.warn("invalid value for key '{c}': {}", .{ k[0], err }),
                 }
                 continue;
             };
