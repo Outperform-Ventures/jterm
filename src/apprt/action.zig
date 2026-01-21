@@ -250,6 +250,9 @@ pub const Action = union(Key) {
     /// key mode because other input may be ignored.
     key_sequence: KeySequence,
 
+    /// A key table has been activated or deactivated.
+    key_table: KeyTable,
+
     /// A terminal color was changed programmatically through things
     /// such as OSC 10/11.
     color_change: ColorChange,
@@ -310,7 +313,9 @@ pub const Action = union(Key) {
     /// A command has finished,
     command_finished: CommandFinished,
 
-    /// Start the search overlay with an optional initial needle.
+    /// Start the search overlay with an optional initial needle. If the
+    /// search is already active and the needle is non-empty, update the
+    /// current search needle and focus the search input.
     start_search: StartSearch,
 
     /// End the search overlay, clearing the search state and hiding it.
@@ -371,6 +376,7 @@ pub const Action = union(Key) {
         float_window,
         secure_input,
         key_sequence,
+        key_table,
         color_change,
         reload_config,
         config_change,
@@ -707,6 +713,50 @@ pub const KeySequence = union(enum) {
         return switch (self) {
             .trigger => |t| .{ .active = true, .trigger = t.cval() },
             .end => .{ .active = false, .trigger = .{} },
+        };
+    }
+};
+
+pub const KeyTable = union(enum) {
+    activate: []const u8,
+    deactivate,
+    deactivate_all,
+
+    // Sync with: ghostty_action_key_table_tag_e
+    pub const Tag = enum(c_int) {
+        activate,
+        deactivate,
+        deactivate_all,
+    };
+
+    // Sync with: ghostty_action_key_table_u
+    pub const CValue = extern union {
+        activate: extern struct {
+            name: [*]const u8,
+            len: usize,
+        },
+    };
+
+    // Sync with: ghostty_action_key_table_s
+    pub const C = extern struct {
+        tag: Tag,
+        value: CValue,
+    };
+
+    pub fn cval(self: KeyTable) C {
+        return switch (self) {
+            .activate => |name| .{
+                .tag = .activate,
+                .value = .{ .activate = .{ .name = name.ptr, .len = name.len } },
+            },
+            .deactivate => .{
+                .tag = .deactivate,
+                .value = undefined,
+            },
+            .deactivate_all => .{
+                .tag = .deactivate_all,
+                .value = undefined,
+            },
         };
     }
 };

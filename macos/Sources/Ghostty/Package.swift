@@ -330,6 +330,22 @@ extension Ghostty {
         case xray
         case custom
         case customStyle = "custom-style"
+
+        /// Bundled asset name for built-in icons
+        var assetName: String? {
+            switch self {
+            case .official: return nil
+            case .blueprint: return "BlueprintImage"
+            case .chalkboard: return "ChalkboardImage"
+            case .microchip: return "MicrochipImage"
+            case .glass: return "GlassImage"
+            case .holographic: return "HolographicImage"
+            case .paper: return "PaperImage"
+            case .retro: return "RetroImage"
+            case .xray: return "XrayImage"
+            case .custom, .customStyle: return nil
+            }
+        }
     }
 
     /// macos-icon-frame
@@ -475,6 +491,10 @@ extension Ghostty.Notification {
     static let didContinueKeySequence = Notification.Name("com.mitchellh.ghostty.didContinueKeySequence")
     static let didEndKeySequence = Notification.Name("com.mitchellh.ghostty.didEndKeySequence")
     static let KeySequenceKey = didContinueKeySequence.rawValue + ".key"
+
+    /// Notifications related to key tables
+    static let didChangeKeyTable = Notification.Name("com.mitchellh.ghostty.didChangeKeyTable")
+    static let KeyTableKey = didChangeKeyTable.rawValue + ".action"
 }
 
 // Make the input enum hashable.

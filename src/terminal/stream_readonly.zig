@@ -4,7 +4,7 @@ const stream = @import("stream.zig");
 const Action = stream.Action;
 const Screen = @import("Screen.zig");
 const modes = @import("modes.zig");
-const osc_color = @import("osc/color.zig");
+const osc_color = @import("osc/parsers/color.zig");
 const kitty_color = @import("kitty/color.zig");
 const Terminal = @import("Terminal.zig");
 
@@ -125,7 +125,7 @@ pub const Handler = struct {
                 }
             },
             .save_cursor => self.terminal.saveCursor(),
-            .restore_cursor => try self.terminal.restoreCursor(),
+            .restore_cursor => self.terminal.restoreCursor(),
             .invoke_charset => self.terminal.invokeCharset(value.bank, value.charset, value.locking),
             .configure_charset => self.terminal.configureCharset(value.slot, value.charset),
             .set_attribute => switch (value) {
@@ -240,7 +240,7 @@ pub const Handler = struct {
             .save_cursor => if (enabled) {
                 self.terminal.saveCursor();
             } else {
-                try self.terminal.restoreCursor();
+                self.terminal.restoreCursor();
             },
 
             .enable_mode_3 => {},

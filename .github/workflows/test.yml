@@ -217,6 +217,7 @@ jobs:
             x86_64-macos,
             aarch64-linux,
             x86_64-linux,
+            x86_64-linux-musl,
             x86_64-windows,
             wasm32-freestanding,
           ]
@@ -456,7 +457,7 @@ jobs:
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
 
       - name: Xcode Select
-        run: sudo xcode-select -s /Applications/Xcode_26.0.app
+        run: sudo xcode-select -s /Applications/Xcode_26.2.app
 
       - name: Xcode Version
         run: xcodebuild -version
@@ -499,7 +500,7 @@ jobs:
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
 
       - name: Xcode Select
-        run: sudo xcode-select -s /Applications/Xcode_26.0.app
+        run: sudo xcode-select -s /Applications/Xcode_26.2.app
 
       - name: Xcode Version
         run: xcodebuild -version
@@ -764,7 +765,7 @@ jobs:
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
 
       - name: Xcode Select
-        run: sudo xcode-select -s /Applications/Xcode_26.0.app
+        run: sudo xcode-select -s /Applications/Xcode_26.2.app
 
       - name: Xcode Version
         run: xcodebuild -version
@@ -843,6 +844,8 @@ jobs:
     if: github.repository == 'ghostty-org/ghostty'
     runs-on: namespace-profile-ghostty-xsm
     timeout-minutes: 60
+    permissions:
+      contents: read
     env:
       ZIG_LOCAL_CACHE_DIR: /zig/local-cache
       ZIG_GLOBAL_CACHE_DIR: /zig/global-cache
@@ -865,6 +868,8 @@ jobs:
           useDaemon: false # sometimes fails on short jobs
       - name: pinact check
         run: nix develop -c pinact run --check
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   prettier:
     if: github.repository == 'ghostty-org/ghostty'
@@ -977,8 +982,6 @@ jobs:
             --check-sourced \
             --color=always \
             --severity=warning \
-            --shell=bash \
-            --external-sources \
             $(find . \( -name "*.sh" -o -name "*.bash" \) -type f ! -path "./zig-out/*" ! -path "./macos/build/*" ! -path "./.git/*" | sort)
 
   translations:
@@ -1082,7 +1085,7 @@ jobs:
         uses: namespacelabs/nscloud-setup@d1c625762f7c926a54bd39252efff0705fd11c64 # v0.0.10
 
       - name: Configure Namespace powered Buildx
-        uses: namespacelabs/nscloud-setup-buildx-action@91c2e6537780e3b092cb8476406be99a8f91bd5e # v0.0.20
+        uses: namespacelabs/nscloud-setup-buildx-action@a7e525416136ee2842da3c800e7067b72a27200e # v0.0.21
 
       - name: Download Source Tarball Artifacts
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0

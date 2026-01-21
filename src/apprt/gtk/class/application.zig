@@ -669,6 +669,9 @@ pub const Application = extern struct {
 
             .inspector => return Action.controlInspector(target, value),
 
+            .key_sequence => return Action.keySequence(target, value),
+            .key_table => return Action.keyTable(target, value),
+
             .mouse_over_link => Action.mouseOverLink(target, value),
             .mouse_shape => Action.mouseShape(target, value),
             .mouse_visibility => Action.mouseVisibility(target, value),
@@ -731,7 +734,7 @@ pub const Application = extern struct {
             .show_on_screen_keyboard => return Action.showOnScreenKeyboard(target),
             .command_finished => return Action.commandFinished(target, value),
 
-            .start_search => Action.startSearch(target),
+            .start_search => Action.startSearch(target, value),
             .end_search => Action.endSearch(target),
             .search_total => Action.searchTotal(target, value),
             .search_selected => Action.searchSelected(target, value),
@@ -743,7 +746,6 @@ pub const Application = extern struct {
             .toggle_visibility,
             .toggle_background_opacity,
             .cell_size,
-            .key_sequence,
             .render_inspector,
             .renderer_health,
             .color_change,
@@ -2236,8 +2238,8 @@ const Action = struct {
             .{},
         );
 
-        // Create a new tab
-        win.newTab(parent);
+        // Create a new tab with window context (first tab in new window)
+        win.newTabForWindow(parent);
 
         // Show the window
         gtk.Window.present(win.as(gtk.Window));
@@ -2437,17 +2439,17 @@ const Action = struct {
         }
     }
 
-    pub fn startSearch(target: apprt.Target) void {
+    pub fn startSearch(target: apprt.Target, value: apprt.action.StartSearch) void {
         switch (target) {
             .app => {},
-            .surface => |v| v.rt_surface.surface.setSearchActive(true),
+            .surface => |v| v.rt_surface.surface.setSearchActive(true, value.needle),
         }
     }
 
     pub fn endSearch(target: apprt.Target) void {
         switch (target) {
             .app => {},
-            .surface => |v| v.rt_surface.surface.setSearchActive(false),
+            .surface => |v| v.rt_surface.surface.setSearchActive(false, ""),
         }
     }
 
@@ -2656,6 +2658,36 @@ const Action = struct {
             .app => return false,
             .surface => |surface| {
                 return surface.rt_surface.gobj().commandFinished(value);
+            },
+        }
+    }
+
+    pub fn keySequence(target: apprt.Target, value: apprt.Action.Value(.key_sequence)) bool {
+        switch (target) {
+            .app => {
+                log.warn("key_sequence action to app is unexpected", .{});
+                return false;
+            },
+            .surface => |core| {
+                core.rt_surface.gobj().keySequenceAction(value) catch |err| {
+                    log.warn("error handling key_sequence action: {}", .{err});
+                };
+                return true;
+            },
+        }
+    }
+
+    pub fn keyTable(target: apprt.Target, value: apprt.Action.Value(.key_table)) bool {
+        switch (target) {
+            .app => {
+                log.warn("key_table action to app is unexpected", .{});
+                return false;
+            },
+            .surface => |core| {
+                core.rt_surface.gobj().keyTableAction(value) catch |err| {
+                    log.warn("error handling key_table action: {}", .{err});
+                };
+                return true;
             },
         }
     }

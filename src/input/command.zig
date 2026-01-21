@@ -43,13 +43,34 @@ pub const Command = struct {
         return true;
     }
 
-    /// Convert this command to a C struct.
+    /// Convert this command to a C struct at comptime.
     pub fn comptimeCval(self: Command) C {
         assert(@inComptime());
 
         return .{
             .action_key = @tagName(self.action),
             .action = std.fmt.comptimePrint("{f}", .{self.action}),
+            .title = self.title,
+            .description = self.description,
+        };
+    }
+
+    /// Convert this command to a C struct at runtime.
+    ///
+    /// This shares memory with the original command.
+    ///
+    /// The action string is allocated using the provided allocator. You can
+    /// free the slice directly if you need to but we recommend an arena
+    /// for this.
+    pub fn cval(self: Command, alloc: Allocator) Allocator.Error!C {
+        var buf: std.Io.Writer.Allocating = .init(alloc);
+        defer buf.deinit();
+        self.action.format(&buf.writer) catch return error.OutOfMemory;
+        const action = try buf.toOwnedSliceSentinel(0);
+
+        return .{
+            .action_key = @tagName(self.action),
+            .action = action.ptr,
             .title = self.title,
             .description = self.description,
         };
@@ -166,6 +187,12 @@ fn actionCommands(action: Action.Key) []const Command {
             .action = .start_search,
             .title = "Start Search",
             .description = "Start a search if one isn't already active.",
+        }},
+
+        .search_selection => comptime &.{.{
+            .action = .search_selection,
+            .title = "Search Selection",
+            .description = "Start a search for the current text selection.",
         }},
 
         .end_search => comptime &.{.{
@@ -671,6 +698,11 @@ fn actionCommands(action: Action.Key) []const Command {
         .write_scrollback_file,
         .goto_tab,
         .resize_split,
+        .activate_key_table,
+        .activate_key_table_once,
+        .deactivate_key_table,
+        .deactivate_all_key_tables,
+        .end_key_sequence,
         .crash,
         => comptime &.{},
 
