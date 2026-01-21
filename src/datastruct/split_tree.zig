@@ -794,6 +794,7 @@ pub fn SplitTree(comptime V: type) type {
             layout: Split.Layout,
             ratio: f16,
         ) Allocator.Error!Self {
+            assert(ratio >= -1 and ratio <= 1);
             assert(!std.math.isNan(ratio));
             assert(!std.math.isInf(ratio));
 
