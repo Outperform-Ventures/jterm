@@ -198,8 +198,8 @@ pub const StreamHandler = struct {
             .print_repeat => try self.terminal.printRepeat(value),
             .bell => self.bell(),
             .backspace => self.terminal.backspace(),
-            .horizontal_tab => try self.horizontalTab(value),
-            .horizontal_tab_back => try self.horizontalTabBack(value),
+            .horizontal_tab => self.horizontalTab(value),
+            .horizontal_tab_back => self.horizontalTabBack(value),
             .linefeed => {
                 @branchHint(.likely);
                 try self.linefeed();
@@ -560,18 +560,18 @@ pub const StreamHandler = struct {
         self.surfaceMessageWriter(.ring_bell);
     }
 
-    inline fn horizontalTab(self: *StreamHandler, count: u16) !void {
+    inline fn horizontalTab(self: *StreamHandler, count: u16) void {
         for (0..count) |_| {
             const x = self.terminal.screens.active.cursor.x;
-            try self.terminal.horizontalTab();
+            self.terminal.horizontalTab();
             if (x == self.terminal.screens.active.cursor.x) break;
         }
     }
 
-    inline fn horizontalTabBack(self: *StreamHandler, count: u16) !void {
+    inline fn horizontalTabBack(self: *StreamHandler, count: u16) void {
         for (0..count) |_| {
             const x = self.terminal.screens.active.cursor.x;
-            try self.terminal.horizontalTabBack();
+            self.terminal.horizontalTabBack();
             if (x == self.terminal.screens.active.cursor.x) break;
         }
     }

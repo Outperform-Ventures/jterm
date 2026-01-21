@@ -781,7 +781,11 @@ pub fn clone(
     alloc: Allocator,
     opts: Clone,
 ) !PageList {
-    var it = self.pageIterator(.right_down, opts.top, opts.bot);
+    var it = self.pageIterator(
+        .right_down,
+        opts.top,
+        opts.bot,
+    );
 
     // First, count our pages so our preheat is exactly what we need.
     var it_copy = it;
@@ -2698,7 +2702,7 @@ fn scrollPrompt(self: *PageList, delta: isize) void {
 
 /// Clear the screen by scrolling written contents up into the scrollback.
 /// This will not update the viewport.
-pub fn scrollClear(self: *PageList) !void {
+pub fn scrollClear(self: *PageList) Allocator.Error!void {
     defer self.assertIntegrity();
 
     // Go through the active area backwards to find the first non-empty
@@ -4010,7 +4014,10 @@ pub fn getCell(self: *const PageList, pt: point.Point) ?Cell {
 ///    1 | etc.| | 4
 ///      +-----+ :
 ///     +--------+
-pub fn diagram(self: *const PageList, writer: *std.Io.Writer) !void {
+pub fn diagram(
+    self: *const PageList,
+    writer: *std.Io.Writer,
+) std.Io.Writer.Error!void {
     const active_pin = self.getTopLeft(.active);
 
     var active = false;
@@ -4647,7 +4654,7 @@ pub fn totalPages(self: *const PageList) usize {
 
 /// Grow the number of rows available in the page list by n.
 /// This is only used for testing so it isn't optimized in any way.
-fn growRows(self: *PageList, n: usize) !void {
+fn growRows(self: *PageList, n: usize) Allocator.Error!void {
     for (0..n) |_| _ = try self.grow();
 }
 

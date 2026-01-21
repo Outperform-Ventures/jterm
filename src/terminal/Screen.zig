@@ -241,7 +241,7 @@ pub const Options = struct {
 pub fn init(
     alloc: Allocator,
     opts: Options,
-) !Screen {
+) Allocator.Error!Screen {
     // Initialize our backing pages.
     var pages = try PageList.init(
         alloc,
@@ -2324,7 +2324,7 @@ pub fn cursorSetHyperlink(self: *Screen) PageList.IncreaseCapacityError!void {
 }
 
 /// Set the selection to the given selection. If this is a tracked selection
-/// then the screen will take overnship of the selection. If this is untracked
+/// then the screen will take ownership of the selection. If this is untracked
 /// then the screen will convert it to tracked internally. This will automatically
 /// untrack the prior selection (if any).
 ///
@@ -2333,7 +2333,7 @@ pub fn cursorSetHyperlink(self: *Screen) PageList.IncreaseCapacityError!void {
 /// This is always recommended over setting `selection` directly. Beyond
 /// managing memory for you, it also performs safety checks that the selection
 /// is always tracked.
-pub fn select(self: *Screen, sel_: ?Selection) !void {
+pub fn select(self: *Screen, sel_: ?Selection) Allocator.Error!void {
     const sel = sel_ orelse {
         self.clearSelection();
         return;
