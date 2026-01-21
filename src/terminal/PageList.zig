@@ -9,6 +9,7 @@ const build_options = @import("terminal_options");
 const Allocator = std.mem.Allocator;
 const assert = @import("../quirks.zig").inlineAssert;
 const fastmem = @import("../fastmem.zig");
+const tripwire = @import("../tripwire.zig");
 const DoublyLinkedList = @import("../datastruct/main.zig").IntrusiveDoublyLinkedList;
 const color = @import("color.zig");
 const kitty = @import("kitty.zig");
@@ -84,7 +85,7 @@ pub const MemoryPool = struct {
         gen_alloc: Allocator,
         page_alloc: Allocator,
         preheat: usize,
-    ) !MemoryPool {
+    ) Allocator.Error!MemoryPool {
         var node_pool = try NodePool.initPreheated(gen_alloc, preheat);
         errdefer node_pool.deinit();
         var page_pool = try PagePool.initPreheated(page_alloc, preheat);
@@ -330,6 +331,13 @@ inline fn pageAllocator() Allocator {
     return mach.taggedPageAllocator(.application_specific_1);
 }
 
+const init_tw = tripwire.module(enum {
+    init_memory_pool,
+    init_pages,
+    viewport_pin,
+    viewport_pin_track,
+}, init);
+
 /// Initialize the page. The top of the first page in the list is always the
 /// top of the active area of the screen (important knowledge for quickly
 /// setting up cursors in Screen).
@@ -351,16 +359,21 @@ pub fn init(
     cols: size.CellCountInt,
     rows: size.CellCountInt,
     max_size: ?usize,
-) !PageList {
+) Allocator.Error!PageList {
+    const tw = init_tw;
+
     // The screen starts with a single page that is the entire viewport,
     // and we'll split it thereafter if it gets too large and add more as
     // necessary.
+    try tw.check(.init_memory_pool);
     var pool = try MemoryPool.init(
         alloc,
         pageAllocator(),
         page_preheat,
     );
     errdefer pool.deinit();
+
+    try tw.check(.init_pages);
     var page_serial: u64 = 0;
     const page_list, const page_size = try initPages(
         &pool,
@@ -373,12 +386,16 @@ pub fn init(
     const min_max_size = minMaxSize(cols, rows);
 
     // We always track our viewport pin to ensure this is never an allocation
+    try tw.check(.viewport_pin);
     const viewport_pin = try pool.pins.create();
     viewport_pin.* = .{ .node = page_list.first.? };
     var tracked_pins: PinSet = .{};
     errdefer tracked_pins.deinit(pool.alloc);
+
+    try tw.check(.viewport_pin_track);
     try tracked_pins.putNoClobber(pool.alloc, viewport_pin, {});
 
+    errdefer comptime unreachable;
     const result: PageList = .{
         .cols = cols,
         .rows = rows,
@@ -399,12 +416,20 @@ pub fn init(
     return result;
 }
 
+const initPages_tw = tripwire.module(enum {
+    page_node,
+    page_buf_std,
+    page_buf_non_std,
+}, initPages);
+
 fn initPages(
     pool: *MemoryPool,
     serial: *u64,
     cols: size.CellCountInt,
     rows: size.CellCountInt,
 ) Allocator.Error!struct { List, usize } {
+    const tw = initPages_tw;
+
     var page_list: List = .{};
     var page_size: usize = 0;
 
@@ -418,17 +443,34 @@ fn initPages(
     // redundant here for safety.
     assert(layout.total_size <= size.max_page_size);
 
+    // If we have an error, we need to clean up our non-standard pages
+    // since they're not in the pool.
+    errdefer {
+        var it = page_list.first;
+        while (it) |node| : (it = node.next) {
+            if (node.data.memory.len > std_size) {
+                page_alloc.free(node.data.memory);
+            }
+        }
+    }
+
     var rem = rows;
     while (rem > 0) {
+        try tw.check(.page_node);
         const node = try pool.nodes.create();
-        const page_buf = if (pooled)
-            try pool.pages.create()
-        else
-            try page_alloc.alignedAlloc(
+        errdefer pool.nodes.destroy(node);
+
+        const page_buf = if (pooled) buf: {
+            try tw.check(.page_buf_std);
+            break :buf try pool.pages.create();
+        } else buf: {
+            try tw.check(.page_buf_non_std);
+            break :buf try page_alloc.alignedAlloc(
                 u8,
                 .fromByteUnits(std.heap.page_size_min),
                 layout.total_size,
             );
+        };
         errdefer if (pooled)
             pool.pages.destroy(page_buf)
         else
@@ -451,6 +493,7 @@ fn initPages(
         // Add the page to the list
         page_list.append(node);
         page_size += page_buf.len;
+        errdefer comptime unreachable;
 
         // Increment our serial
         serial.* += 1;
@@ -5112,6 +5155,62 @@ test "PageList" {
         .offset = 0,
         .len = s.rows,
     }, s.scrollbar());
+}
+
+test "PageList init error" {
+    // Test every failure point in `init` and ensure that we don't
+    // leak memory (testing.allocator verifies) since we're exiting early.
+    for (std.meta.tags(init_tw.FailPoint)) |tag| {
+        const tw = init_tw;
+        defer tw.end(.reset) catch unreachable;
+        try tw.errorAlways(tag, error.OutOfMemory);
+        try std.testing.expectError(
+            error.OutOfMemory,
+            init(
+                std.testing.allocator,
+                80,
+                24,
+                null,
+            ),
+        );
+    }
+
+    // init calls initPages transitively, so let's check that if
+    // any failures happen in initPages, we also don't leak memory.
+    for (std.meta.tags(initPages_tw.FailPoint)) |tag| {
+        const tw = initPages_tw;
+        defer tw.end(.reset) catch unreachable;
+        try tw.errorAlways(tag, error.OutOfMemory);
+
+        const cols: size.CellCountInt = if (tag == .page_buf_std) 80 else std_capacity.maxCols().? + 1;
+        try std.testing.expectError(
+            error.OutOfMemory,
+            init(
+                std.testing.allocator,
+                cols,
+                24,
+                null,
+            ),
+        );
+    }
+
+    // Try non-standard pages since they don't go in our pool.
+    for ([_]initPages_tw.FailPoint{
+        .page_buf_non_std,
+    }) |tag| {
+        const tw = initPages_tw;
+        defer tw.end(.reset) catch unreachable;
+        try tw.errorAfter(tag, error.OutOfMemory, 1);
+        try std.testing.expectError(
+            error.OutOfMemory,
+            init(
+                std.testing.allocator,
+                std_capacity.maxCols().? + 1,
+                std_capacity.rows + 1,
+                null,
+            ),
+        );
+    }
 }
 
 test "PageList init rows across two pages" {
