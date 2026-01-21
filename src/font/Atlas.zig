@@ -829,7 +829,7 @@ test "init error" {
     for (std.meta.tags(init_tw.FailPoint)) |tag| {
         const tw = init_tw;
         defer tw.end(.reset) catch unreachable;
-        try tw.errorAlways(tag, error.OutOfMemory);
+        tw.errorAlways(tag, error.OutOfMemory);
         try testing.expectError(
             error.OutOfMemory,
             init(testing.allocator, 32, .grayscale),
@@ -847,7 +847,7 @@ test "reserve error" {
         var atlas = try init(testing.allocator, 32, .grayscale);
         defer atlas.deinit(testing.allocator);
 
-        try tw.errorAlways(tag, error.OutOfMemory);
+        tw.errorAlways(tag, error.OutOfMemory);
         try testing.expectError(
             error.OutOfMemory,
             atlas.reserve(testing.allocator, 2, 2),
@@ -872,7 +872,7 @@ test "grow error" {
         const old_modified = atlas.modified.load(.monotonic);
         const old_resized = atlas.resized.load(.monotonic);
 
-        try tw.errorAlways(tag, error.OutOfMemory);
+        tw.errorAlways(tag, error.OutOfMemory);
         try testing.expectError(
             error.OutOfMemory,
             atlas.grow(testing.allocator, atlas.size + 1),

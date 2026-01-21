@@ -1460,7 +1460,7 @@ test "reloadActive partial history cleanup on appendSlice error" {
     // that need cleanup.
     const tw = reloadActive_tw;
     defer tw.end(.reset) catch unreachable;
-    try tw.errorAlways(.history_append_existing, error.OutOfMemory);
+    tw.errorAlways(.history_append_existing, error.OutOfMemory);
 
     // reloadActive is called by select(), which should trigger the error path.
     // If the bug exists, testing.allocator will report a memory leak
@@ -1507,7 +1507,7 @@ test "reloadActive partial history cleanup on loop append error" {
     // that needs cleanup.
     const tw = reloadActive_tw;
     defer tw.end(.reset) catch unreachable;
-    try tw.errorAfter(.history_append_new, error.OutOfMemory, 1);
+    tw.errorAfter(.history_append_new, error.OutOfMemory, 1);
 
     // reloadActive is called by select(), which should trigger the error path.
     // If the bug exists, testing.allocator will report a memory leak

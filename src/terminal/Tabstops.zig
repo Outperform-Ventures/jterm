@@ -261,7 +261,7 @@ test "Tabstops: resize alloc failure preserves state" {
     const original_cols = t.cols;
 
     // Trigger allocation failure when resizing beyond prealloc
-    try resize_tw.errorAlways(.dynamic_alloc, error.OutOfMemory);
+    resize_tw.errorAlways(.dynamic_alloc, error.OutOfMemory);
     const result = t.resize(testing.allocator, prealloc_columns * 2);
     try testing.expectError(error.OutOfMemory, result);
     try resize_tw.end(.reset);

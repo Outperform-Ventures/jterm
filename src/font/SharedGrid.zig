@@ -484,7 +484,7 @@ test "renderGlyph error after cache insert rolls back cache entry" {
     // We use OutOfMemory as it's a valid error in the renderGlyph error set.
     const tw = renderGlyph_tw;
     defer tw.end(.reset) catch {};
-    try tw.errorAlways(.get_presentation, error.OutOfMemory);
+    tw.errorAlways(.get_presentation, error.OutOfMemory);
 
     // This should fail due to the tripwire
     try testing.expectError(
@@ -510,7 +510,7 @@ test "init error" {
     for (std.meta.tags(init_tw.FailPoint)) |tag| {
         const tw = init_tw;
         defer tw.end(.reset) catch unreachable;
-        try tw.errorAlways(tag, error.OutOfMemory);
+        tw.errorAlways(tag, error.OutOfMemory);
 
         // Create a resolver for testing - we need to set up a minimal one.
         // The caller is responsible for cleaning up the resolver if init fails.
