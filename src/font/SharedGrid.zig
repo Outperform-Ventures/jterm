@@ -20,6 +20,7 @@ const SharedGrid = @This();
 
 const std = @import("std");
 const assert = @import("../quirks.zig").inlineAssert;
+const tripwire = @import("../tripwire.zig");
 const Allocator = std.mem.Allocator;
 const renderer = @import("../renderer.zig");
 const font = @import("main.zig");
@@ -232,6 +233,10 @@ pub fn renderCodepoint(
     return try self.renderGlyph(alloc, index, glyph_index, opts);
 }
 
+pub const renderGlyph_tw = tripwire.module(enum {
+    get_presentation,
+}, renderGlyph);
+
 /// Render a glyph index. This automatically determines the correct texture
 /// atlas to use and caches the result.
 pub fn renderGlyph(
@@ -241,6 +246,8 @@ pub fn renderGlyph(
     glyph_index: u32,
     opts: RenderOptions,
 ) !Render {
+    const tw = renderGlyph_tw;
+
     const key: GlyphKey = .{ .index = index, .glyph = glyph_index, .opts = opts };
 
     // Fast path: the cache has the value. This is almost always true and
@@ -257,8 +264,10 @@ pub fn renderGlyph(
 
     const gop = try self.glyphs.getOrPut(alloc, key);
     if (gop.found_existing) return gop.value_ptr.*;
+    errdefer self.glyphs.removeByPtr(gop.key_ptr);
 
     // Get the presentation to determine what atlas to use
+    try tw.check(.get_presentation);
     const p = try self.resolver.getPresentation(index, glyph_index);
     const atlas: *font.Atlas = switch (p) {
         .text => &self.atlas_grayscale,
@@ -425,4 +434,52 @@ test getIndex {
         try testing.expectEqual(Style.regular, idx.style);
         try testing.expectEqual(@as(Collection.Index.IndexInt, 0), idx.idx);
     }
+}
+
+test "renderGlyph error after cache insert rolls back cache entry" {
+    // This test verifies that when renderGlyph fails after inserting a cache
+    // entry (via getOrPut), the errdefer properly removes the entry, preventing
+    // corrupted/uninitialized data from remaining in the cache.
+
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var lib = try Library.init(alloc);
+    defer lib.deinit();
+
+    var grid = try testGrid(.normal, alloc, lib);
+    defer grid.deinit(alloc);
+
+    // Get the font index for 'A'
+    const idx = (try grid.getIndex(alloc, 'A', .regular, null)).?;
+
+    // Get the glyph index for 'A'
+    const glyph_index = glyph_index: {
+        grid.lock.lockShared();
+        defer grid.lock.unlockShared();
+        const face = try grid.resolver.collection.getFace(idx);
+        break :glyph_index face.glyphIndex('A').?;
+    };
+
+    const render_opts: RenderOptions = .{ .grid_metrics = grid.metrics };
+    const key: GlyphKey = .{ .index = idx, .glyph = glyph_index, .opts = render_opts };
+
+    // Verify the cache is empty for this glyph
+    try testing.expect(grid.glyphs.get(key) == null);
+
+    // Set up tripwire to fail after cache insert.
+    // We use OutOfMemory as it's a valid error in the renderGlyph error set.
+    const tw = renderGlyph_tw;
+    defer tw.end(.reset) catch {};
+    try tw.errorAlways(.get_presentation, error.OutOfMemory);
+
+    // This should fail due to the tripwire
+    try testing.expectError(
+        error.OutOfMemory,
+        grid.renderGlyph(alloc, idx, glyph_index, render_opts),
+    );
+
+    // The errdefer should have removed the cache entry, leaving the cache clean.
+    // Without the errdefer fix, this would contain garbage/uninitialized data.
+    try testing.expect(grid.glyphs.get(key) == null);
 }
