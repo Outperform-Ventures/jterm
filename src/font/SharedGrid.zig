@@ -62,6 +62,12 @@ metrics: Metrics,
 /// to review call sites to ensure they are using the lock correctly.
 lock: std.Thread.RwLock,
 
+pub const init_tw = tripwire.module(enum {
+    codepoints_capacity,
+    glyphs_capacity,
+    reload_metrics,
+}, init);
+
 /// Initialize the grid.
 ///
 /// The resolver must have a collection that supports deferred loading
@@ -75,6 +81,8 @@ pub fn init(
     alloc: Allocator,
     resolver: CodepointResolver,
 ) !SharedGrid {
+    const tw = init_tw;
+
     // We need to support loading options since we use the size data
     assert(resolver.collection.load_options != null);
 
@@ -93,10 +101,15 @@ pub fn init(
 
     // We set an initial capacity that can fit a good number of characters.
     // This number was picked empirically based on my own terminal usage.
+    try tw.check(.codepoints_capacity);
     try result.codepoints.ensureTotalCapacity(alloc, 128);
+    errdefer result.codepoints.deinit(alloc);
+    try tw.check(.glyphs_capacity);
     try result.glyphs.ensureTotalCapacity(alloc, 128);
+    errdefer result.glyphs.deinit(alloc);
 
     // Initialize our metrics.
+    try tw.check(.reload_metrics);
     try result.reloadMetrics();
 
     return result;
@@ -482,4 +495,46 @@ test "renderGlyph error after cache insert rolls back cache entry" {
     // The errdefer should have removed the cache entry, leaving the cache clean.
     // Without the errdefer fix, this would contain garbage/uninitialized data.
     try testing.expect(grid.glyphs.get(key) == null);
+}
+
+test "init error" {
+    // Test every failure point in `init` and ensure that we don't
+    // leak memory (testing.allocator verifies) since we're exiting early.
+    //
+    // BUG: Currently this test will fail because init() is missing errdefer
+    // cleanup for codepoints and glyphs when late operations fail
+    // (ensureTotalCapacity, reloadMetrics).
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    for (std.meta.tags(init_tw.FailPoint)) |tag| {
+        const tw = init_tw;
+        defer tw.end(.reset) catch unreachable;
+        try tw.errorAlways(tag, error.OutOfMemory);
+
+        // Create a resolver for testing - we need to set up a minimal one.
+        // The caller is responsible for cleaning up the resolver if init fails.
+        var lib = try Library.init(alloc);
+        defer lib.deinit();
+
+        var c = Collection.init();
+        c.load_options = .{ .library = lib };
+        _ = try c.add(alloc, try .init(
+            lib,
+            font.embedded.regular,
+            .{ .size = .{ .points = 12, .xdpi = 96, .ydpi = 96 } },
+        ), .{
+            .style = .regular,
+            .fallback = false,
+            .size_adjustment = .none,
+        });
+
+        var resolver: CodepointResolver = .{ .collection = c };
+        defer resolver.deinit(alloc); // Caller cleans up on init failure
+
+        try testing.expectError(
+            error.OutOfMemory,
+            init(alloc, resolver),
+        );
+    }
 }
