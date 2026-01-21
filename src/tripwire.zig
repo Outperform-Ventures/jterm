@@ -43,7 +43,7 @@
 //! }
 //!
 //! test "myFunction fails on alloc" {
-//!     try tw.errorAlways(.alloc_buf, error.OutOfMemory);
+//!     tw.errorAlways(.alloc_buf, error.OutOfMemory);
 //!     try std.testing.expectError(error.OutOfMemory, myFunction());
 //!     try tw.end(.reset);
 //! }
@@ -67,7 +67,6 @@ const std = @import("std");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
 const testing = std.testing;
-const Allocator = std.mem.Allocator;
 
 const log = std.log.scoped(.tripwire);
 
@@ -134,8 +133,8 @@ pub fn module(
         }
 
         /// The configured tripwires for this module.
-        var tripwires: TripwireMap = .empty;
-        const TripwireMap = std.AutoArrayHashMapUnmanaged(FailPoint, Tripwire);
+        var tripwires: TripwireMap = .{};
+        const TripwireMap = std.EnumMap(FailPoint, Tripwire);
         const Tripwire = struct {
             /// Error to return when tripped
             err: Error,
@@ -154,14 +153,6 @@ pub fn module(
             /// True if this has been tripped at least once.
             tripped: bool = false,
         };
-
-        /// For all allocations we use an allocator that can leak memory
-        /// without reporting it, since this is only used in tests. We don't
-        /// want to use a testing allocator here because that would report
-        /// leaks. Users are welcome to call `deinit` on the module to
-        /// free all memory.
-        const LeakyAllocator = std.heap.DebugAllocator(.{});
-        var alloc_state: LeakyAllocator = .init;
 
         /// Check for a failure at the given failure point. These should
         /// be placed directly before the `try` operation that may fail.
@@ -187,42 +178,31 @@ pub fn module(
         }
 
         /// Mark a failure point to always trip with the given error.
-        pub fn errorAlways(
-            point: FailPoint,
-            err: Error,
-        ) Allocator.Error!void {
-            try errorAfter(point, err, 0);
+        pub fn errorAlways(point: FailPoint, err: Error) void {
+            errorAfter(point, err, 0);
         }
 
         /// Mark a failure point to trip with the given error after
         /// the failure point is reached at least `min` times. A value of
         /// zero is equivalent to `errorAlways`.
-        pub fn errorAfter(
-            point: FailPoint,
-            err: Error,
-            min: usize,
-        ) Allocator.Error!void {
-            try tripwires.put(
-                alloc_state.allocator(),
-                point,
-                .{ .err = err, .min = min },
-            );
+        pub fn errorAfter(point: FailPoint, err: Error, min: usize) void {
+            tripwires.put(point, .{ .err = err, .min = min });
         }
 
         /// Ends the tripwire session. This will raise an error if there
         /// were untripped error expectations. The reset mode specifies
-        /// whether memory is reset too. Memory is always reset, even if
-        /// this returns an error.
+        /// whether expectations are reset too. Expectations are always reset,
+        /// even if this returns an error.
         pub fn end(reset_mode: enum { reset, retain }) error{UntrippedError}!void {
             var untripped: bool = false;
-            for (tripwires.keys(), tripwires.values()) |key, entry| {
-                if (!entry.tripped) {
-                    log.warn("untripped point={t}", .{key});
+            var iter = tripwires.iterator();
+            while (iter.next()) |entry| {
+                if (!entry.value.tripped) {
+                    log.warn("untripped point={s}", .{@tagName(entry.key)});
                     untripped = true;
                 }
             }
 
-            // We always reset memory before failing
             switch (reset_mode) {
                 .reset => reset(),
                 .retain => {},
@@ -231,10 +211,9 @@ pub fn module(
             if (untripped) return error.UntrippedError;
         }
 
-        /// Unset all the tripwires and free all allocated memory. You
-        /// should usually call `end` instead.
+        /// Unset all the tripwires. You should usually call `end` instead.
         pub fn reset() void {
-            tripwires.clearAndFree(alloc_state.allocator());
+            tripwires = .{};
         }
 
         /// Our calling convention is inline if our tripwire module is
@@ -258,7 +237,7 @@ test {
     try io.check(.read);
 
     // Always trip
-    try io.errorAlways(.read, error.OutOfMemory);
+    io.errorAlways(.read, error.OutOfMemory);
     try testing.expectError(
         error.OutOfMemory,
         io.check(.read),
@@ -283,7 +262,7 @@ test "module as error set" {
 test "errorAfter" {
     const io = module(enum { read, write }, anyerror);
     // Trip after 2 calls (on the 3rd call)
-    try io.errorAfter(.read, error.OutOfMemory, 2);
+    io.errorAfter(.read, error.OutOfMemory, 2);
 
     // First two calls succeed
     try io.check(.read);
@@ -298,7 +277,7 @@ test "errorAfter" {
 
 test "errorAfter untripped error if min not reached" {
     const io = module(enum { read }, anyerror);
-    try io.errorAfter(.read, error.OutOfMemory, 2);
+    io.errorAfter(.read, error.OutOfMemory, 2);
     // Only call once, not enough to trip
     try io.check(.read);
     // end should fail because tripwire was set but never tripped

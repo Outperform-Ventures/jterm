@@ -5170,7 +5170,7 @@ test "PageList init error" {
     for (std.meta.tags(init_tw.FailPoint)) |tag| {
         const tw = init_tw;
         defer tw.end(.reset) catch unreachable;
-        try tw.errorAlways(tag, error.OutOfMemory);
+        tw.errorAlways(tag, error.OutOfMemory);
         try std.testing.expectError(
             error.OutOfMemory,
             init(
@@ -5187,7 +5187,7 @@ test "PageList init error" {
     for (std.meta.tags(initPages_tw.FailPoint)) |tag| {
         const tw = initPages_tw;
         defer tw.end(.reset) catch unreachable;
-        try tw.errorAlways(tag, error.OutOfMemory);
+        tw.errorAlways(tag, error.OutOfMemory);
 
         const cols: size.CellCountInt = if (tag == .page_buf_std) 80 else std_capacity.maxCols().? + 1;
         try std.testing.expectError(
@@ -5207,7 +5207,7 @@ test "PageList init error" {
     }) |tag| {
         const tw = initPages_tw;
         defer tw.end(.reset) catch unreachable;
-        try tw.errorAfter(tag, error.OutOfMemory, 1);
+        tw.errorAfter(tag, error.OutOfMemory, 1);
         try std.testing.expectError(
             error.OutOfMemory,
             init(

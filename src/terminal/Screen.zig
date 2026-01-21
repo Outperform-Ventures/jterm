@@ -9493,7 +9493,7 @@ test "selectionString map allocation failure cleanup" {
 
     // Trigger allocation failure on toOwnedSlice
     var map: StringMap = undefined;
-    try selectionString_tw.errorAlways(.copy_map, error.OutOfMemory);
+    selectionString_tw.errorAlways(.copy_map, error.OutOfMemory);
     const result = s.selectionString(alloc, .{
         .sel = sel,
         .map = &map,
