@@ -193,6 +193,28 @@ pub const Command = union(Key) {
     /// ConEmu GUI macro (OSC 9;6)
     conemu_guimacro: [:0]const u8,
 
+    /// ConEmu run process (OSC 9;7)
+    conemu_run_process: [:0]const u8,
+
+    /// ConEmu output environment variable (OSC 9;8)
+    conemu_output_environment_variable: [:0]const u8,
+
+    /// ConEmu XTerm keyboard and output emulation (OSC 9;10)
+    /// https://conemu.github.io/en/TerminalModes.html
+    conemu_xterm_emulation: struct {
+        /// null => do not change
+        /// false => turn off
+        /// true => turn on
+        keyboard: ?bool,
+        /// null => do not change
+        /// false => turn off
+        /// true => turn on
+        output: ?bool,
+    },
+
+    /// ConEmu comment (OSC 9;11)
+    conemu_comment: [:0]const u8,
+
     /// Kitty text sizing protocol (OSC 66)
     kitty_text_sizing: parsers.kitty_text_sizing.OSC,
 
@@ -221,6 +243,10 @@ pub const Command = union(Key) {
             "conemu_progress_report",
             "conemu_wait_input",
             "conemu_guimacro",
+            "conemu_run_process",
+            "conemu_output_environment_variable",
+            "conemu_xterm_emulation",
+            "conemu_comment",
             "kitty_text_sizing",
         },
     );
@@ -424,11 +450,15 @@ pub const Parser = struct {
             .clipboard_contents,
             .color_operation,
             .conemu_change_tab_title,
+            .conemu_comment,
             .conemu_guimacro,
+            .conemu_output_environment_variable,
             .conemu_progress_report,
+            .conemu_run_process,
             .conemu_show_message_box,
             .conemu_sleep,
             .conemu_wait_input,
+            .conemu_xterm_emulation,
             .end_of_command,
             .end_of_input,
             .hyperlink_end,
