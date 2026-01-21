@@ -6,7 +6,9 @@
     # glibc versions used by our dependencies from Nix are compatible with the
     # system glibc that the user is building for.
     #
-    # We are currently on unstable to get Zig 0.15 for our package.nix
+    # We are currently on nixpkgs-unstable to get Zig 0.15 for our package.nix and
+    # Gnome 49/Gtk 4.20.
+    #
     nixpkgs.url = "https://channels.nixos.org/nixpkgs-unstable/nixexprs.tar.xz";
     flake-utils.url = "github:numtide/flake-utils";
 
@@ -26,12 +28,16 @@
     };
 
     zon2nix = {
-      url = "github:jcollie/zon2nix?rev=bf983aa90ff169372b9fa8c02e57ea75e0b42245";
+      url = "github:jcollie/zon2nix?rev=c28e93f3ba133d4c1b1d65224e2eebede61fd071";
       inputs = {
-        # Don't override nixpkgs until Zig 0.15 is available in the Nix branch
-        # we are using for "normal" builds.
-        #
-        # nixpkgs.follows = "nixpkgs";
+        nixpkgs.follows = "nixpkgs";
+      };
+    };
+
+    home-manager = {
+      url = "github:nix-community/home-manager";
+      inputs = {
+        nixpkgs.follows = "nixpkgs";
       };
     };
   };
@@ -41,6 +47,7 @@
     nixpkgs,
     zig,
     zon2nix,
+    home-manager,
     ...
   }:
     builtins.foldl' nixpkgs.lib.recursiveUpdate {} (
@@ -48,7 +55,7 @@
         system: let
           pkgs = nixpkgs.legacyPackages.${system};
         in {
-          devShell.${system} = pkgs.callPackage ./nix/devShell.nix {
+          devShells.${system}.default = pkgs.callPackage ./nix/devShell.nix {
             zig = zig.packages.${system}."0.15.2";
             wraptest = pkgs.callPackage ./nix/pkgs/wraptest.nix {};
             zon2nix = zon2nix;
@@ -80,6 +87,10 @@
 
           formatter.${system} = pkgs.alejandra;
 
+          checks.${system} = import ./nix/tests.nix {
+            inherit home-manager nixpkgs self system;
+          };
+
           apps.${system} = let
             runVM = (
               module: let
@@ -96,6 +107,9 @@
               in {
                 type = "app";
                 program = "${program}";
+                meta = {
+                  description = "start a vm from ${toString module}";
+                };
               }
             );
           in {
@@ -103,7 +117,6 @@
             wayland-gnome = runVM ./nix/vm/wayland-gnome.nix;
             wayland-plasma6 = runVM ./nix/vm/wayland-plasma6.nix;
             x11-cinnamon = runVM ./nix/vm/x11-cinnamon.nix;
-            x11-gnome = runVM ./nix/vm/x11-gnome.nix;
             x11-plasma6 = runVM ./nix/vm/x11-plasma6.nix;
             x11-xfce = runVM ./nix/vm/x11-xfce.nix;
           };
@@ -121,11 +134,6 @@
           ghostty = self.packages.${prev.stdenv.hostPlatform.system}.ghostty-debug;
         };
       };
-      create-vm = import ./nix/vm/create.nix;
-      create-cinnamon-vm = import ./nix/vm/create-cinnamon.nix;
-      create-gnome-vm = import ./nix/vm/create-gnome.nix;
-      create-plasma6-vm = import ./nix/vm/create-plasma6.nix;
-      create-xfce-vm = import ./nix/vm/create-xfce.nix;
     };
 
   nixConfig = {
