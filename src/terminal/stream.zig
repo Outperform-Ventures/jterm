@@ -2107,6 +2107,10 @@ pub fn Stream(comptime Handler: type) type {
                 .conemu_change_tab_title,
                 .conemu_wait_input,
                 .conemu_guimacro,
+                .conemu_comment,
+                .conemu_xterm_emulation,
+                .conemu_output_environment_variable,
+                .conemu_run_process,
                 .kitty_text_sizing,
                 => {
                     log.debug("unimplemented OSC callback: {}", .{cmd});
