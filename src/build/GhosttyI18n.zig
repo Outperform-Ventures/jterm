@@ -169,7 +169,6 @@ fn createUpdateStep(b: *std.Build) !*std.Build.Step {
         "--package-name=" ++ domain,
         "--msgid-bugs-address=m@mitchellh.com",
         "--copyright-holder=\"Mitchell Hashimoto, Ghostty contributors\"",
-        // msgcat would work but generates extra headers not needed?
         "-o",
         "-",
     });
