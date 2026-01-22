@@ -508,13 +508,13 @@ extension Ghostty {
                 return gotoWindow(app, target: target, direction: action.action.goto_window)
 
             case GHOSTTY_ACTION_RESIZE_SPLIT:
-                resizeSplit(app, target: target, resize: action.action.resize_split)
+                return resizeSplit(app, target: target, resize: action.action.resize_split)
 
             case GHOSTTY_ACTION_EQUALIZE_SPLITS:
                 equalizeSplits(app, target: target)
 
             case GHOSTTY_ACTION_TOGGLE_SPLIT_ZOOM:
-                toggleSplitZoom(app, target: target)
+                return toggleSplitZoom(app, target: target)
 
             case GHOSTTY_ACTION_INSPECTOR:
                 controlInspector(app, target: target, mode: action.action.inspector)
@@ -1247,16 +1247,21 @@ extension Ghostty {
         private static func resizeSplit(
             _ app: ghostty_app_t,
             target: ghostty_target_s,
-            resize: ghostty_action_resize_split_s) {
+            resize: ghostty_action_resize_split_s) -> Bool {
                 switch (target.tag) {
                 case GHOSTTY_TARGET_APP:
                     Ghostty.logger.warning("resize split does nothing with an app target")
-                    return
+                    return false
 
                 case GHOSTTY_TARGET_SURFACE:
-                    guard let surface = target.target.surface else { return }
-                    guard let surfaceView = self.surfaceView(from: surface) else { return }
-                    guard let resizeDirection = SplitResizeDirection.from(direction: resize.direction) else { return }
+                    guard let surface = target.target.surface else { return false }
+                    guard let surfaceView = self.surfaceView(from: surface) else { return false }
+                    guard let controller = surfaceView.window?.windowController as? BaseTerminalController else { return false }
+
+                    // If the window has no splits, the action is not performable
+                    guard controller.surfaceTree.isSplit else { return false }
+
+                    guard let resizeDirection = SplitResizeDirection.from(direction: resize.direction) else { return false }
                     NotificationCenter.default.post(
                         name: Notification.didResizeSplit,
                         object: surfaceView,
@@ -1265,9 +1270,11 @@ extension Ghostty {
                             Notification.ResizeSplitAmountKey: resize.amount,
                         ]
                     )
+                    return true
 
                 default:
                     assertionFailure()
+                    return false
                 }
         }
 
@@ -1295,23 +1302,30 @@ extension Ghostty {
 
         private static func toggleSplitZoom(
             _ app: ghostty_app_t,
-            target: ghostty_target_s) {
+            target: ghostty_target_s) -> Bool {
             switch (target.tag) {
             case GHOSTTY_TARGET_APP:
                 Ghostty.logger.warning("toggle split zoom does nothing with an app target")
-                return
+                return false
 
             case GHOSTTY_TARGET_SURFACE:
-                guard let surface = target.target.surface else { return }
-                guard let surfaceView = self.surfaceView(from: surface) else { return }
+                guard let surface = target.target.surface else { return false }
+                guard let surfaceView = self.surfaceView(from: surface) else { return false }
+                guard let controller = surfaceView.window?.windowController as? BaseTerminalController else { return false }
+
+                // If the window has no splits, the action is not performable
+                guard controller.surfaceTree.isSplit else { return false }
+
                 NotificationCenter.default.post(
                     name: Notification.didToggleSplitZoom,
                     object: surfaceView
                 )
+                return true
 
 
             default:
                 assertionFailure()
+                return false
             }
         }
 

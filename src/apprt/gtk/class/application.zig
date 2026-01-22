@@ -2400,9 +2400,13 @@ const Action = struct {
                     SplitTree,
                     surface.as(gtk.Widget),
                 ) orelse {
-                    log.warn("surface is not in a split tree, ignoring goto_split", .{});
+                    log.warn("surface is not in a split tree, ignoring resize_split", .{});
                     return false;
                 };
+
+                // If the tree has no splits (only one leaf), this action is not performable.
+                // This allows the key event to pass through to the terminal.
+                if (!tree.getIsSplit()) return false;
 
                 return tree.resize(
                     switch (value.direction) {
@@ -2550,6 +2554,18 @@ const Action = struct {
             .surface => |core| {
                 // TODO: pass surface ID when we have that
                 const surface = core.rt_surface.surface;
+                const tree = ext.getAncestor(
+                    SplitTree,
+                    surface.as(gtk.Widget),
+                ) orelse {
+                    log.warn("surface is not in a split tree, ignoring toggle_split_zoom", .{});
+                    return false;
+                };
+
+                // If the tree has no splits (only one leaf), this action is not performable.
+                // This allows the key event to pass through to the terminal.
+                if (!tree.getIsSplit()) return false;
+
                 return surface.as(gtk.Widget).activateAction("split-tree.zoom", null) != 0;
             },
         }

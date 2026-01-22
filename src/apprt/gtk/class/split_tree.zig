@@ -561,7 +561,7 @@ pub const SplitTree = extern struct {
         ));
     }
 
-    fn getIsSplit(self: *Self) bool {
+    pub fn getIsSplit(self: *Self) bool {
         const tree: *const Surface.Tree = self.private().tree orelse &.empty;
         if (tree.isEmpty()) return false;
 
