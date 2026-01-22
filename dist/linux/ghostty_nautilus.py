@@ -17,13 +17,12 @@
 # with this program; if not, write to the Free Software Foundation, Inc.,
 # 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 
-import os
+from pathlib import Path
 import gettext
 from gi.repository import Nautilus, GObject, Gio
 
 DOMAIN = "com.mitchellh.ghostty"
-share_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-locale_dir = os.path.join(share_dir, "locale")
+locale_dir = Path(__file__).absolute().parents[2] / "locale"
 _ = gettext.translation(DOMAIN, locale_dir, fallback=True).gettext
 
 def open_in_ghostty_activated(_menu, paths):
