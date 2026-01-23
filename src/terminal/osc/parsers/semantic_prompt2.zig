@@ -10,6 +10,7 @@ pub const Command = union(enum) {
     fresh_line_new_prompt: Options,
     new_command: Options,
     prompt_start: Options,
+    end_prompt_start_input: Options,
 };
 
 pub const Options = struct {
@@ -98,6 +99,14 @@ pub fn parse(parser: *Parser, _: ?u8) ?*OSCCommand {
                 if (data[1] != ';') break :valid;
                 var it = KVIterator.init(writer) catch break :valid;
                 parser.command.semantic_prompt.fresh_line_new_prompt.parse(&it);
+            },
+
+            'B' => end_prompt: {
+                parser.command = .{ .semantic_prompt = .{ .end_prompt_start_input = .init } };
+                if (data.len == 1) break :end_prompt;
+                if (data[1] != ';') break :valid;
+                var it = KVIterator.init(writer) catch break :valid;
+                parser.command.semantic_prompt.end_prompt_start_input.parse(&it);
             },
 
             'L' => {
@@ -525,4 +534,39 @@ test "OSC 133: new_command extra contents" {
     const input = "133;Nextra";
     for (input) |ch| p.next(ch);
     try testing.expect(p.end(null) == null);
+}
+
+test "OSC 133: end_prompt_start_input" {
+    const testing = std.testing;
+
+    var p: Parser = .init(null);
+
+    const input = "133;B";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end(null).?.*;
+    try testing.expect(cmd == .semantic_prompt);
+    try testing.expect(cmd.semantic_prompt == .end_prompt_start_input);
+}
+
+test "OSC 133: end_prompt_start_input extra contents" {
+    const testing = std.testing;
+
+    var p: Parser = .init(null);
+    const input = "133;Bextra";
+    for (input) |ch| p.next(ch);
+    try testing.expect(p.end(null) == null);
+}
+
+test "OSC 133: end_prompt_start_input with options" {
+    const testing = std.testing;
+
+    var p: Parser = .init(null);
+    const input = "133;B;aid=foo";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end(null).?.*;
+    try testing.expect(cmd == .semantic_prompt);
+    try testing.expect(cmd.semantic_prompt == .end_prompt_start_input);
+    try testing.expectEqualStrings("foo", cmd.semantic_prompt.end_prompt_start_input.aid.?);
 }
