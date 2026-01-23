@@ -8,6 +8,7 @@ const log = std.log.scoped(.osc_semantic_prompt);
 pub const Command = union(enum) {
     fresh_line,
     fresh_line_new_prompt: Options,
+    prompt_start: Options,
 };
 
 pub const Options = struct {
@@ -101,6 +102,14 @@ pub fn parse(parser: *Parser, _: ?u8) ?*OSCCommand {
             'L' => {
                 if (data.len > 1) break :valid;
                 parser.command = .{ .semantic_prompt = .fresh_line };
+            },
+
+            'P' => prompt_start: {
+                parser.command = .{ .semantic_prompt = .{ .prompt_start = .init } };
+                if (data.len == 1) break :prompt_start;
+                if (data[1] != ';') break :valid;
+                var it = KVIterator.init(writer) catch break :valid;
+                parser.command.semantic_prompt.prompt_start.parse(&it);
             },
 
             else => break :valid,
@@ -347,4 +356,97 @@ test "OSC 133: fresh_line_new_prompt with multiple options" {
     try testing.expect(cmd.semantic_prompt == .fresh_line_new_prompt);
     try testing.expectEqualStrings("foo", cmd.semantic_prompt.fresh_line_new_prompt.aid.?);
     try testing.expect(cmd.semantic_prompt.fresh_line_new_prompt.cl == .line);
+}
+
+test "OSC 133: prompt_start" {
+    const testing = std.testing;
+
+    var p: Parser = .init(null);
+
+    const input = "133;P";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end(null).?.*;
+    try testing.expect(cmd == .semantic_prompt);
+    try testing.expect(cmd.semantic_prompt == .prompt_start);
+    try testing.expect(cmd.semantic_prompt.prompt_start.prompt_kind == null);
+}
+
+test "OSC 133: prompt_start with k=i" {
+    const testing = std.testing;
+
+    var p: Parser = .init(null);
+
+    const input = "133;P;k=i";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end(null).?.*;
+    try testing.expect(cmd == .semantic_prompt);
+    try testing.expect(cmd.semantic_prompt == .prompt_start);
+    try testing.expect(cmd.semantic_prompt.prompt_start.prompt_kind == .initial);
+}
+
+test "OSC 133: prompt_start with k=r" {
+    const testing = std.testing;
+
+    var p: Parser = .init(null);
+
+    const input = "133;P;k=r";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end(null).?.*;
+    try testing.expect(cmd == .semantic_prompt);
+    try testing.expect(cmd.semantic_prompt == .prompt_start);
+    try testing.expect(cmd.semantic_prompt.prompt_start.prompt_kind == .right);
+}
+
+test "OSC 133: prompt_start with k=c" {
+    const testing = std.testing;
+
+    var p: Parser = .init(null);
+
+    const input = "133;P;k=c";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end(null).?.*;
+    try testing.expect(cmd == .semantic_prompt);
+    try testing.expect(cmd.semantic_prompt == .prompt_start);
+    try testing.expect(cmd.semantic_prompt.prompt_start.prompt_kind == .continuation);
+}
+
+test "OSC 133: prompt_start with k=s" {
+    const testing = std.testing;
+
+    var p: Parser = .init(null);
+
+    const input = "133;P;k=s";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end(null).?.*;
+    try testing.expect(cmd == .semantic_prompt);
+    try testing.expect(cmd.semantic_prompt == .prompt_start);
+    try testing.expect(cmd.semantic_prompt.prompt_start.prompt_kind == .secondary);
+}
+
+test "OSC 133: prompt_start with invalid k" {
+    const testing = std.testing;
+
+    var p: Parser = .init(null);
+
+    const input = "133;P;k=x";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end(null).?.*;
+    try testing.expect(cmd == .semantic_prompt);
+    try testing.expect(cmd.semantic_prompt == .prompt_start);
+    try testing.expect(cmd.semantic_prompt.prompt_start.prompt_kind == null);
+}
+
+test "OSC 133: prompt_start extra contents" {
+    const testing = std.testing;
+
+    var p: Parser = .init(null);
+    const input = "133;Pextra";
+    for (input) |ch| p.next(ch);
+    try testing.expect(p.end(null) == null);
 }
