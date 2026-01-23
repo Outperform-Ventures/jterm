@@ -13,11 +13,16 @@ pub const Command = union(enum) {
 pub const Options = struct {
     aid: ?[:0]const u8,
     cl: ?Click,
-    // TODO: more
+    prompt_kind: ?PromptKind,
+    exit_code: ?i32,
+    err: ?[:0]const u8,
 
     pub const init: Options = .{
         .aid = null,
         .cl = null,
+        .prompt_kind = null,
+        .exit_code = null,
+        .err = null,
     };
 
     pub fn parse(self: *Options, it: *KVIterator) void {
@@ -28,6 +33,15 @@ pub const Options = struct {
             } else if (std.mem.eql(u8, key, "cl")) cl: {
                 const value = kv.value orelse break :cl;
                 self.cl = std.meta.stringToEnum(Click, value);
+            } else if (std.mem.eql(u8, key, "k")) k: {
+                const value = kv.value orelse break :k;
+                if (value.len != 1) break :k;
+                self.prompt_kind = .init(value[0]);
+            } else if (std.mem.eql(u8, key, "err")) {
+                self.err = kv.value;
+            } else if (key.len == 0) exit_code: {
+                const value = kv.value orelse break :exit_code;
+                self.exit_code = std.fmt.parseInt(i32, value, 10) catch break :exit_code;
             } else {
                 log.info("OSC 133: unknown semantic prompt option: {s}", .{key});
             }
@@ -40,6 +54,23 @@ pub const Click = enum {
     multiple,
     conservative_vertical,
     smart_vertical,
+};
+
+pub const PromptKind = enum {
+    initial,
+    right,
+    continuation,
+    secondary,
+
+    pub fn init(c: u8) ?PromptKind {
+        return switch (c) {
+            'i' => .initial,
+            'r' => .right,
+            'c' => .continuation,
+            's' => .secondary,
+            else => null,
+        };
+    }
 };
 
 /// Parse OSC 133, semantic prompts
