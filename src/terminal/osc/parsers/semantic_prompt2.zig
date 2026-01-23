@@ -44,6 +44,22 @@ pub const Options = struct {
     // redraw the prompt so we should attempt to resize it.
     redraw: bool,
 
+    // Use a special key instead of arrow keys to move the cursor on
+    // mouse click. Useful if arrow keys have side-effets like triggering
+    // auto-complete. The shell integration script should bind the special
+    // key as needed.
+    // See: https://sw.kovidgoyal.net/kitty/shell-integration/#notes-for-shell-developers
+    special_key: bool,
+
+    // If true, the shell is capable of handling mouse click events.
+    // Ghostty will then send a click event to the shell when the user
+    // clicks somewhere in the prompt. The shell can then move the cursor
+    // to that position or perform some other appropriate action. If false,
+    // Ghostty may generate a number of fake key events to move the cursor
+    // which is not very robust.
+    // See: https://sw.kovidgoyal.net/kitty/shell-integration/#notes-for-shell-developers
+    click_events: bool,
+
     // Not technically an option that can be set with k=v and only
     // present currently with command 'D' but its easier to just
     // parse it into our options.
@@ -56,6 +72,8 @@ pub const Options = struct {
         .exit_code = null,
         .err = null,
         .redraw = false,
+        .special_key = false,
+        .click_events = false,
     };
 
     pub fn parse(self: *Options, it: *KVIterator) void {
@@ -79,6 +97,22 @@ pub const Options = struct {
                     '0' => false,
                     '1' => true,
                     else => break :redraw,
+                };
+            } else if (std.mem.eql(u8, key, "special_key")) {
+                const value = kv.value orelse continue;
+                if (value.len != 1) continue;
+                self.special_key = switch (value[0]) {
+                    '0' => false,
+                    '1' => true,
+                    else => continue,
+                };
+            } else if (std.mem.eql(u8, key, "click_events")) {
+                const value = kv.value orelse continue;
+                if (value.len != 1) continue;
+                self.click_events = switch (value[0]) {
+                    '0' => false,
+                    '1' => true,
+                    else => continue,
                 };
             } else {
                 log.info("OSC 133: unknown semantic prompt option: {s}", .{key});
@@ -500,7 +534,7 @@ test "OSC 133: fresh_line_new_prompt default redraw" {
     const cmd = p.end(null).?.*;
     try testing.expect(cmd == .semantic_prompt);
     try testing.expect(cmd.semantic_prompt.action == .fresh_line_new_prompt);
-    try testing.expect(cmd.semantic_prompt.options.redraw == true);
+    try testing.expect(cmd.semantic_prompt.options.redraw == false);
 }
 
 test "OSC 133: fresh_line_new_prompt with redraw=0" {
@@ -542,7 +576,7 @@ test "OSC 133: fresh_line_new_prompt with invalid redraw" {
     const cmd = p.end(null).?.*;
     try testing.expect(cmd == .semantic_prompt);
     try testing.expect(cmd.semantic_prompt.action == .fresh_line_new_prompt);
-    try testing.expect(cmd.semantic_prompt.options.redraw == true);
+    try testing.expect(cmd.semantic_prompt.options.redraw == false);
 }
 
 test "OSC 133: prompt_start" {
