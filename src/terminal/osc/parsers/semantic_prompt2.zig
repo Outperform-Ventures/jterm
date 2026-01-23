@@ -13,14 +13,19 @@ pub const Command = union(enum) {
     end_prompt_start_input: Options,
     end_prompt_start_input_terminate_eol: Options,
     end_input_start_output: Options,
+    end_command: Options,
 };
 
 pub const Options = struct {
     aid: ?[:0]const u8,
     cl: ?Click,
     prompt_kind: ?PromptKind,
-    exit_code: ?i32,
     err: ?[:0]const u8,
+
+    // Not technically an option that can be set with k=v and only
+    // present currently with command 'D' but its easier to just
+    // parse it into our options.
+    exit_code: ?i32,
 
     pub const init: Options = .{
         .aid = null,
@@ -44,9 +49,6 @@ pub const Options = struct {
                 self.prompt_kind = .init(value[0]);
             } else if (std.mem.eql(u8, key, "err")) {
                 self.err = kv.value;
-            } else if (key.len == 0) exit_code: {
-                const value = kv.value orelse break :exit_code;
-                self.exit_code = std.fmt.parseInt(i32, value, 10) catch break :exit_code;
             } else {
                 log.info("OSC 133: unknown semantic prompt option: {s}", .{key});
             }
@@ -125,6 +127,30 @@ pub fn parse(parser: *Parser, _: ?u8) ?*OSCCommand {
                 if (data[1] != ';') break :valid;
                 var it = KVIterator.init(writer) catch break :valid;
                 parser.command.semantic_prompt.end_input_start_output.parse(&it);
+            },
+
+            'D' => end_command: {
+                parser.command = .{ .semantic_prompt = .{ .end_command = .init } };
+                if (data.len == 1) break :end_command;
+                if (data[1] != ';') break :valid;
+                var it = KVIterator.init(writer) catch break :valid;
+
+                // If there are options, the first option MUST be the
+                // exit code. The specification appears to mandate this
+                // and disallow options without an exit code.
+                {
+                    const first = it.next() orelse break :end_command;
+                    if (first.value != null) break :end_command;
+                    const key = first.key orelse break :end_command;
+                    parser.command.semantic_prompt.end_command.exit_code = std.fmt.parseInt(
+                        i32,
+                        key,
+                        10,
+                    ) catch null;
+                }
+
+                // Parse the remaining options
+                parser.command.semantic_prompt.end_command.parse(&it);
             },
 
             'L' => {
@@ -659,4 +685,58 @@ test "OSC 133: end_prompt_start_input_terminate_eol with options" {
     try testing.expect(cmd == .semantic_prompt);
     try testing.expect(cmd.semantic_prompt == .end_prompt_start_input_terminate_eol);
     try testing.expectEqualStrings("foo", cmd.semantic_prompt.end_prompt_start_input_terminate_eol.aid.?);
+}
+
+test "OSC 133: end_command" {
+    const testing = std.testing;
+
+    var p: Parser = .init(null);
+
+    const input = "133;D";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end(null).?.*;
+    try testing.expect(cmd == .semantic_prompt);
+    try testing.expect(cmd.semantic_prompt == .end_command);
+    try testing.expect(cmd.semantic_prompt.end_command.exit_code == null);
+    try testing.expect(cmd.semantic_prompt.end_command.aid == null);
+    try testing.expect(cmd.semantic_prompt.end_command.err == null);
+}
+
+test "OSC 133: end_command extra contents" {
+    const testing = std.testing;
+
+    var p: Parser = .init(null);
+    const input = "133;Dextra";
+    for (input) |ch| p.next(ch);
+    try testing.expect(p.end(null) == null);
+}
+
+test "OSC 133: end_command with exit code 0" {
+    const testing = std.testing;
+
+    var p: Parser = .init(null);
+
+    const input = "133;D;0";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end(null).?.*;
+    try testing.expect(cmd == .semantic_prompt);
+    try testing.expect(cmd.semantic_prompt == .end_command);
+    try testing.expect(cmd.semantic_prompt.end_command.exit_code == 0);
+}
+
+test "OSC 133: end_command with exit code and aid" {
+    const testing = std.testing;
+
+    var p: Parser = .init(null);
+
+    const input = "133;D;12;aid=foo";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end(null).?.*;
+    try testing.expect(cmd == .semantic_prompt);
+    try testing.expect(cmd.semantic_prompt == .end_command);
+    try testing.expectEqualStrings("foo", cmd.semantic_prompt.end_command.aid.?);
+    try testing.expect(cmd.semantic_prompt.end_command.exit_code == 12);
 }
