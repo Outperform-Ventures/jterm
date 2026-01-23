@@ -222,31 +222,32 @@ pub const Handler = struct {
         cmd: Action.SemanticPrompt,
     ) void {
         switch (cmd.action) {
-            .fresh_line => {
-                if (self.terminal.screens.active.cursor.x != 0) {
-                    self.terminal.carriageReturn();
-                    self.terminal.index() catch {};
-                }
-            },
             .fresh_line_new_prompt => {
-                if (self.terminal.screens.active.cursor.x != 0) {
-                    self.terminal.carriageReturn();
-                    self.terminal.index() catch {};
-                }
-                self.terminal.screens.active.cursor.page_row.semantic_prompt = .prompt;
-            },
-            .new_command => {},
-            .prompt_start => {
                 const kind = cmd.options.prompt_kind orelse .initial;
                 switch (kind) {
-                    .initial, .right => self.terminal.screens.active.cursor.page_row.semantic_prompt = .prompt,
-                    .continuation, .secondary => self.terminal.screens.active.cursor.page_row.semantic_prompt = .prompt_continuation,
+                    .initial, .right => {
+                        self.terminal.screens.active.cursor.page_row.semantic_prompt = .prompt;
+                        self.terminal.flags.shell_redraws_prompt = cmd.options.redraw;
+                    },
+                    .continuation, .secondary => {
+                        self.terminal.screens.active.cursor.page_row.semantic_prompt = .prompt_continuation;
+                    },
                 }
             },
+
             .end_prompt_start_input => self.terminal.markSemanticPrompt(.input),
-            .end_prompt_start_input_terminate_eol => self.terminal.markSemanticPrompt(.input),
             .end_input_start_output => self.terminal.markSemanticPrompt(.command),
             .end_command => self.terminal.screens.active.cursor.page_row.semantic_prompt = .input,
+
+            // All of these commands weren't previously handled by our
+            // semantic prompt code. I am PR-ing the parser separate from the
+            // handling so we just ignore these like we did before, even
+            // though we should handle them eventually.
+            .end_prompt_start_input_terminate_eol,
+            .fresh_line,
+            .new_command,
+            .prompt_start,
+            => {},
         }
     }
 

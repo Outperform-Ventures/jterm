@@ -1100,40 +1100,45 @@ pub const StreamHandler = struct {
         cmd: Stream.Action.SemanticPrompt,
     ) void {
         switch (cmd.action) {
-            .fresh_line => {
-                if (self.terminal.screens.active.cursor.x != 0) {
-                    self.terminal.carriageReturn();
-                    self.terminal.index() catch {};
-                }
-            },
             .fresh_line_new_prompt => {
-                if (self.terminal.screens.active.cursor.x != 0) {
-                    self.terminal.carriageReturn();
-                    self.terminal.index() catch {};
-                }
-                self.promptStart(cmd.options.aid, false);
-            },
-            .new_command => {},
-            .prompt_start => {
                 const kind = cmd.options.prompt_kind orelse .initial;
                 switch (kind) {
-                    .initial, .right => self.promptStart(cmd.options.aid, false),
-                    .continuation, .secondary => self.promptContinuation(cmd.options.aid),
+                    .initial, .right => {
+                        self.terminal.markSemanticPrompt(.prompt);
+                        self.terminal.flags.shell_redraws_prompt = cmd.options.redraw;
+                    },
+                    .continuation, .secondary => {
+                        self.terminal.markSemanticPrompt(.prompt_continuation);
+                    },
                 }
             },
+
             .end_prompt_start_input => self.terminal.markSemanticPrompt(.input),
-            .end_prompt_start_input_terminate_eol => self.terminal.markSemanticPrompt(.input),
             .end_input_start_output => {
                 self.terminal.markSemanticPrompt(.command);
                 self.surfaceMessageWriter(.start_command);
             },
             .end_command => {
-                const exit_code: ?u8 = if (cmd.options.exit_code) |code|
-                    if (code >= 0 and code <= 255) @intCast(code) else null
-                else
-                    null;
-                self.surfaceMessageWriter(.{ .stop_command = exit_code });
+                // The specification seems to not specify the type but
+                // other terminals accept 32-bits, but exit codes are really
+                // bytes, so we just do our best here.
+                const code: u8 = code: {
+                    const raw: i32 = cmd.options.exit_code orelse 0;
+                    break :code std.math.cast(u8, raw) orelse 1;
+                };
+
+                self.surfaceMessageWriter(.{ .stop_command = code });
             },
+
+            // All of these commands weren't previously handled by our
+            // semantic prompt code. I am PR-ing the parser separate from the
+            // handling so we just ignore these like we did before, even
+            // though we should handle them eventually.
+            .end_prompt_start_input_terminate_eol,
+            .fresh_line,
+            .new_command,
+            .prompt_start,
+            => {},
         }
     }
 
