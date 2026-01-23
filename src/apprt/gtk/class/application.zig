@@ -733,6 +733,7 @@ pub const Application = extern struct {
             .toggle_split_zoom => return Action.toggleSplitZoom(target),
             .show_on_screen_keyboard => return Action.showOnScreenKeyboard(target),
             .command_finished => return Action.commandFinished(target, value),
+            .readonly => return Action.setReadonly(target, value),
 
             .start_search => Action.startSearch(target, value),
             .end_search => Action.endSearch(target),
@@ -753,7 +754,6 @@ pub const Application = extern struct {
             .check_for_updates,
             .undo,
             .redo,
-            .readonly,
             => {
                 log.warn("unimplemented action={}", .{action});
                 return false;
@@ -2674,6 +2674,15 @@ const Action = struct {
             .app => return false,
             .surface => |surface| {
                 return surface.rt_surface.gobj().commandFinished(value);
+            },
+        }
+    }
+
+    pub fn setReadonly(target: apprt.Target, value: apprt.Action.Value(.readonly)) bool {
+        switch (target) {
+            .app => return false,
+            .surface => |surface| {
+                return surface.rt_surface.gobj().setReadonly(value);
             },
         }
     }
