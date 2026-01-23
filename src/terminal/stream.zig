@@ -111,8 +111,6 @@ pub const Action = union(Key) {
     apc_start,
     apc_end,
     apc_put: u8,
-    prompt_end,
-    end_of_input,
     end_hyperlink,
     active_status_display: ansi.StatusDisplay,
     decaln,
@@ -122,9 +120,6 @@ pub const Action = union(Key) {
     progress_report: osc.Command.ProgressReport,
     start_hyperlink: StartHyperlink,
     clipboard_contents: ClipboardContents,
-    prompt_start: PromptStart,
-    prompt_continuation: PromptContinuation,
-    end_of_command: EndOfCommand,
     mouse_shape: MouseShape,
     configure_charset: ConfigureCharset,
     set_attribute: sgr.Attribute,
@@ -213,8 +208,6 @@ pub const Action = union(Key) {
             "apc_start",
             "apc_end",
             "apc_put",
-            "prompt_end",
-            "end_of_input",
             "end_hyperlink",
             "active_status_display",
             "decaln",
@@ -224,9 +217,6 @@ pub const Action = union(Key) {
             "progress_report",
             "start_hyperlink",
             "clipboard_contents",
-            "prompt_start",
-            "prompt_continuation",
-            "end_of_command",
             "mouse_shape",
             "configure_charset",
             "set_attribute",
@@ -389,47 +379,6 @@ pub const Action = union(Key) {
             return .{
                 .kind = self.kind,
                 .data = .init(self.data),
-            };
-        }
-    };
-
-    pub const PromptStart = struct {
-        aid: ?[]const u8,
-        redraw: bool,
-
-        pub const C = extern struct {
-            aid: lib.String,
-            redraw: bool,
-        };
-
-        pub fn cval(self: PromptStart) PromptStart.C {
-            return .{
-                .aid = .init(self.aid orelse ""),
-                .redraw = self.redraw,
-            };
-        }
-    };
-
-    pub const PromptContinuation = struct {
-        aid: ?[]const u8,
-
-        pub const C = lib.String;
-
-        pub fn cval(self: PromptContinuation) PromptContinuation.C {
-            return .init(self.aid orelse "");
-        }
-    };
-
-    pub const EndOfCommand = struct {
-        exit_code: ?u8,
-
-        pub const C = extern struct {
-            exit_code: i16,
-        };
-
-        pub fn cval(self: EndOfCommand) EndOfCommand.C {
-            return .{
-                .exit_code = if (self.exit_code) |code| @intCast(code) else -1,
             };
         }
     };
@@ -1992,10 +1941,9 @@ pub fn Stream(comptime Handler: type) type {
             // 4. hyperlink_start
             // 5. report_pwd
             // 6. color_operation
-            // 7. prompt_start
-            // 8. prompt_end
+            // 7. semantic_prompt
             //
-            // Together, these 8 commands make up about 96% of all
+            // Together, these 7 commands make up about 96% of all
             // OSC commands encountered in real world scenarios.
             //
             // Additionally, within the prongs, unlikely branch
@@ -2008,6 +1956,7 @@ pub fn Stream(comptime Handler: type) type {
 
             switch (cmd) {
                 .semantic_prompt => |sp| {
+                    @branchHint(.likely);
                     try self.handler.vt(.semantic_prompt, sp);
                 },
 
@@ -2032,30 +1981,6 @@ pub fn Stream(comptime Handler: type) type {
                         .kind = clip.kind,
                         .data = clip.data,
                     });
-                },
-
-                .prompt_start => |v| {
-                    @branchHint(.likely);
-                    switch (v.kind) {
-                        .primary, .right => try self.handler.vt(.prompt_start, .{
-                            .aid = v.aid,
-                            .redraw = v.redraw,
-                        }),
-                        .continuation, .secondary => try self.handler.vt(.prompt_continuation, .{
-                            .aid = v.aid,
-                        }),
-                    }
-                },
-
-                .prompt_end => {
-                    @branchHint(.likely);
-                    try self.handler.vt(.prompt_end, {});
-                },
-
-                .end_of_input => try self.handler.vt(.end_of_input, {}),
-
-                .end_of_command => |end| {
-                    try self.handler.vt(.end_of_command, .{ .exit_code = end.exit_code });
                 },
 
                 .report_pwd => |v| {

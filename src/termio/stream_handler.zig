@@ -311,8 +311,6 @@ pub const StreamHandler = struct {
             },
             .kitty_color_report => try self.kittyColorReport(value),
             .color_operation => try self.colorOperation(value.op, &value.requests, value.terminator),
-            .prompt_end => try self.promptEnd(),
-            .end_of_input => try self.endOfInput(),
             .end_hyperlink => try self.endHyperlink(),
             .active_status_display => self.terminal.status_display = value,
             .decaln => try self.decaln(),
@@ -322,9 +320,6 @@ pub const StreamHandler = struct {
             .progress_report => self.progressReport(value),
             .start_hyperlink => try self.startHyperlink(value.uri, value.id),
             .clipboard_contents => try self.clipboardContents(value.kind, value.data),
-            .prompt_start => self.promptStart(value.aid, value.redraw),
-            .prompt_continuation => self.promptContinuation(value.aid),
-            .end_of_command => self.endOfCommand(value.exit_code),
             .semantic_prompt => self.semanticPrompt(value),
             .mouse_shape => try self.setMouseShape(value),
             .configure_charset => self.configureCharset(value.slot, value.charset),
@@ -1069,30 +1064,6 @@ pub const StreamHandler = struct {
                 .clipboard_type = clipboard_type,
             },
         });
-    }
-
-    inline fn promptStart(self: *StreamHandler, aid: ?[]const u8, redraw: bool) void {
-        _ = aid;
-        self.terminal.markSemanticPrompt(.prompt);
-        self.terminal.flags.shell_redraws_prompt = redraw;
-    }
-
-    inline fn promptContinuation(self: *StreamHandler, aid: ?[]const u8) void {
-        _ = aid;
-        self.terminal.markSemanticPrompt(.prompt_continuation);
-    }
-
-    pub inline fn promptEnd(self: *StreamHandler) !void {
-        self.terminal.markSemanticPrompt(.input);
-    }
-
-    pub inline fn endOfInput(self: *StreamHandler) !void {
-        self.terminal.markSemanticPrompt(.command);
-        self.surfaceMessageWriter(.start_command);
-    }
-
-    inline fn endOfCommand(self: *StreamHandler, exit_code: ?u8) void {
-        self.surfaceMessageWriter(.{ .stop_command = exit_code });
     }
 
     fn semanticPrompt(
