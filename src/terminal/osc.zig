@@ -42,7 +42,7 @@ pub const Command = union(Key) {
     change_window_icon: [:0]const u8,
 
     /// Semantic prompt command: https://gitlab.freedesktop.org/Per_Bothner/specifications/blob/master/proposals/semantic-prompts.md
-    semantic_prompt: parsers.semantic_prompt2.Command,
+    semantic_prompt: SemanticPrompt,
 
     /// First do a fresh-line. Then start a new command, and enter prompt mode:
     /// Subsequent text (until a OSC "133;B" or OSC "133;I" command) is a
@@ -220,6 +220,8 @@ pub const Command = union(Key) {
 
     /// Kitty text sizing protocol (OSC 66)
     kitty_text_sizing: parsers.kitty_text_sizing.OSC,
+
+    pub const SemanticPrompt = parsers.semantic_prompt2.Command;
 
     pub const Key = LibEnum(
         if (build_options.c_abi) .c else .zig,

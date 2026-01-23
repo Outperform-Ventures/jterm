@@ -130,6 +130,7 @@ pub const Action = union(Key) {
     set_attribute: sgr.Attribute,
     kitty_color_report: kitty.color.OSC,
     color_operation: ColorOperation,
+    semantic_prompt: SemanticPrompt,
 
     pub const Key = lib.Enum(
         lib_target,
@@ -231,6 +232,7 @@ pub const Action = union(Key) {
             "set_attribute",
             "kitty_color_report",
             "color_operation",
+            "semantic_prompt",
         },
     );
 
@@ -448,6 +450,8 @@ pub const Action = union(Key) {
             return {};
         }
     };
+
+    pub const SemanticPrompt = osc.Command.SemanticPrompt;
 };
 
 /// Returns a type that can process a stream of tty control characters.
@@ -2003,8 +2007,9 @@ pub fn Stream(comptime Handler: type) type {
             // ref: https://github.com/qwerasd205/asciinema-stats
 
             switch (cmd) {
-                // TODO
-                .semantic_prompt => {},
+                .semantic_prompt => |sp| {
+                    try self.handler.vt(.semantic_prompt, sp);
+                },
 
                 .change_window_title => |title| {
                     @branchHint(.likely);

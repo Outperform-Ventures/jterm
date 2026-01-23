@@ -325,6 +325,7 @@ pub const StreamHandler = struct {
             .prompt_start => self.promptStart(value.aid, value.redraw),
             .prompt_continuation => self.promptContinuation(value.aid),
             .end_of_command => self.endOfCommand(value.exit_code),
+            .semantic_prompt => self.semanticPrompt(value),
             .mouse_shape => try self.setMouseShape(value),
             .configure_charset => self.configureCharset(value.slot, value.charset),
             .set_attribute => {
@@ -1092,6 +1093,48 @@ pub const StreamHandler = struct {
 
     inline fn endOfCommand(self: *StreamHandler, exit_code: ?u8) void {
         self.surfaceMessageWriter(.{ .stop_command = exit_code });
+    }
+
+    fn semanticPrompt(
+        self: *StreamHandler,
+        cmd: Stream.Action.SemanticPrompt,
+    ) void {
+        switch (cmd.action) {
+            .fresh_line => {
+                if (self.terminal.screens.active.cursor.x != 0) {
+                    self.terminal.carriageReturn();
+                    self.terminal.index() catch {};
+                }
+            },
+            .fresh_line_new_prompt => {
+                if (self.terminal.screens.active.cursor.x != 0) {
+                    self.terminal.carriageReturn();
+                    self.terminal.index() catch {};
+                }
+                self.promptStart(cmd.options.aid, false);
+            },
+            .new_command => {},
+            .prompt_start => {
+                const kind = cmd.options.prompt_kind orelse .initial;
+                switch (kind) {
+                    .initial, .right => self.promptStart(cmd.options.aid, false),
+                    .continuation, .secondary => self.promptContinuation(cmd.options.aid),
+                }
+            },
+            .end_prompt_start_input => self.terminal.markSemanticPrompt(.input),
+            .end_prompt_start_input_terminate_eol => self.terminal.markSemanticPrompt(.input),
+            .end_input_start_output => {
+                self.terminal.markSemanticPrompt(.command);
+                self.surfaceMessageWriter(.start_command);
+            },
+            .end_command => {
+                const exit_code: ?u8 = if (cmd.options.exit_code) |code|
+                    if (code >= 0 and code <= 255) @intCast(code) else null
+                else
+                    null;
+                self.surfaceMessageWriter(.{ .stop_command = exit_code });
+            },
+        }
     }
 
     fn reportPwd(self: *StreamHandler, url: []const u8) !void {

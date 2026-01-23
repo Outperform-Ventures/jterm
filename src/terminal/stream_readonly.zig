@@ -161,6 +161,7 @@ pub const Handler = struct {
             .prompt_end => self.terminal.markSemanticPrompt(.input),
             .end_of_input => self.terminal.markSemanticPrompt(.command),
             .end_of_command => self.terminal.screens.active.cursor.page_row.semantic_prompt = .input,
+            .semantic_prompt => self.semanticPrompt(value),
             .mouse_shape => self.terminal.mouse_shape = value,
             .color_operation => try self.colorOperation(value.op, &value.requests),
             .kitty_color_report => try self.kittyColorOperation(value),
@@ -213,6 +214,39 @@ pub const Handler = struct {
             const x = self.terminal.screens.active.cursor.x;
             self.terminal.horizontalTabBack();
             if (x == self.terminal.screens.active.cursor.x) break;
+        }
+    }
+
+    fn semanticPrompt(
+        self: *Handler,
+        cmd: Action.SemanticPrompt,
+    ) void {
+        switch (cmd.action) {
+            .fresh_line => {
+                if (self.terminal.screens.active.cursor.x != 0) {
+                    self.terminal.carriageReturn();
+                    self.terminal.index() catch {};
+                }
+            },
+            .fresh_line_new_prompt => {
+                if (self.terminal.screens.active.cursor.x != 0) {
+                    self.terminal.carriageReturn();
+                    self.terminal.index() catch {};
+                }
+                self.terminal.screens.active.cursor.page_row.semantic_prompt = .prompt;
+            },
+            .new_command => {},
+            .prompt_start => {
+                const kind = cmd.options.prompt_kind orelse .initial;
+                switch (kind) {
+                    .initial, .right => self.terminal.screens.active.cursor.page_row.semantic_prompt = .prompt,
+                    .continuation, .secondary => self.terminal.screens.active.cursor.page_row.semantic_prompt = .prompt_continuation,
+                }
+            },
+            .end_prompt_start_input => self.terminal.markSemanticPrompt(.input),
+            .end_prompt_start_input_terminate_eol => self.terminal.markSemanticPrompt(.input),
+            .end_input_start_output => self.terminal.markSemanticPrompt(.command),
+            .end_command => self.terminal.screens.active.cursor.page_row.semantic_prompt = .input,
         }
     }
 
