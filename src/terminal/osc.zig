@@ -406,6 +406,7 @@ pub const Parser = struct {
         @"119",
         @"133",
         @"777",
+        @"1337",
     };
 
     pub fn init(alloc: ?Allocator) Parser {
@@ -663,8 +664,20 @@ pub const Parser = struct {
                 else => self.state = .invalid,
             },
 
-            .@"0",
             .@"133",
+            => switch (c) {
+                ';' => self.writeToFixed(),
+                '7' => self.state = .@"1337",
+                else => self.state = .invalid,
+            },
+
+            .@"1337",
+            => switch (c) {
+                ';' => self.writeToFixed(),
+                else => self.state = .invalid,
+            },
+
+            .@"0",
             .@"22",
             .@"777",
             .@"8",
@@ -741,6 +754,8 @@ pub const Parser = struct {
             .@"133" => parsers.semantic_prompt.parse(self, terminator_ch),
 
             .@"777" => parsers.rxvt_extension.parse(self, terminator_ch),
+
+            .@"1337" => parsers.iterm2.parse(self, terminator_ch),
         };
     }
 };
