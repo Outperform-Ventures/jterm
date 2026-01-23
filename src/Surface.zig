@@ -316,6 +316,7 @@ const DerivedConfig = struct {
     macos_option_as_alt: ?input.OptionAsAlt,
     selection_clear_on_copy: bool,
     selection_clear_on_typing: bool,
+    selection_word_chars: []const u21,
     vt_kam_allowed: bool,
     wait_after_command: bool,
     window_padding_top: u32,
@@ -392,6 +393,7 @@ const DerivedConfig = struct {
             .macos_option_as_alt = config.@"macos-option-as-alt",
             .selection_clear_on_copy = config.@"selection-clear-on-copy",
             .selection_clear_on_typing = config.@"selection-clear-on-typing",
+            .selection_word_chars = try alloc.dupe(u21, config.@"selection-word-chars".codepoints),
             .vt_kam_allowed = config.@"vt-kam-allowed",
             .wait_after_command = config.@"wait-after-command",
             .window_padding_top = config.@"window-padding-y".top_left,
@@ -1073,8 +1075,6 @@ pub fn handleMessage(self: *Surface, msg: Message) !void {
 
         .scrollbar => |scrollbar| self.updateScrollbar(scrollbar),
 
-        .report_color_scheme => |force| self.reportColorScheme(force),
-
         .present_surface => try self.presentSurface(),
 
         .password_input => |v| try self.passwordInput(v),
@@ -1384,26 +1384,6 @@ fn passwordInput(self: *Surface, v: bool) !void {
     };
 
     try self.queueRender();
-}
-
-/// Sends a DSR response for the current color scheme to the pty. If
-/// force is false then we only send the response if the terminal mode
-/// 2031 is enabled.
-fn reportColorScheme(self: *Surface, force: bool) void {
-    if (!force) {
-        self.renderer_state.mutex.lock();
-        defer self.renderer_state.mutex.unlock();
-        if (!self.renderer_state.terminal.modes.get(.report_color_scheme)) {
-            return;
-        }
-    }
-
-    const output = switch (self.config_conditional_state.theme) {
-        .light => "\x1B[?997;2n",
-        .dark => "\x1B[?997;1n",
-    };
-
-    self.queueIo(.{ .write_stable = output }, .unlocked);
 }
 
 fn searchCallback(event: terminal.search.Thread.Event, ud: ?*anyopaque) void {
@@ -4180,7 +4160,7 @@ pub fn mouseButtonCallback(
                         // Ignore any errors, likely regex errors.
                     }
 
-                    break :sel self.io.terminal.screens.active.selectWord(pin.*);
+                    break :sel self.io.terminal.screens.active.selectWord(pin.*, self.config.selection_word_chars);
                 };
                 if (sel_) |sel| {
                     try self.io.terminal.screens.active.select(sel);
@@ -4225,8 +4205,8 @@ pub fn mouseButtonCallback(
 
         // Get our viewport pin
         const screen: *terminal.Screen = self.renderer_state.terminal.screens.active;
+        const pos = try self.rt_surface.getCursorPos();
         const pin = pin: {
-            const pos = try self.rt_surface.getCursorPos();
             const pt_viewport = self.posToViewport(pos.x, pos.y);
             const pin = screen.pages.pin(.{
                 .viewport = .{
@@ -4257,8 +4237,17 @@ pub fn mouseButtonCallback(
                     // word selection where we clicked.
                 }
 
-                const sel = screen.selectWord(pin) orelse break :sel;
-                try self.setSelection(sel);
+                // If there is a link at this position, we want to
+                // select the link. Otherwise, select the word.
+                if (try self.linkAtPos(pos)) |link| {
+                    try self.setSelection(link.selection);
+                } else {
+                    const sel = screen.selectWord(
+                        pin,
+                        self.config.selection_word_chars,
+                    ) orelse break :sel;
+                    try self.setSelection(sel);
+                }
                 try self.queueRender();
 
                 // Don't consume so that we show the context menu in apprt.
@@ -4577,7 +4566,10 @@ pub fn mousePressureCallback(
         // This should always be set in this state but we don't want
         // to handle state inconsistency here.
         const pin = self.mouse.left_click_pin orelse break :select;
-        const sel = self.io.terminal.screens.active.selectWord(pin.*) orelse break :select;
+        const sel = self.io.terminal.screens.active.selectWord(
+            pin.*,
+            self.config.selection_word_chars,
+        ) orelse break :select;
         try self.io.terminal.screens.active.select(sel);
         try self.queueRender();
     }
@@ -4800,7 +4792,11 @@ fn dragLeftClickDouble(
     const click_pin = self.mouse.left_click_pin.?.*;
 
     // Get the word closest to our starting click.
-    const word_start = screen.selectWordBetween(click_pin, drag_pin) orelse {
+    const word_start = screen.selectWordBetween(
+        click_pin,
+        drag_pin,
+        self.config.selection_word_chars,
+    ) orelse {
         try self.setSelection(null);
         return;
     };
@@ -4809,6 +4805,7 @@ fn dragLeftClickDouble(
     const word_current = screen.selectWordBetween(
         drag_pin,
         click_pin,
+        self.config.selection_word_chars,
     ) orelse {
         try self.setSelection(null);
         return;
@@ -5039,7 +5036,7 @@ pub fn colorSchemeCallback(self: *Surface, scheme: apprt.ColorScheme) !void {
     self.notifyConfigConditionalState();
 
     // If mode 2031 is on, then we report the change live.
-    self.reportColorScheme(false);
+    self.queueIo(.{ .color_scheme_report = .{ .force = false } }, .unlocked);
 }
 
 pub fn posToViewport(self: Surface, xpos: f64, ypos: f64) terminal.point.Coordinate {

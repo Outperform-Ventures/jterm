@@ -262,7 +262,7 @@ pub const Shaper = struct {
     pub const RunIteratorHook = struct {
         shaper: *Shaper,
 
-        pub fn prepare(self: RunIteratorHook) !void {
+        pub fn prepare(self: RunIteratorHook) void {
             // Reset the buffer for our current run
             self.shaper.hb_buf.reset();
             self.shaper.hb_buf.setContentType(.unicode);
@@ -293,7 +293,7 @@ pub const Shaper = struct {
             });
         }
 
-        pub fn finalize(self: RunIteratorHook) !void {
+        pub fn finalize(self: RunIteratorHook) void {
             self.shaper.hb_buf.guessSegmentProperties();
         }
     };

@@ -9,6 +9,7 @@ const assert = @import("../quirks.zig").inlineAssert;
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
 const unicode = @import("../unicode/main.zig");
+const uucode = @import("uucode");
 
 const ansi = @import("ansi.zig");
 const modespkg = @import("modes.zig");
@@ -361,7 +362,7 @@ pub fn print(self: *Terminal, c: u21) !void {
         if (prev.cell.codepoint() == 0) break :grapheme;
 
         const grapheme_break = brk: {
-            var state: unicode.GraphemeBreakState = .{};
+            var state: uucode.grapheme.BreakState = .default;
             var cp1: u21 = prev.cell.content.codepoint;
             if (prev.cell.hasGrapheme()) {
                 const cps = self.screens.active.cursor.page_pin.node.data.lookupGrapheme(prev.cell).?;
@@ -512,7 +513,7 @@ pub fn print(self: *Terminal, c: u21) !void {
         // If this is a emoji variation selector, prev must be an emoji
         if (c == 0xFE0F or c == 0xFE0E) {
             const prev_props = unicode.table.get(prev.content.codepoint);
-            const emoji = prev_props.grapheme_boundary_class == .extended_pictographic;
+            const emoji = prev_props.grapheme_break == .extended_pictographic;
             if (!emoji) return;
         }
 
@@ -1117,7 +1118,7 @@ pub fn cursorIsAtPrompt(self: *Terminal) bool {
 
 /// Horizontal tab moves the cursor to the next tabstop, clearing
 /// the screen to the left the tabstop.
-pub fn horizontalTab(self: *Terminal) !void {
+pub fn horizontalTab(self: *Terminal) void {
     while (self.screens.active.cursor.x < self.scrolling_region.right) {
         // Move the cursor right
         self.screens.active.cursorRight(1);
@@ -1130,7 +1131,7 @@ pub fn horizontalTab(self: *Terminal) !void {
 }
 
 // Same as horizontalTab but moves to the previous tabstop instead of the next.
-pub fn horizontalTabBack(self: *Terminal) !void {
+pub fn horizontalTabBack(self: *Terminal) void {
     // With origin mode enabled, our leftmost limit is the left margin.
     const left_limit = if (self.modes.get(.origin)) self.scrolling_region.left else 0;
 
@@ -3996,6 +3997,53 @@ test "Terminal: overwrite multicodepoint grapheme tail clears grapheme data" {
     try testing.expectEqual(@as(usize, 0), page.graphemeCount());
 }
 
+test "Terminal: print breaks valid grapheme cluster with Prepend + ASCII for speed" {
+    const alloc = testing.allocator;
+    var t = try init(alloc, .{ .rows = 5, .cols = 5 });
+    defer t.deinit(alloc);
+    t.modes.set(.grapheme_cluster, true);
+
+    // Make sure we're not at cursor.x == 0 for the next char.
+    try t.print('_');
+
+    // U+0600 ARABIC NUMBER SIGN (Prepend)
+    try t.print(0x0600);
+    try t.print('1');
+
+    // We should have 3 cells taken up, each narrow. Note that this is
+    // **incorrect** grapheme break behavior, since a Prepend code point should
+    // not break with the one following it per UAX #29 GB9b. However, as an
+    // optimization we assume a grapheme break when c <= 255, and note that
+    // this deviation only affects these very uncommon scenarios (e.g. the
+    // Arabic number sign should precede Arabic-script digits).
+    try testing.expectEqual(@as(usize, 0), t.screens.active.cursor.y);
+    try testing.expectEqual(@as(usize, 3), t.screens.active.cursor.x);
+    // This is what we'd expect if we did break correctly:
+    //try testing.expectEqual(@as(usize, 2), t.screens.active.cursor.x);
+
+    // Assert various properties about our screen to verify
+    // we have all expected cells.
+    {
+        const list_cell = t.screens.active.pages.getCell(.{ .screen = .{ .x = 1, .y = 0 } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(@as(u21, 0x0600), cell.content.codepoint);
+        try testing.expect(!cell.hasGrapheme());
+        // This is what we'd expect if we did break correctly:
+        //try testing.expect(cell.hasGrapheme());
+        //try testing.expectEqualSlices(u21, &.{'1'}, list_cell.node.data.lookupGrapheme(cell).?);
+        try testing.expectEqual(Cell.Wide.narrow, cell.wide);
+    }
+    {
+        const list_cell = t.screens.active.pages.getCell(.{ .screen = .{ .x = 2, .y = 0 } }).?;
+        const cell = list_cell.cell;
+        try testing.expectEqual(@as(u21, '1'), cell.content.codepoint);
+        // This is what we'd expect if we did break correctly:
+        //try testing.expectEqual(@as(u21, 0), cell.content.codepoint);
+        try testing.expect(!cell.hasGrapheme());
+        try testing.expectEqual(Cell.Wide.narrow, cell.wide);
+    }
+}
+
 test "Terminal: print writes to bottom if scrolled" {
     var t = try init(testing.allocator, .{ .cols = 5, .rows = 2 });
     defer t.deinit(testing.allocator);
@@ -4688,17 +4736,17 @@ test "Terminal: horizontal tabs" {
 
     // HT
     try t.print('1');
-    try t.horizontalTab();
+    t.horizontalTab();
     try testing.expectEqual(@as(usize, 8), t.screens.active.cursor.x);
 
     // HT
-    try t.horizontalTab();
+    t.horizontalTab();
     try testing.expectEqual(@as(usize, 16), t.screens.active.cursor.x);
 
     // HT at the end
-    try t.horizontalTab();
+    t.horizontalTab();
     try testing.expectEqual(@as(usize, 19), t.screens.active.cursor.x);
-    try t.horizontalTab();
+    t.horizontalTab();
     try testing.expectEqual(@as(usize, 19), t.screens.active.cursor.x);
 }
 
@@ -4710,7 +4758,7 @@ test "Terminal: horizontal tabs starting on tabstop" {
     t.setCursorPos(t.screens.active.cursor.y, 9);
     try t.print('X');
     t.setCursorPos(t.screens.active.cursor.y, 9);
-    try t.horizontalTab();
+    t.horizontalTab();
     try t.print('A');
 
     {
@@ -4729,7 +4777,7 @@ test "Terminal: horizontal tabs with right margin" {
     t.scrolling_region.right = 5;
     t.setCursorPos(t.screens.active.cursor.y, 1);
     try t.print('X');
-    try t.horizontalTab();
+    t.horizontalTab();
     try t.print('A');
 
     {
@@ -4748,17 +4796,17 @@ test "Terminal: horizontal tabs back" {
     t.setCursorPos(t.screens.active.cursor.y, 20);
 
     // HT
-    try t.horizontalTabBack();
+    t.horizontalTabBack();
     try testing.expectEqual(@as(usize, 16), t.screens.active.cursor.x);
 
     // HT
-    try t.horizontalTabBack();
+    t.horizontalTabBack();
     try testing.expectEqual(@as(usize, 8), t.screens.active.cursor.x);
 
     // HT
-    try t.horizontalTabBack();
+    t.horizontalTabBack();
     try testing.expectEqual(@as(usize, 0), t.screens.active.cursor.x);
-    try t.horizontalTabBack();
+    t.horizontalTabBack();
     try testing.expectEqual(@as(usize, 0), t.screens.active.cursor.x);
 }
 
@@ -4770,7 +4818,7 @@ test "Terminal: horizontal tabs back starting on tabstop" {
     t.setCursorPos(t.screens.active.cursor.y, 9);
     try t.print('X');
     t.setCursorPos(t.screens.active.cursor.y, 9);
-    try t.horizontalTabBack();
+    t.horizontalTabBack();
     try t.print('A');
 
     {
@@ -4790,7 +4838,7 @@ test "Terminal: horizontal tabs with left margin in origin mode" {
     t.scrolling_region.right = 5;
     t.setCursorPos(1, 2);
     try t.print('X');
-    try t.horizontalTabBack();
+    t.horizontalTabBack();
     try t.print('A');
 
     {
@@ -4810,7 +4858,7 @@ test "Terminal: horizontal tab back with cursor before left margin" {
     t.modes.set(.enable_left_and_right_margin, true);
     t.setLeftAndRightMargin(5, 0);
     t.restoreCursor();
-    try t.horizontalTabBack();
+    t.horizontalTabBack();
     try t.print('X');
 
     {
@@ -10545,11 +10593,11 @@ test "Terminal: tabClear single" {
     var t = try init(alloc, .{ .cols = 30, .rows = 5 });
     defer t.deinit(alloc);
 
-    try t.horizontalTab();
+    t.horizontalTab();
     t.tabClear(.current);
     try testing.expect(!t.isDirty(.{ .active = .{ .x = 0, .y = 0 } }));
     t.setCursorPos(1, 1);
-    try t.horizontalTab();
+    t.horizontalTab();
     try testing.expectEqual(@as(usize, 16), t.screens.active.cursor.x);
 }
 
@@ -10561,7 +10609,7 @@ test "Terminal: tabClear all" {
     t.tabClear(.all);
     try testing.expect(!t.isDirty(.{ .active = .{ .x = 0, .y = 0 } }));
     t.setCursorPos(1, 1);
-    try t.horizontalTab();
+    t.horizontalTab();
     try testing.expectEqual(@as(usize, 29), t.screens.active.cursor.x);
 }
 

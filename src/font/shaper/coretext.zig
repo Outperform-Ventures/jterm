@@ -98,7 +98,7 @@ pub const Shaper = struct {
             self.unichars.deinit(alloc);
         }
 
-        fn reset(self: *RunState) !void {
+        fn reset(self: *RunState) void {
             self.codepoints.clearRetainingCapacity();
             self.unichars.clearRetainingCapacity();
         }
@@ -644,8 +644,8 @@ pub const Shaper = struct {
     pub const RunIteratorHook = struct {
         shaper: *Shaper,
 
-        pub fn prepare(self: *RunIteratorHook) !void {
-            try self.shaper.run_state.reset();
+        pub fn prepare(self: *RunIteratorHook) void {
+            self.shaper.run_state.reset();
             // log.warn("----------- run reset -------------", .{});
         }
 
@@ -681,7 +681,7 @@ pub const Shaper = struct {
             });
         }
 
-        pub fn finalize(self: RunIteratorHook) !void {
+        pub fn finalize(self: RunIteratorHook) void {
             _ = self;
         }
     };

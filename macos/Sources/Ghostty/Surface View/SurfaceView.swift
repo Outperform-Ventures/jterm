@@ -190,7 +190,12 @@ extension Ghostty {
                     SurfaceSearchOverlay(
                         surfaceView: surfaceView,
                         searchState: searchState,
-                        onClose: { surfaceView.searchState = nil }
+                        onClose: {
+#if canImport(AppKit)
+                            Ghostty.moveFocus(to: surfaceView)
+#endif
+                            surfaceView.searchState = nil
+                        }
                     )
                 }
 
@@ -431,7 +436,11 @@ extension Ghostty {
                     }
 #if canImport(AppKit)
                     .onExitCommand {
-                        Ghostty.moveFocus(to: surfaceView)
+                        if searchState.needle.isEmpty {
+                            onClose()
+                        } else {
+                            Ghostty.moveFocus(to: surfaceView)
+                        }
                     }
 #endif
                     .backport.onKeyPress(.return) { modifiers in
