@@ -2003,6 +2003,9 @@ pub fn Stream(comptime Handler: type) type {
             // ref: https://github.com/qwerasd205/asciinema-stats
 
             switch (cmd) {
+                // TODO
+                .semantic_prompt => {},
+
                 .change_window_title => |title| {
                     @branchHint(.likely);
                     if (!std.unicode.utf8ValidateSlice(title)) {

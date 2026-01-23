@@ -13,19 +13,8 @@ pub const osc9 = @import("parsers/osc9.zig");
 pub const report_pwd = @import("parsers/report_pwd.zig");
 pub const rxvt_extension = @import("parsers/rxvt_extension.zig");
 pub const semantic_prompt = @import("parsers/semantic_prompt.zig");
+pub const semantic_prompt2 = @import("parsers/semantic_prompt2.zig");
 
 test {
-    _ = change_window_icon;
-    _ = change_window_title;
-    _ = clipboard_operation;
-    _ = color;
-    _ = hyperlink;
-    _ = iterm2;
-    _ = kitty_color;
-    _ = kitty_text_sizing;
-    _ = mouse_shape;
-    _ = osc9;
-    _ = report_pwd;
-    _ = rxvt_extension;
-    _ = semantic_prompt;
+    std.testing.refAllDecls(@This());
 }

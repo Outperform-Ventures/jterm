@@ -41,6 +41,9 @@ pub const Command = union(Key) {
     /// in the log.
     change_window_icon: [:0]const u8,
 
+    /// Semantic prompt command: https://gitlab.freedesktop.org/Per_Bothner/specifications/blob/master/proposals/semantic-prompts.md
+    semantic_prompt: parsers.semantic_prompt2.Command,
+
     /// First do a fresh-line. Then start a new command, and enter prompt mode:
     /// Subsequent text (until a OSC "133;B" or OSC "133;I" command) is a
     /// prompt string (as if followed by OSC 133;P;k=i\007). Note: I've noticed
@@ -225,6 +228,7 @@ pub const Command = union(Key) {
             "invalid",
             "change_window_title",
             "change_window_icon",
+            "semantic_prompt",
             "prompt_start",
             "prompt_end",
             "end_of_input",
@@ -469,6 +473,7 @@ pub const Parser = struct {
             .prompt_end,
             .prompt_start,
             .report_pwd,
+            .semantic_prompt,
             .show_desktop_notification,
             .kitty_text_sizing,
             => {},
@@ -751,7 +756,7 @@ pub const Parser = struct {
 
             .@"77" => null,
 
-            .@"133" => parsers.semantic_prompt.parse(self, terminator_ch),
+            .@"133" => parsers.semantic_prompt2.parse(self, terminator_ch),
 
             .@"777" => parsers.rxvt_extension.parse(self, terminator_ch),
 

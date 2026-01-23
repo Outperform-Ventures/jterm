@@ -1,7 +1,6 @@
+//! https://gitlab.freedesktop.org/Per_Bothner/specifications/blob/master/proposals/semantic-prompts.md
 const std = @import("std");
-
 const string_encoding = @import("../../../os/string_encoding.zig");
-
 const Parser = @import("../../osc.zig").Parser;
 const Command = @import("../../osc.zig").Command;
 
