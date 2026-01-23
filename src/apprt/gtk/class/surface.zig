@@ -400,6 +400,25 @@ pub const Surface = extern struct {
                 },
             );
         };
+
+        pub const readonly = struct {
+            pub const name = "readonly";
+            const impl = gobject.ext.defineProperty(
+                name,
+                Self,
+                bool,
+                .{
+                    .default = false,
+                    .accessor = gobject.ext.typedAccessor(
+                        Self,
+                        bool,
+                        .{
+                            .getter = getReadonly,
+                        },
+                    ),
+                },
+            );
+        };
     };
 
     pub const signals = struct {
@@ -1102,6 +1121,20 @@ pub const Surface = extern struct {
 
             self.sendDesktopNotification(title, body);
         }
+
+        return true;
+    }
+
+    /// Get the readonly state from the core surface.
+    pub fn getReadonly(self: *Self) bool {
+        const priv: *Private = self.private();
+        const surface = priv.core_surface orelse return false;
+        return surface.readonly;
+    }
+
+    /// Notify anyone interested that the readonly status has changed.
+    pub fn setReadonly(self: *Self, _: apprt.Action.Value(.readonly)) bool {
+        self.as(gobject.Object).notifyByPspec(properties.readonly.impl.param_spec);
 
         return true;
     }
@@ -3480,6 +3513,7 @@ pub const Surface = extern struct {
                 properties.@"title-override".impl,
                 properties.zoom.impl,
                 properties.@"is-split".impl,
+                properties.readonly.impl,
 
                 // For Gtk.Scrollable
                 properties.hadjustment.impl,
