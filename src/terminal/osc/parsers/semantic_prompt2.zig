@@ -37,6 +37,13 @@ pub const Options = struct {
     prompt_kind: ?PromptKind,
     err: ?[:0]const u8,
 
+    // https://sw.kovidgoyal.net/kitty/shell-integration/#notes-for-shell-developers
+    // Kitty supports a "redraw" option for prompt_start. I can't find
+    // this documented anywhere but can see in the code that this is used
+    // by shell environments to tell the terminal that the shell will NOT
+    // redraw the prompt so we should attempt to resize it.
+    redraw: bool,
+
     // Not technically an option that can be set with k=v and only
     // present currently with command 'D' but its easier to just
     // parse it into our options.
@@ -48,6 +55,7 @@ pub const Options = struct {
         .prompt_kind = null,
         .exit_code = null,
         .err = null,
+        .redraw = false,
     };
 
     pub fn parse(self: *Options, it: *KVIterator) void {
@@ -64,6 +72,14 @@ pub const Options = struct {
                 self.prompt_kind = .init(value[0]);
             } else if (std.mem.eql(u8, key, "err")) {
                 self.err = kv.value;
+            } else if (std.mem.eql(u8, key, "redraw")) redraw: {
+                const value = kv.value orelse break :redraw;
+                if (value.len != 1) break :redraw;
+                self.redraw = switch (value[0]) {
+                    '0' => false,
+                    '1' => true,
+                    else => break :redraw,
+                };
             } else {
                 log.info("OSC 133: unknown semantic prompt option: {s}", .{key});
             }
@@ -471,6 +487,62 @@ test "OSC 133: fresh_line_new_prompt with multiple options" {
     try testing.expect(cmd.semantic_prompt.action == .fresh_line_new_prompt);
     try testing.expectEqualStrings("foo", cmd.semantic_prompt.options.aid.?);
     try testing.expect(cmd.semantic_prompt.options.cl == .line);
+}
+
+test "OSC 133: fresh_line_new_prompt default redraw" {
+    const testing = std.testing;
+
+    var p: Parser = .init(null);
+
+    const input = "133;A";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end(null).?.*;
+    try testing.expect(cmd == .semantic_prompt);
+    try testing.expect(cmd.semantic_prompt.action == .fresh_line_new_prompt);
+    try testing.expect(cmd.semantic_prompt.options.redraw == true);
+}
+
+test "OSC 133: fresh_line_new_prompt with redraw=0" {
+    const testing = std.testing;
+
+    var p: Parser = .init(null);
+
+    const input = "133;A;redraw=0";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end(null).?.*;
+    try testing.expect(cmd == .semantic_prompt);
+    try testing.expect(cmd.semantic_prompt.action == .fresh_line_new_prompt);
+    try testing.expect(cmd.semantic_prompt.options.redraw == false);
+}
+
+test "OSC 133: fresh_line_new_prompt with redraw=1" {
+    const testing = std.testing;
+
+    var p: Parser = .init(null);
+
+    const input = "133;A;redraw=1";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end(null).?.*;
+    try testing.expect(cmd == .semantic_prompt);
+    try testing.expect(cmd.semantic_prompt.action == .fresh_line_new_prompt);
+    try testing.expect(cmd.semantic_prompt.options.redraw == true);
+}
+
+test "OSC 133: fresh_line_new_prompt with invalid redraw" {
+    const testing = std.testing;
+
+    var p: Parser = .init(null);
+
+    const input = "133;A;redraw=x";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end(null).?.*;
+    try testing.expect(cmd == .semantic_prompt);
+    try testing.expect(cmd.semantic_prompt.action == .fresh_line_new_prompt);
+    try testing.expect(cmd.semantic_prompt.options.redraw == true);
 }
 
 test "OSC 133: prompt_start" {
