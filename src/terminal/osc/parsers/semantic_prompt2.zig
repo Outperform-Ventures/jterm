@@ -17,8 +17,22 @@ pub const Options = struct {
 
     pub const init: Options = .{
         .aid = null,
-        .click = null,
+        .cl = null,
     };
+
+    pub fn parse(self: *Options, it: *KVIterator) void {
+        while (it.next()) |kv| {
+            const key = kv.key orelse continue;
+            if (std.mem.eql(u8, key, "aid")) {
+                self.aid = kv.value;
+            } else if (std.mem.eql(u8, key, "cl")) cl: {
+                const value = kv.value orelse break :cl;
+                self.cl = std.meta.stringToEnum(Click, value);
+            } else {
+                log.info("OSC 133: unknown semantic prompt option: {s}", .{key});
+            }
+        }
+    }
 };
 
 pub const Click = enum {
@@ -40,23 +54,108 @@ pub fn parse(parser: *Parser, _: ?u8) ?*OSCCommand {
         return null;
     }
 
-    parser.command = command: {
-        parse: switch (data[0]) {
-            'L' => {
-                if (data.len > 1) break :parse;
-                break :command .{ .semantic_prompt = .fresh_line };
+    // All valid cases terminate within this block. Any fallthroughs
+    // are invalid. This makes some of our parse logic a little less
+    // repetitive.
+    valid: {
+        switch (data[0]) {
+            'A' => fresh_line: {
+                parser.command = .{ .semantic_prompt = .{ .fresh_line_new_prompt = .init } };
+                if (data.len == 1) break :fresh_line;
+                if (data[1] != ';') break :valid;
+                var it = KVIterator.init(writer) catch break :valid;
+                parser.command.semantic_prompt.fresh_line_new_prompt.parse(&it);
             },
 
-            else => {},
+            'L' => {
+                if (data.len > 1) break :valid;
+                parser.command = .{ .semantic_prompt = .fresh_line };
+            },
+
+            else => break :valid,
         }
 
-        // Any fallthroughs are invalid
-        parser.state = .invalid;
-        return null;
+        return &parser.command;
+    }
+    // Any fallthroughs are invalid
+    parser.state = .invalid;
+    return null;
+}
+
+const KVIterator = struct {
+    index: usize,
+    string: []u8,
+
+    pub const KV = struct {
+        key: ?[:0]u8,
+        value: ?[:0]u8,
+
+        pub const empty: KV = .{
+            .key = null,
+            .value = null,
+        };
     };
 
-    return &parser.command;
-}
+    pub fn init(writer: *std.Io.Writer) std.Io.Writer.Error!KVIterator {
+        // Add a semicolon to make it easier to find and sentinel terminate
+        // the values.
+        try writer.writeByte(';');
+        return .{
+            .index = 0,
+            .string = writer.buffered()[2..],
+        };
+    }
+
+    pub fn next(self: *KVIterator) ?KV {
+        if (self.index >= self.string.len) return null;
+
+        const kv = kv: {
+            const index = std.mem.indexOfScalarPos(
+                u8,
+                self.string,
+                self.index,
+                ';',
+            ) orelse {
+                self.index = self.string.len;
+                return null;
+            };
+            self.string[index] = 0;
+            const kv = self.string[self.index..index :0];
+            self.index = index + 1;
+            break :kv kv;
+        };
+
+        // If we have an empty item, we return a null key and value.
+        //
+        // This allows for trailing semicolons, but also lets us parse
+        // (or rather, ignore) empty fields; for example `a=b;;e=f`.
+        if (kv.len < 1) return .empty;
+
+        const key = key: {
+            const index = std.mem.indexOfScalar(
+                u8,
+                kv,
+                '=',
+            ) orelse {
+                // If there is no '=' return entire `kv` string as the key and
+                // a null value.
+                return .{
+                    .key = kv,
+                    .value = null,
+                };
+            };
+
+            kv[index] = 0;
+            break :key kv[0..index :0];
+        };
+        const value = kv[key.len + 1 .. :0];
+
+        return .{
+            .key = key,
+            .value = value,
+        };
+    }
+};
 
 test "OSC 133: fresh_line" {
     const testing = std.testing;
@@ -89,4 +188,132 @@ test "OSC 133: fresh_line extra contents" {
         for (input) |ch| p.next(ch);
         try testing.expect(p.end(null) == null);
     }
+}
+
+test "OSC 133: fresh_line_new_prompt" {
+    const testing = std.testing;
+
+    var p: Parser = .init(null);
+
+    const input = "133;A";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end(null).?.*;
+    try testing.expect(cmd == .semantic_prompt);
+    try testing.expect(cmd.semantic_prompt == .fresh_line_new_prompt);
+    try testing.expect(cmd.semantic_prompt.fresh_line_new_prompt.aid == null);
+    try testing.expect(cmd.semantic_prompt.fresh_line_new_prompt.cl == null);
+}
+
+test "OSC 133: fresh_line_new_prompt with aid" {
+    const testing = std.testing;
+
+    var p: Parser = .init(null);
+
+    const input = "133;A;aid=14";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end(null).?.*;
+    try testing.expect(cmd == .semantic_prompt);
+    try testing.expect(cmd.semantic_prompt == .fresh_line_new_prompt);
+    try testing.expectEqualStrings("14", cmd.semantic_prompt.fresh_line_new_prompt.aid.?);
+}
+
+test "OSC 133: fresh_line_new_prompt with '=' in aid" {
+    const testing = std.testing;
+
+    var p: Parser = .init(null);
+
+    const input = "133;A;aid=a=b";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end(null).?.*;
+    try testing.expect(cmd == .semantic_prompt);
+    try testing.expect(cmd.semantic_prompt == .fresh_line_new_prompt);
+    try testing.expectEqualStrings("a=b", cmd.semantic_prompt.fresh_line_new_prompt.aid.?);
+}
+
+test "OSC 133: fresh_line_new_prompt with cl=line" {
+    const testing = std.testing;
+
+    var p: Parser = .init(null);
+
+    const input = "133;A;cl=line";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end(null).?.*;
+    try testing.expect(cmd == .semantic_prompt);
+    try testing.expect(cmd.semantic_prompt == .fresh_line_new_prompt);
+    try testing.expect(cmd.semantic_prompt.fresh_line_new_prompt.cl == .line);
+}
+
+test "OSC 133: fresh_line_new_prompt with cl=multiple" {
+    const testing = std.testing;
+
+    var p: Parser = .init(null);
+
+    const input = "133;A;cl=multiple";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end(null).?.*;
+    try testing.expect(cmd == .semantic_prompt);
+    try testing.expect(cmd.semantic_prompt == .fresh_line_new_prompt);
+    try testing.expect(cmd.semantic_prompt.fresh_line_new_prompt.cl == .multiple);
+}
+
+test "OSC 133: fresh_line_new_prompt with invalid cl" {
+    const testing = std.testing;
+
+    var p: Parser = .init(null);
+
+    const input = "133;A;cl=invalid";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end(null).?.*;
+    try testing.expect(cmd == .semantic_prompt);
+    try testing.expect(cmd.semantic_prompt == .fresh_line_new_prompt);
+    try testing.expect(cmd.semantic_prompt.fresh_line_new_prompt.cl == null);
+}
+
+test "OSC 133: fresh_line_new_prompt with trailing ;" {
+    const testing = std.testing;
+
+    var p: Parser = .init(null);
+
+    const input = "133;A;";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end(null).?.*;
+    try testing.expect(cmd == .semantic_prompt);
+    try testing.expect(cmd.semantic_prompt == .fresh_line_new_prompt);
+}
+
+test "OSC 133: fresh_line_new_prompt with bare key" {
+    const testing = std.testing;
+
+    var p: Parser = .init(null);
+
+    const input = "133;A;barekey";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end(null).?.*;
+    try testing.expect(cmd == .semantic_prompt);
+    try testing.expect(cmd.semantic_prompt == .fresh_line_new_prompt);
+    try testing.expect(cmd.semantic_prompt.fresh_line_new_prompt.aid == null);
+    try testing.expect(cmd.semantic_prompt.fresh_line_new_prompt.cl == null);
+}
+
+test "OSC 133: fresh_line_new_prompt with multiple options" {
+    const testing = std.testing;
+
+    var p: Parser = .init(null);
+
+    const input = "133;A;aid=foo;cl=line";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end(null).?.*;
+    try testing.expect(cmd == .semantic_prompt);
+    try testing.expect(cmd.semantic_prompt == .fresh_line_new_prompt);
+    try testing.expectEqualStrings("foo", cmd.semantic_prompt.fresh_line_new_prompt.aid.?);
+    try testing.expect(cmd.semantic_prompt.fresh_line_new_prompt.cl == .line);
 }
