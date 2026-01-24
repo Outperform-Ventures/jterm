@@ -41,74 +41,8 @@ pub const Command = union(Key) {
     /// in the log.
     change_window_icon: [:0]const u8,
 
-    /// First do a fresh-line. Then start a new command, and enter prompt mode:
-    /// Subsequent text (until a OSC "133;B" or OSC "133;I" command) is a
-    /// prompt string (as if followed by OSC 133;P;k=i\007). Note: I've noticed
-    /// not all shells will send the prompt end code.
-    prompt_start: struct {
-        /// "aid" is an optional "application identifier" that helps disambiguate
-        /// nested shell sessions. It can be anything but is usually a process ID.
-        aid: ?[:0]const u8 = null,
-        /// "kind" tells us which kind of semantic prompt sequence this is:
-        /// - primary: normal, left-aligned first-line prompt (initial, default)
-        /// - continuation: an editable continuation line
-        /// - secondary: a non-editable continuation line
-        /// - right: a right-aligned prompt that may need adjustment during reflow
-        kind: enum { primary, continuation, secondary, right } = .primary,
-        /// If true, the shell will not redraw the prompt on resize so don't erase it.
-        /// See: https://sw.kovidgoyal.net/kitty/shell-integration/#notes-for-shell-developers
-        redraw: bool = true,
-        /// Use a special key instead of arrow keys to move the cursor on
-        /// mouse click. Useful if arrow keys have side-effets like triggering
-        /// auto-complete. The shell integration script should bind the special
-        /// key as needed.
-        /// See: https://sw.kovidgoyal.net/kitty/shell-integration/#notes-for-shell-developers
-        special_key: bool = false,
-        /// If true, the shell is capable of handling mouse click events.
-        /// Ghostty will then send a click event to the shell when the user
-        /// clicks somewhere in the prompt. The shell can then move the cursor
-        /// to that position or perform some other appropriate action. If false,
-        /// Ghostty may generate a number of fake key events to move the cursor
-        /// which is not very robust.
-        /// See: https://sw.kovidgoyal.net/kitty/shell-integration/#notes-for-shell-developers
-        click_events: bool = false,
-    },
-
-    /// End of prompt and start of user input, terminated by a OSC "133;C"
-    /// or another prompt (OSC "133;P").
-    prompt_end: void,
-
-    /// The OSC "133;C" command can be used to explicitly end
-    /// the input area and begin the output area.  However, some applications
-    /// don't provide a convenient way to emit that command.
-    /// That is why we also specify an implicit way to end the input area
-    /// at the end of the line. In the case of  multiple input lines: If the
-    /// cursor is on a fresh (empty) line and we see either OSC "133;P" or
-    /// OSC "133;I" then this is the start of a continuation input line.
-    /// If we see anything else, it is the start of the output area (or end
-    /// of command).
-    end_of_input: struct {
-        /// The command line that the user entered.
-        /// See: https://sw.kovidgoyal.net/kitty/shell-integration/#notes-for-shell-developers
-        cmdline: ?[:0]const u8 = null,
-    },
-
-    /// End of current command.
-    ///
-    /// The exit-code need not be specified if there are no options,
-    /// or if the command was cancelled (no OSC "133;C"), such as by typing
-    /// an interrupt/cancel character (typically ctrl-C) during line-editing.
-    /// Otherwise, it must be an integer code, where 0 means the command
-    /// succeeded, and other values indicate failure. In additing to the
-    /// exit-code there may be an err= option, which non-legacy terminals
-    /// should give precedence to. The err=_value_ option is more general:
-    /// an empty string is success, and any non-empty value (which need not
-    /// be an integer) is an error code. So to indicate success both ways you
-    /// could send OSC "133;D;0;err=\007", though `OSC "133;D;0\007" is shorter.
-    end_of_command: struct {
-        exit_code: ?u8 = null,
-        // TODO: err option
-    },
+    /// Semantic prompt command: https://gitlab.freedesktop.org/Per_Bothner/specifications/blob/master/proposals/semantic-prompts.md
+    semantic_prompt: SemanticPrompt,
 
     /// Set or get clipboard contents. If data is null, then the current
     /// clipboard contents are sent to the pty. If data is set, this
@@ -218,6 +152,8 @@ pub const Command = union(Key) {
     /// Kitty text sizing protocol (OSC 66)
     kitty_text_sizing: parsers.kitty_text_sizing.OSC,
 
+    pub const SemanticPrompt = parsers.semantic_prompt.Command;
+
     pub const Key = LibEnum(
         if (build_options.c_abi) .c else .zig,
         // NOTE: Order matters, see LibEnum documentation.
@@ -225,10 +161,7 @@ pub const Command = union(Key) {
             "invalid",
             "change_window_title",
             "change_window_icon",
-            "prompt_start",
-            "prompt_end",
-            "end_of_input",
-            "end_of_command",
+            "semantic_prompt",
             "clipboard_contents",
             "report_pwd",
             "mouse_shape",
@@ -460,15 +393,12 @@ pub const Parser = struct {
             .conemu_sleep,
             .conemu_wait_input,
             .conemu_xterm_emulation,
-            .end_of_command,
-            .end_of_input,
             .hyperlink_end,
             .hyperlink_start,
             .invalid,
             .mouse_shape,
-            .prompt_end,
-            .prompt_start,
             .report_pwd,
+            .semantic_prompt,
             .show_desktop_notification,
             .kitty_text_sizing,
             => {},

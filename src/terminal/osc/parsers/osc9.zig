@@ -98,9 +98,7 @@ pub fn parse(parser: *Parser, _: ?u8) ?*Command {
                     },
                     // OSC 9;12 mark prompt start
                     '2' => {
-                        parser.command = .{
-                            .prompt_start = .{},
-                        };
+                        parser.command = .{ .semantic_prompt = .init(.fresh_line_new_prompt) };
                         return &parser.command;
                     },
                     else => break :conemu,
@@ -1125,7 +1123,7 @@ test "OSC: 9;12: ConEmu mark prompt start 1" {
     for (input) |ch| p.next(ch);
 
     const cmd = p.end('\x1b').?.*;
-    try testing.expect(cmd == .prompt_start);
+    try testing.expect(cmd == .semantic_prompt);
 }
 
 test "OSC: 9;12: ConEmu mark prompt start 2" {
@@ -1138,5 +1136,5 @@ test "OSC: 9;12: ConEmu mark prompt start 2" {
     for (input) |ch| p.next(ch);
 
     const cmd = p.end('\x1b').?.*;
-    try testing.expect(cmd == .prompt_start);
+    try testing.expect(cmd == .semantic_prompt);
 }
