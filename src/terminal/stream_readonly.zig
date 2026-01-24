@@ -215,11 +215,13 @@ pub const Handler = struct {
     ) void {
         switch (cmd.action) {
             .fresh_line_new_prompt => {
-                const kind = cmd.options.prompt_kind orelse .initial;
+                const kind = cmd.readOption(.prompt_kind) orelse .initial;
                 switch (kind) {
                     .initial, .right => {
                         self.terminal.screens.active.cursor.page_row.semantic_prompt = .prompt;
-                        self.terminal.flags.shell_redraws_prompt = cmd.options.redraw;
+                        if (cmd.readOption(.redraw)) |redraw| {
+                            self.terminal.flags.shell_redraws_prompt = redraw;
+                        }
                     },
                     .continuation, .secondary => {
                         self.terminal.screens.active.cursor.page_row.semantic_prompt = .prompt_continuation;

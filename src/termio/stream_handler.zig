@@ -1072,11 +1072,13 @@ pub const StreamHandler = struct {
     ) void {
         switch (cmd.action) {
             .fresh_line_new_prompt => {
-                const kind = cmd.options.prompt_kind orelse .initial;
+                const kind = cmd.readOption(.prompt_kind) orelse .initial;
                 switch (kind) {
                     .initial, .right => {
                         self.terminal.markSemanticPrompt(.prompt);
-                        self.terminal.flags.shell_redraws_prompt = cmd.options.redraw;
+                        if (cmd.readOption(.redraw)) |redraw| {
+                            self.terminal.flags.shell_redraws_prompt = redraw;
+                        }
                     },
                     .continuation, .secondary => {
                         self.terminal.markSemanticPrompt(.prompt_continuation);
@@ -1094,7 +1096,7 @@ pub const StreamHandler = struct {
                 // other terminals accept 32-bits, but exit codes are really
                 // bytes, so we just do our best here.
                 const code: u8 = code: {
-                    const raw: i32 = cmd.options.exit_code orelse 0;
+                    const raw: i32 = cmd.readOption(.exit_code) orelse 0;
                     break :code std.math.cast(u8, raw) orelse 1;
                 };
 
