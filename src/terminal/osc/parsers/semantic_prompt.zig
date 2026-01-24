@@ -13,7 +13,7 @@ const log = std.log.scoped(.osc_semantic_prompt);
 /// options. So, I think this is a fair interpretation.
 pub const Command = struct {
     action: Action,
-    options: Options,
+    options_unvalidated: []const u8,
 
     pub const Action = enum {
         fresh_line, // 'L'
@@ -27,29 +27,39 @@ pub const Command = struct {
     };
 
     pub fn init(action: Action) Command {
-        return .{ .action = action, .options = .init };
+        return .{
+            .action = action,
+            .options_unvalidated = "",
+        };
+    }
+
+    /// Read an option for this command. Returns null if unset or invalid.
+    pub fn readOption(
+        self: Command,
+        comptime option: Option,
+    ) ?option.Type() {
+        return option.read(self.options_unvalidated);
     }
 };
 
-pub const Options = struct {
-    aid: ?[:0]const u8,
-    cl: ?Click,
-    prompt_kind: ?PromptKind,
-    err: ?[:0]const u8,
-
+pub const Option = enum {
+    aid,
+    cl,
+    prompt_kind,
+    err,
     // https://sw.kovidgoyal.net/kitty/shell-integration/#notes-for-shell-developers
     // Kitty supports a "redraw" option for prompt_start. I can't find
     // this documented anywhere but can see in the code that this is used
     // by shell environments to tell the terminal that the shell will NOT
     // redraw the prompt so we should attempt to resize it.
-    redraw: bool,
+    redraw,
 
     // Use a special key instead of arrow keys to move the cursor on
     // mouse click. Useful if arrow keys have side-effets like triggering
     // auto-complete. The shell integration script should bind the special
     // key as needed.
     // See: https://sw.kovidgoyal.net/kitty/shell-integration/#notes-for-shell-developers
-    special_key: bool,
+    special_key,
 
     // If true, the shell is capable of handling mouse click events.
     // Ghostty will then send a click event to the shell when the user
@@ -58,66 +68,119 @@ pub const Options = struct {
     // Ghostty may generate a number of fake key events to move the cursor
     // which is not very robust.
     // See: https://sw.kovidgoyal.net/kitty/shell-integration/#notes-for-shell-developers
-    click_events: bool,
+    click_events,
 
     // Not technically an option that can be set with k=v and only
     // present currently with command 'D' but its easier to just
     // parse it into our options.
-    exit_code: ?i32,
+    exit_code,
 
-    pub const init: Options = .{
-        .aid = null,
-        .cl = null,
-        .prompt_kind = null,
-        .exit_code = null,
-        .err = null,
-        .redraw = false,
-        .special_key = false,
-        .click_events = false,
-    };
+    pub fn Type(comptime self: Option) type {
+        return switch (self) {
+            .aid => []const u8,
+            .cl => Click,
+            .prompt_kind => PromptKind,
+            .err => []const u8,
+            .redraw => bool,
+            .special_key => bool,
+            .click_events => bool,
+            .exit_code => i32,
+        };
+    }
 
-    pub fn parse(self: *Options, it: *KVIterator) void {
-        while (it.next()) |kv| {
-            const key = kv.key orelse continue;
-            if (std.mem.eql(u8, key, "aid")) {
-                self.aid = kv.value;
-            } else if (std.mem.eql(u8, key, "cl")) {
-                const value = kv.value orelse continue;
-                self.cl = std.meta.stringToEnum(Click, value);
-            } else if (std.mem.eql(u8, key, "k")) {
-                const value = kv.value orelse continue;
-                if (value.len != 1) continue;
-                self.prompt_kind = .init(value[0]);
-            } else if (std.mem.eql(u8, key, "err")) {
-                self.err = kv.value;
-            } else if (std.mem.eql(u8, key, "redraw")) redraw: {
-                const value = kv.value orelse break :redraw;
-                if (value.len != 1) break :redraw;
-                self.redraw = switch (value[0]) {
-                    '0' => false,
-                    '1' => true,
-                    else => break :redraw,
-                };
-            } else if (std.mem.eql(u8, key, "special_key")) {
-                const value = kv.value orelse continue;
-                if (value.len != 1) continue;
-                self.special_key = switch (value[0]) {
-                    '0' => false,
-                    '1' => true,
-                    else => continue,
-                };
-            } else if (std.mem.eql(u8, key, "click_events")) {
-                const value = kv.value orelse continue;
-                if (value.len != 1) continue;
-                self.click_events = switch (value[0]) {
-                    '0' => false,
-                    '1' => true,
-                    else => continue,
-                };
-            } else {
-                log.info("OSC 133: unknown semantic prompt option: {s}", .{key});
+    fn key(comptime self: Option) []const u8 {
+        return switch (self) {
+            .aid => "aid",
+            .cl => "cl",
+            .prompt_kind => "k",
+            .err => "err",
+            .redraw => "redraw",
+            .special_key => "special_key",
+            .click_events => "click_events",
+
+            // special case, handled before ever calling key
+            .exit_code => unreachable,
+        };
+    }
+
+    /// Read the option value from the raw options string.
+    ///
+    /// The raw options string is the raw unparsed data after the
+    /// OSC 133 command. e.g. for `133;A;aid=14;cl=line`, the
+    /// raw options string would be `aid=14;cl=line`.
+    ///
+    /// Any errors in the raw string will return null since the OSC133
+    /// specification says to ignore unknown or malformed options.
+    pub fn read(
+        comptime self: Option,
+        raw: []const u8,
+    ) ?self.Type() {
+        var remaining = raw;
+        while (remaining.len > 0) {
+            // Length of the next value is up to the `;` or the
+            // end of the string.
+            const len = std.mem.indexOfScalar(
+                u8,
+                remaining,
+                ';',
+            ) orelse remaining.len;
+
+            // Grab our full value and move our cursor past the `;`
+            const full = remaining[0..len];
+
+            // If we're looking for exit_code we special case it.
+            // as the first value.
+            if (comptime self == .exit_code) {
+                return std.fmt.parseInt(
+                    i32,
+                    full,
+                    10,
+                ) catch null;
             }
+
+            // Parse our key=value and verify our key matches our
+            // expectation.
+            const value = value: {
+                if (std.mem.indexOfScalar(
+                    u8,
+                    full,
+                    '=',
+                )) |eql_idx| {
+                    if (std.mem.eql(
+                        u8,
+                        full[0..eql_idx],
+                        self.key(),
+                    )) {
+                        break :value full[eql_idx + 1 ..];
+                    }
+                }
+
+                // No match!
+                if (len < remaining.len) {
+                    remaining = remaining[len + 1 ..];
+                    continue;
+                }
+
+                break;
+            };
+
+            return switch (self) {
+                .aid => value,
+                .cl => std.meta.stringToEnum(Click, value),
+                .prompt_kind => if (value.len == 1) PromptKind.init(value[0]) else null,
+                .err => value,
+                .redraw, .special_key, .click_events => if (value.len == 1) switch (value[0]) {
+                    '0' => false,
+                    '1' => true,
+                    else => null,
+                } else null,
+                // Handled above
+                .exit_code => unreachable,
+            };
         }
+
+        // Not found
+        return null;
     }
 };
 
@@ -166,56 +229,35 @@ pub fn parse(parser: *Parser, _: ?u8) ?*OSCCommand {
                 parser.command = .{ .semantic_prompt = .init(.fresh_line_new_prompt) };
                 if (data.len == 1) break :fresh_line;
                 if (data[1] != ';') break :valid;
-                var it = KVIterator.init(writer) catch break :valid;
-                parser.command.semantic_prompt.options.parse(&it);
+                parser.command.semantic_prompt.options_unvalidated = data[2..];
             },
 
             'B' => end_prompt: {
                 parser.command = .{ .semantic_prompt = .init(.end_prompt_start_input) };
                 if (data.len == 1) break :end_prompt;
                 if (data[1] != ';') break :valid;
-                var it = KVIterator.init(writer) catch break :valid;
-                parser.command.semantic_prompt.options.parse(&it);
+                parser.command.semantic_prompt.options_unvalidated = data[2..];
             },
 
             'I' => end_prompt_line: {
                 parser.command = .{ .semantic_prompt = .init(.end_prompt_start_input_terminate_eol) };
                 if (data.len == 1) break :end_prompt_line;
                 if (data[1] != ';') break :valid;
-                var it = KVIterator.init(writer) catch break :valid;
-                parser.command.semantic_prompt.options.parse(&it);
+                parser.command.semantic_prompt.options_unvalidated = data[2..];
             },
 
             'C' => end_input: {
                 parser.command = .{ .semantic_prompt = .init(.end_input_start_output) };
                 if (data.len == 1) break :end_input;
                 if (data[1] != ';') break :valid;
-                var it = KVIterator.init(writer) catch break :valid;
-                parser.command.semantic_prompt.options.parse(&it);
+                parser.command.semantic_prompt.options_unvalidated = data[2..];
             },
 
             'D' => end_command: {
                 parser.command = .{ .semantic_prompt = .init(.end_command) };
                 if (data.len == 1) break :end_command;
                 if (data[1] != ';') break :valid;
-                var it = KVIterator.init(writer) catch break :valid;
-
-                // If there are options, the first option MUST be the
-                // exit code. The specification appears to mandate this
-                // and disallow options without an exit code.
-                {
-                    const first = it.next() orelse break :end_command;
-                    if (first.value != null) break :end_command;
-                    const key = first.key orelse break :end_command;
-                    parser.command.semantic_prompt.options.exit_code = std.fmt.parseInt(
-                        i32,
-                        key,
-                        10,
-                    ) catch null;
-                }
-
-                // Parse the remaining options
-                parser.command.semantic_prompt.options.parse(&it);
+                parser.command.semantic_prompt.options_unvalidated = data[2..];
             },
 
             'L' => {
@@ -227,16 +269,14 @@ pub fn parse(parser: *Parser, _: ?u8) ?*OSCCommand {
                 parser.command = .{ .semantic_prompt = .init(.new_command) };
                 if (data.len == 1) break :new_command;
                 if (data[1] != ';') break :valid;
-                var it = KVIterator.init(writer) catch break :valid;
-                parser.command.semantic_prompt.options.parse(&it);
+                parser.command.semantic_prompt.options_unvalidated = data[2..];
             },
 
             'P' => prompt_start: {
                 parser.command = .{ .semantic_prompt = .init(.prompt_start) };
                 if (data.len == 1) break :prompt_start;
                 if (data[1] != ';') break :valid;
-                var it = KVIterator.init(writer) catch break :valid;
-                parser.command.semantic_prompt.options.parse(&it);
+                parser.command.semantic_prompt.options_unvalidated = data[2..];
             },
 
             else => break :valid,
@@ -250,81 +290,6 @@ pub fn parse(parser: *Parser, _: ?u8) ?*OSCCommand {
     return null;
 }
 
-const KVIterator = struct {
-    index: usize,
-    string: []u8,
-
-    pub const KV = struct {
-        key: ?[:0]u8,
-        value: ?[:0]u8,
-
-        pub const empty: KV = .{
-            .key = null,
-            .value = null,
-        };
-    };
-
-    pub fn init(writer: *std.Io.Writer) std.Io.Writer.Error!KVIterator {
-        // Add a semicolon to make it easier to find and sentinel terminate
-        // the values.
-        try writer.writeByte(';');
-        return .{
-            .index = 0,
-            .string = writer.buffered()[2..],
-        };
-    }
-
-    pub fn next(self: *KVIterator) ?KV {
-        if (self.index >= self.string.len) return null;
-
-        const kv = kv: {
-            const index = std.mem.indexOfScalarPos(
-                u8,
-                self.string,
-                self.index,
-                ';',
-            ) orelse {
-                self.index = self.string.len;
-                return null;
-            };
-            self.string[index] = 0;
-            const kv = self.string[self.index..index :0];
-            self.index = index + 1;
-            break :kv kv;
-        };
-
-        // If we have an empty item, we return a null key and value.
-        //
-        // This allows for trailing semicolons, but also lets us parse
-        // (or rather, ignore) empty fields; for example `a=b;;e=f`.
-        if (kv.len < 1) return .empty;
-
-        const key = key: {
-            const index = std.mem.indexOfScalar(
-                u8,
-                kv,
-                '=',
-            ) orelse {
-                // If there is no '=' return entire `kv` string as the key and
-                // a null value.
-                return .{
-                    .key = kv,
-                    .value = null,
-                };
-            };
-
-            kv[index] = 0;
-            break :key kv[0..index :0];
-        };
-        const value = kv[key.len + 1 .. :0];
-
-        return .{
-            .key = key,
-            .value = value,
-        };
-    }
-};
-
 test "OSC 133: end_input_start_output" {
     const testing = std.testing;
 
@@ -336,8 +301,8 @@ test "OSC 133: end_input_start_output" {
     const cmd = p.end(null).?.*;
     try testing.expect(cmd == .semantic_prompt);
     try testing.expect(cmd.semantic_prompt.action == .end_input_start_output);
-    try testing.expect(cmd.semantic_prompt.options.aid == null);
-    try testing.expect(cmd.semantic_prompt.options.cl == null);
+    try testing.expect(cmd.semantic_prompt.readOption(.aid) == null);
+    try testing.expect(cmd.semantic_prompt.readOption(.cl) == null);
 }
 
 test "OSC 133: end_input_start_output extra contents" {
@@ -359,7 +324,7 @@ test "OSC 133: end_input_start_output with options" {
     const cmd = p.end(null).?.*;
     try testing.expect(cmd == .semantic_prompt);
     try testing.expect(cmd.semantic_prompt.action == .end_input_start_output);
-    try testing.expectEqualStrings("foo", cmd.semantic_prompt.options.aid.?);
+    try testing.expectEqualStrings("foo", cmd.semantic_prompt.readOption(.aid).?);
 }
 
 test "OSC 133: fresh_line" {
@@ -406,8 +371,8 @@ test "OSC 133: fresh_line_new_prompt" {
     const cmd = p.end(null).?.*;
     try testing.expect(cmd == .semantic_prompt);
     try testing.expect(cmd.semantic_prompt.action == .fresh_line_new_prompt);
-    try testing.expect(cmd.semantic_prompt.options.aid == null);
-    try testing.expect(cmd.semantic_prompt.options.cl == null);
+    try testing.expect(cmd.semantic_prompt.readOption(.aid) == null);
+    try testing.expect(cmd.semantic_prompt.readOption(.cl) == null);
 }
 
 test "OSC 133: fresh_line_new_prompt with aid" {
@@ -421,7 +386,7 @@ test "OSC 133: fresh_line_new_prompt with aid" {
     const cmd = p.end(null).?.*;
     try testing.expect(cmd == .semantic_prompt);
     try testing.expect(cmd.semantic_prompt.action == .fresh_line_new_prompt);
-    try testing.expectEqualStrings("14", cmd.semantic_prompt.options.aid.?);
+    try testing.expectEqualStrings("14", cmd.semantic_prompt.readOption(.aid).?);
 }
 
 test "OSC 133: fresh_line_new_prompt with '=' in aid" {
@@ -435,7 +400,7 @@ test "OSC 133: fresh_line_new_prompt with '=' in aid" {
     const cmd = p.end(null).?.*;
     try testing.expect(cmd == .semantic_prompt);
     try testing.expect(cmd.semantic_prompt.action == .fresh_line_new_prompt);
-    try testing.expectEqualStrings("a=b", cmd.semantic_prompt.options.aid.?);
+    try testing.expectEqualStrings("a=b", cmd.semantic_prompt.readOption(.aid).?);
 }
 
 test "OSC 133: fresh_line_new_prompt with cl=line" {
@@ -449,7 +414,7 @@ test "OSC 133: fresh_line_new_prompt with cl=line" {
     const cmd = p.end(null).?.*;
     try testing.expect(cmd == .semantic_prompt);
     try testing.expect(cmd.semantic_prompt.action == .fresh_line_new_prompt);
-    try testing.expect(cmd.semantic_prompt.options.cl == .line);
+    try testing.expect(cmd.semantic_prompt.readOption(.cl) == .line);
 }
 
 test "OSC 133: fresh_line_new_prompt with cl=multiple" {
@@ -463,7 +428,7 @@ test "OSC 133: fresh_line_new_prompt with cl=multiple" {
     const cmd = p.end(null).?.*;
     try testing.expect(cmd == .semantic_prompt);
     try testing.expect(cmd.semantic_prompt.action == .fresh_line_new_prompt);
-    try testing.expect(cmd.semantic_prompt.options.cl == .multiple);
+    try testing.expect(cmd.semantic_prompt.readOption(.cl) == .multiple);
 }
 
 test "OSC 133: fresh_line_new_prompt with invalid cl" {
@@ -477,7 +442,7 @@ test "OSC 133: fresh_line_new_prompt with invalid cl" {
     const cmd = p.end(null).?.*;
     try testing.expect(cmd == .semantic_prompt);
     try testing.expect(cmd.semantic_prompt.action == .fresh_line_new_prompt);
-    try testing.expect(cmd.semantic_prompt.options.cl == null);
+    try testing.expect(cmd.semantic_prompt.readOption(.cl) == null);
 }
 
 test "OSC 133: fresh_line_new_prompt with trailing ;" {
@@ -504,8 +469,8 @@ test "OSC 133: fresh_line_new_prompt with bare key" {
     const cmd = p.end(null).?.*;
     try testing.expect(cmd == .semantic_prompt);
     try testing.expect(cmd.semantic_prompt.action == .fresh_line_new_prompt);
-    try testing.expect(cmd.semantic_prompt.options.aid == null);
-    try testing.expect(cmd.semantic_prompt.options.cl == null);
+    try testing.expect(cmd.semantic_prompt.readOption(.aid) == null);
+    try testing.expect(cmd.semantic_prompt.readOption(.cl) == null);
 }
 
 test "OSC 133: fresh_line_new_prompt with multiple options" {
@@ -519,8 +484,8 @@ test "OSC 133: fresh_line_new_prompt with multiple options" {
     const cmd = p.end(null).?.*;
     try testing.expect(cmd == .semantic_prompt);
     try testing.expect(cmd.semantic_prompt.action == .fresh_line_new_prompt);
-    try testing.expectEqualStrings("foo", cmd.semantic_prompt.options.aid.?);
-    try testing.expect(cmd.semantic_prompt.options.cl == .line);
+    try testing.expectEqualStrings("foo", cmd.semantic_prompt.readOption(.aid).?);
+    try testing.expect(cmd.semantic_prompt.readOption(.cl) == .line);
 }
 
 test "OSC 133: fresh_line_new_prompt default redraw" {
@@ -534,7 +499,7 @@ test "OSC 133: fresh_line_new_prompt default redraw" {
     const cmd = p.end(null).?.*;
     try testing.expect(cmd == .semantic_prompt);
     try testing.expect(cmd.semantic_prompt.action == .fresh_line_new_prompt);
-    try testing.expect(cmd.semantic_prompt.options.redraw == false);
+    try testing.expect(cmd.semantic_prompt.readOption(.redraw) == null);
 }
 
 test "OSC 133: fresh_line_new_prompt with redraw=0" {
@@ -548,7 +513,7 @@ test "OSC 133: fresh_line_new_prompt with redraw=0" {
     const cmd = p.end(null).?.*;
     try testing.expect(cmd == .semantic_prompt);
     try testing.expect(cmd.semantic_prompt.action == .fresh_line_new_prompt);
-    try testing.expect(cmd.semantic_prompt.options.redraw == false);
+    try testing.expect(cmd.semantic_prompt.readOption(.redraw).? == false);
 }
 
 test "OSC 133: fresh_line_new_prompt with redraw=1" {
@@ -562,7 +527,7 @@ test "OSC 133: fresh_line_new_prompt with redraw=1" {
     const cmd = p.end(null).?.*;
     try testing.expect(cmd == .semantic_prompt);
     try testing.expect(cmd.semantic_prompt.action == .fresh_line_new_prompt);
-    try testing.expect(cmd.semantic_prompt.options.redraw == true);
+    try testing.expect(cmd.semantic_prompt.readOption(.redraw).? == true);
 }
 
 test "OSC 133: fresh_line_new_prompt with invalid redraw" {
@@ -576,7 +541,7 @@ test "OSC 133: fresh_line_new_prompt with invalid redraw" {
     const cmd = p.end(null).?.*;
     try testing.expect(cmd == .semantic_prompt);
     try testing.expect(cmd.semantic_prompt.action == .fresh_line_new_prompt);
-    try testing.expect(cmd.semantic_prompt.options.redraw == false);
+    try testing.expect(cmd.semantic_prompt.readOption(.redraw) == null);
 }
 
 test "OSC 133: prompt_start" {
@@ -590,7 +555,7 @@ test "OSC 133: prompt_start" {
     const cmd = p.end(null).?.*;
     try testing.expect(cmd == .semantic_prompt);
     try testing.expect(cmd.semantic_prompt.action == .prompt_start);
-    try testing.expect(cmd.semantic_prompt.options.prompt_kind == null);
+    try testing.expect(cmd.semantic_prompt.readOption(.prompt_kind) == null);
 }
 
 test "OSC 133: prompt_start with k=i" {
@@ -604,7 +569,7 @@ test "OSC 133: prompt_start with k=i" {
     const cmd = p.end(null).?.*;
     try testing.expect(cmd == .semantic_prompt);
     try testing.expect(cmd.semantic_prompt.action == .prompt_start);
-    try testing.expect(cmd.semantic_prompt.options.prompt_kind == .initial);
+    try testing.expect(cmd.semantic_prompt.readOption(.prompt_kind) == .initial);
 }
 
 test "OSC 133: prompt_start with k=r" {
@@ -618,7 +583,7 @@ test "OSC 133: prompt_start with k=r" {
     const cmd = p.end(null).?.*;
     try testing.expect(cmd == .semantic_prompt);
     try testing.expect(cmd.semantic_prompt.action == .prompt_start);
-    try testing.expect(cmd.semantic_prompt.options.prompt_kind == .right);
+    try testing.expect(cmd.semantic_prompt.readOption(.prompt_kind) == .right);
 }
 
 test "OSC 133: prompt_start with k=c" {
@@ -632,7 +597,7 @@ test "OSC 133: prompt_start with k=c" {
     const cmd = p.end(null).?.*;
     try testing.expect(cmd == .semantic_prompt);
     try testing.expect(cmd.semantic_prompt.action == .prompt_start);
-    try testing.expect(cmd.semantic_prompt.options.prompt_kind == .continuation);
+    try testing.expect(cmd.semantic_prompt.readOption(.prompt_kind) == .continuation);
 }
 
 test "OSC 133: prompt_start with k=s" {
@@ -646,7 +611,7 @@ test "OSC 133: prompt_start with k=s" {
     const cmd = p.end(null).?.*;
     try testing.expect(cmd == .semantic_prompt);
     try testing.expect(cmd.semantic_prompt.action == .prompt_start);
-    try testing.expect(cmd.semantic_prompt.options.prompt_kind == .secondary);
+    try testing.expect(cmd.semantic_prompt.readOption(.prompt_kind) == .secondary);
 }
 
 test "OSC 133: prompt_start with invalid k" {
@@ -660,7 +625,7 @@ test "OSC 133: prompt_start with invalid k" {
     const cmd = p.end(null).?.*;
     try testing.expect(cmd == .semantic_prompt);
     try testing.expect(cmd.semantic_prompt.action == .prompt_start);
-    try testing.expect(cmd.semantic_prompt.options.prompt_kind == null);
+    try testing.expect(cmd.semantic_prompt.readOption(.prompt_kind) == null);
 }
 
 test "OSC 133: prompt_start extra contents" {
@@ -683,8 +648,8 @@ test "OSC 133: new_command" {
     const cmd = p.end(null).?.*;
     try testing.expect(cmd == .semantic_prompt);
     try testing.expect(cmd.semantic_prompt.action == .new_command);
-    try testing.expect(cmd.semantic_prompt.options.aid == null);
-    try testing.expect(cmd.semantic_prompt.options.cl == null);
+    try testing.expect(cmd.semantic_prompt.readOption(.aid) == null);
+    try testing.expect(cmd.semantic_prompt.readOption(.cl) == null);
 }
 
 test "OSC 133: new_command with aid" {
@@ -698,7 +663,7 @@ test "OSC 133: new_command with aid" {
     const cmd = p.end(null).?.*;
     try testing.expect(cmd == .semantic_prompt);
     try testing.expect(cmd.semantic_prompt.action == .new_command);
-    try testing.expectEqualStrings("foo", cmd.semantic_prompt.options.aid.?);
+    try testing.expectEqualStrings("foo", cmd.semantic_prompt.readOption(.aid).?);
 }
 
 test "OSC 133: new_command with cl=line" {
@@ -712,7 +677,7 @@ test "OSC 133: new_command with cl=line" {
     const cmd = p.end(null).?.*;
     try testing.expect(cmd == .semantic_prompt);
     try testing.expect(cmd.semantic_prompt.action == .new_command);
-    try testing.expect(cmd.semantic_prompt.options.cl == .line);
+    try testing.expect(cmd.semantic_prompt.readOption(.cl) == .line);
 }
 
 test "OSC 133: new_command with multiple options" {
@@ -726,8 +691,8 @@ test "OSC 133: new_command with multiple options" {
     const cmd = p.end(null).?.*;
     try testing.expect(cmd == .semantic_prompt);
     try testing.expect(cmd.semantic_prompt.action == .new_command);
-    try testing.expectEqualStrings("foo", cmd.semantic_prompt.options.aid.?);
-    try testing.expect(cmd.semantic_prompt.options.cl == .line);
+    try testing.expectEqualStrings("foo", cmd.semantic_prompt.readOption(.aid).?);
+    try testing.expect(cmd.semantic_prompt.readOption(.cl) == .line);
 }
 
 test "OSC 133: new_command extra contents" {
@@ -771,7 +736,7 @@ test "OSC 133: end_prompt_start_input with options" {
     const cmd = p.end(null).?.*;
     try testing.expect(cmd == .semantic_prompt);
     try testing.expect(cmd.semantic_prompt.action == .end_prompt_start_input);
-    try testing.expectEqualStrings("foo", cmd.semantic_prompt.options.aid.?);
+    try testing.expectEqualStrings("foo", cmd.semantic_prompt.readOption(.aid).?);
 }
 
 test "OSC 133: end_prompt_start_input_terminate_eol" {
@@ -806,7 +771,7 @@ test "OSC 133: end_prompt_start_input_terminate_eol with options" {
     const cmd = p.end(null).?.*;
     try testing.expect(cmd == .semantic_prompt);
     try testing.expect(cmd.semantic_prompt.action == .end_prompt_start_input_terminate_eol);
-    try testing.expectEqualStrings("foo", cmd.semantic_prompt.options.aid.?);
+    try testing.expectEqualStrings("foo", cmd.semantic_prompt.readOption(.aid).?);
 }
 
 test "OSC 133: end_command" {
@@ -820,9 +785,9 @@ test "OSC 133: end_command" {
     const cmd = p.end(null).?.*;
     try testing.expect(cmd == .semantic_prompt);
     try testing.expect(cmd.semantic_prompt.action == .end_command);
-    try testing.expect(cmd.semantic_prompt.options.exit_code == null);
-    try testing.expect(cmd.semantic_prompt.options.aid == null);
-    try testing.expect(cmd.semantic_prompt.options.err == null);
+    try testing.expect(cmd.semantic_prompt.readOption(.exit_code) == null);
+    try testing.expect(cmd.semantic_prompt.readOption(.aid) == null);
+    try testing.expect(cmd.semantic_prompt.readOption(.err) == null);
 }
 
 test "OSC 133: end_command extra contents" {
@@ -845,7 +810,7 @@ test "OSC 133: end_command with exit code 0" {
     const cmd = p.end(null).?.*;
     try testing.expect(cmd == .semantic_prompt);
     try testing.expect(cmd.semantic_prompt.action == .end_command);
-    try testing.expect(cmd.semantic_prompt.options.exit_code == 0);
+    try testing.expect(cmd.semantic_prompt.readOption(.exit_code) == 0);
 }
 
 test "OSC 133: end_command with exit code and aid" {
@@ -859,6 +824,78 @@ test "OSC 133: end_command with exit code and aid" {
     const cmd = p.end(null).?.*;
     try testing.expect(cmd == .semantic_prompt);
     try testing.expect(cmd.semantic_prompt.action == .end_command);
-    try testing.expectEqualStrings("foo", cmd.semantic_prompt.options.aid.?);
-    try testing.expect(cmd.semantic_prompt.options.exit_code == 12);
+    try testing.expectEqualStrings("foo", cmd.semantic_prompt.readOption(.aid).?);
+    try testing.expect(cmd.semantic_prompt.readOption(.exit_code) == 12);
+}
+
+test "Option.read aid" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("test123", Option.aid.read("aid=test123").?);
+    try testing.expectEqualStrings("myaid", Option.aid.read("cl=line;aid=myaid;k=i").?);
+    try testing.expect(Option.aid.read("cl=line;k=i") == null);
+    try testing.expectEqualStrings("", Option.aid.read("aid=").?);
+    try testing.expectEqualStrings("last", Option.aid.read("k=i;aid=last").?);
+    try testing.expectEqualStrings("first", Option.aid.read("aid=first;k=i").?);
+    try testing.expect(Option.aid.read("") == null);
+    try testing.expect(Option.aid.read("aid") == null);
+    try testing.expectEqualStrings("value", Option.aid.read(";;aid=value;;").?);
+}
+
+test "Option.read cl" {
+    const testing = std.testing;
+    try testing.expect(Option.cl.read("cl=line").? == .line);
+    try testing.expect(Option.cl.read("cl=multiple").? == .multiple);
+    try testing.expect(Option.cl.read("cl=conservative_vertical").? == .conservative_vertical);
+    try testing.expect(Option.cl.read("cl=smart_vertical").? == .smart_vertical);
+    try testing.expect(Option.cl.read("cl=invalid") == null);
+    try testing.expect(Option.cl.read("aid=foo") == null);
+}
+
+test "Option.read prompt_kind" {
+    const testing = std.testing;
+    try testing.expect(Option.prompt_kind.read("k=i").? == .initial);
+    try testing.expect(Option.prompt_kind.read("k=r").? == .right);
+    try testing.expect(Option.prompt_kind.read("k=c").? == .continuation);
+    try testing.expect(Option.prompt_kind.read("k=s").? == .secondary);
+    try testing.expect(Option.prompt_kind.read("k=x") == null);
+    try testing.expect(Option.prompt_kind.read("k=ii") == null);
+    try testing.expect(Option.prompt_kind.read("k=") == null);
+}
+
+test "Option.read err" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("some_error", Option.err.read("err=some_error").?);
+    try testing.expect(Option.err.read("aid=foo") == null);
+}
+
+test "Option.read redraw" {
+    const testing = std.testing;
+    try testing.expect(Option.redraw.read("redraw=1").? == true);
+    try testing.expect(Option.redraw.read("redraw=0").? == false);
+    try testing.expect(Option.redraw.read("redraw=2") == null);
+    try testing.expect(Option.redraw.read("redraw=10") == null);
+    try testing.expect(Option.redraw.read("redraw=") == null);
+}
+
+test "Option.read special_key" {
+    const testing = std.testing;
+    try testing.expect(Option.special_key.read("special_key=1").? == true);
+    try testing.expect(Option.special_key.read("special_key=0").? == false);
+    try testing.expect(Option.special_key.read("special_key=x") == null);
+}
+
+test "Option.read click_events" {
+    const testing = std.testing;
+    try testing.expect(Option.click_events.read("click_events=1").? == true);
+    try testing.expect(Option.click_events.read("click_events=0").? == false);
+    try testing.expect(Option.click_events.read("click_events=yes") == null);
+}
+
+test "Option.read exit_code" {
+    const testing = std.testing;
+    try testing.expect(Option.exit_code.read("42").? == 42);
+    try testing.expect(Option.exit_code.read("0").? == 0);
+    try testing.expect(Option.exit_code.read("-1").? == -1);
+    try testing.expect(Option.exit_code.read("abc") == null);
+    try testing.expect(Option.exit_code.read("127;aid=foo").? == 127);
 }
