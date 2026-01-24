@@ -1093,6 +1093,19 @@ pub fn semanticPrompt(
             // command but we don't yet handle these in any meaningful way.
         },
 
+        .new_command => {
+            // Same as OSC "133;A" but may first implicitly terminate a
+            // previous command: if the options specify an aid and there
+            // is an active (open) command with matching aid, finish the
+            // innermost such command (as well as any other commands
+            // nested more deeply). If no aid is specified, treat as an
+            // aid whose value is the empty string.
+            try self.semanticPrompt(.{
+                .action = .fresh_line_new_prompt,
+                .options_unvalidated = cmd.options_unvalidated,
+            });
+        },
+
         .prompt_start => {
             // Explicit start of prompt. Optional after an A or N command.
             // The k (kind) option specifies the type of prompt:

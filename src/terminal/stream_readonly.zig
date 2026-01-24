@@ -967,3 +967,35 @@ test "semantic prompt prompt_start" {
     try testing.expectEqual(@as(usize, 5), t.screens.active.cursor.x);
     try testing.expectEqual(@as(usize, 0), t.screens.active.cursor.y);
 }
+
+test "semantic prompt new_command" {
+    var t: Terminal = try .init(testing.allocator, .{ .cols = 10, .rows = 10 });
+    defer t.deinit(testing.allocator);
+
+    var s: Stream = .initAlloc(testing.allocator, .init(&t));
+    defer s.deinit();
+
+    // Write some text
+    try s.nextSlice("Hello");
+    try s.nextSlice("\x1b]133;N\x07");
+
+    // Should behave like fresh_line_new_prompt - cursor moves to column 0
+    // on next line since we had content
+    try testing.expectEqual(@as(usize, 0), t.screens.active.cursor.x);
+    try testing.expectEqual(@as(usize, 1), t.screens.active.cursor.y);
+    try testing.expectEqual(.prompt, t.screens.active.cursor.semantic_content);
+}
+
+test "semantic prompt new_command at column zero" {
+    var t: Terminal = try .init(testing.allocator, .{ .cols = 10, .rows = 10 });
+    defer t.deinit(testing.allocator);
+
+    var s: Stream = .initAlloc(testing.allocator, .init(&t));
+    defer s.deinit();
+
+    // OSC 133;N when already at column 0 should stay on same line
+    try s.nextSlice("\x1b]133;N\x07");
+    try testing.expectEqual(@as(usize, 0), t.screens.active.cursor.x);
+    try testing.expectEqual(@as(usize, 0), t.screens.active.cursor.y);
+    try testing.expectEqual(.prompt, t.screens.active.cursor.semantic_content);
+}
