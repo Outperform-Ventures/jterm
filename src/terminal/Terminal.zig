@@ -17,6 +17,7 @@ const charsets = @import("charsets.zig");
 const csi = @import("csi.zig");
 const hyperlink = @import("hyperlink.zig");
 const kitty = @import("kitty.zig");
+const osc = @import("osc.zig");
 const point = @import("point.zig");
 const sgr = @import("sgr.zig");
 const Tabstops = @import("Tabstops.zig");
@@ -1056,6 +1057,65 @@ pub fn setProtectedMode(self: *Terminal, mode: ansi.ProtectedMode) void {
             self.screens.active.protected_mode = .dec;
         },
     }
+}
+
+/// Perform a semantic prompt command.
+///
+/// If there is an error, we do our best to get the terminal into
+/// some coherent state, since callers typically can't handle errors
+/// (since they're sending sequences via the pty).
+pub fn semanticPrompt(
+    self: *Terminal,
+    cmd: osc.Command.SemanticPrompt,
+) !void {
+    switch (cmd.action) {
+        .fresh_line => try self.semanticPromptFreshLine(),
+        .fresh_line_new_prompt => {
+            // "First do a fresh-line."
+            try self.semanticPromptFreshLine();
+
+            // "Subsequent text (until a OSC "133;B" or OSC "133;I" command)
+            // is a prompt string (as if followed by OSC 133;P;k=i\007)."
+            // TODO
+
+            // The "aid" and "cl" options are also valid for this
+            // command but we don't yet handle these in any meaningful way.
+        },
+
+        else => {},
+    }
+}
+
+fn semanticPromptSet(
+    self: *Terminal,
+    mode: pagepkg.Cell.SemanticContent,
+) void {
+    // We always reset this when we mode change. The caller can set it
+    // again after if they care.
+    self.screens.active.cursor.semantic_content_clear_eol = false;
+
+    // Update our mode
+    self.screens.active.cursor.semantic_content = mode;
+}
+
+// OSC 133;L
+fn semanticPromptFreshLine(self: *Terminal) !void {
+    const left_margin = if (self.screens.active.cursor.x < self.scrolling_region.left)
+        0
+    else
+        self.scrolling_region.left;
+
+    // Spec: "If the cursor is the initial column (left, assuming
+    // left-to-right writing), do nothing" This specification is very under
+    // specified. We are taking the liberty to assume that in a left/right
+    // margin context, if the cursor is outside of the left margin, we treat
+    // it as being at the left margin for the purposes of this command.
+    // This is arbitrary. If someone has a better reasonable idea we can
+    // apply it.
+    if (self.screens.active.cursor.x == left_margin) return;
+
+    self.carriageReturn();
+    try self.index();
 }
 
 /// The semantic prompt type. This is used when tracking a line type and

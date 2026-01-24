@@ -153,7 +153,7 @@ pub const Handler = struct {
             .full_reset => self.terminal.fullReset(),
             .start_hyperlink => try self.terminal.screens.active.startHyperlink(value.uri, value.id),
             .end_hyperlink => self.terminal.screens.active.endHyperlink(),
-            .semantic_prompt => self.semanticPrompt(value),
+            .semantic_prompt => try self.semanticPrompt(value),
             .mouse_shape => self.terminal.mouse_shape = value,
             .color_operation => try self.colorOperation(value.op, &value.requests),
             .kitty_color_report => try self.kittyColorOperation(value),
@@ -212,7 +212,9 @@ pub const Handler = struct {
     fn semanticPrompt(
         self: *Handler,
         cmd: Action.SemanticPrompt,
-    ) void {
+    ) !void {
+        try self.terminal.semanticPrompt(cmd);
+
         switch (cmd.action) {
             .fresh_line_new_prompt => {
                 const kind = cmd.readOption(.prompt_kind) orelse .initial;
@@ -904,4 +906,17 @@ test "palette dirty flag set on color change" {
     t.flags.dirty.palette = false;
     try s.nextSlice("\x1b]21;1=rgb:00/ff/00\x1b\\");
     try testing.expect(t.flags.dirty.palette);
+}
+
+test "semantic prompt fresh line" {
+    var t: Terminal = try .init(testing.allocator, .{ .cols = 10, .rows = 10 });
+    defer t.deinit(testing.allocator);
+
+    var s: Stream = .initAlloc(testing.allocator, .init(&t));
+    defer s.deinit();
+
+    try s.nextSlice("Hello");
+    try s.nextSlice("\x1b]133;L\x07");
+    try testing.expectEqual(@as(usize, 0), t.screens.active.cursor.x);
+    try testing.expectEqual(@as(usize, 1), t.screens.active.cursor.y);
 }
