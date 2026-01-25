@@ -12,6 +12,7 @@ const fastmem = @import("../fastmem.zig");
 const tripwire = @import("../tripwire.zig");
 const DoublyLinkedList = @import("../datastruct/main.zig").IntrusiveDoublyLinkedList;
 const color = @import("color.zig");
+const highlight = @import("highlight.zig");
 const kitty = @import("kitty.zig");
 const point = @import("point.zig");
 const pagepkg = @import("page.zig");
@@ -4213,6 +4214,147 @@ pub fn diagram(
 /// Direction that iterators can move.
 pub const Direction = enum { left_up, right_down };
 
+pub const PromptIterator = struct {
+    /// The pin that we are currently at. Also the starting pin when
+    /// initializing.
+    current: ?Pin,
+
+    /// The pin to end at or null if we end when we can't traverse
+    /// anymore.
+    limit: ?Pin,
+
+    /// The direction to do the traversal.
+    direction: Direction,
+
+    pub const empty: PromptIterator = .{
+        .current = null,
+        .limit = null,
+        .direction = .left_up,
+    };
+
+    /// Return the next pin that represents the first row in a prompt.
+    /// From here, you can find the prompt input, command output, etc.
+    pub fn next(self: *PromptIterator) ?Pin {
+        switch (self.direction) {
+            .left_up => return self.nextLeftUp(),
+            .right_down => return self.nextRightDown(),
+        }
+    }
+
+    pub fn nextRightDown(self: *PromptIterator) ?Pin {
+        // Start at our current pin. If we have no current it means
+        // we reached the end and we're done.
+        const start: Pin = self.current orelse return null;
+
+        // We need to traverse downwards and look for prompts.
+        var current: ?Pin = start;
+        while (current) |p| {
+            const rac = p.rowAndCell();
+            switch (rac.row.semantic_prompt2) {
+                // This row isn't a prompt. Keep looking.
+                .no_prompt => current = p.down(1),
+
+                // This is a prompt line or continuation line. In either
+                // case we consider the first line the prompt, and then
+                // skip over any remaining prompt lines. This handles the
+                // case where scrollback pruned the prompt.
+                .prompt, .prompt_continuation => {
+                    // Skip over any continuation lines that follow this prompt
+                    var end_pin = p;
+                    while (end_pin.down(1)) |next_pin| : (end_pin = next_pin) {
+                        switch (next_pin.rowAndCell().row.semantic_prompt2) {
+                            .prompt_continuation => {},
+                            .prompt, .no_prompt => {
+                                self.current = next_pin;
+                                return p.left(p.x);
+                            },
+                        }
+                    } else {
+                        self.current = null;
+                        return p.left(p.x);
+                    }
+                },
+            }
+        }
+
+        self.current = null;
+        return null;
+    }
+
+    pub fn nextLeftUp(self: *PromptIterator) ?Pin {
+        // Start at our current pin. If we have no current it means
+        // we reached the end and we're done.
+        const start: Pin = self.current orelse return null;
+
+        // We need to traverse upwards and look for prompts.
+        var current: ?Pin = start;
+        while (current) |p| {
+            const rac = p.rowAndCell();
+            switch (rac.row.semantic_prompt2) {
+                // This row isn't a prompt. Keep looking.
+                .no_prompt => current = p.up(1),
+
+                // This is a prompt line.
+                .prompt => {
+                    self.current = p.up(1);
+                    // We want to make sure our x is 0
+                    return p.left(p.x);
+                },
+
+                // If this is a prompt continuation, then we continue
+                // looking for the start of the prompt OR a non-prompt
+                // line, whichever is first. The non-prompt line is to handle
+                // poorly behaved programs or scrollback that's been cut-off.
+                .prompt_continuation => while (current.?.up(1)) |prior| {
+                    switch (prior.rowAndCell().row.semantic_prompt2) {
+                        // No prompt. We know this line is bad, so we move
+                        // our cursor to the NEXT line and then return the
+                        // PREVIOUS line we looked at which we know was good.
+                        .no_prompt => {
+                            self.current = prior.up(1);
+                            return current.?.left(current.?.x);
+                        },
+
+                        // Prompt continuation, keep looking.
+                        .prompt_continuation => current = prior,
+
+                        // Prompt! Found it!
+                        .prompt => {
+                            self.current = prior.up(1);
+                            return prior.left(prior.x);
+                        },
+                    }
+                } else {
+                    // No prior rows, trimmed scrollback probably.
+                    self.current = null;
+                    return p.left(p.x);
+                },
+            }
+        }
+
+        self.current = null;
+        return null;
+    }
+};
+
+pub fn promptIterator(
+    self: *const PageList,
+    direction: Direction,
+    tl_pt: point.Point,
+    bl_pt: ?point.Point,
+) PromptIterator {
+    const tl_pin = self.pin(tl_pt).?;
+    const bl_pin = if (bl_pt) |pt|
+        self.pin(pt).?
+    else
+        self.getBottomRight(tl_pt) orelse return .empty;
+
+    return switch (direction) {
+        .right_down => tl_pin.promptIterator(.right_down, bl_pin),
+        .left_up => bl_pin.promptIterator(.left_up, tl_pin),
+    };
+}
+
 pub const CellIterator = struct {
     row_it: RowIterator,
     cell: ?Pin = null,
@@ -4814,6 +4956,18 @@ pub const Pin = struct {
         var cell = row_it.next() orelse return .{ .row_it = row_it };
         cell.x = self.x;
         return .{ .row_it = row_it, .cell = cell };
+    }
+
+    pub inline fn promptIterator(
+        self: Pin,
+        direction: Direction,
+        limit: ?Pin,
+    ) PromptIterator {
+        return .{
+            .current = self,
+            .limit = limit,
+            .direction = direction,
+        };
     }
 
     /// Returns true if this pin is between the top and bottom, inclusive.
@@ -7560,6 +7714,202 @@ test "PageList cellIterator reverse" {
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 0,
             .y = 0,
+        } }, s.pointFromPin(.screen, p).?);
+    }
+    try testing.expect(it.next() == null);
+}
+
+test "PageList promptIterator left_up" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 2, 20, 0);
+    defer s.deinit();
+    try testing.expect(s.pages.first == s.pages.last);
+    const page = &s.pages.first.?.data;
+    // Normal prompt
+    {
+        const rac = page.getRowAndCell(0, 3);
+        rac.row.semantic_prompt2 = .prompt;
+    }
+    // Continuation
+    {
+        const rac = page.getRowAndCell(0, 6);
+        rac.row.semantic_prompt2 = .prompt;
+    }
+    {
+        const rac = page.getRowAndCell(0, 7);
+        rac.row.semantic_prompt2 = .prompt_continuation;
+    }
+    {
+        const rac = page.getRowAndCell(0, 8);
+        rac.row.semantic_prompt2 = .prompt_continuation;
+    }
+    // Broken continuation that has non-prompts in between
+    {
+        const rac = page.getRowAndCell(0, 12);
+        rac.row.semantic_prompt2 = .prompt_continuation;
+    }
+
+    var it = s.promptIterator(.left_up, .{ .screen = .{} }, null);
+    {
+        const p = it.next().?;
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 12,
+        } }, s.pointFromPin(.screen, p).?);
+    }
+    {
+        const p = it.next().?;
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 6,
+        } }, s.pointFromPin(.screen, p).?);
+    }
+    {
+        const p = it.next().?;
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 3,
+        } }, s.pointFromPin(.screen, p).?);
+    }
+    try testing.expect(it.next() == null);
+}
+
+test "PageList promptIterator right_down" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 2, 20, 0);
+    defer s.deinit();
+    try testing.expect(s.pages.first == s.pages.last);
+    const page = &s.pages.first.?.data;
+    // Normal prompt
+    {
+        const rac = page.getRowAndCell(0, 3);
+        rac.row.semantic_prompt2 = .prompt;
+    }
+    // Continuation (prompt on row 6, continuation on rows 7-8)
+    {
+        const rac = page.getRowAndCell(0, 6);
+        rac.row.semantic_prompt2 = .prompt;
+    }
+    {
+        const rac = page.getRowAndCell(0, 7);
+        rac.row.semantic_prompt2 = .prompt_continuation;
+    }
+    {
+        const rac = page.getRowAndCell(0, 8);
+        rac.row.semantic_prompt2 = .prompt_continuation;
+    }
+    // Broken continuation that has non-prompts in between (orphaned continuation at row 12)
+    {
+        const rac = page.getRowAndCell(0, 12);
+        rac.row.semantic_prompt2 = .prompt_continuation;
+    }
+
+    var it = s.promptIterator(.right_down, .{ .screen = .{} }, null);
+    {
+        const p = it.next().?;
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 3,
+        } }, s.pointFromPin(.screen, p).?);
+    }
+    {
+        const p = it.next().?;
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 6,
+        } }, s.pointFromPin(.screen, p).?);
+    }
+    {
+        const p = it.next().?;
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 12,
+        } }, s.pointFromPin(.screen, p).?);
+    }
+    try testing.expect(it.next() == null);
+}
+
+test "PageList promptIterator right_down continuation at start" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 2, 20, 0);
+    defer s.deinit();
+    try testing.expect(s.pages.first == s.pages.last);
+    const page = &s.pages.first.?.data;
+
+    // Prompt continuation at row 0 (no prior rows - simulates trimmed scrollback)
+    {
+        const rac = page.getRowAndCell(0, 0);
+        rac.row.semantic_prompt2 = .prompt_continuation;
+    }
+    {
+        const rac = page.getRowAndCell(0, 1);
+        rac.row.semantic_prompt2 = .prompt_continuation;
+    }
+    // Normal prompt later
+    {
+        const rac = page.getRowAndCell(0, 5);
+        rac.row.semantic_prompt2 = .prompt;
+    }
+
+    var it = s.promptIterator(.right_down, .{ .screen = .{} }, null);
+    {
+        // Should return the first continuation line since there's no prior prompt
+        const p = it.next().?;
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 0,
+        } }, s.pointFromPin(.screen, p).?);
+    }
+    {
+        const p = it.next().?;
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 5,
+        } }, s.pointFromPin(.screen, p).?);
+    }
+    try testing.expect(it.next() == null);
+}
+
+test "PageList promptIterator right_down with prompt before continuation" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 2, 20, 0);
+    defer s.deinit();
+    try testing.expect(s.pages.first == s.pages.last);
+    const page = &s.pages.first.?.data;
+
+    // Prompt on row 2, continuation on rows 3-4
+    // Starting iteration from row 3 should still find the prompt at row 2
+    {
+        const rac = page.getRowAndCell(0, 2);
+        rac.row.semantic_prompt2 = .prompt;
+    }
+    {
+        const rac = page.getRowAndCell(0, 3);
+        rac.row.semantic_prompt2 = .prompt_continuation;
+    }
+    {
+        const rac = page.getRowAndCell(0, 4);
+        rac.row.semantic_prompt2 = .prompt_continuation;
+    }
+
+    // Start iteration from row 3 (middle of the continuation)
+    // Since we start on a continuation line, we treat it as the prompt start
+    // (handles case where scrollback pruned the actual prompt)
+    var it = s.promptIterator(.right_down, .{ .screen = .{ .y = 3 } }, null);
+    {
+        const p = it.next().?;
+        // Returns row 3 since that's the first prompt-related line we encounter
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 3,
         } }, s.pointFromPin(.screen, p).?);
     }
     try testing.expect(it.next() == null);
