@@ -2669,21 +2669,26 @@ fn scrollPrompt(self: *PageList, delta: isize) void {
     const delta_start: usize = @intCast(if (delta > 0) delta else -delta);
     var delta_rem: usize = delta_start;
 
-    // Iterate and count the number of prompts we see.
-    const viewport_pin = self.getTopLeft(.viewport);
-    var it = viewport_pin.rowIterator(if (delta > 0) .right_down else .left_up, null);
-    _ = it.next(); // skip our own row
+    // We start at the row before or after our viewport depending on the
+    // delta so that we don't land back on our current viewport.
+    const start_pin = start: {
+        const tl = self.getTopLeft(.viewport);
+        const adjusted: ?Pin = if (delta > 0)
+            tl.down(1)
+        else
+            tl.up(1);
+        break :start adjusted orelse return;
+    };
+
+    // Go through prompts delta times
+    var it = start_pin.promptIterator(
+        if (delta > 0) .right_down else .left_up,
+        null,
+    );
     var prompt_pin: ?Pin = null;
     while (it.next()) |next| {
-        const row = next.rowAndCell().row;
-        switch (row.semantic_prompt) {
-            .command, .unknown => {},
-            .prompt, .prompt_continuation, .input => {
-                delta_rem -= 1;
-                prompt_pin = next;
-            },
-        }
-
+        prompt_pin = next;
+        delta_rem -= 1;
         if (delta_rem == 0) break;
     }
 
@@ -6595,11 +6600,11 @@ test "PageList: jump zero prompts" {
     const page = &s.pages.first.?.data;
     {
         const rac = page.getRowAndCell(0, 1);
-        rac.row.semantic_prompt = .prompt;
+        rac.row.semantic_prompt2 = .prompt;
     }
     {
         const rac = page.getRowAndCell(0, 5);
-        rac.row.semantic_prompt = .prompt;
+        rac.row.semantic_prompt2 = .prompt;
     }
 
     s.scroll(.{ .delta_prompt = 0 });
@@ -6623,11 +6628,11 @@ test "Screen: jump back one prompt" {
     const page = &s.pages.first.?.data;
     {
         const rac = page.getRowAndCell(0, 1);
-        rac.row.semantic_prompt = .prompt;
+        rac.row.semantic_prompt2 = .prompt;
     }
     {
         const rac = page.getRowAndCell(0, 5);
-        rac.row.semantic_prompt = .prompt;
+        rac.row.semantic_prompt2 = .prompt;
     }
 
     // Jump back
