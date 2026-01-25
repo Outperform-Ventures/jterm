@@ -14,8 +14,7 @@ const Config = @import("config.zig").Config;
 const Application = @import("application.zig").Application;
 const SplitTree = @import("split_tree.zig").SplitTree;
 const Surface = @import("surface.zig").Surface;
-const TitleDialog = @import("title_dialog.zig")
-    .TitleDialog;
+const TitleDialog = @import("title_dialog.zig").TitleDialog;
 
 const log = std.log.scoped(.gtk_ghostty_window);
 
