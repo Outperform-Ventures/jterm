@@ -4253,31 +4253,44 @@ pub const PromptIterator = struct {
 
         // We need to traverse downwards and look for prompts.
         var current: ?Pin = start;
-        while (current) |p| {
+        while (current) |p| : (current = p.down(1)) {
+            // Check our limit.
+            const at_limit = if (self.limit) |limit| limit.eql(p) else false;
+
             const rac = p.rowAndCell();
             switch (rac.row.semantic_prompt2) {
                 // This row isn't a prompt. Keep looking.
-                .no_prompt => current = p.down(1),
+                .no_prompt => if (at_limit) break,
 
                 // This is a prompt line or continuation line. In either
                 // case we consider the first line the prompt, and then
                 // skip over any remaining prompt lines. This handles the
                 // case where scrollback pruned the prompt.
                 .prompt, .prompt_continuation => {
-                    // Skip over any continuation lines that follow this prompt
+                    // If we're at our limit just return this prompt.
+                    if (at_limit) {
+                        self.current = null;
+                        return p.left(p.x);
+                    }
+
+                    // Skip over any continuation lines that follow this prompt,
+                    // up to our limit.
                     var end_pin = p;
                     while (end_pin.down(1)) |next_pin| : (end_pin = next_pin) {
                         switch (next_pin.rowAndCell().row.semantic_prompt2) {
-                            .prompt_continuation => {},
+                            .prompt_continuation => if (self.limit) |limit| {
+                                if (limit.eql(next_pin)) break;
+                            },
+
                             .prompt, .no_prompt => {
                                 self.current = next_pin;
                                 return p.left(p.x);
                             },
                         }
-                    } else {
-                        self.current = null;
-                        return p.left(p.x);
                     }
+
+                    self.current = null;
+                    return p.left(p.x);
                 },
             }
         }
@@ -4293,16 +4306,18 @@ pub const PromptIterator = struct {
 
         // We need to traverse upwards and look for prompts.
         var current: ?Pin = start;
-        while (current) |p| {
+        while (current) |p| : (current = p.up(1)) {
+            // Check our limit.
+            const at_limit = if (self.limit) |limit| limit.eql(p) else false;
+
             const rac = p.rowAndCell();
             switch (rac.row.semantic_prompt2) {
                 // This row isn't a prompt. Keep looking.
-                .no_prompt => current = p.up(1),
+                .no_prompt => if (at_limit) break,
 
                 // This is a prompt line.
                 .prompt => {
-                    self.current = p.up(1);
-                    // We want to make sure our x is 0
+                    self.current = if (at_limit) null else p.up(1);
                     return p.left(p.x);
                 },
 
@@ -4310,26 +4325,37 @@ pub const PromptIterator = struct {
                 // looking for the start of the prompt OR a non-prompt
                 // line, whichever is first. The non-prompt line is to handle
                 // poorly behaved programs or scrollback that's been cut-off.
-                .prompt_continuation => while (current.?.up(1)) |prior| {
-                    switch (prior.rowAndCell().row.semantic_prompt2) {
-                        // No prompt. We know this line is bad, so we move
-                        // our cursor to the NEXT line and then return the
-                        // PREVIOUS line we looked at which we know was good.
-                        .no_prompt => {
-                            self.current = prior.up(1);
-                            return current.?.left(current.?.x);
-                        },
-
-                        // Prompt continuation, keep looking.
-                        .prompt_continuation => current = prior,
-
-                        // Prompt! Found it!
-                        .prompt => {
-                            self.current = prior.up(1);
-                            return prior.left(prior.x);
-                        },
+                .prompt_continuation => {
+                    // If we're at our limit just return this continuation as prompt.
+                    if (at_limit) {
+                        self.current = null;
+                        return p.left(p.x);
                     }
-                } else {
+
+                    var end_pin = p;
+                    while (end_pin.up(1)) |prior| : (end_pin = prior) {
+                        if (self.limit) |limit| {
+                            if (limit.eql(prior)) break;
+                        }
+
+                        switch (prior.rowAndCell().row.semantic_prompt2) {
+                            // No prompt. That means our last pin is good!
+                            .no_prompt => {
+                                self.current = prior;
+                                return end_pin.left(end_pin.x);
+                            },
+
+                            // Prompt continuation, keep looking.
+                            .prompt_continuation => {},
+
+                            // Prompt! Found it!
+                            .prompt => {
+                                self.current = prior.up(1);
+                                return prior.left(prior.x);
+                            },
+                        }
+                    }
+
                     // No prior rows, trimmed scrollback probably.
                     self.current = null;
                     return p.left(p.x);
@@ -7915,6 +7941,71 @@ test "PageList promptIterator right_down with prompt before continuation" {
         try testing.expectEqual(point.Point{ .screen = .{
             .x = 0,
             .y = 3,
+        } }, s.pointFromPin(.screen, p).?);
+    }
+    try testing.expect(it.next() == null);
+}
+
+test "PageList promptIterator right_down limit inclusive" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 2, 20, 0);
+    defer s.deinit();
+    try testing.expect(s.pages.first == s.pages.last);
+    const page = &s.pages.first.?.data;
+
+    // Prompt on row 5
+    {
+        const rac = page.getRowAndCell(0, 5);
+        rac.row.semantic_prompt2 = .prompt;
+    }
+    // Prompt on row 10
+    {
+        const rac = page.getRowAndCell(0, 10);
+        rac.row.semantic_prompt2 = .prompt;
+    }
+
+    // Iterate with limit at row 5 (the prompt row) - should include it
+    var it = s.promptIterator(.right_down, .{ .screen = .{} }, .{ .screen = .{ .y = 5 } });
+    {
+        const p = it.next().?;
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 5,
+        } }, s.pointFromPin(.screen, p).?);
+    }
+    try testing.expect(it.next() == null);
+}
+
+test "PageList promptIterator left_up limit inclusive" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, 2, 20, 0);
+    defer s.deinit();
+    try testing.expect(s.pages.first == s.pages.last);
+    const page = &s.pages.first.?.data;
+
+    // Prompt on row 5
+    {
+        const rac = page.getRowAndCell(0, 5);
+        rac.row.semantic_prompt2 = .prompt;
+    }
+    // Prompt on row 10
+    {
+        const rac = page.getRowAndCell(0, 10);
+        rac.row.semantic_prompt2 = .prompt;
+    }
+
+    // Iterate with limit at row 10 (the prompt row) - should include it
+    // tl_pt is the limit (upper bound), bl_pt is the start point for left_up
+    var it = s.promptIterator(.left_up, .{ .screen = .{ .y = 10 } }, .{ .screen = .{ .y = 15 } });
+    {
+        const p = it.next().?;
+        try testing.expectEqual(point.Point{ .screen = .{
+            .x = 0,
+            .y = 10,
         } }, s.pointFromPin(.screen, p).?);
     }
     try testing.expect(it.next() == null);
