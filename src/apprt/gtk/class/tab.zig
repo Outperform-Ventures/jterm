@@ -429,7 +429,7 @@ pub const Tab = extern struct {
         config_: ?*Config,
         terminal_: ?[*:0]const u8,
         surface_override_: ?[*:0]const u8,
-        tab_override: ?[*:0]const u8,
+        tab_override_: ?[*:0]const u8,
         zoomed_: c_int,
         bell_ringing_: c_int,
         _: *gobject.ParamSpec,
@@ -437,7 +437,7 @@ pub const Tab = extern struct {
         const zoomed = zoomed_ != 0;
         const bell_ringing = bell_ringing_ != 0;
 
-        // Our plain title is the manually tab overriden title if it exists,
+        // Our plain title is the manually tab overridden title if it exists,
         // otherwise the overridden title if it exists, otherwise
         // the terminal title if it exists, otherwise a default string.
         const plain = plain: {
@@ -447,7 +447,7 @@ pub const Tab = extern struct {
                 break :title config.get().title orelse null;
             };
 
-            const plain = tab_override orelse
+            const plain = tab_override_ orelse
                 surface_override_ orelse
                 terminal_ orelse
                 config_title orelse
