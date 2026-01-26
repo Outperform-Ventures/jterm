@@ -1442,13 +1442,13 @@ test "shape Bengali ligatures with out of order vowels" {
         try testing.expectEqual(@as(u16, 0), cells[1].x);
 
         // Whereas CoreText puts everything all into the first cell (see the
-        // corresponding test), HarfBuzz splits into three clusters.
+        // corresponding test), HarfBuzz splits into two clusters.
         try testing.expectEqual(@as(u16, 1), cells[2].x);
         try testing.expectEqual(@as(u16, 1), cells[3].x);
-        try testing.expectEqual(@as(u16, 2), cells[4].x);
-        try testing.expectEqual(@as(u16, 2), cells[5].x);
-        try testing.expectEqual(@as(u16, 2), cells[6].x);
-        try testing.expectEqual(@as(u16, 2), cells[7].x);
+        try testing.expectEqual(@as(u16, 1), cells[4].x);
+        try testing.expectEqual(@as(u16, 1), cells[5].x);
+        try testing.expectEqual(@as(u16, 1), cells[6].x);
+        try testing.expectEqual(@as(u16, 1), cells[7].x);
 
         // The vowel sign E renders before the SSA:
         try testing.expect(cells[2].x_offset < cells[3].x_offset);
