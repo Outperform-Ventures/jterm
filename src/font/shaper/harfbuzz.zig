@@ -2127,7 +2127,6 @@ fn testShaperWithDiscoveredFont(alloc: Allocator, font_req: [:0]const u8) !TestS
         var name_buf: [256]u8 = undefined;
         const face_name = face.name(&name_buf) catch "(unknown)";
         if (std.mem.indexOf(u8, face_name, font_req) == null) {
-            face.deinit();
             return error.SkipZigTest;
         }
 
