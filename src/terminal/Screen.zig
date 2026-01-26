@@ -6187,9 +6187,12 @@ test "Screen: resize more cols no reflow preserves semantic prompt" {
     defer s.deinit();
 
     // Set one of the rows to be a prompt
-    try s.testWriteSemanticString("1ABCD\n", .unknown);
-    try s.testWriteSemanticString("2EFGH\n", .prompt);
-    try s.testWriteSemanticString("3IJKL", .unknown);
+    s.cursorSetSemanticContent(.output);
+    try s.testWriteString("1ABCD\n");
+    s.cursorSetSemanticContent(.{ .prompt = .initial });
+    try s.testWriteString("2EFGH");
+    s.cursorSetSemanticContent(.output);
+    try s.testWriteString("\n3IJKL");
 
     try s.resize(.{ .cols = 10, .rows = 3, .reflow = false });
 
@@ -6208,15 +6211,15 @@ test "Screen: resize more cols no reflow preserves semantic prompt" {
     // Our one row should still be a semantic prompt, the others should not.
     {
         const list_cell = s.pages.getCell(.{ .active = .{ .x = 0, .y = 0 } }).?;
-        try testing.expect(list_cell.row.semantic_prompt == .unknown);
+        try testing.expect(list_cell.row.semantic_prompt2 == .no_prompt);
     }
     {
         const list_cell = s.pages.getCell(.{ .active = .{ .x = 0, .y = 1 } }).?;
-        try testing.expect(list_cell.row.semantic_prompt == .prompt);
+        try testing.expect(list_cell.row.semantic_prompt2 == .prompt);
     }
     {
         const list_cell = s.pages.getCell(.{ .active = .{ .x = 0, .y = 2 } }).?;
-        try testing.expect(list_cell.row.semantic_prompt == .unknown);
+        try testing.expect(list_cell.row.semantic_prompt2 == .no_prompt);
     }
 }
 
