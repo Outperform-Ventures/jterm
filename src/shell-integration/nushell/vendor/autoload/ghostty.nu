@@ -95,9 +95,8 @@ export module ghostty {
       {ssh_term: $base_ssh_term ssh_opts: $base_ssh_opts}
     }
 
-    let ssh_parts = $session.ssh_opts ++ $ssh_args
     with-env {TERM: $session.ssh_term} {
-      ^ssh ...$ssh_parts
+      ^ssh ...($session.ssh_opts ++ $ssh_args)
     }
   }
 
