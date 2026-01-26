@@ -1077,7 +1077,7 @@ pub fn semanticPrompt(
 
             // "Subsequent text (until a OSC "133;B" or OSC "133;I" command)
             // is a prompt string (as if followed by OSC 133;P;k=i\007)."
-            self.screens.active.cursor.setSemanticContent(.{
+            self.screens.active.cursorSetSemanticContent(.{
                 .prompt = cmd.readOption(.prompt_kind) orelse .initial,
             });
 
@@ -1109,7 +1109,7 @@ pub fn semanticPrompt(
             // The k (kind) option specifies the type of prompt:
             // regular primary prompt (k=i or default),
             // right-side prompts (k=r), or prompts for continuation lines (k=c or k=s).
-            self.screens.active.cursor.setSemanticContent(.{
+            self.screens.active.cursorSetSemanticContent(.{
                 .prompt = cmd.readOption(.prompt_kind) orelse .initial,
             });
         },
@@ -1117,21 +1117,21 @@ pub fn semanticPrompt(
         .end_prompt_start_input => {
             // End of prompt and start of user input, terminated by a OSC
             // "133;C" or another prompt (OSC "133;P").
-            self.screens.active.cursor.setSemanticContent(.{
+            self.screens.active.cursorSetSemanticContent(.{
                 .input = .clear_explicit,
             });
         },
 
         .end_prompt_start_input_terminate_eol => {
             // End of prompt and start of user input, terminated by end-of-line.
-            self.screens.active.cursor.setSemanticContent(.{
+            self.screens.active.cursorSetSemanticContent(.{
                 .input = .clear_eol,
             });
         },
 
         .end_input_start_output => {
             // "End of input, and start of output."
-            self.screens.active.cursor.setSemanticContent(.output);
+            self.screens.active.cursorSetSemanticContent(.output);
         },
 
         .end_command => {
@@ -1139,7 +1139,7 @@ pub fn semanticPrompt(
             // anything. Other terminals appear to do nothing here. I think
             // its reasonable at this point to reset our semantic content
             // state but the spec doesn't really say what to do.
-            self.screens.active.cursor.setSemanticContent(.output);
+            self.screens.active.cursorSetSemanticContent(.output);
         },
     }
 }

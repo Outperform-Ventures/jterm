@@ -77,6 +77,9 @@ else
 /// Dirty flags for the renderer.
 dirty: Dirty = .{},
 
+/// Packed flags for the screen, internal state.
+flags: Flags = .{},
+
 /// See Terminal.Dirty. This behaves the same way.
 pub const Dirty = packed struct {
     /// Set when the selection is set or unset, regardless of if the
@@ -86,6 +89,17 @@ pub const Dirty = packed struct {
     /// When an OSC8 hyperlink is hovered, we set the full screen as dirty
     /// because links can span multiple lines.
     hyperlink_hover: bool = false,
+};
+
+/// A set of internal state that we pack for memory size.
+pub const Flags = packed struct {
+    /// This is flipped to true when any sort of semantic content is
+    /// seen. In particular, this is set to true only when a `prompt` type
+    /// is ever set on our cursor.
+    ///
+    /// This is used to optimize away semantic content operations if we know
+    /// we've never seen them.
+    semantic_content: bool = false,
 };
 
 /// The cursor position and style.
@@ -150,39 +164,6 @@ pub const Cursor = struct {
         if (self.hyperlink) |link| {
             link.deinit(alloc);
             alloc.destroy(link);
-        }
-    }
-
-    /// Modify the semantic content type of the cursor. This should
-    /// be preferred over setting it manually since it handles all the
-    /// proper accounting.
-    pub fn setSemanticContent(self: *Cursor, t: union(enum) {
-        prompt: osc.semantic_prompt.PromptKind,
-        output,
-        input: enum { clear_explicit, clear_eol },
-    }) void {
-        switch (t) {
-            .output => {
-                self.semantic_content = .output;
-                self.semantic_content_clear_eol = false;
-            },
-
-            .input => |clear| {
-                self.semantic_content = .input;
-                self.semantic_content_clear_eol = switch (clear) {
-                    .clear_explicit => false,
-                    .clear_eol => true,
-                };
-            },
-
-            .prompt => |kind| {
-                self.semantic_content = .prompt;
-                self.semantic_content_clear_eol = false;
-                self.page_row.semantic_prompt2 = switch (kind) {
-                    .initial, .right => .prompt,
-                    .continuation, .secondary => .prompt_continuation,
-                };
-            },
         }
     }
 };
@@ -397,6 +378,7 @@ pub fn reset(self: *Screen) void {
     self.charset = .{};
     self.kitty_keyboard = .{};
     self.protected_mode = .off;
+    self.flags = .{};
     self.clearSelection();
 }
 
@@ -2363,6 +2345,42 @@ pub fn cursorSetHyperlink(self: *Screen) PageList.IncreaseCapacityError!void {
     }
 }
 
+/// Modify the semantic content type of the cursor. This should
+/// be preferred over setting it manually since it handles all the
+/// proper accounting.
+pub fn cursorSetSemanticContent(self: *Screen, t: union(enum) {
+    prompt: osc.semantic_prompt.PromptKind,
+    output,
+    input: enum { clear_explicit, clear_eol },
+}) void {
+    const cursor = &self.cursor;
+
+    switch (t) {
+        .output => {
+            cursor.semantic_content = .output;
+            cursor.semantic_content_clear_eol = false;
+        },
+
+        .input => |clear| {
+            cursor.semantic_content = .input;
+            cursor.semantic_content_clear_eol = switch (clear) {
+                .clear_explicit => false,
+                .clear_eol => true,
+            };
+        },
+
+        .prompt => |kind| {
+            self.flags.semantic_content = true;
+            cursor.semantic_content = .prompt;
+            cursor.semantic_content_clear_eol = false;
+            cursor.page_row.semantic_prompt2 = switch (kind) {
+                .initial, .right => .prompt,
+                .continuation, .secondary => .prompt_continuation,
+            };
+        },
+    }
+}
+
 /// Set the selection to the given selection. If this is a tracked selection
 /// then the screen will take ownership of the selection. If this is untracked
 /// then the screen will convert it to tracked internally. This will automatically
@@ -3874,7 +3892,7 @@ test "Screen eraseRows active partial" {
     }
 }
 
-test "Screen: clearPrompt" {
+test "Screen: clearPrompt single line prompt" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
