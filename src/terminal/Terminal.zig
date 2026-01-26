@@ -1198,29 +1198,15 @@ pub fn cursorIsAtPrompt(self: *Terminal) bool {
     // If we're on the secondary screen, we're never at a prompt.
     if (self.screens.active_key == .alternate) return false;
 
-    // Reverse through the active
-    const start_x, const start_y = .{ self.screens.active.cursor.x, self.screens.active.cursor.y };
-    defer self.screens.active.cursorAbsolute(start_x, start_y);
+    // If our page row is a prompt then we're always at a prompt
+    const cursor: *const Screen.Cursor = &self.screens.active.cursor;
+    if (cursor.page_row.semantic_prompt2 != .no_prompt) return true;
 
-    for (0..start_y + 1) |i| {
-        if (i > 0) self.screens.active.cursorUp(1);
-        switch (self.screens.active.cursor.page_row.semantic_prompt) {
-            // If we're at a prompt or input area, then we are at a prompt.
-            .prompt,
-            .prompt_continuation,
-            .input,
-            => return true,
-
-            // If we have command output, then we're most certainly not
-            // at a prompt.
-            .command => return false,
-
-            // If we don't know, we keep searching.
-            .unknown => {},
-        }
-    }
-
-    return false;
+    // Otherwise, determine our cursor state
+    return switch (cursor.semantic_content) {
+        .input, .prompt => true,
+        .output => false,
+    };
 }
 
 /// Horizontal tab moves the cursor to the next tabstop, clearing
@@ -11397,27 +11383,23 @@ test "Terminal: cursorIsAtPrompt" {
     defer t.deinit(alloc);
 
     try testing.expect(!t.cursorIsAtPrompt());
-    t.markSemanticPrompt(.prompt);
+    try t.semanticPrompt(.init(.prompt_start));
     try testing.expect(t.cursorIsAtPrompt());
 
     // Input is also a prompt
-    t.markSemanticPrompt(.input);
-    try testing.expect(t.cursorIsAtPrompt());
-
-    // Newline -- we expect we're still at a prompt if we received
-    // prompt stuff before.
-    try t.linefeed();
+    try t.semanticPrompt(.init(.end_prompt_start_input));
     try testing.expect(t.cursorIsAtPrompt());
 
     // But once we say we're starting output, we're not a prompt
-    t.markSemanticPrompt(.command);
-    try testing.expect(!t.cursorIsAtPrompt());
+    try t.semanticPrompt(.init(.end_input_start_output));
+    // Still a prompt because this line has a prompt
+    try testing.expect(t.cursorIsAtPrompt());
     try t.linefeed();
     try testing.expect(!t.cursorIsAtPrompt());
 
     // Until we know we're at a prompt again
     try t.linefeed();
-    t.markSemanticPrompt(.prompt);
+    try t.semanticPrompt(.init(.prompt_start));
     try testing.expect(t.cursorIsAtPrompt());
 }
 
@@ -11427,13 +11409,13 @@ test "Terminal: cursorIsAtPrompt alternate screen" {
     defer t.deinit(alloc);
 
     try testing.expect(!t.cursorIsAtPrompt());
-    t.markSemanticPrompt(.prompt);
+    try t.semanticPrompt(.init(.prompt_start));
     try testing.expect(t.cursorIsAtPrompt());
 
     // Secondary screen is never a prompt
     try t.switchScreenMode(.@"1049", true);
     try testing.expect(!t.cursorIsAtPrompt());
-    t.markSemanticPrompt(.prompt);
+    try t.semanticPrompt(.init(.prompt_start));
     try testing.expect(!t.cursorIsAtPrompt());
 }
 
