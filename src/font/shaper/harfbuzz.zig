@@ -1125,13 +1125,17 @@ test "shape Tai Tham vowels (position differs from advance)" {
         count += 1;
 
         const cells = try shaper.shape(run);
-        const cell_width = run.grid.metrics.cell_width;
         try testing.expectEqual(@as(usize, 2), cells.len);
         try testing.expectEqual(@as(u16, 0), cells[0].x);
         try testing.expectEqual(@as(u16, 0), cells[1].x);
 
-        // The first glyph renders in the next cell
-        try testing.expectEqual(@as(i16, @intCast(cell_width)), cells[0].x_offset);
+        // The first glyph renders in the next cell. We expect the x_offset
+        // to equal the cell width. However, with FreeType the cell_width is
+        // computed from ASCII glyphs, and Noto Sans Tai Tham only has the
+        // space character in ASCII (with a 3px advance), so the cell_width
+        // metric doesn't match the actual Tai Tham glyph positioning.
+        const expected_x_offset: i16 = if (comptime font.options.backend.hasFreetype()) 7 else @intCast(run.grid.metrics.cell_width);
+        try testing.expectEqual(expected_x_offset, cells[0].x_offset);
         try testing.expectEqual(@as(i16, 0), cells[1].x_offset);
     }
     try testing.expectEqual(@as(usize, 1), count);
