@@ -4,17 +4,6 @@ export module ghostty {
     $feature in ($env.GHOSTTY_SHELL_FEATURES | default "" | split row ',')
   }
 
-  # Enables SSH environment variable compatibility.
-  # Converts TERM from xterm-ghostty to xterm-256color
-  # and propagates COLORTERM, TERM_PROGRAM, and TERM_PROGRAM_VERSION
-  # check your sshd_config on remote host to see if these variables are accepted
-  def set_ssh_env []: nothing -> record<ssh_term: string, ssh_opts: list<string>> {
-    return {
-      ssh_term: "xterm-256color"
-      ssh_opts: ["-o" "SetEnv COLORTERM=truecolor" "-o" "SendEnv TERM_PROGRAM TERM_PROGRAM_VERSION"]
-    }
-  }
-
   # Enables automatic terminfo installation on remote hosts.
   # Attempts to install Ghostty's terminfo entry using infocmp and tic when
   # connecting to hosts that lack it. 
@@ -24,7 +13,6 @@ export module ghostty {
     ssh_opts: list<string>
     ssh_args: list<string>
   ]: [nothing -> record<ssh_term: string, ssh_opts: list<string>>] {
-    mut ssh_opts = $ssh_opts
     let ssh_cfg = ^ssh -G ...($ssh_args)
       | lines
       | parse "{key} {value}"
@@ -43,20 +31,16 @@ export module ghostty {
     )
 
     if not $is_cached {
-      let ssh_opts_copy = $ssh_opts
       let terminfo_data = try { ^infocmp -0 -x xterm-ghostty } catch {
         print "Warning: Could not generate terminfo data."
-        return {ssh_term: "xterm-256color" ssh_opts: $ssh_opts_copy}
+        return {ssh_term: "xterm-256color" ssh_opts: $ssh_opts}
       }
 
       print $"Setting up xterm-ghostty terminfo on ($ssh_cfg.hostname)..."
 
       let ctrl_path = (
-        try {
-          mktemp -td $"ghostty-ssh-($ssh_cfg.user).XXXXXX"
-        } catch {
-          $"/tmp/ghostty-ssh-($ssh_cfg.user).($nu.pid)"
-        } | path join "socket"
+        mktemp -td $"ghostty-ssh-($ssh_cfg.user).XXXXXX"
+        | path join "socket"
       )
 
       let master_parts = $ssh_opts ++ ["-o" "ControlMaster=yes" "-o" $"ControlPath=($ctrl_path)" "-o" "ControlPersist=60s"] ++ $ssh_args
@@ -78,10 +62,43 @@ export module ghostty {
       }
 
       ^$ghostty_bin ...(["+ssh-cache" $"--add=($ssh_id)"]) o+e>| ignore
-      $ssh_opts ++= ["-o" $"ControlPath=($ctrl_path)"]
+
+      return {ssh_term: "xterm-ghostty" ssh_opts: ($ssh_opts ++ ["-o" $"ControlPath=($ctrl_path)"])}
     }
 
     return {ssh_term: "xterm-ghostty" ssh_opts: $ssh_opts}
+  }
+
+  # Wrap `ssh` with Ghostty TERMINFO support
+  export def --wrapped ssh [...ssh_args: string]: any -> any {
+    if ($ssh_args | is-empty) {
+      return (^ssh)
+    }
+    # `ssh-env` enables SSH environment variable compatibility.
+    # Converts TERM from xterm-ghostty to xterm-256color
+    # and propagates COLORTERM, TERM_PROGRAM, and TERM_PROGRAM_VERSION
+    # Check your sshd_config on remote host to see if these variables are accepted
+    let base_ssh_opts = if (has_feature "ssh-env") {
+      ["-o" "SetEnv COLORTERM=truecolor" "-o" "SendEnv TERM_PROGRAM TERM_PROGRAM_VERSION"]
+    } else {
+      []
+    }
+    let base_ssh_term = if (has_feature "ssh-env") {
+      "xterm-256color"
+    } else {
+      ($env.TERM? | default "")
+    }
+
+    let session = if (has_feature "ssh-terminfo") {
+      set_ssh_terminfo $base_ssh_opts $ssh_args
+    } else {
+      {ssh_term: $base_ssh_term ssh_opts: $base_ssh_opts}
+    }
+
+    let ssh_parts = $session.ssh_opts ++ $ssh_args
+    with-env {TERM: $session.ssh_term} {
+      ^ssh ...$ssh_parts
+    }
   }
 
   # Wrap `sudo` to preserve Ghostty's TERMINFO environment variable
@@ -105,26 +122,6 @@ export module ghostty {
     }
 
     ^sudo ...$sudo_args
-  }
-  # Wrap `ssh` to provide ghostty `ssh-integration`
-  export def --wrapped ssh [...ssh_args: string]: any -> any {
-    if ($ssh_args | is-empty) {
-      return (^ssh)
-    }
-    mut session = {ssh_term: "" ssh_opts: []}
-    let shell_features = $env.GHOSTTY_SHELL_FEATURES | split row ','
-
-    if (has_feature "ssh-env") {
-      $session = set_ssh_env
-    }
-    if (has_feature "ssh-terminfo") {
-      $session = set_ssh_terminfo $session.ssh_opts $ssh_args
-    }
-
-    let ssh_parts = $session.ssh_opts ++ $ssh_args
-    with-env {TERM: $session.ssh_term} {
-      ^ssh ...$ssh_parts
-    }
   }
 }
 
