@@ -1071,26 +1071,10 @@ pub const StreamHandler = struct {
         cmd: Stream.Action.SemanticPrompt,
     ) !void {
         switch (cmd.action) {
-            .fresh_line_new_prompt => {
-                const kind = cmd.readOption(.prompt_kind) orelse .initial;
-                switch (kind) {
-                    .initial, .right => {
-                        self.terminal.markSemanticPrompt(.prompt);
-                        if (cmd.readOption(.redraw)) |redraw| {
-                            self.terminal.flags.shell_redraws_prompt = redraw;
-                        }
-                    },
-                    .continuation, .secondary => {
-                        self.terminal.markSemanticPrompt(.prompt_continuation);
-                    },
-                }
-            },
-
-            .end_prompt_start_input => self.terminal.markSemanticPrompt(.input),
             .end_input_start_output => {
-                self.terminal.markSemanticPrompt(.command);
                 self.surfaceMessageWriter(.start_command);
             },
+
             .end_command => {
                 // The specification seems to not specify the type but
                 // other terminals accept 32-bits, but exit codes are really
@@ -1103,12 +1087,11 @@ pub const StreamHandler = struct {
                 self.surfaceMessageWriter(.{ .stop_command = code });
             },
 
-            // All of these commands weren't previously handled by our
-            // semantic prompt code. I am PR-ing the parser separate from the
-            // handling so we just ignore these like we did before, even
-            // though we should handle them eventually.
+            // Handled by Terminal, no special handling by us
+            .end_prompt_start_input,
             .end_prompt_start_input_terminate_eol,
             .fresh_line,
+            .fresh_line_new_prompt,
             .new_command,
             .prompt_start,
             => {},

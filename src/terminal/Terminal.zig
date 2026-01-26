@@ -1189,19 +1189,6 @@ pub const SemanticPrompt = enum {
     command,
 };
 
-/// Mark the current semantic prompt information. Current escape sequences
-/// (OSC 133) only allow setting this for wherever the current active cursor
-/// is located.
-pub fn markSemanticPrompt(self: *Terminal, p: SemanticPrompt) void {
-    //log.debug("semantic_prompt y={} p={}", .{ self.screens.active.cursor.y, p });
-    self.screens.active.cursor.page_row.semantic_prompt = switch (p) {
-        .prompt => .prompt,
-        .prompt_continuation => .prompt_continuation,
-        .input => .input,
-        .command => .command,
-    };
-}
-
 /// Returns true if the cursor is currently at a prompt. Another way to look
 /// at this is it returns false if the shell is currently outputting something.
 /// This requires shell integration (semantic prompt integration).
@@ -2360,19 +2347,15 @@ pub fn eraseDisplay(
                 );
                 while (it.next()) |p| {
                     const row = p.rowAndCell().row;
-                    switch (row.semantic_prompt) {
+                    switch (row.semantic_prompt2) {
                         // If we're at a prompt or input area, then we are at a prompt.
                         .prompt,
                         .prompt_continuation,
-                        .input,
                         => break,
 
                         // If we have command output, then we're most certainly not
                         // at a prompt.
-                        .command => break :at_prompt,
-
-                        // If we don't know, we keep searching.
-                        .unknown => {},
+                        .no_prompt => break :at_prompt,
                     }
                 } else break :at_prompt;
 
