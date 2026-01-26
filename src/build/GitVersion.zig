@@ -29,6 +29,10 @@ pub fn detect(b: *std.Build) !Version {
             error.ExitCodeFailure => return error.GitNotRepository,
             else => return err,
         };
+        // Replace any '/' with '-' as including slashes will mess up building
+        // the dist tarball - the tarball uses the branch as part of the
+        // name and including slashes means that the tarball will end up in
+        // subdirectories instead of where it's supposed to be.
         std.mem.replaceScalar(u8, tmp, '/', '-');
         break :b tmp;
     };
