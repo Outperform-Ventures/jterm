@@ -1898,10 +1898,6 @@ pub const Row = packed struct(u64) {
     /// false negatives. This is used to optimize hyperlink operations.
     hyperlink: bool = false,
 
-    /// The semantic prompt type for this row as specified by the
-    /// running program, or "unknown" if it was never set.
-    semantic_prompt: SemanticPrompt = .unknown,
-
     /// The semantic prompt state for this row.
     ///
     /// This is ONLY meant to note if there are ANY cells in this
@@ -1933,9 +1929,9 @@ pub const Row = packed struct(u64) {
     /// screen.
     dirty: bool = false,
 
-    _padding: u20 = 0,
+    _padding: u23 = 0,
 
-    /// The semantic prompt state of the row. See `semantic_prompt`.
+    /// The semantic prompt state of the row. See `semantic_prompt2`.
     pub const SemanticPrompt2 = enum(u2) {
         /// No prompt cells in this row.
         no_prompt = 0,
@@ -1944,29 +1940,6 @@ pub const Row = packed struct(u64) {
         /// Prompt cells exist in this row that had k=c set (continuation)
         /// line. This is used as a way to
         prompt_continuation = 2,
-    };
-
-    /// Semantic prompt type.
-    pub const SemanticPrompt = enum(u3) {
-        /// Unknown, the running application didn't tell us for this line.
-        unknown = 0,
-
-        /// This is a prompt line, meaning it only contains the shell prompt.
-        /// For poorly behaving shells, this may also be the input.
-        prompt = 1,
-        prompt_continuation = 2,
-
-        /// This line contains the input area. We don't currently track
-        /// where this actually is in the line, so we just assume it is somewhere.
-        input = 3,
-
-        /// This line is the start of command output.
-        command = 4,
-
-        /// True if this is a prompt or input line.
-        pub fn promptOrInput(self: SemanticPrompt) bool {
-            return self == .prompt or self == .prompt_continuation or self == .input;
-        }
     };
 
     /// Returns true if this row has any managed memory outside of the
