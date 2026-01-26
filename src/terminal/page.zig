@@ -1907,7 +1907,7 @@ pub const Row = packed struct(u64) {
     /// This may contain false positives but never false negatives. If
     /// this is set, you should still check individual cells to see if they
     /// have prompt semantics.
-    semantic_prompt2: SemanticPrompt2 = .no_prompt,
+    semantic_prompt: SemanticPrompt = .no_prompt,
 
     /// True if this row contains a virtual placeholder for the Kitty
     /// graphics protocol. (U+10EEEE)
@@ -1931,8 +1931,8 @@ pub const Row = packed struct(u64) {
 
     _padding: u23 = 0,
 
-    /// The semantic prompt state of the row. See `semantic_prompt2`.
-    pub const SemanticPrompt2 = enum(u2) {
+    /// The semantic prompt state of the row. See `semantic_prompt`.
+    pub const SemanticPrompt = enum(u2) {
         /// No prompt cells in this row.
         no_prompt = 0,
         /// Prompt cells exist in this row.

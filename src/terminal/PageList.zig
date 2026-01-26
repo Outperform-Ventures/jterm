@@ -1229,7 +1229,7 @@ const ReflowCursor = struct {
 
             // If the row has a semantic prompt then the blank row is meaningful
             // so we just consider pretend the first cell of the row isn't empty.
-            if (cols_len == 0 and src_row.semantic_prompt2 != .no_prompt) cols_len = 1;
+            if (cols_len == 0 and src_row.semantic_prompt != .no_prompt) cols_len = 1;
         }
 
         // Handle tracked pin adjustments.
@@ -1973,13 +1973,13 @@ const ReflowCursor = struct {
 
         // If the row has a semantic prompt then the blank row is meaningful
         // so we always return all but one so that the row is drawn.
-        if (self.page_row.semantic_prompt2 != .no_prompt) return len - 1;
+        if (self.page_row.semantic_prompt != .no_prompt) return len - 1;
 
         return len;
     }
 
     fn copyRowMetadata(self: *ReflowCursor, other: *const Row) void {
-        self.page_row.semantic_prompt2 = other.semantic_prompt2;
+        self.page_row.semantic_prompt = other.semantic_prompt;
     }
 };
 
@@ -4403,7 +4403,7 @@ pub const PromptIterator = struct {
             const at_limit = if (self.limit) |limit| limit.eql(p) else false;
 
             const rac = p.rowAndCell();
-            switch (rac.row.semantic_prompt2) {
+            switch (rac.row.semantic_prompt) {
                 // This row isn't a prompt. Keep looking.
                 .no_prompt => if (at_limit) break,
 
@@ -4422,7 +4422,7 @@ pub const PromptIterator = struct {
                     // up to our limit.
                     var end_pin = p;
                     while (end_pin.down(1)) |next_pin| : (end_pin = next_pin) {
-                        switch (next_pin.rowAndCell().row.semantic_prompt2) {
+                        switch (next_pin.rowAndCell().row.semantic_prompt) {
                             .prompt_continuation => if (self.limit) |limit| {
                                 if (limit.eql(next_pin)) break;
                             },
@@ -4456,7 +4456,7 @@ pub const PromptIterator = struct {
             const at_limit = if (self.limit) |limit| limit.eql(p) else false;
 
             const rac = p.rowAndCell();
-            switch (rac.row.semantic_prompt2) {
+            switch (rac.row.semantic_prompt) {
                 // This row isn't a prompt. Keep looking.
                 .no_prompt => if (at_limit) break,
 
@@ -4483,7 +4483,7 @@ pub const PromptIterator = struct {
                             if (limit.eql(prior)) break;
                         }
 
-                        switch (prior.rowAndCell().row.semantic_prompt2) {
+                        switch (prior.rowAndCell().row.semantic_prompt) {
                             // No prompt. That means our last pin is good!
                             .no_prompt => {
                                 self.current = prior;
@@ -6771,11 +6771,11 @@ test "PageList: jump zero prompts" {
     const page = &s.pages.first.?.data;
     {
         const rac = page.getRowAndCell(0, 1);
-        rac.row.semantic_prompt2 = .prompt;
+        rac.row.semantic_prompt = .prompt;
     }
     {
         const rac = page.getRowAndCell(0, 5);
-        rac.row.semantic_prompt2 = .prompt;
+        rac.row.semantic_prompt = .prompt;
     }
 
     s.scroll(.{ .delta_prompt = 0 });
@@ -6799,11 +6799,11 @@ test "Screen: jump back one prompt" {
     const page = &s.pages.first.?.data;
     {
         const rac = page.getRowAndCell(0, 1);
-        rac.row.semantic_prompt2 = .prompt;
+        rac.row.semantic_prompt = .prompt;
     }
     {
         const rac = page.getRowAndCell(0, 5);
-        rac.row.semantic_prompt2 = .prompt;
+        rac.row.semantic_prompt = .prompt;
     }
 
     // Jump back
@@ -7906,25 +7906,25 @@ test "PageList promptIterator left_up" {
     // Normal prompt
     {
         const rac = page.getRowAndCell(0, 3);
-        rac.row.semantic_prompt2 = .prompt;
+        rac.row.semantic_prompt = .prompt;
     }
     // Continuation
     {
         const rac = page.getRowAndCell(0, 6);
-        rac.row.semantic_prompt2 = .prompt;
+        rac.row.semantic_prompt = .prompt;
     }
     {
         const rac = page.getRowAndCell(0, 7);
-        rac.row.semantic_prompt2 = .prompt_continuation;
+        rac.row.semantic_prompt = .prompt_continuation;
     }
     {
         const rac = page.getRowAndCell(0, 8);
-        rac.row.semantic_prompt2 = .prompt_continuation;
+        rac.row.semantic_prompt = .prompt_continuation;
     }
     // Broken continuation that has non-prompts in between
     {
         const rac = page.getRowAndCell(0, 12);
-        rac.row.semantic_prompt2 = .prompt_continuation;
+        rac.row.semantic_prompt = .prompt_continuation;
     }
 
     var it = s.promptIterator(.left_up, .{ .screen = .{} }, null);
@@ -7963,25 +7963,25 @@ test "PageList promptIterator right_down" {
     // Normal prompt
     {
         const rac = page.getRowAndCell(0, 3);
-        rac.row.semantic_prompt2 = .prompt;
+        rac.row.semantic_prompt = .prompt;
     }
     // Continuation (prompt on row 6, continuation on rows 7-8)
     {
         const rac = page.getRowAndCell(0, 6);
-        rac.row.semantic_prompt2 = .prompt;
+        rac.row.semantic_prompt = .prompt;
     }
     {
         const rac = page.getRowAndCell(0, 7);
-        rac.row.semantic_prompt2 = .prompt_continuation;
+        rac.row.semantic_prompt = .prompt_continuation;
     }
     {
         const rac = page.getRowAndCell(0, 8);
-        rac.row.semantic_prompt2 = .prompt_continuation;
+        rac.row.semantic_prompt = .prompt_continuation;
     }
     // Broken continuation that has non-prompts in between (orphaned continuation at row 12)
     {
         const rac = page.getRowAndCell(0, 12);
-        rac.row.semantic_prompt2 = .prompt_continuation;
+        rac.row.semantic_prompt = .prompt_continuation;
     }
 
     var it = s.promptIterator(.right_down, .{ .screen = .{} }, null);
@@ -8021,16 +8021,16 @@ test "PageList promptIterator right_down continuation at start" {
     // Prompt continuation at row 0 (no prior rows - simulates trimmed scrollback)
     {
         const rac = page.getRowAndCell(0, 0);
-        rac.row.semantic_prompt2 = .prompt_continuation;
+        rac.row.semantic_prompt = .prompt_continuation;
     }
     {
         const rac = page.getRowAndCell(0, 1);
-        rac.row.semantic_prompt2 = .prompt_continuation;
+        rac.row.semantic_prompt = .prompt_continuation;
     }
     // Normal prompt later
     {
         const rac = page.getRowAndCell(0, 5);
-        rac.row.semantic_prompt2 = .prompt;
+        rac.row.semantic_prompt = .prompt;
     }
 
     var it = s.promptIterator(.right_down, .{ .screen = .{} }, null);
@@ -8065,15 +8065,15 @@ test "PageList promptIterator right_down with prompt before continuation" {
     // Starting iteration from row 3 should still find the prompt at row 2
     {
         const rac = page.getRowAndCell(0, 2);
-        rac.row.semantic_prompt2 = .prompt;
+        rac.row.semantic_prompt = .prompt;
     }
     {
         const rac = page.getRowAndCell(0, 3);
-        rac.row.semantic_prompt2 = .prompt_continuation;
+        rac.row.semantic_prompt = .prompt_continuation;
     }
     {
         const rac = page.getRowAndCell(0, 4);
-        rac.row.semantic_prompt2 = .prompt_continuation;
+        rac.row.semantic_prompt = .prompt_continuation;
     }
 
     // Start iteration from row 3 (middle of the continuation)
@@ -8103,12 +8103,12 @@ test "PageList promptIterator right_down limit inclusive" {
     // Prompt on row 5
     {
         const rac = page.getRowAndCell(0, 5);
-        rac.row.semantic_prompt2 = .prompt;
+        rac.row.semantic_prompt = .prompt;
     }
     // Prompt on row 10
     {
         const rac = page.getRowAndCell(0, 10);
-        rac.row.semantic_prompt2 = .prompt;
+        rac.row.semantic_prompt = .prompt;
     }
 
     // Iterate with limit at row 5 (the prompt row) - should include it
@@ -8135,12 +8135,12 @@ test "PageList promptIterator left_up limit inclusive" {
     // Prompt on row 5
     {
         const rac = page.getRowAndCell(0, 5);
-        rac.row.semantic_prompt2 = .prompt;
+        rac.row.semantic_prompt = .prompt;
     }
     // Prompt on row 10
     {
         const rac = page.getRowAndCell(0, 10);
-        rac.row.semantic_prompt2 = .prompt;
+        rac.row.semantic_prompt = .prompt;
     }
 
     // Iterate with limit at row 10 (the prompt row) - should include it
@@ -8168,7 +8168,7 @@ test "PageList highlightSemanticContent prompt" {
     // Prompt on row 5
     {
         const rac = page.getRowAndCell(0, 5);
-        rac.row.semantic_prompt2 = .prompt;
+        rac.row.semantic_prompt = .prompt;
 
         // Start the prompt for the first 5 cols
         for (0..5) |x| {
@@ -8193,7 +8193,7 @@ test "PageList highlightSemanticContent prompt" {
     // Prompt on row 10
     {
         const rac = page.getRowAndCell(0, 10);
-        rac.row.semantic_prompt2 = .prompt;
+        rac.row.semantic_prompt = .prompt;
     }
 
     const hl = s.highlightSemanticContent(
@@ -8222,7 +8222,7 @@ test "PageList highlightSemanticContent prompt with output" {
     // Prompt on row 5
     {
         const rac = page.getRowAndCell(0, 5);
-        rac.row.semantic_prompt2 = .prompt;
+        rac.row.semantic_prompt = .prompt;
 
         // First 3 cols are prompt
         for (0..3) |x| {
@@ -8257,7 +8257,7 @@ test "PageList highlightSemanticContent prompt with output" {
     // Prompt on row 10
     {
         const rac = page.getRowAndCell(0, 10);
-        rac.row.semantic_prompt2 = .prompt;
+        rac.row.semantic_prompt = .prompt;
     }
 
     // Highlighting from prompt should include prompt and input, but stop at output
@@ -8287,7 +8287,7 @@ test "PageList highlightSemanticContent prompt multiline" {
     // Prompt starts on row 5
     {
         const rac = page.getRowAndCell(0, 5);
-        rac.row.semantic_prompt2 = .prompt;
+        rac.row.semantic_prompt = .prompt;
 
         // First row is all prompt
         for (0..10) |x| {
@@ -8313,7 +8313,7 @@ test "PageList highlightSemanticContent prompt multiline" {
     // Prompt on row 10
     {
         const rac = page.getRowAndCell(0, 10);
-        rac.row.semantic_prompt2 = .prompt;
+        rac.row.semantic_prompt = .prompt;
     }
 
     // Highlighting should span both rows
@@ -8343,7 +8343,7 @@ test "PageList highlightSemanticContent prompt only" {
     // Prompt on row 5 with only prompt content (no input)
     {
         const rac = page.getRowAndCell(0, 5);
-        rac.row.semantic_prompt2 = .prompt;
+        rac.row.semantic_prompt = .prompt;
 
         for (0..5) |x| {
             const cell = page.getRowAndCell(x, 5).cell;
@@ -8357,7 +8357,7 @@ test "PageList highlightSemanticContent prompt only" {
     // Prompt on row 10
     {
         const rac = page.getRowAndCell(0, 10);
-        rac.row.semantic_prompt2 = .prompt;
+        rac.row.semantic_prompt = .prompt;
     }
 
     // Highlighting should only include the prompt cells
@@ -8387,7 +8387,7 @@ test "PageList highlightSemanticContent prompt to end of screen" {
     // Single prompt on row 15, no following prompt
     {
         const rac = page.getRowAndCell(0, 15);
-        rac.row.semantic_prompt2 = .prompt;
+        rac.row.semantic_prompt = .prompt;
 
         for (0..3) |x| {
             const cell = page.getRowAndCell(x, 15).cell;
@@ -8435,7 +8435,7 @@ test "PageList highlightSemanticContent input basic" {
     // Prompt on row 5
     {
         const rac = page.getRowAndCell(0, 5);
-        rac.row.semantic_prompt2 = .prompt;
+        rac.row.semantic_prompt = .prompt;
 
         // First 3 cols are prompt
         for (0..3) |x| {
@@ -8460,7 +8460,7 @@ test "PageList highlightSemanticContent input basic" {
     // Prompt on row 10
     {
         const rac = page.getRowAndCell(0, 10);
-        rac.row.semantic_prompt2 = .prompt;
+        rac.row.semantic_prompt = .prompt;
     }
 
     // Highlighting input should only include input cells
@@ -8490,7 +8490,7 @@ test "PageList highlightSemanticContent input with output" {
     // Prompt on row 5
     {
         const rac = page.getRowAndCell(0, 5);
-        rac.row.semantic_prompt2 = .prompt;
+        rac.row.semantic_prompt = .prompt;
 
         // First 2 cols are prompt
         for (0..2) |x| {
@@ -8525,7 +8525,7 @@ test "PageList highlightSemanticContent input with output" {
     // Prompt on row 10
     {
         const rac = page.getRowAndCell(0, 10);
-        rac.row.semantic_prompt2 = .prompt;
+        rac.row.semantic_prompt = .prompt;
     }
 
     // Highlighting input should stop at output
@@ -8555,7 +8555,7 @@ test "PageList highlightSemanticContent input multiline with continuation" {
     // Prompt on row 5
     {
         const rac = page.getRowAndCell(0, 5);
-        rac.row.semantic_prompt2 = .prompt;
+        rac.row.semantic_prompt = .prompt;
 
         // First 2 cols are prompt
         for (0..2) |x| {
@@ -8602,7 +8602,7 @@ test "PageList highlightSemanticContent input multiline with continuation" {
     // Prompt on row 10
     {
         const rac = page.getRowAndCell(0, 10);
-        rac.row.semantic_prompt2 = .prompt;
+        rac.row.semantic_prompt = .prompt;
     }
 
     // Highlighting input should span both rows, skipping continuation prompts
@@ -8632,7 +8632,7 @@ test "PageList highlightSemanticContent input no input returns null" {
     // Prompt on row 5 with only prompt, then immediately output
     {
         const rac = page.getRowAndCell(0, 5);
-        rac.row.semantic_prompt2 = .prompt;
+        rac.row.semantic_prompt = .prompt;
 
         // First 3 cols are prompt
         for (0..3) |x| {
@@ -8657,7 +8657,7 @@ test "PageList highlightSemanticContent input no input returns null" {
     // Prompt on row 10
     {
         const rac = page.getRowAndCell(0, 10);
-        rac.row.semantic_prompt2 = .prompt;
+        rac.row.semantic_prompt = .prompt;
     }
 
     // Highlighting input should return null when there's no input
@@ -8680,7 +8680,7 @@ test "PageList highlightSemanticContent input to end of screen" {
     // Single prompt on row 15, no following prompt
     {
         const rac = page.getRowAndCell(0, 15);
-        rac.row.semantic_prompt2 = .prompt;
+        rac.row.semantic_prompt = .prompt;
 
         for (0..2) |x| {
             const cell = page.getRowAndCell(x, 15).cell;
@@ -8728,7 +8728,7 @@ test "PageList highlightSemanticContent input prompt only returns null" {
     // Prompt on row 5 with only prompt content, no input or output
     {
         const rac = page.getRowAndCell(0, 5);
-        rac.row.semantic_prompt2 = .prompt;
+        rac.row.semantic_prompt = .prompt;
 
         // All cells are prompt
         for (0..10) |x| {
@@ -8752,7 +8752,7 @@ test "PageList highlightSemanticContent input prompt only returns null" {
     // Prompt on row 10
     {
         const rac = page.getRowAndCell(0, 10);
-        rac.row.semantic_prompt2 = .prompt;
+        rac.row.semantic_prompt = .prompt;
     }
 
     // Highlighting input should return null when there's only prompts
@@ -8775,7 +8775,7 @@ test "PageList highlightSemanticContent output basic" {
     // Prompt on row 5
     {
         const rac = page.getRowAndCell(0, 5);
-        rac.row.semantic_prompt2 = .prompt;
+        rac.row.semantic_prompt = .prompt;
 
         // First 2 cols are prompt
         for (0..2) |x| {
@@ -8816,7 +8816,7 @@ test "PageList highlightSemanticContent output basic" {
     // Prompt on row 10
     {
         const rac = page.getRowAndCell(0, 10);
-        rac.row.semantic_prompt2 = .prompt;
+        rac.row.semantic_prompt = .prompt;
     }
 
     // Highlighting output should only include output cells
@@ -8846,7 +8846,7 @@ test "PageList highlightSemanticContent output multiline" {
     // Prompt on row 5
     {
         const rac = page.getRowAndCell(0, 5);
-        rac.row.semantic_prompt2 = .prompt;
+        rac.row.semantic_prompt = .prompt;
 
         // First 2 cols are prompt
         for (0..2) |x| {
@@ -8907,7 +8907,7 @@ test "PageList highlightSemanticContent output multiline" {
     // Prompt on row 10
     {
         const rac = page.getRowAndCell(0, 10);
-        rac.row.semantic_prompt2 = .prompt;
+        rac.row.semantic_prompt = .prompt;
     }
 
     // Highlighting output should span multiple rows
@@ -8937,7 +8937,7 @@ test "PageList highlightSemanticContent output stops at next prompt" {
     // Prompt on row 5
     {
         const rac = page.getRowAndCell(0, 5);
-        rac.row.semantic_prompt2 = .prompt;
+        rac.row.semantic_prompt = .prompt;
 
         // First 2 cols are prompt
         for (0..2) |x| {
@@ -8992,7 +8992,7 @@ test "PageList highlightSemanticContent output stops at next prompt" {
     // Prompt on row 10
     {
         const rac = page.getRowAndCell(0, 10);
-        rac.row.semantic_prompt2 = .prompt;
+        rac.row.semantic_prompt = .prompt;
     }
 
     // Highlighting output should stop before prompt/input
@@ -9022,7 +9022,7 @@ test "PageList highlightSemanticContent output to end of screen" {
     // Single prompt on row 15, no following prompt
     {
         const rac = page.getRowAndCell(0, 15);
-        rac.row.semantic_prompt2 = .prompt;
+        rac.row.semantic_prompt = .prompt;
 
         for (0..2) |x| {
             const cell = page.getRowAndCell(x, 15).cell;
@@ -9094,7 +9094,7 @@ test "PageList highlightSemanticContent output no output returns null" {
     // Prompt on row 5 with only prompt and input, no output
     {
         const rac = page.getRowAndCell(0, 5);
-        rac.row.semantic_prompt2 = .prompt;
+        rac.row.semantic_prompt = .prompt;
 
         // First 3 cols are prompt
         for (0..3) |x| {
@@ -9128,7 +9128,7 @@ test "PageList highlightSemanticContent output no output returns null" {
     // Prompt on row 10 (no output between prompts)
     {
         const rac = page.getRowAndCell(0, 10);
-        rac.row.semantic_prompt2 = .prompt;
+        rac.row.semantic_prompt = .prompt;
     }
 
     // Highlighting output should return null when there's no output
@@ -9154,7 +9154,7 @@ test "PageList highlightSemanticContent output skips empty cells" {
     // Prompt on row 5 - only fills first 3 cells, rest are empty with default .output
     {
         const rac = page.getRowAndCell(0, 5);
-        rac.row.semantic_prompt2 = .prompt;
+        rac.row.semantic_prompt = .prompt;
 
         // First 3 cols are prompt with text
         for (0..3) |x| {
@@ -9199,7 +9199,7 @@ test "PageList highlightSemanticContent output skips empty cells" {
     // Prompt on row 10
     {
         const rac = page.getRowAndCell(0, 10);
-        rac.row.semantic_prompt2 = .prompt;
+        rac.row.semantic_prompt = .prompt;
     }
 
     // Highlighting output should skip empty cells on rows 5-6 and find
@@ -11553,7 +11553,7 @@ test "PageList resize reflow more cols no reflow preserves semantic prompt" {
         try testing.expect(s.pages.first == s.pages.last);
         const page = &s.pages.first.?.data;
         const rac = page.getRowAndCell(0, 1);
-        rac.row.semantic_prompt2 = .prompt;
+        rac.row.semantic_prompt = .prompt;
     }
 
     // Resize
@@ -11565,7 +11565,7 @@ test "PageList resize reflow more cols no reflow preserves semantic prompt" {
         try testing.expect(s.pages.first == s.pages.last);
         const page = &s.pages.first.?.data;
         const rac = page.getRowAndCell(0, 1);
-        try testing.expect(rac.row.semantic_prompt2 == .prompt);
+        try testing.expect(rac.row.semantic_prompt == .prompt);
     }
 }
 
@@ -12128,7 +12128,7 @@ test "PageList resize reflow less cols no reflow preserves semantic prompt" {
         const page = &s.pages.first.?.data;
         {
             const rac = page.getRowAndCell(0, 1);
-            rac.row.semantic_prompt2 = .prompt;
+            rac.row.semantic_prompt = .prompt;
         }
         for (0..s.cols) |x| {
             const rac = page.getRowAndCell(x, 1);
@@ -12150,12 +12150,12 @@ test "PageList resize reflow less cols no reflow preserves semantic prompt" {
             const p = s.pin(.{ .active = .{ .y = 1 } }).?;
             const rac = p.rowAndCell();
             try testing.expect(rac.row.wrap);
-            try testing.expect(rac.row.semantic_prompt2 == .prompt);
+            try testing.expect(rac.row.semantic_prompt == .prompt);
         }
         {
             const p = s.pin(.{ .active = .{ .y = 2 } }).?;
             const rac = p.rowAndCell();
-            try testing.expect(rac.row.semantic_prompt2 == .prompt);
+            try testing.expect(rac.row.semantic_prompt == .prompt);
         }
     }
 }
@@ -12170,7 +12170,7 @@ test "PageList resize reflow less cols no reflow preserves semantic prompt on fi
         try testing.expect(s.pages.first == s.pages.last);
         const page = &s.pages.first.?.data;
         const rac = page.getRowAndCell(0, 0);
-        rac.row.semantic_prompt2 = .prompt;
+        rac.row.semantic_prompt = .prompt;
     }
 
     // Resize
@@ -12182,7 +12182,7 @@ test "PageList resize reflow less cols no reflow preserves semantic prompt on fi
         try testing.expect(s.pages.first == s.pages.last);
         const page = &s.pages.first.?.data;
         const rac = page.getRowAndCell(0, 0);
-        try testing.expect(rac.row.semantic_prompt2 == .prompt);
+        try testing.expect(rac.row.semantic_prompt == .prompt);
     }
 }
 
@@ -12196,7 +12196,7 @@ test "PageList resize reflow less cols wrap preserves semantic prompt" {
         try testing.expect(s.pages.first == s.pages.last);
         const page = &s.pages.first.?.data;
         const rac = page.getRowAndCell(0, 0);
-        rac.row.semantic_prompt2 = .prompt;
+        rac.row.semantic_prompt = .prompt;
     }
 
     // Resize
@@ -12208,7 +12208,7 @@ test "PageList resize reflow less cols wrap preserves semantic prompt" {
         try testing.expect(s.pages.first == s.pages.last);
         const page = &s.pages.first.?.data;
         const rac = page.getRowAndCell(0, 0);
-        try testing.expect(rac.row.semantic_prompt2 == .prompt);
+        try testing.expect(rac.row.semantic_prompt == .prompt);
     }
 }
 

@@ -1683,7 +1683,7 @@ pub inline fn resize(
     // If our cursor is on a prompt line, then we clear the prompt so
     // the shell can redraw it. This works with OSC133 semantic prompts.
     if (opts.prompt_redraw and
-        self.cursor.page_row.semantic_prompt2 != .no_prompt)
+        self.cursor.page_row.semantic_prompt != .no_prompt)
     prompt: {
         const start = start: {
             var it = self.cursor.page_pin.promptIterator(
@@ -2342,7 +2342,7 @@ pub fn cursorSetSemanticContent(self: *Screen, t: union(enum) {
             self.flags.semantic_content = true;
             cursor.semantic_content = .prompt;
             cursor.semantic_content_clear_eol = false;
-            cursor.page_row.semantic_prompt2 = switch (kind) {
+            cursor.page_row.semantic_prompt = switch (kind) {
                 .initial, .right => .prompt,
                 .continuation, .secondary => .prompt_continuation,
             };
@@ -2920,7 +2920,7 @@ pub fn promptPath(
 } {
     // Verify "from" is on a prompt row before calling highlightSemanticContent.
     // highlightSemanticContent asserts the starting point is a prompt.
-    switch (from.rowAndCell().row.semantic_prompt2) {
+    switch (from.rowAndCell().row.semantic_prompt) {
         .prompt, .prompt_continuation => {},
         .no_prompt => return .{ .x = 0, .y = 0 },
     }
@@ -3043,7 +3043,7 @@ pub fn testWriteString(self: *Screen, text: []const u8) !void {
                 self.cursorSetSemanticContent(.output);
             } else switch (self.cursor.semantic_content) {
                 .input, .output => {},
-                .prompt => self.cursor.page_row.semantic_prompt2 = .prompt_continuation,
+                .prompt => self.cursor.page_row.semantic_prompt = .prompt_continuation,
             }
             continue;
         }
@@ -3079,7 +3079,7 @@ pub fn testWriteString(self: *Screen, text: []const u8) !void {
             self.cursor.page_row.wrap_continuation = true;
             switch (self.cursor.semantic_content) {
                 .input, .output => {},
-                .prompt => self.cursor.page_row.semantic_prompt2 = .prompt_continuation,
+                .prompt => self.cursor.page_row.semantic_prompt = .prompt_continuation,
             }
         }
 
@@ -6088,15 +6088,15 @@ test "Screen: resize more cols no reflow preserves semantic prompt" {
     // Our one row should still be a semantic prompt, the others should not.
     {
         const list_cell = s.pages.getCell(.{ .active = .{ .x = 0, .y = 0 } }).?;
-        try testing.expect(list_cell.row.semantic_prompt2 == .no_prompt);
+        try testing.expect(list_cell.row.semantic_prompt == .no_prompt);
     }
     {
         const list_cell = s.pages.getCell(.{ .active = .{ .x = 0, .y = 1 } }).?;
-        try testing.expect(list_cell.row.semantic_prompt2 == .prompt);
+        try testing.expect(list_cell.row.semantic_prompt == .prompt);
     }
     {
         const list_cell = s.pages.getCell(.{ .active = .{ .x = 0, .y = 2 } }).?;
-        try testing.expect(list_cell.row.semantic_prompt2 == .no_prompt);
+        try testing.expect(list_cell.row.semantic_prompt == .no_prompt);
     }
 }
 
@@ -8474,7 +8474,7 @@ test "Screen: promptPath" {
     // Row 2: prompt (with prompt cells) and input
     {
         const rac = page.getRowAndCell(0, 2);
-        rac.row.semantic_prompt2 = .prompt;
+        rac.row.semantic_prompt = .prompt;
         // First 3 cols are prompt
         for (0..3) |x| {
             const cell = page.getRowAndCell(x, 2).cell;
@@ -8497,7 +8497,7 @@ test "Screen: promptPath" {
     // Row 3: continuation line with input cells (same prompt block)
     {
         const rac = page.getRowAndCell(0, 3);
-        rac.row.semantic_prompt2 = .prompt_continuation;
+        rac.row.semantic_prompt = .prompt_continuation;
         for (0..6) |x| {
             const cell = page.getRowAndCell(x, 3).cell;
             cell.* = .{
@@ -8510,7 +8510,7 @@ test "Screen: promptPath" {
     // Row 6: next prompt + input on same line
     {
         const rac = page.getRowAndCell(0, 6);
-        rac.row.semantic_prompt2 = .prompt;
+        rac.row.semantic_prompt = .prompt;
         for (0..2) |x| {
             const cell = page.getRowAndCell(x, 6).cell;
             cell.* = .{

@@ -15,7 +15,7 @@ pub fn neverExtendBg(
     // Any semantic prompts should not have their background extended
     // because prompts often contain special formatting (such as
     // powerline) that looks bad when extended.
-    switch (row.semantic_prompt2) {
+    switch (row.semantic_prompt) {
         .prompt, .prompt_continuation => return true,
         .no_prompt => {},
     }

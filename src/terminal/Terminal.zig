@@ -776,7 +776,7 @@ fn printWrap(self: *Terminal) !void {
     cursor.semantic_content_clear_eol = old_semantic_clear;
     switch (old_semantic) {
         .output, .input => {},
-        .prompt => cursor.page_row.semantic_prompt2 = .prompt_continuation,
+        .prompt => cursor.page_row.semantic_prompt = .prompt_continuation,
     }
 
     if (mark_wrap) {
@@ -1200,7 +1200,7 @@ pub fn cursorIsAtPrompt(self: *Terminal) bool {
 
     // If our page row is a prompt then we're always at a prompt
     const cursor: *const Screen.Cursor = &self.screens.active.cursor;
-    if (cursor.page_row.semantic_prompt2 != .no_prompt) return true;
+    if (cursor.page_row.semantic_prompt != .no_prompt) return true;
 
     // Otherwise, determine our cursor state
     return switch (cursor.semantic_content) {
@@ -2347,7 +2347,7 @@ pub fn eraseDisplay(
                 );
                 while (it.next()) |p| {
                     const row = p.rowAndCell().row;
-                    switch (row.semantic_prompt2) {
+                    switch (row.semantic_prompt) {
                         // If we're at a prompt or input area, then we are at a prompt.
                         .prompt,
                         .prompt_continuation,
@@ -4328,11 +4328,11 @@ test "Terminal: soft wrap with semantic prompt" {
     for ("hello") |c| try t.print(c);
     {
         const list_cell = t.screens.active.pages.getCell(.{ .screen = .{ .x = 0, .y = 0 } }).?;
-        try testing.expectEqual(.prompt, list_cell.row.semantic_prompt2);
+        try testing.expectEqual(.prompt, list_cell.row.semantic_prompt);
     }
     {
         const list_cell = t.screens.active.pages.getCell(.{ .screen = .{ .x = 0, .y = 1 } }).?;
-        try testing.expectEqual(.prompt_continuation, list_cell.row.semantic_prompt2);
+        try testing.expectEqual(.prompt_continuation, list_cell.row.semantic_prompt);
     }
 }
 
@@ -11302,7 +11302,7 @@ test "Terminal: semantic prompt" {
         try testing.expectEqual(.prompt, cell.semantic_content);
 
         const row = list_cell.row;
-        try testing.expectEqual(.prompt, row.semantic_prompt2);
+        try testing.expectEqual(.prompt, row.semantic_prompt);
     }
 
     // Start input but end it on EOL
@@ -11323,7 +11323,7 @@ test "Terminal: semantic prompt" {
         try testing.expectEqual(.output, cell.semantic_content);
 
         const row = list_cell.row;
-        try testing.expectEqual(.no_prompt, row.semantic_prompt2);
+        try testing.expectEqual(.no_prompt, row.semantic_prompt);
     }
 }
 
@@ -11346,7 +11346,7 @@ test "Terminal: semantic prompt continuations" {
         try testing.expectEqual(.prompt, cell.semantic_content);
 
         const row = list_cell.row;
-        try testing.expectEqual(.prompt, row.semantic_prompt2);
+        try testing.expectEqual(.prompt, row.semantic_prompt);
     }
 
     // Start input but end it on EOL
@@ -11370,7 +11370,7 @@ test "Terminal: semantic prompt continuations" {
         try testing.expectEqual(.prompt, cell.semantic_content);
 
         const row = list_cell.row;
-        try testing.expectEqual(.prompt_continuation, row.semantic_prompt2);
+        try testing.expectEqual(.prompt_continuation, row.semantic_prompt);
     }
 }
 
