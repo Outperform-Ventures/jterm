@@ -1077,10 +1077,9 @@ pub fn semanticPrompt(
 
             // "Subsequent text (until a OSC "133;B" or OSC "133;I" command)
             // is a prompt string (as if followed by OSC 133;P;k=i\007)."
-            self.semanticPromptSet(
-                .prompt,
-                cmd.readOption(.prompt_kind) orelse .initial,
-            );
+            self.screens.active.cursor.setSemanticContent(.{
+                .prompt = cmd.readOption(.prompt_kind) orelse .initial,
+            });
 
             // This is a kitty-specific flag that notes that the shell
             // is capable of redraw.
@@ -1110,27 +1109,29 @@ pub fn semanticPrompt(
             // The k (kind) option specifies the type of prompt:
             // regular primary prompt (k=i or default),
             // right-side prompts (k=r), or prompts for continuation lines (k=c or k=s).
-            self.semanticPromptSet(
-                .prompt,
-                cmd.readOption(.prompt_kind) orelse .initial,
-            );
+            self.screens.active.cursor.setSemanticContent(.{
+                .prompt = cmd.readOption(.prompt_kind) orelse .initial,
+            });
         },
 
         .end_prompt_start_input => {
             // End of prompt and start of user input, terminated by a OSC
             // "133;C" or another prompt (OSC "133;P").
-            self.semanticPromptSet(.input, .initial);
+            self.screens.active.cursor.setSemanticContent(.{
+                .input = .clear_explicit,
+            });
         },
 
         .end_prompt_start_input_terminate_eol => {
             // End of prompt and start of user input, terminated by end-of-line.
-            self.semanticPromptSet(.input, .initial);
-            self.screens.active.cursor.semantic_content_clear_eol = true;
+            self.screens.active.cursor.setSemanticContent(.{
+                .input = .clear_eol,
+            });
         },
 
         .end_input_start_output => {
             // "End of input, and start of output."
-            self.semanticPromptSet(.output, .initial);
+            self.screens.active.cursor.setSemanticContent(.output);
         },
 
         .end_command => {
@@ -1138,36 +1139,9 @@ pub fn semanticPrompt(
             // anything. Other terminals appear to do nothing here. I think
             // its reasonable at this point to reset our semantic content
             // state but the spec doesn't really say what to do.
-            self.semanticPromptSet(.output, .initial);
+            self.screens.active.cursor.setSemanticContent(.output);
         },
     }
-}
-
-fn semanticPromptSet(
-    self: *Terminal,
-    mode: pagepkg.Cell.SemanticContent,
-    kind: osc.semantic_prompt.PromptKind,
-) void {
-    // We always reset this when we mode change. The caller can set it
-    // again after if they care.
-    self.screens.active.cursor.semantic_content_clear_eol = false;
-
-    // Update our mode
-    self.screens.active.cursor.semantic_content = mode;
-
-    // We only need to update our row marker for prompt types. We
-    // use a switch in case new modes are introduced so the compiler
-    // can force us to handle them.
-    switch (mode) {
-        .input, .output => return,
-        .prompt => {},
-    }
-
-    // Last prompt type wins
-    self.screens.active.cursor.page_row.semantic_prompt2 = switch (kind) {
-        .initial, .right => .prompt,
-        .continuation, .secondary => .prompt_continuation,
-    };
 }
 
 // OSC 133;L

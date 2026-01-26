@@ -15,6 +15,7 @@ const Selection = @import("Selection.zig");
 const PageList = @import("PageList.zig");
 const StringMap = @import("StringMap.zig");
 const ScreenFormatter = @import("formatter.zig").ScreenFormatter;
+const osc = @import("osc.zig");
 const pagepkg = @import("page.zig");
 const point = @import("point.zig");
 const size = @import("size.zig");
@@ -149,6 +150,39 @@ pub const Cursor = struct {
         if (self.hyperlink) |link| {
             link.deinit(alloc);
             alloc.destroy(link);
+        }
+    }
+
+    /// Modify the semantic content type of the cursor. This should
+    /// be preferred over setting it manually since it handles all the
+    /// proper accounting.
+    pub fn setSemanticContent(self: *Cursor, t: union(enum) {
+        prompt: osc.semantic_prompt.PromptKind,
+        output,
+        input: enum { clear_explicit, clear_eol },
+    }) void {
+        switch (t) {
+            .output => {
+                self.semantic_content = .output;
+                self.semantic_content_clear_eol = false;
+            },
+
+            .input => |clear| {
+                self.semantic_content = .input;
+                self.semantic_content_clear_eol = switch (clear) {
+                    .clear_explicit => false,
+                    .clear_eol => true,
+                };
+            },
+
+            .prompt => |kind| {
+                self.semantic_content = .prompt;
+                self.semantic_content_clear_eol = false;
+                self.page_row.semantic_prompt2 = switch (kind) {
+                    .initial, .right => .prompt,
+                    .continuation, .secondary => .prompt_continuation,
+                };
+            },
         }
     }
 };
