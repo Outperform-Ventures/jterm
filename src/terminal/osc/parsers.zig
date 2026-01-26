@@ -5,6 +5,7 @@ pub const change_window_title = @import("parsers/change_window_title.zig");
 pub const clipboard_operation = @import("parsers/clipboard_operation.zig");
 pub const color = @import("parsers/color.zig");
 pub const hyperlink = @import("parsers/hyperlink.zig");
+pub const iterm2 = @import("parsers/iterm2.zig");
 pub const kitty_color = @import("parsers/kitty_color.zig");
 pub const kitty_text_sizing = @import("parsers/kitty_text_sizing.zig");
 pub const mouse_shape = @import("parsers/mouse_shape.zig");
@@ -14,16 +15,5 @@ pub const rxvt_extension = @import("parsers/rxvt_extension.zig");
 pub const semantic_prompt = @import("parsers/semantic_prompt.zig");
 
 test {
-    _ = change_window_icon;
-    _ = change_window_title;
-    _ = clipboard_operation;
-    _ = color;
-    _ = hyperlink;
-    _ = kitty_color;
-    _ = kitty_text_sizing;
-    _ = mouse_shape;
-    _ = osc9;
-    _ = report_pwd;
-    _ = rxvt_extension;
-    _ = semantic_prompt;
+    std.testing.refAllDecls(@This());
 }

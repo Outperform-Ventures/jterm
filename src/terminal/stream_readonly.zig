@@ -153,14 +153,7 @@ pub const Handler = struct {
             .full_reset => self.terminal.fullReset(),
             .start_hyperlink => try self.terminal.screens.active.startHyperlink(value.uri, value.id),
             .end_hyperlink => self.terminal.screens.active.endHyperlink(),
-            .prompt_start => {
-                self.terminal.screens.active.cursor.page_row.semantic_prompt = .prompt;
-                self.terminal.flags.shell_redraws_prompt = value.redraw;
-            },
-            .prompt_continuation => self.terminal.screens.active.cursor.page_row.semantic_prompt = .prompt_continuation,
-            .prompt_end => self.terminal.markSemanticPrompt(.input),
-            .end_of_input => self.terminal.markSemanticPrompt(.command),
-            .end_of_command => self.terminal.screens.active.cursor.page_row.semantic_prompt = .input,
+            .semantic_prompt => self.semanticPrompt(value),
             .mouse_shape => self.terminal.mouse_shape = value,
             .color_operation => try self.colorOperation(value.op, &value.requests),
             .kitty_color_report => try self.kittyColorOperation(value),
@@ -213,6 +206,42 @@ pub const Handler = struct {
             const x = self.terminal.screens.active.cursor.x;
             self.terminal.horizontalTabBack();
             if (x == self.terminal.screens.active.cursor.x) break;
+        }
+    }
+
+    fn semanticPrompt(
+        self: *Handler,
+        cmd: Action.SemanticPrompt,
+    ) void {
+        switch (cmd.action) {
+            .fresh_line_new_prompt => {
+                const kind = cmd.readOption(.prompt_kind) orelse .initial;
+                switch (kind) {
+                    .initial, .right => {
+                        self.terminal.screens.active.cursor.page_row.semantic_prompt = .prompt;
+                        if (cmd.readOption(.redraw)) |redraw| {
+                            self.terminal.flags.shell_redraws_prompt = redraw;
+                        }
+                    },
+                    .continuation, .secondary => {
+                        self.terminal.screens.active.cursor.page_row.semantic_prompt = .prompt_continuation;
+                    },
+                }
+            },
+
+            .end_prompt_start_input => self.terminal.markSemanticPrompt(.input),
+            .end_input_start_output => self.terminal.markSemanticPrompt(.command),
+            .end_command => self.terminal.screens.active.cursor.page_row.semantic_prompt = .input,
+
+            // All of these commands weren't previously handled by our
+            // semantic prompt code. I am PR-ing the parser separate from the
+            // handling so we just ignore these like we did before, even
+            // though we should handle them eventually.
+            .end_prompt_start_input_terminate_eol,
+            .fresh_line,
+            .new_command,
+            .prompt_start,
+            => {},
         }
     }
 
