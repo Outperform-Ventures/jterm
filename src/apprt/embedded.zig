@@ -1205,10 +1205,11 @@ pub const Inspector = struct {
         // Determine our delta time
         const now = try std.time.Instant.now();
         io.DeltaTime = if (self.instant) |prev| delta: {
-            const since_ns = now.since(prev);
-            const since_s: f32 = @floatFromInt(since_ns / std.time.ns_per_s);
+            const since_ns: f64 = @floatFromInt(now.since(prev));
+            const ns_per_s: f64 = @floatFromInt(std.time.ns_per_s);
+            const since_s: f32 = @floatCast(since_ns / ns_per_s);
             break :delta @max(0.00001, since_s);
-        } else (1 / 60);
+        } else (1.0 / 60.0);
         self.instant = now;
     }
 };
