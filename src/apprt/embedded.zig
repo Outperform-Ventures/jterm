@@ -1133,15 +1133,18 @@ pub const Inspector = struct {
         yoff: f64,
         mods: input.ScrollMods,
     ) void {
-        _ = mods;
-
         self.queueRender();
         cimgui.c.ImGui_SetCurrentContext(self.ig_ctx);
         const io: *cimgui.c.ImGuiIO = cimgui.c.ImGui_GetIO();
+
+        // For precision scrolling (trackpads), the values are in pixels which
+        // scroll way too fast. Scale them down to approximate discrete wheel
+        // notches. imgui expects 1.0 to scroll ~5 lines of text.
+        const scale: f64 = if (mods.precision) 0.1 else 1.0;
         cimgui.c.ImGuiIO_AddMouseWheelEvent(
             io,
-            @floatCast(xoff),
-            @floatCast(yoff),
+            @floatCast(xoff * scale),
+            @floatCast(yoff * scale),
         );
     }
 
