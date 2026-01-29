@@ -240,7 +240,7 @@ fn drainMailbox(self: *App, rt_app: *apprt.App) !void {
         switch (message) {
             // these tend to be way too verbose for normal debugging
             .redraw_surface, .redraw_inspector => {},
-            else => log.debug("mailbox message={s}", .{@tagName(message)}),
+            else => log.debug("mailbox message={t}", .{message}),
         }
         switch (message) {
             .open_config => try self.performAction(rt_app, .open_config),
