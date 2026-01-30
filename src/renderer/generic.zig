@@ -2207,7 +2207,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             }
         }
 
-        fn rebuildOverlay(self: *Self, alloc: Allocator) !Overlay {
+        fn rebuildOverlay(self: *Self, alloc: Allocator) Overlay.InitError!Overlay {
             var overlay: Overlay = try .init(alloc, self.size);
             overlay.highlightHyperlinks(alloc, &self.terminal_state);
             return overlay;

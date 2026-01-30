@@ -15,18 +15,29 @@ surface: z2d.Surface,
 /// Cell size information so we can map grid coordinates to pixels.
 cell_size: CellSize,
 
+pub const InitError = Allocator.Error || error{
+    // The terminal dimensions are invalid to support an overlay.
+    // Either too small or too big.
+    InvalidDimensions,
+};
+
 /// Initialize a new, blank overlay.
-pub fn init(alloc: Allocator, sz: Size) !Overlay {
+pub fn init(alloc: Allocator, sz: Size) InitError!Overlay {
     // Our surface does NOT need to take into account padding because
     // we render the overlay using the image subsystem and shaders which
     // already take that into account.
     const term_size = sz.terminal();
-    var sfc: z2d.Surface = try .initPixel(
+    var sfc = z2d.Surface.initPixel(
         .{ .rgba = .{ .r = 0, .g = 0, .b = 0, .a = 0 } },
         alloc,
-        std.math.cast(i32, term_size.width).?,
-        std.math.cast(i32, term_size.height).?,
-    );
+        std.math.cast(i32, term_size.width) orelse
+            return error.InvalidDimensions,
+        std.math.cast(i32, term_size.height) orelse
+            return error.InvalidDimensions,
+    ) catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        error.InvalidWidth, error.InvalidHeight => return error.InvalidDimensions,
+    };
     errdefer sfc.deinit(alloc);
 
     return .{
