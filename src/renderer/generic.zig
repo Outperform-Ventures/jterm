@@ -1282,6 +1282,29 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             // Reset our dirty state after updating.
             defer self.terminal_state.dirty = .false;
 
+            // Rebuild the overlay image set.
+            overlay: {
+                const alloc = arena_alloc;
+
+                // Create a surface that is the size of the entire screen,
+                // including padding. It is transparent, since we'll overlay
+                // it on top of our screen.
+                var overlay: Overlay = self.rebuildOverlay(alloc) catch |err| {
+                    log.warn("error rebuilding overlay surface err={}", .{err});
+                    break :overlay;
+                };
+                defer overlay.deinit(alloc);
+
+                // Grab our mutex so we can upload some images.
+                self.draw_mutex.lock();
+                defer self.draw_mutex.unlock();
+
+                // IMPORTANT: This must be done AFTER kitty graphics
+                // are setup because Kitty graphics will clear all our
+                // "unused" images and our overlay will appear unused since
+                // its not part of the Kitty state.
+            }
+
             // Acquire the draw mutex for all remaining state updates.
             {
                 self.draw_mutex.lock();
@@ -2177,6 +2200,14 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 uniforms.time_focus = uniforms.time;
                 self.custom_shader_focused_changed = false;
             }
+        }
+
+        const Overlay = @import("Overlay.zig");
+
+        fn rebuildOverlay(self: *Self, alloc: Allocator) !Overlay {
+            var overlay: Overlay = try .init(alloc, self.size);
+            overlay.highlightHyperlinks(alloc, &self.terminal_state);
+            return overlay;
         }
 
         const PreeditRange = struct {
