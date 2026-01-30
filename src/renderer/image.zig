@@ -220,6 +220,8 @@ pub const State = struct {
                     .kitty => |id| if (storage.imageById(id) == null) {
                         kv.value_ptr.image.markForUnload();
                     },
+
+                    .overlay => {},
                 }
             }
         }
@@ -574,13 +576,19 @@ pub const Id = union(enum) {
     /// The value is the ID assigned by the terminal.
     kitty: u32,
 
+    /// Debug overlay. This is always composited down to a single
+    /// image for now. In the future we can support layers here if we want.
+    overlay,
+
     /// Z-ordering tie-breaker for images with the same z value.
     pub fn zLessThan(lhs: Id, rhs: Id) bool {
         // If our tags aren't the same, we sort by tag.
         if (std.meta.activeTag(lhs) != std.meta.activeTag(rhs)) {
             return switch (lhs) {
                 // Kitty images always sort before (lower z) non-kitty images.
-                .kitty => false,
+                .kitty => true,
+
+                .overlay => false,
             };
         }
 
@@ -589,6 +597,9 @@ pub const Id = union(enum) {
                 const rhs_id = rhs.kitty;
                 return lhs_id < rhs_id;
             },
+
+            // No sensical ordering
+            .overlay => return false,
         }
     }
 };
