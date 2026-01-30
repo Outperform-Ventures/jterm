@@ -17,6 +17,7 @@ const noMinContrast = cellpkg.noMinContrast;
 const constraintWidth = cellpkg.constraintWidth;
 const isCovering = cellpkg.isCovering;
 const rowNeverExtendBg = @import("row.zig").neverExtendBg;
+const Overlay = @import("Overlay.zig");
 const imagepkg = @import("image.zig");
 const ImageState = imagepkg.State;
 const shadertoy = @import("shadertoy.zig");
@@ -1282,28 +1283,13 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             // Reset our dirty state after updating.
             defer self.terminal_state.dirty = .false;
 
-            // Rebuild the overlay image set.
-            overlay: {
-                const alloc = arena_alloc;
-
-                // Create a surface that is the size of the entire screen,
-                // including padding. It is transparent, since we'll overlay
-                // it on top of our screen.
-                var overlay: Overlay = self.rebuildOverlay(alloc) catch |err| {
-                    log.warn("error rebuilding overlay surface err={}", .{err});
-                    break :overlay;
-                };
-                defer overlay.deinit(alloc);
-
-                // Grab our mutex so we can upload some images.
-                self.draw_mutex.lock();
-                defer self.draw_mutex.unlock();
-
-                // IMPORTANT: This must be done AFTER kitty graphics
-                // are setup because Kitty graphics will clear all our
-                // "unused" images and our overlay will appear unused since
-                // its not part of the Kitty state.
-            }
+            // Rebuild the overlay image if we have one.
+            const overlay: ?Overlay = self.rebuildOverlay(
+                arena_alloc,
+            ) catch |err| overlay: {
+                log.warn("error rebuilding overlay surface err={}", .{err});
+                break :overlay null;
+            };
 
             // Acquire the draw mutex for all remaining state updates.
             {
@@ -1352,6 +1338,16 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     => self.uniforms.bg_color[3] = 0,
 
                     else => {},
+                };
+
+                // Prepare our overlay image for upload (or unload). This
+                // has to use our general allocator since it modifies
+                // state that survives frames.
+                self.images.overlayUpdate(
+                    self.alloc,
+                    overlay,
+                ) catch |err| {
+                    log.warn("error updating overlay images err={}", .{err});
                 };
 
                 // Update custom shader uniforms that depend on terminal state.
@@ -1607,6 +1603,15 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     self.shaders.pipelines.image,
                     &pass,
                     .kitty_above_text,
+                );
+
+                // Debug overlay. We do this before any custom shader state
+                // because our debug overlay is aligned with the grid.
+                self.images.draw(
+                    &self.api,
+                    self.shaders.pipelines.image,
+                    &pass,
+                    .overlay,
                 );
             }
 
@@ -2201,8 +2206,6 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 self.custom_shader_focused_changed = false;
             }
         }
-
-        const Overlay = @import("Overlay.zig");
 
         fn rebuildOverlay(self: *Self, alloc: Allocator) !Overlay {
             var overlay: Overlay = try .init(alloc, self.size);

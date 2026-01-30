@@ -7,6 +7,7 @@ const terminal = @import("../terminal/main.zig");
 const size = @import("size.zig");
 const Size = size.Size;
 const CellSize = size.CellSize;
+const Image = @import("image.zig").Image;
 
 /// The surface we're drawing our overlay to.
 surface: z2d.Surface,
@@ -44,6 +45,16 @@ pub fn init(alloc: Allocator, sz: Size) !Overlay {
 
 pub fn deinit(self: *Overlay, alloc: Allocator) void {
     self.surface.deinit(alloc);
+}
+
+/// Returns a pending image that can be used to copy, convert, upload, etc.
+pub fn pendingImage(self: *const Overlay) Image.Pending {
+    return .{
+        .width = @intCast(self.surface.getWidth()),
+        .height = @intCast(self.surface.getHeight()),
+        .pixel_format = .rgba,
+        .data = @ptrCast(self.surface.image_surface_rgba.buf.ptr),
+    };
 }
 
 /// Add rectangles around continguous hyperlinks in the render state.
