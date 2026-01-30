@@ -18,9 +18,7 @@ const constraintWidth = cellpkg.constraintWidth;
 const isCovering = cellpkg.isCovering;
 const rowNeverExtendBg = @import("row.zig").neverExtendBg;
 const imagepkg = @import("image.zig");
-const Image = imagepkg.Image;
-const ImageMap = imagepkg.ImageMap;
-const ImagePlacementList = std.ArrayListUnmanaged(imagepkg.Placement);
+const ImageState = imagepkg.State;
 const shadertoy = @import("shadertoy.zig");
 const assert = @import("../quirks.zig").inlineAssert;
 const Allocator = std.mem.Allocator;
@@ -169,11 +167,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
         font_shaper_cache: font.ShaperCache,
 
         /// The images that we may render.
-        images: ImageMap = .{},
-        image_placements: ImagePlacementList = .{},
-        image_bg_end: u32 = 0,
-        image_text_end: u32 = 0,
-        image_virtual: bool = false,
+        images: ImageState = .empty,
 
         /// Background image, if we have one.
         bg_image: ?imagepkg.Image = null,
@@ -806,12 +800,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
             self.config.deinit();
 
-            {
-                var it = self.images.iterator();
-                while (it.next()) |kv| kv.value_ptr.image.deinit(self.alloc);
-                self.images.deinit(self.alloc);
-            }
-            self.image_placements.deinit(self.alloc);
+            self.images.deinit(self.alloc);
 
             if (self.bg_image) |img| img.deinit(self.alloc);
 
@@ -1190,10 +1179,15 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 // If we have any virtual references, we must also rebuild our
                 // kitty state on every frame because any cell change can move
                 // an image.
-                if (state.terminal.screens.active.kitty_images.dirty or
-                    self.image_virtual)
-                {
-                    self.prepKittyGraphics(state.terminal);
+                if (self.images.kittyRequiresUpdate(state.terminal)) {
+                    self.images.kittyUpdate(
+                        self.alloc,
+                        state.terminal,
+                        .{
+                            .width = self.grid_metrics.cell_width,
+                            .height = self.grid_metrics.cell_height,
+                        },
+                    );
                 }
 
                 // Get our OSC8 links we're hovering if we have a mouse.
@@ -1460,7 +1454,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             }
 
             // Upload images to the GPU as necessary.
-            try self.uploadKittyImages();
+            _ = self.images.upload(self.alloc, &self.api);
 
             // Upload the background image to the GPU as necessary.
             try self.uploadBackgroundImage();
@@ -1542,9 +1536,11 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
                 // Then we draw any kitty images that need
                 // to be behind text AND cell backgrounds.
-                try self.drawImagePlacements(
+                self.images.draw(
+                    &self.api,
+                    self.shaders.pipelines.image,
                     &pass,
-                    self.image_placements.items[0..self.image_bg_end],
+                    .kitty_below_bg,
                 );
 
                 // Then we draw any opaque cell backgrounds.
@@ -1556,9 +1552,11 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 });
 
                 // Kitty images between cell backgrounds and text.
-                try self.drawImagePlacements(
+                self.images.draw(
+                    &self.api,
+                    self.shaders.pipelines.image,
                     &pass,
-                    self.image_placements.items[self.image_bg_end..self.image_text_end],
+                    .kitty_below_text,
                 );
 
                 // Text.
@@ -1581,9 +1579,11 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 });
 
                 // Kitty images in front of text.
-                try self.drawImagePlacements(
+                self.images.draw(
+                    &self.api,
+                    self.shaders.pipelines.image,
                     &pass,
-                    self.image_placements.items[self.image_text_end..],
+                    .kitty_above_text,
                 );
             }
 
@@ -1704,358 +1704,6 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                         .vertex_count = 4,
                     },
                 });
-            }
-        }
-
-        /// This goes through the Kitty graphic placements and accumulates the
-        /// placements we need to render on our viewport.
-        fn prepKittyGraphics(
-            self: *Self,
-            t: *terminal.Terminal,
-        ) void {
-            self.draw_mutex.lock();
-            defer self.draw_mutex.unlock();
-
-            const storage = &t.screens.active.kitty_images;
-            defer storage.dirty = false;
-
-            // We always clear our previous placements no matter what because
-            // we rebuild them from scratch.
-            self.image_placements.clearRetainingCapacity();
-            self.image_virtual = false;
-
-            // Go through our known images and if there are any that are no longer
-            // in use then mark them to be freed.
-            //
-            // This never conflicts with the below because a placement can't
-            // reference an image that doesn't exist.
-            {
-                var it = self.images.iterator();
-                while (it.next()) |kv| {
-                    if (storage.imageById(kv.key_ptr.*) == null) {
-                        kv.value_ptr.image.markForUnload();
-                    }
-                }
-            }
-
-            // The top-left and bottom-right corners of our viewport in screen
-            // points. This lets us determine offsets and containment of placements.
-            const top = t.screens.active.pages.getTopLeft(.viewport);
-            const bot = t.screens.active.pages.getBottomRight(.viewport).?;
-            const top_y = t.screens.active.pages.pointFromPin(.screen, top).?.screen.y;
-            const bot_y = t.screens.active.pages.pointFromPin(.screen, bot).?.screen.y;
-
-            // Go through the placements and ensure the image is
-            // on the GPU or else is ready to be sent to the GPU.
-            var it = storage.placements.iterator();
-            while (it.next()) |kv| {
-                const p = kv.value_ptr;
-
-                // Special logic based on location
-                switch (p.location) {
-                    .pin => {},
-                    .virtual => {
-                        // We need to mark virtual placements on our renderer so that
-                        // we know to rebuild in more scenarios since cell changes can
-                        // now trigger placement changes.
-                        self.image_virtual = true;
-
-                        // We also continue out because virtual placements are
-                        // only triggered by the unicode placeholder, not by the
-                        // placement itself.
-                        continue;
-                    },
-                }
-
-                // Get the image for the placement
-                const image = storage.imageById(kv.key_ptr.image_id) orelse {
-                    log.warn(
-                        "missing image for placement, ignoring image_id={}",
-                        .{kv.key_ptr.image_id},
-                    );
-                    continue;
-                };
-
-                self.prepKittyPlacement(
-                    t,
-                    top_y,
-                    bot_y,
-                    &image,
-                    p,
-                ) catch |err| {
-                    // For errors we log and continue. We try to place
-                    // other placements even if one fails.
-                    log.warn("error preparing kitty placement err={}", .{err});
-                };
-            }
-
-            // If we have virtual placements then we need to scan for placeholders.
-            if (self.image_virtual) {
-                var v_it = terminal.kitty.graphics.unicode.placementIterator(top, bot);
-                while (v_it.next()) |virtual_p| {
-                    self.prepKittyVirtualPlacement(
-                        t,
-                        &virtual_p,
-                    ) catch |err| {
-                        // For errors we log and continue. We try to place
-                        // other placements even if one fails.
-                        log.warn("error preparing kitty placement err={}", .{err});
-                    };
-                }
-            }
-
-            // Sort the placements by their Z value.
-            std.mem.sortUnstable(
-                imagepkg.Placement,
-                self.image_placements.items,
-                {},
-                struct {
-                    fn lessThan(
-                        ctx: void,
-                        lhs: imagepkg.Placement,
-                        rhs: imagepkg.Placement,
-                    ) bool {
-                        _ = ctx;
-                        return lhs.z < rhs.z or (lhs.z == rhs.z and lhs.image_id < rhs.image_id);
-                    }
-                }.lessThan,
-            );
-
-            // Find our indices. The values are sorted by z so we can
-            // find the first placement out of bounds to find the limits.
-            var bg_end: ?u32 = null;
-            var text_end: ?u32 = null;
-            const bg_limit = std.math.minInt(i32) / 2;
-            for (self.image_placements.items, 0..) |p, i| {
-                if (bg_end == null and p.z >= bg_limit) {
-                    bg_end = @intCast(i);
-                }
-                if (text_end == null and p.z >= 0) {
-                    text_end = @intCast(i);
-                }
-            }
-
-            // If we didn't see any images with a z > the bg limit,
-            // then our bg end is the end of our placement list.
-            self.image_bg_end =
-                bg_end orelse @intCast(self.image_placements.items.len);
-
-            // Same idea for the image_text_end.
-            self.image_text_end =
-                text_end orelse @intCast(self.image_placements.items.len);
-        }
-
-        fn prepKittyVirtualPlacement(
-            self: *Self,
-            t: *terminal.Terminal,
-            p: *const terminal.kitty.graphics.unicode.Placement,
-        ) PrepKittyImageError!void {
-            const storage = &t.screens.active.kitty_images;
-            const image = storage.imageById(p.image_id) orelse {
-                log.warn(
-                    "missing image for virtual placement, ignoring image_id={}",
-                    .{p.image_id},
-                );
-                return;
-            };
-
-            const rp = p.renderPlacement(
-                storage,
-                &image,
-                self.grid_metrics.cell_width,
-                self.grid_metrics.cell_height,
-            ) catch |err| {
-                log.warn("error rendering virtual placement err={}", .{err});
-                return;
-            };
-
-            // If our placement is zero sized then we don't do anything.
-            if (rp.dest_width == 0 or rp.dest_height == 0) return;
-
-            const viewport: terminal.point.Point = t.screens.active.pages.pointFromPin(
-                .viewport,
-                rp.top_left,
-            ) orelse {
-                // This is unreachable with virtual placements because we should
-                // only ever be looking at virtual placements that are in our
-                // viewport in the renderer and virtual placements only ever take
-                // up one row.
-                unreachable;
-            };
-
-            // Prepare the image for the GPU and store the placement.
-            try self.prepKittyImage(&image);
-            try self.image_placements.append(self.alloc, .{
-                .image_id = image.id,
-                .x = @intCast(rp.top_left.x),
-                .y = @intCast(viewport.viewport.y),
-                .z = -1,
-                .width = rp.dest_width,
-                .height = rp.dest_height,
-                .cell_offset_x = rp.offset_x,
-                .cell_offset_y = rp.offset_y,
-                .source_x = rp.source_x,
-                .source_y = rp.source_y,
-                .source_width = rp.source_width,
-                .source_height = rp.source_height,
-            });
-        }
-
-        /// Get the viewport-relative position for this
-        /// placement and add it to the placements list.
-        fn prepKittyPlacement(
-            self: *Self,
-            t: *terminal.Terminal,
-            top_y: u32,
-            bot_y: u32,
-            image: *const terminal.kitty.graphics.Image,
-            p: *const terminal.kitty.graphics.ImageStorage.Placement,
-        ) PrepKittyImageError!void {
-            // Get the rect for the placement. If this placement doesn't have
-            // a rect then its virtual or something so skip it.
-            const rect = p.rect(image.*, t) orelse return;
-
-            // This is expensive but necessary.
-            const img_top_y = t.screens.active.pages.pointFromPin(.screen, rect.top_left).?.screen.y;
-            const img_bot_y = t.screens.active.pages.pointFromPin(.screen, rect.bottom_right).?.screen.y;
-
-            // If the selection isn't within our viewport then skip it.
-            if (img_top_y > bot_y) return;
-            if (img_bot_y < top_y) return;
-
-            // We need to prep this image for upload if it isn't in the
-            // cache OR it is in the cache but the transmit time doesn't
-            // match meaning this image is different.
-            try self.prepKittyImage(image);
-
-            // Calculate the dimensions of our image, taking in to
-            // account the rows / columns specified by the placement.
-            const dest_size = p.calculatedSize(image.*, t);
-
-            // Calculate the source rectangle
-            const source_x = @min(image.width, p.source_x);
-            const source_y = @min(image.height, p.source_y);
-            const source_width = if (p.source_width > 0)
-                @min(image.width - source_x, p.source_width)
-            else
-                image.width;
-            const source_height = if (p.source_height > 0)
-                @min(image.height - source_y, p.source_height)
-            else
-                image.height;
-
-            // Get the viewport-relative Y position of the placement.
-            const y_pos: i32 = @as(i32, @intCast(img_top_y)) - @as(i32, @intCast(top_y));
-
-            // Accumulate the placement
-            if (dest_size.width > 0 and dest_size.height > 0) {
-                try self.image_placements.append(self.alloc, .{
-                    .image_id = image.id,
-                    .x = @intCast(rect.top_left.x),
-                    .y = y_pos,
-                    .z = p.z,
-                    .width = dest_size.width,
-                    .height = dest_size.height,
-                    .cell_offset_x = p.x_offset,
-                    .cell_offset_y = p.y_offset,
-                    .source_x = source_x,
-                    .source_y = source_y,
-                    .source_width = source_width,
-                    .source_height = source_height,
-                });
-            }
-        }
-
-        const PrepKittyImageError = error{
-            OutOfMemory,
-            ImageConversionError,
-        };
-
-        /// Prepare the provided image for upload to the GPU by copying its
-        /// data with our allocator and setting it to the pending state.
-        fn prepKittyImage(
-            self: *Self,
-            image: *const terminal.kitty.graphics.Image,
-        ) PrepKittyImageError!void {
-            // If this image exists and its transmit time is the same we assume
-            // it is the identical image so we don't need to send it to the GPU.
-            const gop = try self.images.getOrPut(self.alloc, image.id);
-            if (gop.found_existing and
-                gop.value_ptr.transmit_time.order(image.transmit_time) == .eq)
-            {
-                return;
-            }
-
-            // Copy the data into the pending state.
-            const data = if (self.alloc.dupe(
-                u8,
-                image.data,
-            )) |v| v else |_| {
-                if (!gop.found_existing) {
-                    // If this is a new entry we can just remove it since it
-                    // was never sent to the GPU.
-                    _ = self.images.remove(image.id);
-                } else {
-                    // If this was an existing entry, it is invalid and
-                    // we must unload it.
-                    gop.value_ptr.image.markForUnload();
-                }
-
-                return error.OutOfMemory;
-            };
-            // Note: we don't need to errdefer free the data because it is
-            // put into the map immediately below and our errdefer to
-            // handle our map state will fix this up.
-
-            // Store it in the map
-            const new_image: Image = .{
-                .pending = .{
-                    .width = image.width,
-                    .height = image.height,
-                    .pixel_format = switch (image.format) {
-                        .gray => .gray,
-                        .gray_alpha => .gray_alpha,
-                        .rgb => .rgb,
-                        .rgba => .rgba,
-                        .png => unreachable, // should be decoded by now
-                    },
-                    .data = data.ptr,
-                },
-            };
-            if (!gop.found_existing) {
-                gop.value_ptr.* = .{
-                    .image = new_image,
-                    .transmit_time = undefined,
-                };
-            } else {
-                gop.value_ptr.image.markForReplace(
-                    self.alloc,
-                    new_image,
-                );
-            }
-
-            // If any error happens, we unload the image and it is invalid.
-            errdefer gop.value_ptr.image.markForUnload();
-
-            gop.value_ptr.image.prepForUpload(self.alloc) catch |err| {
-                log.warn("error preparing kitty image for upload err={}", .{err});
-                return error.ImageConversionError;
-            };
-            gop.value_ptr.transmit_time = image.transmit_time;
-        }
-
-        /// Upload any images to the GPU that need to be uploaded,
-        /// and remove any images that are no longer needed on the GPU.
-        fn uploadKittyImages(self: *Self) !void {
-            var image_it = self.images.iterator();
-            while (image_it.next()) |kv| {
-                const img = &kv.value_ptr.image;
-                if (img.isUnloading()) {
-                    img.deinit(self.alloc);
-                    self.images.removeByPtr(kv.key_ptr);
-                    continue;
-                }
-                if (img.isPending()) try img.upload(self.alloc, &self.api);
             }
         }
 
