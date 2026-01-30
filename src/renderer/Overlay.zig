@@ -1,3 +1,15 @@
+/// The debug overlay that can be drawn on top of the terminal
+/// during the rendering process.
+///
+/// This is implemented by doing all the drawing on the CPU via z2d,
+/// since the debug overlay isn't that common, z2d is pretty fast, and
+/// it simplifies our implementation quite a bit by not relying on us
+/// having a bunch of shaders that we have to write per-platform.
+///
+/// Initialize the overlay, apply features with `applyFeatures`, then
+/// get the resulting image with `pendingImage` to upload to the GPU.
+/// This works in concert with `renderer.image.State` to simplify. Draw
+/// it on the GPU as an image composited on top of the terminal output.
 const Overlay = @This();
 
 const std = @import("std");
@@ -14,6 +26,11 @@ surface: z2d.Surface,
 
 /// Cell size information so we can map grid coordinates to pixels.
 cell_size: CellSize,
+
+/// The set of available features and their configuration.
+pub const Feature = union(enum) {
+    highlight_hyperlinks,
+};
 
 pub const InitError = Allocator.Error || error{
     // The terminal dimensions are invalid to support an overlay.
@@ -60,12 +77,28 @@ pub fn pendingImage(self: *const Overlay) Image.Pending {
     };
 }
 
+/// Apply the given features to this overlay. This will draw on top of
+/// any pre-existing content in the overlay.
+pub fn applyFeatures(
+    self: *Overlay,
+    alloc: Allocator,
+    state: *const terminal.RenderState,
+    features: []const Feature,
+) void {
+    for (features) |f| switch (f) {
+        .highlight_hyperlinks => self.highlightHyperlinks(
+            alloc,
+            state,
+        ),
+    };
+}
+
 /// Add rectangles around contiguous hyperlinks in the render state.
 ///
 /// Note: this currently doesn't take into account unique hyperlink IDs
 /// because the render state doesn't contain this. This will be added
 /// later.
-pub fn highlightHyperlinks(
+fn highlightHyperlinks(
     self: *Overlay,
     alloc: Allocator,
     state: *const terminal.RenderState,

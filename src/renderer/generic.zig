@@ -2207,9 +2207,28 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             }
         }
 
-        fn rebuildOverlay(self: *Self, alloc: Allocator) Overlay.InitError!Overlay {
+        /// Build the overlay as configured. Returns null if there is no
+        /// overlay currently configured.
+        fn rebuildOverlay(
+            self: *Self,
+            alloc: Allocator,
+        ) Overlay.InitError!?Overlay {
+            // Right now, the debug overlay is turned on and configured by
+            // modifying these and recompiling. In the future, we will expose
+            // all of this at runtime via the inspector.
+            const features: []const Overlay.Feature = &.{
+                //.highlight_hyperlinks,
+            };
+
+            // If we have no features enabled, don't build an overlay.
+            if (features.len == 0) return null;
+
             var overlay: Overlay = try .init(alloc, self.size);
-            overlay.highlightHyperlinks(alloc, &self.terminal_state);
+            overlay.applyFeatures(
+                alloc,
+                &self.terminal_state,
+                features,
+            );
             return overlay;
         }
 
