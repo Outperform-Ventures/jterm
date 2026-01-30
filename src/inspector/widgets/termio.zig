@@ -1,5 +1,6 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+const ArenaAllocator = std.heap.ArenaAllocator;
 const cimgui = @import("dcimgui");
 const terminal = @import("../../terminal/main.zig");
 const CircBuf = @import("../../datastruct/main.zig").CircBuf;
@@ -65,7 +66,8 @@ pub const Stream = struct {
         const handler = &self.parser_stream.handler;
         const popup_filter = "Filter";
 
-        list: {
+        // Controls
+        {
             const pause_play: [:0]const u8 = if (!handler.paused)
                 "Pause##pause_play"
             else
@@ -92,13 +94,18 @@ pub const Stream = struct {
                     handler.current_seq = 1;
                 }
             }
+        }
 
+        // Events Table
+        if (events.empty()) {
+            cimgui.c.ImGui_Text("Waiting for events...");
+        } else {
+            // TODO: Eventually
+            // eventTable(events);
+        }
+
+        {
             cimgui.c.ImGui_Separator();
-
-            if (events.empty()) {
-                cimgui.c.ImGui_Text("Waiting for events...");
-                break :list;
-            }
 
             _ = cimgui.c.ImGui_BeginTable(
                 "table_vt_events",
@@ -213,7 +220,7 @@ pub const Stream = struct {
                 _ = cimgui.c.ImGui_TableNextColumn();
                 cimgui.c.ImGui_Text("%s", @tagName(ev.kind).ptr);
                 _ = cimgui.c.ImGui_TableNextColumn();
-                cimgui.c.ImGui_Text("%s", ev.str.ptr);
+                cimgui.c.ImGui_Text("%s", ev.raw_description.ptr);
 
                 // If the event is selected, we render info about it. For now
                 // we put this in the last column because that's the widest and
@@ -342,19 +349,64 @@ fn getKeyAction() KeyAction {
     return .none;
 }
 
+pub fn eventTable(events: *const VTEvent.Ring) void {
+    if (!cimgui.c.ImGui_BeginTable(
+        "events",
+        3,
+        cimgui.c.ImGuiTableFlags_RowBg |
+            cimgui.c.ImGuiTableFlags_Borders,
+    )) return;
+    defer cimgui.c.ImGui_EndTable();
+
+    cimgui.c.ImGui_TableSetupColumn(
+        "Seq",
+        cimgui.c.ImGuiTableColumnFlags_WidthFixed,
+    );
+    cimgui.c.ImGui_TableSetupColumn(
+        "Kind",
+        cimgui.c.ImGuiTableColumnFlags_WidthFixed,
+    );
+    cimgui.c.ImGui_TableSetupColumn(
+        "Description",
+        cimgui.c.ImGuiTableColumnFlags_WidthStretch,
+    );
+
+    var it = events.iterator(.reverse);
+    while (it.next()) |ev| {
+        // Need to push an ID so that our selectable is unique.
+        cimgui.c.ImGui_PushIDPtr(ev);
+        defer cimgui.c.ImGui_PopID();
+
+        cimgui.c.ImGui_TableNextRow();
+        _ = cimgui.c.ImGui_TableNextColumn();
+
+        cimgui.c.ImGui_SameLine();
+        cimgui.c.ImGui_Text("%d", ev.seq);
+        _ = cimgui.c.ImGui_TableNextColumn();
+        cimgui.c.ImGui_Text("%s", @tagName(ev.kind).ptr);
+        _ = cimgui.c.ImGui_TableNextColumn();
+        cimgui.c.ImGui_Text("%s", ev.raw_description.ptr);
+    }
+}
+
 /// VT event. This isn't public because this is just how we store internal
 /// events.
 const VTEvent = struct {
-    /// Sequence number, just monotonically increasing.
+    /// The arena that all allocated memory for this event is stored.
+    arena_state: ArenaAllocator.State,
+
+    /// Sequence number, just monotonically increasing and wrapping if
+    /// it ever overflows. It gives us a nice way to visualize progress.
     seq: usize = 1,
 
     /// Kind of event, for filtering
     kind: Kind,
 
-    /// The formatted string of the event. This is allocated. We format the
-    /// event for now because there is so much data to copy if we wanted to
-    /// store the raw event.
-    str: [:0]const u8,
+    /// The description of the raw event in a more human-friendly format.
+    /// For example for control sequences this is the full sequence but
+    /// control characters are replaced with human-readable names, e.g.
+    /// 0x07 (bell) becomes BEL.
+    raw_description: [:0]const u8,
 
     /// Various metadata at the time of the event (before processing).
     cursor: terminal.Screen.Cursor,
@@ -372,17 +424,18 @@ const VTEvent = struct {
 
     /// Initialize the event information for the given parser action.
     pub fn init(
-        alloc: Allocator,
+        alloc_gpa: Allocator,
         t: *const terminal.Terminal,
         action: terminal.Parser.Action,
     ) !VTEvent {
+        var arena: ArenaAllocator = .init(alloc_gpa);
+        errdefer arena.deinit();
+        const alloc = arena.allocator();
+
         var md = Metadata.init(alloc);
-        errdefer md.deinit();
         var buf: std.Io.Writer.Allocating = .init(alloc);
-        defer buf.deinit();
         try encodeAction(alloc, &buf.writer, &md, action);
-        const str = try buf.toOwnedSliceSentinel(0);
-        errdefer alloc.free(str);
+        const desc = try buf.toOwnedSliceSentinel(0);
 
         const kind: Kind = switch (action) {
             .print => .print,
@@ -395,22 +448,18 @@ const VTEvent = struct {
         };
 
         return .{
+            .arena_state = arena.state,
             .kind = kind,
-            .str = str,
+            .raw_description = desc,
             .cursor = t.screens.active.cursor,
             .scrolling_region = t.scrolling_region,
             .metadata = md.unmanaged,
         };
     }
 
-    pub fn deinit(self: *VTEvent, alloc: Allocator) void {
-        {
-            var it = self.metadata.valueIterator();
-            while (it.next()) |v| alloc.free(v.*);
-            self.metadata.deinit(alloc);
-        }
-
-        alloc.free(self.str);
+    pub fn deinit(self: *VTEvent, alloc_gpa: Allocator) void {
+        var arena = self.arena_state.promote(alloc_gpa);
+        arena.deinit();
     }
 
     /// Returns true if the event passes the given filter.
@@ -421,7 +470,7 @@ const VTEvent = struct {
         // Check our main string
         if (cimgui.c.ImGuiTextFilter_PassFilter(
             filter,
-            self.str.ptr,
+            self.raw_description.ptr,
             null,
         )) return true;
 
