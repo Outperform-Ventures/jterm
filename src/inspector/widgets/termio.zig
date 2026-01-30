@@ -693,7 +693,7 @@ const VTHandler = struct {
     }
 
     /// This is called with every single terminal action.
-    pub fn handleManually(self: *VTHandler, action: terminal.Parser.Action) !bool {
+    pub fn vtRaw(self: *VTHandler, action: terminal.Parser.Action) !bool {
         const state: *State = if (self.state) |*s| s else return true;
         const alloc = state.alloc;
         const vt_events = state.events;
@@ -748,7 +748,9 @@ const VTHandler = struct {
             else => return err,
         };
 
-        return true;
+        // Do NOT skip it, because we want to record more information
+        // about this event.
+        return false;
     }
 };
 
