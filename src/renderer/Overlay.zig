@@ -77,6 +77,16 @@ pub fn pendingImage(self: *const Overlay) Image.Pending {
     };
 }
 
+/// Clear the overlay.
+pub fn reset(self: *Overlay) void {
+    self.surface.paintPixel(.{ .rgba = .{
+        .r = 0,
+        .g = 0,
+        .b = 0,
+        .a = 0,
+    } });
+}
+
 /// Apply the given features to this overlay. This will draw on top of
 /// any pre-existing content in the overlay.
 pub fn applyFeatures(
@@ -119,8 +129,11 @@ fn highlightHyperlinks(
     } };
 
     const row_slice = state.row_data.slice();
+    const row_raw = row_slice.items(.raw);
     const row_cells = row_slice.items(.cells);
-    for (row_cells, 0..) |cells, y| {
+    for (row_raw, row_cells, 0..) |row, cells, y| {
+        if (!row.hyperlink) continue;
+
         const cells_slice = cells.slice();
         const raw_cells = cells_slice.items(.raw);
 

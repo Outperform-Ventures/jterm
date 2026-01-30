@@ -222,6 +222,16 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
         /// a large screen.
         terminal_state_frame_count: usize = 0,
 
+        /// Our overlay state, if any.
+        overlay: ?Overlay = null,
+
+        // Right now, the debug overlay is turned on and configured by
+        // modifying these and recompiling. In the future, we will expose
+        // all of this at runtime via the inspector.
+        const overlay_features: []const Overlay.Feature = &.{
+            .highlight_hyperlinks,
+        };
+
         const HighlightTag = enum(u8) {
             search_match,
             search_match_selected,
@@ -782,6 +792,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
         }
 
         pub fn deinit(self: *Self) void {
+            if (self.overlay) |*overlay| overlay.deinit(self.alloc);
             self.terminal_state.deinit(self.alloc);
             if (self.search_selected_match) |*m| m.arena.deinit();
             if (self.search_matches) |*m| m.arena.deinit();
@@ -1108,6 +1119,16 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             state: *renderer.State,
             cursor_blink_visible: bool,
         ) Allocator.Error!void {
+            const start = std.time.Instant.now() catch unreachable;
+            const start_micro = std.time.microTimestamp();
+            defer {
+                const end = std.time.Instant.now() catch unreachable;
+                log.warn(
+                    "[updateFrame time] start_micro={} duration={}ns",
+                    .{ start_micro, end.since(start) / std.time.ns_per_us },
+                );
+            }
+
             // We fully deinit and reset the terminal state every so often
             // so that a particularly large terminal state doesn't cause
             // the renderer to hold on to retained memory.
@@ -1283,12 +1304,13 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             // Reset our dirty state after updating.
             defer self.terminal_state.dirty = .false;
 
-            // Rebuild the overlay image if we have one.
-            const overlay: ?Overlay = self.rebuildOverlay(
-                arena_alloc,
-            ) catch |err| overlay: {
-                log.warn("error rebuilding overlay surface err={}", .{err});
-                break :overlay null;
+            // Rebuild the overlay image if we have one. We can do this
+            // outside of any critical areas.
+            self.rebuildOverlay() catch |err| {
+                log.warn(
+                    "error rebuilding overlay surface err={}",
+                    .{err},
+                );
             };
 
             // Acquire the draw mutex for all remaining state updates.
@@ -1345,7 +1367,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 // state that survives frames.
                 self.images.overlayUpdate(
                     self.alloc,
-                    overlay,
+                    self.overlay,
                 ) catch |err| {
                     log.warn("error updating overlay images err={}", .{err});
                 };
@@ -2209,27 +2231,44 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
         /// Build the overlay as configured. Returns null if there is no
         /// overlay currently configured.
-        fn rebuildOverlay(
-            self: *Self,
-            alloc: Allocator,
-        ) Overlay.InitError!?Overlay {
-            // Right now, the debug overlay is turned on and configured by
-            // modifying these and recompiling. In the future, we will expose
-            // all of this at runtime via the inspector.
-            const features: []const Overlay.Feature = &.{
-                //.highlight_hyperlinks,
-            };
+        fn rebuildOverlay(self: *Self) Overlay.InitError!void {
+            const start = std.time.Instant.now() catch unreachable;
+            const start_micro = std.time.microTimestamp();
+            defer {
+                const end = std.time.Instant.now() catch unreachable;
+                log.warn(
+                    "[rebuildOverlay time] start_micro={} duration={}ns",
+                    .{ start_micro, end.since(start) / std.time.ns_per_us },
+                );
+            }
+
+            const alloc = self.alloc;
 
             // If we have no features enabled, don't build an overlay.
-            if (features.len == 0) return null;
+            // If we had a previous overlay, deallocate it.
+            if (overlay_features.len == 0) {
+                if (self.overlay) |*old| {
+                    old.deinit(alloc);
+                    self.overlay = null;
+                }
 
-            var overlay: Overlay = try .init(alloc, self.size);
+                return null;
+            }
+
+            // If we had a previous overlay, clear it. Otherwise, init.
+            const overlay: *Overlay = if (self.overlay) |*v| overlay: {
+                v.reset();
+                break :overlay v;
+            } else overlay: {
+                const new: Overlay = try .init(alloc, self.size);
+                self.overlay = new;
+                break :overlay &self.overlay.?;
+            };
             overlay.applyFeatures(
                 alloc,
                 &self.terminal_state,
-                features,
+                overlay_features,
             );
-            return overlay;
         }
 
         const PreeditRange = struct {
