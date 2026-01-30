@@ -3874,36 +3874,8 @@ pub fn mouseButtonCallback(
     // log.debug("mouse action={} button={} mods={}", .{ action, button, mods });
 
     // If we have an inspector, we always queue a render
-    if (self.inspector) |insp| {
+    if (self.inspector != null) {
         defer self.queueRender() catch {};
-
-        self.renderer_state.mutex.lock();
-        defer self.renderer_state.mutex.unlock();
-
-        // If the inspector is requesting a cell, then we intercept
-        // left mouse clicks and send them to the inspector.
-        if (insp.cell == .requested and
-            button == .left and
-            action == .press)
-        {
-            const pos = try self.rt_surface.getCursorPos();
-            const point = self.posToViewport(pos.x, pos.y);
-            const screen: *terminal.Screen = self.renderer_state.terminal.screens.active;
-            const p = screen.pages.pin(.{ .viewport = point }) orelse {
-                log.warn("failed to get pin for clicked point", .{});
-                return false;
-            };
-
-            insp.cell.select(
-                self.alloc,
-                p,
-                point.x,
-                point.y,
-            ) catch |err| {
-                log.warn("error selecting cell for inspector err={}", .{err});
-            };
-            return false;
-        }
     }
 
     // Always record our latest mouse state

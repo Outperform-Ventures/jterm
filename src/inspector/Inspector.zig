@@ -14,75 +14,12 @@ const terminal = @import("../terminal/main.zig");
 const inspector = @import("main.zig");
 const widgets = @import("widgets.zig");
 
-/// The window names. These are used with docking so we need to have access.
-const window_cell = "Cell";
-const window_termio = "Terminal IO";
-const window_imgui_demo = "Dear ImGui Demo";
-
 /// Mouse state that we track in addition to normal mouse states that
 /// Ghostty always knows about.
 mouse: widgets.surface.Mouse = .{},
 
-/// A selected cell.
-cell: CellInspect = .{ .idle = {} },
-
 // ImGui state
 gui: widgets.surface.Inspector,
-
-const CellInspect = union(enum) {
-    /// Idle, no cell inspection is requested
-    idle: void,
-
-    /// Requested, a cell is being picked.
-    requested: void,
-
-    /// The cell has been picked and set to this. This is a copy so that
-    /// if the cell contents change we still have the original cell.
-    selected: Selected,
-
-    const Selected = struct {
-        alloc: Allocator,
-        row: usize,
-        col: usize,
-        cell: inspector.Cell,
-    };
-
-    pub fn deinit(self: *CellInspect) void {
-        switch (self.*) {
-            .idle, .requested => {},
-            .selected => |*v| v.cell.deinit(v.alloc),
-        }
-    }
-
-    pub fn request(self: *CellInspect) void {
-        switch (self.*) {
-            .idle => self.* = .requested,
-            .selected => |*v| {
-                v.cell.deinit(v.alloc);
-                self.* = .requested;
-            },
-            .requested => {},
-        }
-    }
-
-    pub fn select(
-        self: *CellInspect,
-        alloc: Allocator,
-        pin: terminal.Pin,
-        x: usize,
-        y: usize,
-    ) !void {
-        assert(self.* == .requested);
-        const cell = try inspector.Cell.init(alloc, pin);
-        errdefer cell.deinit(alloc);
-        self.* = .{ .selected = .{
-            .alloc = alloc,
-            .row = y,
-            .col = x,
-            .cell = cell,
-        } };
-    }
-};
 
 /// Setup the ImGui state. This requires an ImGui context to be set.
 pub fn setup() void {
@@ -126,7 +63,6 @@ pub fn init(alloc: Allocator) !Inspector {
 
 pub fn deinit(self: *Inspector, alloc: Allocator) void {
     self.gui.deinit(alloc);
-    self.cell.deinit();
 }
 
 /// Record a keyboard event.
@@ -177,68 +113,5 @@ pub fn render(
     self.gui.draw(
         surface,
         self.mouse,
-    );
-}
-
-/// TODO: OLD, REMOVE EVENTUALLY ONCE WE MIGRATE FUNCTIONALITY
-fn renderCellWindow(self: *Inspector) void {
-    // Start our window. If we're collapsed we do nothing.
-    defer cimgui.c.ImGui_End();
-    if (!cimgui.c.ImGui_Begin(
-        window_cell,
-        null,
-        cimgui.c.ImGuiWindowFlags_NoFocusOnAppearing,
-    )) return;
-
-    // Our popup for the picker
-    const popup_picker = "Cell Picker";
-
-    if (cimgui.c.ImGui_Button("Picker")) {
-        // Request a cell
-        self.cell.request();
-
-        cimgui.c.ImGui_OpenPopup(
-            popup_picker,
-            cimgui.c.ImGuiPopupFlags_None,
-        );
-    }
-
-    if (cimgui.c.ImGui_BeginPopupModal(
-        popup_picker,
-        null,
-        cimgui.c.ImGuiWindowFlags_AlwaysAutoResize,
-    )) popup: {
-        defer cimgui.c.ImGui_EndPopup();
-
-        // Once we select a cell, close this popup.
-        if (self.cell == .selected) {
-            cimgui.c.ImGui_CloseCurrentPopup();
-            break :popup;
-        }
-
-        cimgui.c.ImGui_Text(
-            "Click on a cell in the terminal to inspect it.\n" ++
-                "The click will be intercepted by the picker, \n" ++
-                "so it won't be sent to the terminal.",
-        );
-        cimgui.c.ImGui_Separator();
-
-        if (cimgui.c.ImGui_Button("Cancel")) {
-            cimgui.c.ImGui_CloseCurrentPopup();
-        }
-    } // cell pick popup
-
-    cimgui.c.ImGui_Separator();
-
-    if (self.cell != .selected) {
-        cimgui.c.ImGui_Text("No cell selected.");
-        return;
-    }
-
-    const selected = self.cell.selected;
-    selected.cell.renderTable(
-        self.surface.renderer_state.terminal,
-        selected.col,
-        selected.row,
     );
 }
