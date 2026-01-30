@@ -15,31 +15,23 @@ surface: z2d.Surface,
 /// Cell size information so we can map grid coordinates to pixels.
 cell_size: CellSize,
 
-/// The transformation to apply to the overlay to account for the
-/// screen padding.
-padding_transformation: z2d.Transformation,
-
 /// Initialize a new, blank overlay.
 pub fn init(alloc: Allocator, sz: Size) !Overlay {
+    // Our surface does NOT need to take into account padding because
+    // we render the overlay using the image subsystem and shaders which
+    // already take that into account.
+    const term_size = sz.terminal();
     var sfc: z2d.Surface = try .initPixel(
         .{ .rgba = .{ .r = 0, .g = 0, .b = 0, .a = 0 } },
         alloc,
-        std.math.cast(i32, sz.screen.width).?,
-        std.math.cast(i32, sz.screen.height).?,
+        std.math.cast(i32, term_size.width).?,
+        std.math.cast(i32, term_size.height).?,
     );
     errdefer sfc.deinit(alloc);
 
     return .{
         .surface = sfc,
         .cell_size = sz.cell,
-        .padding_transformation = .{
-            .ax = 1,
-            .by = 0,
-            .cx = 0,
-            .dy = 1,
-            .tx = @as(f64, @floatFromInt(sz.padding.left)),
-            .ty = @as(f64, @floatFromInt(sz.padding.top)),
-        },
     };
 }
 
@@ -57,7 +49,7 @@ pub fn pendingImage(self: *const Overlay) Image.Pending {
     };
 }
 
-/// Add rectangles around continguous hyperlinks in the render state.
+/// Add rectangles around contiguous hyperlinks in the render state.
 ///
 /// Note: this currently doesn't take into account unique hyperlink IDs
 /// because the render state doesn't contain this. This will be added
@@ -69,16 +61,16 @@ pub fn highlightHyperlinks(
 ) void {
     // Border and fill colors (premultiplied alpha, 50% alpha for fill)
     const border_color: z2d.Pixel = .{ .rgba = .{
-        .r = 128,
-        .g = 128,
+        .r = 180,
+        .g = 180,
         .b = 255,
         .a = 255,
     } };
     // Fill: 50% alpha (128/255), so premultiply RGB by 128/255
     const fill_color: z2d.Pixel = .{ .rgba = .{
-        .r = 64,
-        .g = 64,
-        .b = 128,
+        .r = 90,
+        .g = 90,
+        .b = 180,
         .a = 128,
     } };
 
@@ -161,7 +153,7 @@ fn highlightRect(
     const end_y: f64 = start_y + @as(f64, @floatFromInt(px_height));
 
     // Grab our context to draw
-    var ctx = self.newContext(alloc);
+    var ctx: z2d.Context = .init(alloc, &self.surface);
     defer ctx.deinit();
 
     // Draw rectangle path
@@ -179,15 +171,4 @@ fn highlightRect(
     ctx.setLineWidth(1);
     ctx.setSourceToPixel(border_color);
     try ctx.stroke();
-}
-
-/// Creates a new context for drawing to the overlay that takes into
-/// account the padding transformation so you can work directly in the
-/// terminal's coordinate space.
-///
-/// Caller must deinit the context when done.
-fn newContext(self: *Overlay, alloc: Allocator) z2d.Context {
-    var ctx: z2d.Context = .init(alloc, &self.surface);
-    ctx.setTransformation(self.padding_transformation);
-    return ctx;
 }
