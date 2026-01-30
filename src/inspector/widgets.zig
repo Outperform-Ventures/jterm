@@ -3,6 +3,7 @@ const cimgui = @import("dcimgui");
 pub const page = @import("widgets/page.zig");
 pub const pagelist = @import("widgets/pagelist.zig");
 pub const key = @import("widgets/key.zig");
+pub const renderer = @import("widgets/renderer.zig");
 pub const screen = @import("widgets/screen.zig");
 pub const style = @import("widgets/style.zig");
 pub const surface = @import("widgets/surface.zig");

@@ -225,13 +225,6 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
         /// Our overlay state, if any.
         overlay: ?Overlay = null,
 
-        // Right now, the debug overlay is turned on and configured by
-        // modifying these and recompiling. In the future, we will expose
-        // all of this at runtime via the inspector.
-        const overlay_features: []const Overlay.Feature = &.{
-            //.highlight_hyperlinks,
-        };
-
         const HighlightTag = enum(u8) {
             search_match,
             search_match_selected,
@@ -1152,6 +1145,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 mouse: renderer.State.Mouse,
                 preedit: ?renderer.State.Preedit,
                 scrollbar: terminal.Scrollbar,
+                overlay_features: []const Overlay.Feature,
             };
 
             // Update all our data as tightly as possible within the mutex.
@@ -1231,11 +1225,20 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     };
                 };
 
+                const overlay_features: []const Overlay.Feature = overlay: {
+                    const insp = state.inspector orelse break :overlay &.{};
+                    const renderer_info = insp.rendererInfo();
+                    break :overlay renderer_info.overlayFeatures(
+                        arena_alloc,
+                    ) catch &.{};
+                };
+
                 break :critical .{
                     .links = links,
                     .mouse = state.mouse,
                     .preedit = preedit,
                     .scrollbar = scrollbar,
+                    .overlay_features = overlay_features,
                 };
             };
 
@@ -1306,7 +1309,9 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
             // Rebuild the overlay image if we have one. We can do this
             // outside of any critical areas.
-            self.rebuildOverlay() catch |err| {
+            self.rebuildOverlay(
+                critical.overlay_features,
+            ) catch |err| {
                 log.warn(
                     "error rebuilding overlay surface err={}",
                     .{err},
@@ -2241,7 +2246,10 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
         /// Build the overlay as configured. Returns null if there is no
         /// overlay currently configured.
-        fn rebuildOverlay(self: *Self) Overlay.InitError!void {
+        fn rebuildOverlay(
+            self: *Self,
+            features: []const Overlay.Feature,
+        ) Overlay.InitError!void {
             // const start = std.time.Instant.now() catch unreachable;
             // const start_micro = std.time.microTimestamp();
             // defer {
@@ -2256,7 +2264,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
             // If we have no features enabled, don't build an overlay.
             // If we had a previous overlay, deallocate it.
-            if (overlay_features.len == 0) {
+            if (features.len == 0) {
                 if (self.overlay) |*old| {
                     old.deinit(alloc);
                     self.overlay = null;
@@ -2277,7 +2285,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             overlay.applyFeatures(
                 alloc,
                 &self.terminal_state,
-                overlay_features,
+                features,
             );
         }
 

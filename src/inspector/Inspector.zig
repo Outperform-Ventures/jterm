@@ -65,6 +65,12 @@ pub fn deinit(self: *Inspector, alloc: Allocator) void {
     self.gui.deinit(alloc);
 }
 
+/// Returns the renderer info panel. This is a convenience function
+/// to access and find this state to read and modify.
+pub fn rendererInfo(self: *Inspector) *widgets.renderer.Info {
+    return &self.gui.renderer_info;
+}
+
 /// Record a keyboard event.
 pub fn recordKeyEvent(
     self: *Inspector,
