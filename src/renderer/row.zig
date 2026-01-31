@@ -17,7 +17,7 @@ pub fn neverExtendBg(
     // powerline) that looks bad when extended.
     switch (row.semantic_prompt) {
         .prompt, .prompt_continuation => return true,
-        .no_prompt => {},
+        .none => {},
     }
 
     for (0.., cells) |x, *cell| {

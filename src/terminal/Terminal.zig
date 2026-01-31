@@ -1200,7 +1200,7 @@ pub fn cursorIsAtPrompt(self: *Terminal) bool {
 
     // If our page row is a prompt then we're always at a prompt
     const cursor: *const Screen.Cursor = &self.screens.active.cursor;
-    if (cursor.page_row.semantic_prompt != .no_prompt) return true;
+    if (cursor.page_row.semantic_prompt != .none) return true;
 
     // Otherwise, determine our cursor state
     return switch (cursor.semantic_content) {
@@ -2355,7 +2355,7 @@ pub fn eraseDisplay(
 
                         // If we have command output, then we're most certainly not
                         // at a prompt.
-                        .no_prompt => break :at_prompt,
+                        .none => break :at_prompt,
                     }
                 } else break :at_prompt;
 
@@ -11323,7 +11323,7 @@ test "Terminal: semantic prompt" {
         try testing.expectEqual(.output, cell.semantic_content);
 
         const row = list_cell.row;
-        try testing.expectEqual(.no_prompt, row.semantic_prompt);
+        try testing.expectEqual(.none, row.semantic_prompt);
     }
 }
 

@@ -1683,7 +1683,7 @@ pub inline fn resize(
     // If our cursor is on a prompt line, then we clear the prompt so
     // the shell can redraw it. This works with OSC133 semantic prompts.
     if (opts.prompt_redraw and
-        self.cursor.page_row.semantic_prompt != .no_prompt)
+        self.cursor.page_row.semantic_prompt != .none)
     prompt: {
         const start = start: {
             var it = self.cursor.page_pin.promptIterator(
@@ -2922,7 +2922,7 @@ pub fn promptPath(
     // highlightSemanticContent asserts the starting point is a prompt.
     switch (from.rowAndCell().row.semantic_prompt) {
         .prompt, .prompt_continuation => {},
-        .no_prompt => return .{ .x = 0, .y = 0 },
+        .none => return .{ .x = 0, .y = 0 },
     }
 
     // Get our prompt bounds assuming "from" is at a prompt.
@@ -6088,7 +6088,7 @@ test "Screen: resize more cols no reflow preserves semantic prompt" {
     // Our one row should still be a semantic prompt, the others should not.
     {
         const list_cell = s.pages.getCell(.{ .active = .{ .x = 0, .y = 0 } }).?;
-        try testing.expect(list_cell.row.semantic_prompt == .no_prompt);
+        try testing.expect(list_cell.row.semantic_prompt == .none);
     }
     {
         const list_cell = s.pages.getCell(.{ .active = .{ .x = 0, .y = 1 } }).?;
@@ -6096,7 +6096,7 @@ test "Screen: resize more cols no reflow preserves semantic prompt" {
     }
     {
         const list_cell = s.pages.getCell(.{ .active = .{ .x = 0, .y = 2 } }).?;
-        try testing.expect(list_cell.row.semantic_prompt == .no_prompt);
+        try testing.expect(list_cell.row.semantic_prompt == .none);
     }
 }
 

@@ -1907,7 +1907,7 @@ pub const Row = packed struct(u64) {
     /// This may contain false positives but never false negatives. If
     /// this is set, you should still check individual cells to see if they
     /// have prompt semantics.
-    semantic_prompt: SemanticPrompt = .no_prompt,
+    semantic_prompt: SemanticPrompt = .none,
 
     /// True if this row contains a virtual placeholder for the Kitty
     /// graphics protocol. (U+10EEEE)
@@ -1934,11 +1934,16 @@ pub const Row = packed struct(u64) {
     /// The semantic prompt state of the row. See `semantic_prompt`.
     pub const SemanticPrompt = enum(u2) {
         /// No prompt cells in this row.
-        no_prompt = 0,
-        /// Prompt cells exist in this row.
+        none = 0,
+        /// Prompt cells exist in this row and this is a primary prompt
+        /// line. A primary prompt line is one that is not a continuation
+        /// and is the beginning of a prompt.
         prompt = 1,
         /// Prompt cells exist in this row that had k=c set (continuation)
-        /// line. This is used as a way to
+        /// line. This is used as a way to detect when a line should
+        /// be considered part of some prior prompt. If no prior prompt
+        /// is found, the last (most historical) prompt continuation line is
+        /// considered the prompt.
         prompt_continuation = 2,
     };
 

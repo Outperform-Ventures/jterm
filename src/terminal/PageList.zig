@@ -1229,7 +1229,7 @@ const ReflowCursor = struct {
 
             // If the row has a semantic prompt then the blank row is meaningful
             // so we just consider pretend the first cell of the row isn't empty.
-            if (cols_len == 0 and src_row.semantic_prompt != .no_prompt) cols_len = 1;
+            if (cols_len == 0 and src_row.semantic_prompt != .none) cols_len = 1;
         }
 
         // Handle tracked pin adjustments.
@@ -1973,7 +1973,7 @@ const ReflowCursor = struct {
 
         // If the row has a semantic prompt then the blank row is meaningful
         // so we always return all but one so that the row is drawn.
-        if (self.page_row.semantic_prompt != .no_prompt) return len - 1;
+        if (self.page_row.semantic_prompt != .none) return len - 1;
 
         return len;
     }
@@ -4405,7 +4405,7 @@ pub const PromptIterator = struct {
             const rac = p.rowAndCell();
             switch (rac.row.semantic_prompt) {
                 // This row isn't a prompt. Keep looking.
-                .no_prompt => if (at_limit) break,
+                .none => if (at_limit) break,
 
                 // This is a prompt line or continuation line. In either
                 // case we consider the first line the prompt, and then
@@ -4427,7 +4427,7 @@ pub const PromptIterator = struct {
                                 if (limit.eql(next_pin)) break;
                             },
 
-                            .prompt, .no_prompt => {
+                            .prompt, .none => {
                                 self.current = next_pin;
                                 return p.left(p.x);
                             },
@@ -4458,7 +4458,7 @@ pub const PromptIterator = struct {
             const rac = p.rowAndCell();
             switch (rac.row.semantic_prompt) {
                 // This row isn't a prompt. Keep looking.
-                .no_prompt => if (at_limit) break,
+                .none => if (at_limit) break,
 
                 // This is a prompt line.
                 .prompt => {
@@ -4485,7 +4485,7 @@ pub const PromptIterator = struct {
 
                         switch (prior.rowAndCell().row.semantic_prompt) {
                             // No prompt. That means our last pin is good!
-                            .no_prompt => {
+                            .none => {
                                 self.current = prior;
                                 return end_pin.left(end_pin.x);
                             },
