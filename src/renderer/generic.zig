@@ -229,7 +229,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
         // modifying these and recompiling. In the future, we will expose
         // all of this at runtime via the inspector.
         const overlay_features: []const Overlay.Feature = &.{
-            .highlight_hyperlinks,
+            //.highlight_hyperlinks,
         };
 
         const HighlightTag = enum(u8) {
@@ -1119,15 +1119,15 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             state: *renderer.State,
             cursor_blink_visible: bool,
         ) Allocator.Error!void {
-            const start = std.time.Instant.now() catch unreachable;
-            const start_micro = std.time.microTimestamp();
-            defer {
-                const end = std.time.Instant.now() catch unreachable;
-                log.warn(
-                    "[updateFrame time] start_micro={} duration={}ns",
-                    .{ start_micro, end.since(start) / std.time.ns_per_us },
-                );
-            }
+            // const start = std.time.Instant.now() catch unreachable;
+            // const start_micro = std.time.microTimestamp();
+            // defer {
+            //     const end = std.time.Instant.now() catch unreachable;
+            //     log.warn(
+            //         "[updateFrame time] start_micro={} duration={}ns",
+            //         .{ start_micro, end.since(start) / std.time.ns_per_us },
+            //     );
+            // }
 
             // We fully deinit and reset the terminal state every so often
             // so that a particularly large terminal state doesn't cause
@@ -2242,15 +2242,15 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
         /// Build the overlay as configured. Returns null if there is no
         /// overlay currently configured.
         fn rebuildOverlay(self: *Self) Overlay.InitError!void {
-            const start = std.time.Instant.now() catch unreachable;
-            const start_micro = std.time.microTimestamp();
-            defer {
-                const end = std.time.Instant.now() catch unreachable;
-                log.warn(
-                    "[rebuildOverlay time] start_micro={} duration={}ns",
-                    .{ start_micro, end.since(start) / std.time.ns_per_us },
-                );
-            }
+            // const start = std.time.Instant.now() catch unreachable;
+            // const start_micro = std.time.microTimestamp();
+            // defer {
+            //     const end = std.time.Instant.now() catch unreachable;
+            //     log.warn(
+            //         "[rebuildOverlay time] start_micro={} duration={}ns",
+            //         .{ start_micro, end.since(start) / std.time.ns_per_us },
+            //     );
+            // }
 
             const alloc = self.alloc;
 
@@ -2262,7 +2262,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     self.overlay = null;
                 }
 
-                return null;
+                return;
             }
 
             // If we had a previous overlay, clear it. Otherwise, init.
