@@ -116,8 +116,16 @@ pub fn render(
     self: *Inspector,
     surface: *Surface,
 ) void {
+    // Draw the UI
     self.gui.draw(
         surface,
         self.mouse,
     );
+
+    // We always trigger a rebuild of the surface when the inspector
+    // is focused because modifying the inspector can change the terminal
+    // state. This is KIND OF expensive (wasted CPU if nothing was done)
+    // but the inspector is a development tool and it expressly costs
+    // more resources while open so its okay.
+    surface.renderer_thread.wakeup.notify() catch {};
 }
