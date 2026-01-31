@@ -57,7 +57,7 @@ pub const Info = struct {
 
             if (cimgui.c.ImGui_CollapsingHeader(
                 "Cursor",
-                cimgui.c.ImGuiTreeNodeFlags_None,
+                cimgui.c.ImGuiTreeNodeFlags_DefaultOpen,
             )) {
                 cursorTable(&screen.cursor);
                 cimgui.c.ImGui_Separator();
@@ -69,7 +69,7 @@ pub const Info = struct {
 
             if (cimgui.c.ImGui_CollapsingHeader(
                 "Keyboard",
-                cimgui.c.ImGuiTreeNodeFlags_None,
+                cimgui.c.ImGuiTreeNodeFlags_DefaultOpen,
             )) keyboardTable(
                 screen,
                 data.modify_other_keys_2,
@@ -77,13 +77,13 @@ pub const Info = struct {
 
             if (cimgui.c.ImGui_CollapsingHeader(
                 "Kitty Graphics",
-                cimgui.c.ImGuiTreeNodeFlags_None,
+                cimgui.c.ImGuiTreeNodeFlags_DefaultOpen,
             )) kittyGraphicsTable(&screen.kitty_images);
 
             if (cimgui.c.ImGui_CollapsingHeader(
-                "Internal Terminal State",
-                cimgui.c.ImGuiTreeNodeFlags_None,
-            )) internalStateTable(&screen.pages);
+                "Other Screen State",
+                cimgui.c.ImGuiTreeNodeFlags_DefaultOpen,
+            )) internalStateTable(screen);
         }
 
         // Cell window
@@ -327,8 +327,10 @@ pub fn kittyGraphicsTable(
 
 /// Render internal terminal state table.
 pub fn internalStateTable(
-    pages: *const terminal.PageList,
+    screen: *const terminal.Screen,
 ) void {
+    const pages = &screen.pages;
+
     if (!cimgui.c.ImGui_BeginTable(
         "##terminal_state",
         2,
@@ -347,9 +349,21 @@ pub fn internalStateTable(
     cimgui.c.ImGui_Text("Memory Limit");
     _ = cimgui.c.ImGui_TableSetColumnIndex(1);
     cimgui.c.ImGui_Text("%d bytes (%d KiB)", pages.maxSize(), units.toKibiBytes(pages.maxSize()));
+
     cimgui.c.ImGui_TableNextRow();
     _ = cimgui.c.ImGui_TableSetColumnIndex(0);
     cimgui.c.ImGui_Text("Viewport Location");
     _ = cimgui.c.ImGui_TableSetColumnIndex(1);
     cimgui.c.ImGui_Text("%s", @tagName(pages.viewport).ptr);
+
+    {
+        cimgui.c.ImGui_TableNextRow();
+        _ = cimgui.c.ImGui_TableSetColumnIndex(0);
+        cimgui.c.ImGui_Text("Semantic Content");
+        cimgui.c.ImGui_SameLine();
+        widgets.helpMarker("Whether semantic prompt markers (OSC 133) have been seen.");
+        _ = cimgui.c.ImGui_TableSetColumnIndex(1);
+        var value: bool = screen.flags.semantic_content;
+        _ = cimgui.c.ImGui_Checkbox("##semantic_content", &value);
+    }
 }
