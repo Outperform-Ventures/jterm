@@ -21,6 +21,44 @@ const Size = size.Size;
 const CellSize = size.CellSize;
 const Image = @import("image.zig").Image;
 
+const log = std.log.scoped(.renderer_overlay);
+
+/// The colors we use for overlays.
+pub const Color = enum {
+    hyperlink, // light blue
+    semantic_prompt, // orange/gold
+    semantic_input, // cyan
+
+    pub fn rgb(self: Color) z2d.pixel.RGB {
+        return switch (self) {
+            .hyperlink => .{ .r = 180, .g = 180, .b = 255 },
+            .semantic_prompt => .{ .r = 255, .g = 200, .b = 64 },
+            .semantic_input => .{ .r = 64, .g = 200, .b = 255 },
+        };
+    }
+
+    /// The fill color for rectangles.
+    pub fn rectFill(self: Color) z2d.Pixel {
+        return self.alphaPixel(96);
+    }
+
+    /// The border color for rectangles.
+    pub fn rectBorder(self: Color) z2d.Pixel {
+        return self.alphaPixel(200);
+    }
+
+    /// The raw RGB as a pixel.
+    pub fn pixel(self: Color) z2d.Pixel {
+        return self.rgb().asPixel();
+    }
+
+    fn alphaPixel(self: Color, alpha: u8) z2d.Pixel {
+        var rgba: z2d.pixel.RGBA = .fromPixel(self.pixel());
+        rgba.a = alpha;
+        return rgba.multiply().asPixel();
+    }
+};
+
 /// The surface we're drawing our overlay to.
 surface: z2d.Surface,
 
@@ -30,6 +68,7 @@ cell_size: CellSize,
 /// The set of available features and their configuration.
 pub const Feature = union(enum) {
     highlight_hyperlinks,
+    semantic_prompts,
 };
 
 pub const InitError = Allocator.Error || error{
@@ -100,6 +139,10 @@ pub fn applyFeatures(
             alloc,
             state,
         ),
+        .semantic_prompts => self.highlightSemanticPrompts(
+            alloc,
+            state,
+        ),
     };
 }
 
@@ -113,13 +156,8 @@ fn highlightHyperlinks(
     alloc: Allocator,
     state: *const terminal.RenderState,
 ) void {
-    const border_fill_rgb: z2d.pixel.RGB = .{ .r = 180, .g = 180, .b = 255 };
-    const border_color = border_fill_rgb.asPixel();
-    const fill_color: z2d.Pixel = px: {
-        var rgba: z2d.pixel.RGBA = .fromPixel(border_color);
-        rgba.a = 128;
-        break :px rgba.multiply().asPixel();
-    };
+    const border_color = Color.hyperlink.rectBorder();
+    const fill_color = Color.hyperlink.rectFill();
 
     const row_slice = state.row_data.slice();
     const row_raw = row_slice.items(.raw);
@@ -145,7 +183,7 @@ fn highlightHyperlinks(
             while (x < raw_cells.len and raw_cells[x].hyperlink) x += 1;
             const end_x = x;
 
-            self.highlightRect(
+            self.highlightGridRect(
                 alloc,
                 start_x,
                 y,
@@ -160,9 +198,105 @@ fn highlightHyperlinks(
     }
 }
 
+fn highlightSemanticPrompts(
+    self: *Overlay,
+    alloc: Allocator,
+    state: *const terminal.RenderState,
+) void {
+    const row_slice = state.row_data.slice();
+    const row_raw = row_slice.items(.raw);
+    const row_cells = row_slice.items(.cells);
+
+    // Highlight the row-level semantic prompt bars. The prompts are easy
+    // because they're part of the row metadata.
+    {
+        const prompt_border = Color.semantic_prompt.rectBorder();
+        const prompt_fill = Color.semantic_prompt.rectFill();
+
+        var y: usize = 0;
+        while (y < row_raw.len) {
+            // If its not a semantic prompt row, skip it.
+            if (row_raw[y].semantic_prompt == .none) {
+                y += 1;
+                continue;
+            }
+
+            // Find the full length of the semantic prompt row by connecting
+            // all continuations.
+            const start_y = y;
+            y += 1;
+            while (y < row_raw.len and
+                row_raw[y].semantic_prompt == .prompt_continuation)
+            {
+                y += 1;
+            }
+            const end_y = y; // Exclusive
+
+            const bar_width = @min(@as(usize, 5), self.cell_size.width);
+            self.highlightPixelRect(
+                alloc,
+                0,
+                start_y,
+                bar_width,
+                end_y - start_y,
+                prompt_border,
+                prompt_fill,
+            ) catch |err| {
+                log.warn("Error drawing semantic prompt bar: {}", .{err});
+            };
+        }
+    }
+
+    // Highlight contiguous semantic cells within rows.
+    for (row_cells, 0..) |cells, y| {
+        const cells_slice = cells.slice();
+        const raw_cells = cells_slice.items(.raw);
+
+        var x: usize = 0;
+        while (x < raw_cells.len) {
+            const cell = raw_cells[x];
+            const content = cell.semantic_content;
+            const start_x = x;
+
+            // We skip output because its just the rest of the non-prompt
+            // parts and it makes the overlay too noisy.
+            if (cell.semantic_content == .output) {
+                x += 1;
+                continue;
+            }
+
+            // Find the end of this content.
+            x += 1;
+            while (x < raw_cells.len) {
+                const next = raw_cells[x];
+                if (next.semantic_content != content) break;
+                x += 1;
+            }
+
+            const color: Color = switch (content) {
+                .prompt => .semantic_prompt,
+                .input => .semantic_input,
+                .output => unreachable,
+            };
+
+            self.highlightGridRect(
+                alloc,
+                start_x,
+                y,
+                x - start_x,
+                1,
+                color.rectBorder(),
+                color.rectFill(),
+            ) catch |err| {
+                log.warn("Error drawing semantic content highlight: {}", .{err});
+            };
+        }
+    }
+}
+
 /// Creates a rectangle for highlighting a grid region. x/y/width/height
 /// are all in grid cells.
-fn highlightRect(
+fn highlightGridRect(
     self: *Overlay,
     alloc: Allocator,
     x: usize,
@@ -223,6 +357,58 @@ fn highlightRect(
     try ctx.fill();
 
     // Border
+    ctx.setLineWidth(1);
+    ctx.setSourceToPixel(border_color);
+    try ctx.stroke();
+}
+
+/// Creates a rectangle for highlighting a region. x/y are grid cells and
+/// width/height are pixels.
+fn highlightPixelRect(
+    self: *Overlay,
+    alloc: Allocator,
+    x: usize,
+    y: usize,
+    width_px: usize,
+    height: usize,
+    border_color: z2d.Pixel,
+    fill_color: z2d.Pixel,
+) !void {
+    const px_width = std.math.cast(i32, width_px) orelse return error.Overflow;
+    const px_height = std.math.cast(i32, try std.math.mul(
+        usize,
+        height,
+        self.cell_size.height,
+    )) orelse return error.Overflow;
+
+    const start_x: f64 = @floatFromInt(std.math.cast(i32, try std.math.mul(
+        usize,
+        x,
+        self.cell_size.width,
+    )) orelse return error.Overflow);
+    const start_y: f64 = @floatFromInt(std.math.cast(i32, try std.math.mul(
+        usize,
+        y,
+        self.cell_size.height,
+    )) orelse return error.Overflow);
+    const end_x: f64 = start_x + @as(f64, @floatFromInt(px_width));
+    const end_y: f64 = start_y + @as(f64, @floatFromInt(px_height));
+
+    var ctx: z2d.Context = .init(alloc, &self.surface);
+    defer ctx.deinit();
+
+    ctx.setAntiAliasingMode(.none);
+    ctx.setHairline(true);
+
+    try ctx.moveTo(start_x, start_y);
+    try ctx.lineTo(end_x, start_y);
+    try ctx.lineTo(end_x, end_y);
+    try ctx.lineTo(start_x, end_y);
+    try ctx.closePath();
+
+    ctx.setSourceToPixel(fill_color);
+    try ctx.fill();
+
     ctx.setLineWidth(1);
     ctx.setSourceToPixel(border_color);
     try ctx.stroke();
