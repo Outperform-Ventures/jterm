@@ -8,6 +8,7 @@ const Renderer = @import("../renderer.zig").Renderer;
 const GraphicsAPI = Renderer.API;
 const Texture = GraphicsAPI.Texture;
 const CellSize = @import("size.zig").CellSize;
+const Overlay = @import("Overlay.zig");
 
 const log = std.log.scoped(.renderer_image);
 
@@ -32,12 +33,16 @@ pub const State = struct {
     /// on frame builds and are generally more expensive to handle.
     kitty_virtual: bool,
 
+    /// Overlays
+    overlay_placements: std.ArrayListUnmanaged(Placement),
+
     pub const empty: State = .{
         .images = .empty,
         .kitty_placements = .empty,
         .kitty_bg_end = 0,
         .kitty_text_end = 0,
         .kitty_virtual = false,
+        .overlay_placements = .empty,
     };
 
     pub fn deinit(self: *State, alloc: Allocator) void {
@@ -47,6 +52,7 @@ pub const State = struct {
             self.images.deinit(alloc);
         }
         self.kitty_placements.deinit(alloc);
+        self.overlay_placements.deinit(alloc);
     }
 
     /// Upload any images to the GPU that need to be uploaded,
@@ -88,6 +94,7 @@ pub const State = struct {
         kitty_below_bg,
         kitty_below_text,
         kitty_above_text,
+        overlay,
     };
 
     /// Draw the given named set of placements.
@@ -105,6 +112,7 @@ pub const State = struct {
             .kitty_below_bg => self.kitty_placements.items[0..self.kitty_bg_end],
             .kitty_below_text => self.kitty_placements.items[self.kitty_bg_end..self.kitty_text_end],
             .kitty_above_text => self.kitty_placements.items[self.kitty_text_end..],
+            .overlay => self.overlay_placements.items,
         };
 
         for (placements) |p| {
@@ -170,6 +178,57 @@ pub const State = struct {
         }
     }
 
+    /// Update our overlay state. Null value deletes any existing overlay.
+    pub fn overlayUpdate(
+        self: *State,
+        alloc: Allocator,
+        overlay_: ?Overlay,
+    ) !void {
+        const overlay = overlay_ orelse {
+            // If we don't have an overlay, remove any existing one.
+            if (self.images.getPtr(.overlay)) |data| {
+                data.image.markForUnload();
+            }
+            return;
+        };
+
+        // For transmit time we always just use the current time
+        // and overwrite the overlay.
+        const transmit_time = try std.time.Instant.now();
+
+        // Ensure we have space for our overlay placement. Do this before
+        // we upload our image so we don't have to deal with cleaning
+        // that up.
+        self.overlay_placements.clearRetainingCapacity();
+        try self.overlay_placements.ensureUnusedCapacity(alloc, 1);
+
+        // Setup our image.
+        const pending = overlay.pendingImage();
+        try self.prepImage(
+            alloc,
+            .overlay,
+            transmit_time,
+            pending,
+        );
+        errdefer comptime unreachable;
+
+        // Setup our placement
+        self.overlay_placements.appendAssumeCapacity(.{
+            .image_id = .overlay,
+            .x = 0,
+            .y = 0,
+            .z = 0,
+            .width = pending.width,
+            .height = pending.height,
+            .cell_offset_x = 0,
+            .cell_offset_y = 0,
+            .source_x = 0,
+            .source_y = 0,
+            .source_width = pending.width,
+            .source_height = pending.height,
+        });
+    }
+
     /// Returns true if the Kitty graphics state requires an update based
     /// on the terminal state and our internal state.
     ///
@@ -220,6 +279,8 @@ pub const State = struct {
                     .kitty => |id| if (storage.imageById(id) == null) {
                         kv.value_ptr.image.markForUnload();
                     },
+
+                    .overlay => {},
                 }
             }
         }
@@ -330,7 +391,7 @@ pub const State = struct {
             text_end orelse @intCast(self.kitty_placements.items.len);
     }
 
-    const PrepKittyImageError = error{
+    const PrepImageError = error{
         OutOfMemory,
         ImageConversionError,
     };
@@ -345,7 +406,7 @@ pub const State = struct {
         bot_y: u32,
         image: *const terminal.kitty.graphics.Image,
         p: *const terminal.kitty.graphics.ImageStorage.Placement,
-    ) PrepKittyImageError!void {
+    ) PrepImageError!void {
         // Get the rect for the placement. If this placement doesn't have
         // a rect then its virtual or something so skip it.
         const rect = p.rect(image.*, t) orelse return;
@@ -407,7 +468,7 @@ pub const State = struct {
         t: *const terminal.Terminal,
         p: *const terminal.kitty.graphics.unicode.Placement,
         cell_size: CellSize,
-    ) PrepKittyImageError!void {
+    ) PrepImageError!void {
         const storage = &t.screens.active.kitty_images;
         const image = storage.imageById(p.image_id) orelse {
             log.warn(
@@ -459,34 +520,32 @@ pub const State = struct {
         });
     }
 
-    /// Prepare the provided image for upload to the GPU by copying its
-    /// data with our allocator and setting it to the pending state.
-    fn prepKittyImage(
+    /// Prepare an image for upload to the GPU.
+    fn prepImage(
         self: *State,
         alloc: Allocator,
-        image: *const terminal.kitty.graphics.Image,
-    ) PrepKittyImageError!void {
+        id: Id,
+        transmit_time: std.time.Instant,
+        pending: Image.Pending,
+    ) PrepImageError!void {
         // If this image exists and its transmit time is the same we assume
         // it is the identical image so we don't need to send it to the GPU.
-        const gop = try self.images.getOrPut(
-            alloc,
-            .{ .kitty = image.id },
-        );
+        const gop = try self.images.getOrPut(alloc, id);
         if (gop.found_existing and
-            gop.value_ptr.transmit_time.order(image.transmit_time) == .eq)
+            gop.value_ptr.transmit_time.order(transmit_time) == .eq)
         {
             return;
         }
 
-        // Copy the data into the pending state.
+        // Copy the data so we own it.
         const data = if (alloc.dupe(
             u8,
-            image.data,
+            pending.dataSlice(),
         )) |v| v else |_| {
             if (!gop.found_existing) {
                 // If this is a new entry we can just remove it since it
                 // was never sent to the GPU.
-                _ = self.images.remove(.{ .kitty = image.id });
+                _ = self.images.remove(id);
             } else {
                 // If this was an existing entry, it is invalid and
                 // we must unload it.
@@ -502,15 +561,9 @@ pub const State = struct {
         // Store it in the map
         const new_image: Image = .{
             .pending = .{
-                .width = image.width,
-                .height = image.height,
-                .pixel_format = switch (image.format) {
-                    .gray => .gray,
-                    .gray_alpha => .gray_alpha,
-                    .rgb => .rgb,
-                    .rgba => .rgba,
-                    .png => unreachable, // should be decoded by now
-                },
+                .width = pending.width,
+                .height = pending.height,
+                .pixel_format = pending.pixel_format,
                 .data = data.ptr,
             },
         };
@@ -530,10 +583,40 @@ pub const State = struct {
         errdefer gop.value_ptr.image.markForUnload();
 
         gop.value_ptr.image.prepForUpload(alloc) catch |err| {
-            log.warn("error preparing kitty image for upload err={}", .{err});
+            log.warn("error preparing image for upload err={}", .{err});
             return error.ImageConversionError;
         };
-        gop.value_ptr.transmit_time = image.transmit_time;
+        gop.value_ptr.transmit_time = transmit_time;
+    }
+
+    /// Prepare the provided Kitty image for upload to the GPU by copying its
+    /// data with our allocator and setting it to the pending state.
+    fn prepKittyImage(
+        self: *State,
+        alloc: Allocator,
+        image: *const terminal.kitty.graphics.Image,
+    ) PrepImageError!void {
+        try self.prepImage(
+            alloc,
+            .{ .kitty = image.id },
+            image.transmit_time,
+            .{
+                .width = image.width,
+                .height = image.height,
+                .pixel_format = switch (image.format) {
+                    .gray => .gray,
+                    .gray_alpha => .gray_alpha,
+                    .rgb => .rgb,
+                    .rgba => .rgba,
+                    .png => unreachable, // should be decoded by now
+                },
+
+                // constCasts are always gross but this one is safe is because
+                // the data is only read from here and copied into its own
+                // buffer.
+                .data = @constCast(image.data.ptr),
+            },
+        );
     }
 };
 
@@ -574,13 +657,19 @@ pub const Id = union(enum) {
     /// The value is the ID assigned by the terminal.
     kitty: u32,
 
+    /// Debug overlay. This is always composited down to a single
+    /// image for now. In the future we can support layers here if we want.
+    overlay,
+
     /// Z-ordering tie-breaker for images with the same z value.
     pub fn zLessThan(lhs: Id, rhs: Id) bool {
         // If our tags aren't the same, we sort by tag.
         if (std.meta.activeTag(lhs) != std.meta.activeTag(rhs)) {
             return switch (lhs) {
                 // Kitty images always sort before (lower z) non-kitty images.
-                .kitty => false,
+                .kitty => true,
+
+                .overlay => false,
             };
         }
 
@@ -589,6 +678,9 @@ pub const Id = union(enum) {
                 const rhs_id = rhs.kitty;
                 return lhs_id < rhs_id;
             },
+
+            // No sensical ordering
+            .overlay => return false,
         }
     }
 };
