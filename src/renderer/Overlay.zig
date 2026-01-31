@@ -113,20 +113,13 @@ fn highlightHyperlinks(
     alloc: Allocator,
     state: *const terminal.RenderState,
 ) void {
-    // Border and fill colors (premultiplied alpha, 50% alpha for fill)
-    const border_color: z2d.Pixel = .{ .rgba = .{
-        .r = 180,
-        .g = 180,
-        .b = 255,
-        .a = 255,
-    } };
-    // Fill: 50% alpha (128/255), so premultiply RGB by 128/255
-    const fill_color: z2d.Pixel = .{ .rgba = .{
-        .r = 90,
-        .g = 90,
-        .b = 180,
-        .a = 128,
-    } };
+    const border_fill_rgb: z2d.pixel.RGB = .{ .r = 180, .g = 180, .b = 255 };
+    const border_color = border_fill_rgb.asPixel();
+    const fill_color: z2d.Pixel = px: {
+        var rgba: z2d.pixel.RGBA = .fromPixel(border_color);
+        rgba.a = 128;
+        break :px rgba.multiply().asPixel();
+    };
 
     const row_slice = state.row_data.slice();
     const row_raw = row_slice.items(.raw);
@@ -212,6 +205,11 @@ fn highlightRect(
     // Grab our context to draw
     var ctx: z2d.Context = .init(alloc, &self.surface);
     defer ctx.deinit();
+
+    // Don't need AA because we use sharp edges
+    ctx.setAntiAliasingMode(.none);
+    // Can use hairline since we have 1px borders
+    ctx.setHairline(true);
 
     // Draw rectangle path
     try ctx.moveTo(start_x, start_y);
