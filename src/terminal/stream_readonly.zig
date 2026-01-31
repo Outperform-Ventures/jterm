@@ -904,7 +904,7 @@ test "semantic prompt fresh line new prompt" {
     // Test with redraw option
     try s.nextSlice("prompt$ ");
     try s.nextSlice("\x1b]133;A;redraw=1\x07");
-    try testing.expect(t.flags.shell_redraws_prompt);
+    try testing.expect(t.flags.shell_redraws_prompt == .true);
 }
 
 test "semantic prompt end of input, then start output" {

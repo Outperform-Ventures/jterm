@@ -1608,11 +1608,11 @@ pub const Resize = struct {
     /// lost from the top of the scrollback.
     reflow: bool = true,
 
-    /// Set this to true to enable prompt redraw on resize. This signals
+    /// Set this to enable prompt redraw on resize. This signals
     /// that the running program can redraw the prompt if the cursor is
     /// currently at a prompt. This detects OSC133 prompts lines and clears
-    /// them.
-    prompt_redraw: bool = false,
+    /// them. If set to `.last`, only the most recent prompt line is cleared.
+    prompt_redraw: osc.semantic_prompt.Redraw = .false,
 };
 
 /// Resize the screen. The rows or cols can be bigger or smaller.
@@ -1682,32 +1682,47 @@ pub inline fn resize(
 
     // If our cursor is on a prompt line, then we clear the prompt so
     // the shell can redraw it. This works with OSC133 semantic prompts.
-    if (opts.prompt_redraw and
+    if (opts.prompt_redraw != .false and
         self.cursor.page_row.semantic_prompt != .none)
     prompt: {
-        const start = start: {
-            var it = self.cursor.page_pin.promptIterator(
-                .left_up,
-                null,
-            );
-            break :start it.next() orelse {
-                // This should never happen because promptIterator should always
-                // find a prompt if we already verified our row is some kind of
-                // prompt.
-                log.warn("cursor on prompt line but promptIterator found no prompt", .{});
-                break :prompt;
-            };
-        };
+        switch (opts.prompt_redraw) {
+            .false => unreachable,
 
-        // Clear cells from our start down. We replace it with spaces,
-        // and do not physically erase the rows (eraseRows) because the
-        // shell is going to expect this space to be available.
-        var it = start.rowIterator(.right_down, null);
-        while (it.next()) |pin| {
-            const page = &pin.node.data;
-            const row = pin.rowAndCell().row;
-            const cells = page.getCells(row);
-            self.clearCells(page, row, cells);
+            // For `.last`, only clear the current line where the cursor is.
+            // For `.true`, clear all prompt lines starting from the beginning.
+            .last => {
+                const page = &self.cursor.page_pin.node.data;
+                const row = self.cursor.page_row;
+                const cells = page.getCells(row);
+                self.clearCells(page, row, cells);
+            },
+
+            .true => {
+                const start = start: {
+                    var it = self.cursor.page_pin.promptIterator(
+                        .left_up,
+                        null,
+                    );
+                    break :start it.next() orelse {
+                        // This should never happen because promptIterator should always
+                        // find a prompt if we already verified our row is some kind of
+                        // prompt.
+                        log.warn("cursor on prompt line but promptIterator found no prompt", .{});
+                        break :prompt;
+                    };
+                };
+
+                // Clear cells from our start down. We replace it with spaces,
+                // and do not physically erase the rows (eraseRows) because the
+                // shell is going to expect this space to be available.
+                var it = start.rowIterator(.right_down, null);
+                while (it.next()) |pin| {
+                    const page = &pin.node.data;
+                    const row = pin.rowAndCell().row;
+                    const cells = page.getCells(row);
+                    self.clearCells(page, row, cells);
+                }
+            },
         }
     }
 
@@ -7191,7 +7206,7 @@ test "Screen: resize more cols with cursor at prompt" {
     try s.resize(.{
         .cols = 20,
         .rows = 3,
-        .prompt_redraw = true,
+        .prompt_redraw = .true,
     });
 
     // Cursor should not move
@@ -7232,7 +7247,7 @@ test "Screen: resize more cols with cursor not at prompt" {
     try s.resize(.{
         .cols = 20,
         .rows = 3,
-        .prompt_redraw = true,
+        .prompt_redraw = .true,
     });
 
     // Cursor should not move
@@ -7243,6 +7258,88 @@ test "Screen: resize more cols with cursor not at prompt" {
         const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
         defer alloc.free(contents);
         const expected = "ABCDE\n> echo\noutput";
+        try testing.expectEqualStrings(expected, contents);
+    }
+}
+
+test "Screen: resize with prompt_redraw last clears only one line" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, .{ .cols = 10, .rows = 4, .max_scrollback = 5 });
+    defer s.deinit();
+
+    // zig fmt: off
+    try s.testWriteString("ABCDE\n");
+    s.cursorSetSemanticContent(.{ .prompt = .initial });
+    try s.testWriteString("> ");
+    s.cursorSetSemanticContent(.{ .input = .clear_eol });
+    try s.testWriteString("hello\n");
+    try s.testWriteString("world");
+    // zig fmt: on
+
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
+        defer alloc.free(contents);
+        const expected = "ABCDE\n> hello\nworld";
+        try testing.expectEqualStrings(expected, contents);
+    }
+
+    // Move cursor back to the prompt line (row 1)
+    s.cursorAbsolute(7, 1);
+
+    try s.resize(.{
+        .cols = 20,
+        .rows = 4,
+        .prompt_redraw = .last,
+    });
+
+    // With .last, only the first prompt line ("> ") should be cleared,
+    // but subsequent input lines ("hello", "world") remain
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
+        defer alloc.free(contents);
+        const expected = "ABCDE\n\nworld";
+        try testing.expectEqualStrings(expected, contents);
+    }
+}
+
+test "Screen: resize with prompt_redraw last multiline prompt clears only last line" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, .{ .cols = 20, .rows = 5, .max_scrollback = 5 });
+    defer s.deinit();
+
+    // Create a 3-line prompt: 1 initial + 2 continuation lines
+    // zig fmt: off
+    s.cursorSetSemanticContent(.{ .prompt = .initial });
+    try s.testWriteString("line1\n");
+    s.cursorSetSemanticContent(.{ .prompt = .continuation });
+    try s.testWriteString("line2\n");
+    s.cursorSetSemanticContent(.{ .prompt = .continuation });
+    try s.testWriteString("line3");
+    // zig fmt: on
+
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
+        defer alloc.free(contents);
+        const expected = "line1\nline2\nline3";
+        try testing.expectEqualStrings(expected, contents);
+    }
+
+    // Cursor is at end of line3 (the last continuation line)
+    try s.resize(.{
+        .cols = 30,
+        .rows = 5,
+        .prompt_redraw = .last,
+    });
+
+    // With .last, only line3 (where cursor is) should be cleared
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
+        defer alloc.free(contents);
+        const expected = "line1\nline2";
         try testing.expectEqualStrings(expected, contents);
     }
 }
