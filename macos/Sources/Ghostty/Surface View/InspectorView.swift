@@ -98,7 +98,7 @@ extension Ghostty {
             didSet { surfaceViewDidChange() }
         }
 
-        private var inspector: ghostty_inspector_t? {
+        private var inspector: Ghostty.Inspector? {
             guard let surfaceView = self.surfaceView else { return nil }
             return surfaceView.inspector
         }
@@ -150,8 +150,7 @@ extension Ghostty {
             guard let surfaceView = self.surfaceView else { return }
             guard let inspector = self.inspector else { return }
             guard let device = self.device else { return }
-            let devicePtr = Unmanaged.passRetained(device).toOpaque()
-            ghostty_inspector_metal_init(inspector, devicePtr)
+            _ = inspector.metalInit(device: device)
 
             // Register an observer for render requests
             center.addObserver(
@@ -172,10 +171,10 @@ extension Ghostty {
             let fbFrame = self.convertToBacking(self.frame)
             let xScale = fbFrame.size.width / self.frame.size.width
             let yScale = fbFrame.size.height / self.frame.size.height
-            ghostty_inspector_set_content_scale(inspector, xScale, yScale)
+            inspector.setContentScale(x: xScale, y: yScale)
 
             // When our scale factor changes, so does our fb size so we send that too
-            ghostty_inspector_set_size(inspector, UInt32(fbFrame.size.width), UInt32(fbFrame.size.height))
+            inspector.setSize(width: UInt32(fbFrame.size.width), height: UInt32(fbFrame.size.height))
         }
 
         // MARK: NSView
@@ -184,7 +183,7 @@ extension Ghostty {
             let result = super.becomeFirstResponder()
             if (result) {
                 if let inspector = self.inspector {
-                    ghostty_inspector_set_focus(inspector, true)
+                    inspector.setFocus(true)
                 }
             }
             return result
@@ -194,7 +193,7 @@ extension Ghostty {
             let result = super.resignFirstResponder()
             if (result) {
                 if let inspector = self.inspector {
-                    ghostty_inspector_set_focus(inspector, false)
+                    inspector.setFocus(false)
                 }
             }
             return result
@@ -229,25 +228,25 @@ extension Ghostty {
         override func mouseDown(with event: NSEvent) {
             guard let inspector = self.inspector else { return }
             let mods = Ghostty.ghosttyMods(event.modifierFlags)
-            ghostty_inspector_mouse_button(inspector, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, mods)
+            inspector.mouseButton(GHOSTTY_MOUSE_PRESS, button: GHOSTTY_MOUSE_LEFT, mods: mods)
         }
 
         override func mouseUp(with event: NSEvent) {
             guard let inspector = self.inspector else { return }
             let mods = Ghostty.ghosttyMods(event.modifierFlags)
-            ghostty_inspector_mouse_button(inspector, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, mods)
+            inspector.mouseButton(GHOSTTY_MOUSE_RELEASE, button: GHOSTTY_MOUSE_LEFT, mods: mods)
         }
 
         override func rightMouseDown(with event: NSEvent) {
             guard let inspector = self.inspector else { return }
             let mods = Ghostty.ghosttyMods(event.modifierFlags)
-            ghostty_inspector_mouse_button(inspector, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_RIGHT, mods)
+            inspector.mouseButton(GHOSTTY_MOUSE_PRESS, button: GHOSTTY_MOUSE_RIGHT, mods: mods)
         }
 
         override func rightMouseUp(with event: NSEvent) {
             guard let inspector = self.inspector else { return }
             let mods = Ghostty.ghosttyMods(event.modifierFlags)
-            ghostty_inspector_mouse_button(inspector, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_RIGHT, mods)
+            inspector.mouseButton(GHOSTTY_MOUSE_RELEASE, button: GHOSTTY_MOUSE_RIGHT, mods: mods)
         }
 
         override func mouseMoved(with event: NSEvent) {
@@ -255,7 +254,7 @@ extension Ghostty {
 
             // Convert window position to view position. Note (0, 0) is bottom left.
             let pos = self.convert(event.locationInWindow, from: nil)
-            ghostty_inspector_mouse_pos(inspector, pos.x, frame.height - pos.y)
+            inspector.mousePos(x: pos.x, y: frame.height - pos.y)
 
         }
 
@@ -297,7 +296,7 @@ extension Ghostty {
             // Pack our momentum value into the mods bitmask
             mods |= Int32(momentum.rawValue) << 1
 
-            ghostty_inspector_mouse_scroll(inspector, x, y, mods)
+            inspector.mouseScroll(x: x, y: y, mods: mods)
         }
 
         override func keyDown(with event: NSEvent) {
@@ -336,7 +335,7 @@ extension Ghostty {
             guard let inspector = self.inspector else { return }
             guard let key = Ghostty.Input.Key(keyCode: event.keyCode) else { return }
             let mods = Ghostty.ghosttyMods(event.modifierFlags)
-            ghostty_inspector_key(inspector, action, key.cKey, mods)
+            inspector.key(action, key: key.cKey, mods: mods)
         }
 
         // MARK: NSTextInputClient
@@ -406,9 +405,7 @@ extension Ghostty {
             let len = chars.utf8CString.count
             if (len == 0) { return }
 
-            chars.withCString { ptr in
-                ghostty_inspector_text(inspector, ptr)
-            }
+            inspector.text(chars)
         }
 
         override func doCommand(by selector: Selector) {
@@ -435,11 +432,7 @@ extension Ghostty {
             updateSize()
 
             // Render
-            ghostty_inspector_metal_render(
-                inspector,
-                Unmanaged.passRetained(commandBuffer).toOpaque(),
-                Unmanaged.passRetained(descriptor).toOpaque()
-            )
+            inspector.metalRender(commandBuffer: commandBuffer, descriptor: descriptor)
 
             guard let drawable = self.currentDrawable else { return }
             commandBuffer.present(drawable)
