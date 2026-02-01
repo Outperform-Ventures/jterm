@@ -120,9 +120,9 @@ extension Ghostty {
             self.commandQueue = commandQueue
             super.init(frame: frame, device: device)
 
-            // This makes it so renders only happen when we request
-            self.enableSetNeedsDisplay = true
-            self.isPaused = true
+            // Use timed updates mode. This is required for the inspector.
+            self.isPaused = false
+            self.preferredFramesPerSecond = 30
 
             // After initializing the parent we can set our own properties
             self.device = MTLCreateSystemDefaultDevice()
@@ -130,6 +130,13 @@ extension Ghostty {
 
             // Setup our tracking areas for mouse events
             updateTrackingAreas()
+
+            // Observe occlusion state to pause rendering when not visible
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(windowDidChangeOcclusionState),
+                name: NSWindow.didChangeOcclusionStateNotification,
+                object: nil)
         }
 
         required init(coder: NSCoder) {
@@ -141,27 +148,19 @@ extension Ghostty {
             NotificationCenter.default.removeObserver(self)
         }
 
+        @objc private func windowDidChangeOcclusionState(_ notification: NSNotification) {
+            guard let window = notification.object as? NSWindow,
+                  window == self.window else { return }
+            // Pause rendering when our window isn't visible.
+            isPaused = !window.occlusionState.contains(.visible)
+        }
+
         // MARK: Internal Inspector Funcs
 
         private func surfaceViewDidChange() {
-            let center = NotificationCenter.default
-            center.removeObserver(self)
-
-            guard let surfaceView = self.surfaceView else { return }
             guard let inspector = self.inspector else { return }
             guard let device = self.device else { return }
             _ = inspector.metalInit(device: device)
-
-            // Register an observer for render requests
-            center.addObserver(
-                self,
-                selector: #selector(didRequestRender),
-                name: Ghostty.Notification.inspectorNeedsDisplay,
-                object: surfaceView)
-        }
-
-        @objc private func didRequestRender(notification: SwiftUI.Notification) {
-            self.needsDisplay = true
         }
 
         private func updateSize() {
