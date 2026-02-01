@@ -1296,21 +1296,6 @@ pub fn index(self: *Terminal) !void {
     defer if (screen.cursor.semantic_content != .output) {
         @branchHint(.unlikely);
 
-        // If we're prompting and do a newline, immediately assume
-        // that the new row is a prompt continuation. This is to work
-        // around shells that don't send OSC 133 k=s sequences for
-        // continuations (fish as v4.3, which also doesn't have a way
-        // to do PS2-style prompts to fix this ourself!).
-        //
-        // This can be a false positive if the shell changes content
-        // type later and outputs something. We handle that in the
-        // semanticPrompt function.
-        if (screen.cursor.semantic_content == .prompt) {
-            screen.cursorSetSemanticContent(.{
-                .prompt = .secondary,
-            });
-        }
-
         // Always reset any semantic content clear-eol state.
         //
         // The specification is not clear what "end-of-line" means. If we
@@ -1319,6 +1304,16 @@ pub fn index(self: *Terminal) !void {
         if (screen.cursor.semantic_content_clear_eol) {
             screen.cursor.semantic_content = .output;
             screen.cursor.semantic_content_clear_eol = false;
+        } else {
+            // If we aren't clearing our state at EOL and we're not output,
+            // then we mark the new row as a prompt continuation. This is
+            // to work around shells that don't send OSC 133 k=s sequences
+            // for continuations.
+            //
+            // This can be a false positive if the shell changes content
+            // type later and outputs something. We handle that in the
+            // semanticPrompt function.
+            screen.cursor.page_row.semantic_prompt = .prompt_continuation;
         }
     } else {
         // This should never be set in the output mode.
@@ -11469,14 +11464,17 @@ test "Terminal: index in input mode does not mark new row as prompt" {
     t.carriageReturn();
     try t.linefeed();
 
-    // The new row should NOT be marked as prompt continuation
+    // The new row should be marked as prompt continuation
     {
         const list_cell = t.screens.active.pages.getCell(.{ .active = .{
             .x = 0,
             .y = 1,
         } }).?;
-        try testing.expectEqual(.none, list_cell.row.semantic_prompt);
+        try testing.expectEqual(.prompt_continuation, list_cell.row.semantic_prompt);
     }
+
+    // Our cursor should still be in input
+    try testing.expectEqual(.input, t.screens.active.cursor.semantic_content);
 }
 
 test "Terminal: index in output mode does not mark new row as prompt" {
