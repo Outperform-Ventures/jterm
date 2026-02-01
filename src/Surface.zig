@@ -4295,7 +4295,7 @@ fn clickMoveCursor(self: *Surface, to: terminal.Pin) !void {
     // This flag is only set if we've seen at least one semantic prompt
     // OSC sequence. If we've never seen that sequence, we can't possibly
     // move the cursor so we can fast path out of here.
-    if (!t.flags.shell_redraws_prompt) return;
+    if (!t.screens.active.flags.semantic_content) return;
 
     // Get our path
     const from = t.screens.active.cursor.page_pin.*;

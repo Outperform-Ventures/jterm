@@ -25,6 +25,7 @@ pub const Inspector = struct {
     terminal_info: widgets.terminal.Info,
     vt_stream: widgets.termio.Stream,
     renderer_info: widgets.renderer.Info,
+    show_demo_window: bool,
 
     pub fn init(alloc: Allocator) !Inspector {
         return .{
@@ -33,6 +34,7 @@ pub const Inspector = struct {
             .terminal_info = .empty,
             .vt_stream = try .init(alloc),
             .renderer_info = .empty,
+            .show_demo_window = true,
         };
     }
 
@@ -51,13 +53,6 @@ pub const Inspector = struct {
         // then it is a first render.
         const dockspace_id = cimgui.c.ImGui_GetID("Main Dockspace");
         const first_render = createDockSpace(dockspace_id);
-
-        // In debug we show the ImGui demo window so we can easily view
-        // available widgets and such.
-        if (comptime builtin.mode == .Debug) {
-            var show: bool = true; // Always show it
-            cimgui.c.ImGui_ShowDemoWindow(&show);
-        }
 
         // Draw everything that requires the terminal state mutex.
         {
@@ -136,6 +131,14 @@ pub const Inspector = struct {
             }
         }
 
+        // In debug we show the ImGui demo window so we can easily view
+        // available widgets and such.
+        if (comptime builtin.mode == .Debug) {
+            if (self.show_demo_window) {
+                cimgui.c.ImGui_ShowDemoWindow(&self.show_demo_window);
+            }
+        }
+
         if (first_render) {
             // On first render, setup our initial focus state. We only
             // do this on first render so that we can let the user change
@@ -171,12 +174,12 @@ pub const Inspector = struct {
             // this is the point we'd pre-split and so on for the initial
             // layout.
             const dock_id_main: cimgui.c.ImGuiID = dockspace_id;
+            cimgui.ImGui_DockBuilderDockWindow(window_imgui_demo, dock_id_main);
             cimgui.ImGui_DockBuilderDockWindow(window_terminal, dock_id_main);
             cimgui.ImGui_DockBuilderDockWindow(window_surface, dock_id_main);
             cimgui.ImGui_DockBuilderDockWindow(window_keyboard, dock_id_main);
             cimgui.ImGui_DockBuilderDockWindow(window_termio, dock_id_main);
             cimgui.ImGui_DockBuilderDockWindow(window_renderer, dock_id_main);
-            cimgui.ImGui_DockBuilderDockWindow(window_imgui_demo, dock_id_main);
             cimgui.ImGui_DockBuilderFinish(dockspace_id);
         }
 
