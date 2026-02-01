@@ -415,8 +415,6 @@ extension Ghostty {
         // MARK: MTKView
 
         override func draw(_ dirtyRect: NSRect) {
-            Ghostty.logger.warning("inspector draw at \(Date())")
-
             guard
               let commandBuffer = self.commandQueue.makeCommandBuffer(),
               let descriptor = self.currentRenderPassDescriptor else {
