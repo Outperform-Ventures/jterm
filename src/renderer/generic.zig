@@ -1644,7 +1644,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
                 // Debug overlay. We do this before any custom shader state
                 // because our debug overlay is aligned with the grid.
-                self.images.draw(
+                if (self.overlay != null) self.images.draw(
                     &self.api,
                     self.shaders.pipelines.image,
                     &pass,
@@ -1702,74 +1702,6 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
             // Always release our semaphore
             self.swap_chain.releaseFrame();
-        }
-
-        fn drawImagePlacements(
-            self: *Self,
-            pass: *RenderPass,
-            placements: []const imagepkg.Placement,
-        ) !void {
-            if (placements.len == 0) return;
-
-            for (placements) |p| {
-
-                // Look up the image
-                const image = self.images.get(p.image_id) orelse {
-                    log.warn("image not found for placement image_id={}", .{p.image_id});
-                    continue;
-                };
-
-                // Get the texture
-                const texture = switch (image.image) {
-                    .ready,
-                    .unload_ready,
-                    => |t| t,
-                    else => {
-                        log.warn("image not ready for placement image_id={}", .{p.image_id});
-                        continue;
-                    },
-                };
-
-                // Create our vertex buffer, which is always exactly one item.
-                // future(mitchellh): we can group rendering multiple instances of a single image
-                var buf = try Buffer(shaderpkg.Image).initFill(
-                    self.api.imageBufferOptions(),
-                    &.{.{
-                        .grid_pos = .{
-                            @as(f32, @floatFromInt(p.x)),
-                            @as(f32, @floatFromInt(p.y)),
-                        },
-
-                        .cell_offset = .{
-                            @as(f32, @floatFromInt(p.cell_offset_x)),
-                            @as(f32, @floatFromInt(p.cell_offset_y)),
-                        },
-
-                        .source_rect = .{
-                            @as(f32, @floatFromInt(p.source_x)),
-                            @as(f32, @floatFromInt(p.source_y)),
-                            @as(f32, @floatFromInt(p.source_width)),
-                            @as(f32, @floatFromInt(p.source_height)),
-                        },
-
-                        .dest_size = .{
-                            @as(f32, @floatFromInt(p.width)),
-                            @as(f32, @floatFromInt(p.height)),
-                        },
-                    }},
-                );
-                defer buf.deinit();
-
-                pass.step(.{
-                    .pipeline = self.shaders.pipelines.image,
-                    .buffers = &.{buf.buffer},
-                    .textures = &.{texture},
-                    .draw = .{
-                        .type = .triangle_strip,
-                        .vertex_count = 4,
-                    },
-                });
-            }
         }
 
         /// Call this any time the background image path changes.
