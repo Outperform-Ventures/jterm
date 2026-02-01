@@ -1680,10 +1680,18 @@ pub inline fn resize(
     };
     defer if (saved_cursor_pin) |p| self.pages.untrackPin(p);
 
-    // If our cursor is on a prompt line, then we clear the prompt so
-    // the shell can redraw it. This works with OSC133 semantic prompts.
+    // If our cursor is on a prompt or input line, clear it so the shell can
+    // redraw it. This works with OSC 133 semantic prompts.
+    //
+    // We check cursor.semantic_content rather than page_row.semantic_prompt
+    // because some shells (e.g., Nu) mark input areas with OSC 133 B but don't
+    // mark continuation lines with k=s. If the input spans multiple lines and
+    // continuation lines are unmarked, checking only page_row.semantic_prompt
+    // would miss them. By checking semantic_content, we assume that if the
+    // cursor is on anything other than command output, we're at a prompt/input
+    // line and should clear from there.
     if (opts.prompt_redraw != .false and
-        self.cursor.page_row.semantic_prompt != .none)
+        self.cursor.semantic_content != .output)
     prompt: {
         switch (opts.prompt_redraw) {
             .false => unreachable,
@@ -7273,7 +7281,7 @@ test "Screen: resize with prompt_redraw last clears only one line" {
     try s.testWriteString("ABCDE\n");
     s.cursorSetSemanticContent(.{ .prompt = .initial });
     try s.testWriteString("> ");
-    s.cursorSetSemanticContent(.{ .input = .clear_eol });
+    s.cursorSetSemanticContent(.{ .input = .clear_explicit });
     try s.testWriteString("hello\n");
     try s.testWriteString("world");
     // zig fmt: on
@@ -7285,21 +7293,18 @@ test "Screen: resize with prompt_redraw last clears only one line" {
         try testing.expectEqualStrings(expected, contents);
     }
 
-    // Move cursor back to the prompt line (row 1)
-    s.cursorAbsolute(7, 1);
-
+    // Cursor is at end of "world" line with semantic_content = .input
     try s.resize(.{
         .cols = 20,
         .rows = 4,
         .prompt_redraw = .last,
     });
 
-    // With .last, only the first prompt line ("> ") should be cleared,
-    // but subsequent input lines ("hello", "world") remain
+    // With .last, only the current line where cursor is should be cleared
     {
         const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
         defer alloc.free(contents);
-        const expected = "ABCDE\n\nworld";
+        const expected = "ABCDE\n> hello";
         try testing.expectEqualStrings(expected, contents);
     }
 }
@@ -7340,6 +7345,56 @@ test "Screen: resize with prompt_redraw last multiline prompt clears only last l
         const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
         defer alloc.free(contents);
         const expected = "line1\nline2";
+        try testing.expectEqualStrings(expected, contents);
+    }
+}
+
+test "Screen: resize with prompt_redraw clears input line without row semantic prompt" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, .{ .cols = 20, .rows = 5, .max_scrollback = 5 });
+    defer s.deinit();
+
+    // Simulate Nu shell behavior: marks input area with OSC 133 B but does not
+    // mark continuation lines with k=s sequence. This means:
+    // - cursor.semantic_content = .input
+    // - cursor.page_row.semantic_prompt = .none (not marked)
+    // The fix ensures we still clear based on semantic_content.
+    // zig fmt: off
+    try s.testWriteString("output\n");
+    s.cursorSetSemanticContent(.{ .prompt = .initial });
+    try s.testWriteString("> ");
+    s.cursorSetSemanticContent(.{ .input = .clear_explicit });
+    try s.testWriteString("hello\n");
+    // Continue typing on next line - no prompt marking, but still in input mode
+    try s.testWriteString("world");
+    // zig fmt: on
+
+    // Verify the row has no semantic prompt marking (simulating Nu behavior)
+    try testing.expectEqual(.none, s.cursor.page_row.semantic_prompt);
+    // But the cursor's semantic content is input
+    try testing.expectEqual(.input, s.cursor.semantic_content);
+
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
+        defer alloc.free(contents);
+        const expected = "output\n> hello\nworld";
+        try testing.expectEqualStrings(expected, contents);
+    }
+
+    try s.resize(.{
+        .cols = 30,
+        .rows = 5,
+        .prompt_redraw = .true,
+    });
+
+    // All prompt/input lines should be cleared even though the continuation
+    // row's semantic_prompt is .none
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
+        defer alloc.free(contents);
+        const expected = "output";
         try testing.expectEqualStrings(expected, contents);
     }
 }
