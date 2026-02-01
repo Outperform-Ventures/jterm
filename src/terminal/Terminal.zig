@@ -1145,6 +1145,21 @@ pub fn semanticPrompt(
         .end_input_start_output => {
             // "End of input, and start of output."
             self.screens.active.cursorSetSemanticContent(.output);
+
+            // If our current row is marked as a prompt and we're
+            // at column zero then we assume we're un-prompting. This
+            // is a heuristic to deal with fish, mostly. The issue that
+            // fish brings up is that it has no PS2 equivalent and its
+            // builtin OSC133 marking doesn't output continuation lines
+            // as k=s. So, we assume when we get a newline with a prompt
+            // cursor that the new line is also a prompt. But fish changes
+            // to output on the newline. So if we're at col 0 we just assume
+            // we're overwriting the prompt.
+            if (self.screens.active.cursor.page_row.semantic_prompt != .none and
+                self.screens.active.cursor.x == 0)
+            {
+                self.screens.active.cursor.page_row.semantic_prompt = .none;
+            }
         },
 
         .end_command => {
@@ -1271,28 +1286,53 @@ pub fn tabReset(self: *Terminal) void {
 ///
 /// This unsets the pending wrap state without wrapping.
 pub fn index(self: *Terminal) !void {
-    // Unset pending wrap state
-    self.screens.active.cursor.pending_wrap = false;
+    const screen: *Screen = self.screens.active;
 
-    // Always reset any semantic content clear-eol state.
-    //
-    // The specification is not clear what "end-of-line" means. If we
-    // discover that there are more scenarios we should be unsetting
-    // this we should document and test it.
-    if (self.screens.active.cursor.semantic_content_clear_eol) {
+    // Unset pending wrap state
+    screen.cursor.pending_wrap = false;
+
+    // We handle our cursor semantic prompt state AFTER doing the
+    // scrolling, because we may need to apply to new rows.
+    defer if (screen.cursor.semantic_content != .output) {
         @branchHint(.unlikely);
-        self.screens.active.cursor.semantic_content = .output;
-        self.screens.active.cursor.semantic_content_clear_eol = false;
-    }
+
+        // If we're prompting and do a newline, immediately assume
+        // that the new row is a prompt continuation. This is to work
+        // around shells that don't send OSC 133 k=s sequences for
+        // continuations (fish as v4.3, which also doesn't have a way
+        // to do PS2-style prompts to fix this ourself!).
+        //
+        // This can be a false positive if the shell changes content
+        // type later and outputs something. We handle that in the
+        // semanticPrompt function.
+        if (screen.cursor.semantic_content == .prompt) {
+            screen.cursorSetSemanticContent(.{
+                .prompt = .secondary,
+            });
+        }
+
+        // Always reset any semantic content clear-eol state.
+        //
+        // The specification is not clear what "end-of-line" means. If we
+        // discover that there are more scenarios we should be unsetting
+        // this we should document and test it.
+        if (screen.cursor.semantic_content_clear_eol) {
+            screen.cursor.semantic_content = .output;
+            screen.cursor.semantic_content_clear_eol = false;
+        }
+    } else {
+        // This should never be set in the output mode.
+        assert(!screen.cursor.semantic_content_clear_eol);
+    };
 
     // Outside of the scroll region we move the cursor one line down.
-    if (self.screens.active.cursor.y < self.scrolling_region.top or
-        self.screens.active.cursor.y > self.scrolling_region.bottom)
+    if (screen.cursor.y < self.scrolling_region.top or
+        screen.cursor.y > self.scrolling_region.bottom)
     {
         // We only move down if we're not already at the bottom of
         // the screen.
-        if (self.screens.active.cursor.y < self.rows - 1) {
-            self.screens.active.cursorDown(1);
+        if (screen.cursor.y < self.rows - 1) {
+            screen.cursorDown(1);
         }
 
         return;
@@ -1301,13 +1341,13 @@ pub fn index(self: *Terminal) !void {
     // If the cursor is inside the scrolling region and on the bottom-most
     // line, then we scroll up. If our scrolling region is the full screen
     // we create scrollback.
-    if (self.screens.active.cursor.y == self.scrolling_region.bottom and
-        self.screens.active.cursor.x >= self.scrolling_region.left and
-        self.screens.active.cursor.x <= self.scrolling_region.right)
+    if (screen.cursor.y == self.scrolling_region.bottom and
+        screen.cursor.x >= self.scrolling_region.left and
+        screen.cursor.x <= self.scrolling_region.right)
     {
         if (comptime build_options.kitty_graphics) {
             // Scrolling dirties the images because it updates their placements pins.
-            self.screens.active.kitty_images.dirty = true;
+            screen.kitty_images.dirty = true;
         }
 
         // If our scrolling region is at the top, we create scrollback.
@@ -1315,7 +1355,7 @@ pub fn index(self: *Terminal) !void {
             self.scrolling_region.left == 0 and
             self.scrolling_region.right == self.cols - 1)
         {
-            try self.screens.active.cursorScrollAbove();
+            try screen.cursorScrollAbove();
             return;
         }
 
@@ -1329,7 +1369,7 @@ pub fn index(self: *Terminal) !void {
             // However, scrollUp is WAY slower. We should optimize this
             // case to work in the eraseRowBounded codepath and remove
             // this check.
-            !self.screens.active.blankCell().isZero())
+            !screen.blankCell().isZero())
         {
             try self.scrollUp(1);
             return;
@@ -1339,9 +1379,9 @@ pub fn index(self: *Terminal) !void {
         // scroll the contents of the scrolling region.
 
         // Preserve old cursor just for assertions
-        const old_cursor = self.screens.active.cursor;
+        const old_cursor = screen.cursor;
 
-        try self.screens.active.pages.eraseRowBounded(
+        try screen.pages.eraseRowBounded(
             .{ .active = .{ .y = self.scrolling_region.top } },
             self.scrolling_region.bottom - self.scrolling_region.top,
         );
@@ -1350,26 +1390,26 @@ pub fn index(self: *Terminal) !void {
         // up by 1, so we need to move it back down. A `cursorReload`
         // would be better option but this is more efficient and this is
         // a super hot path so we do this instead.
-        assert(self.screens.active.cursor.x == old_cursor.x);
-        assert(self.screens.active.cursor.y == old_cursor.y);
-        self.screens.active.cursor.y -= 1;
-        self.screens.active.cursorDown(1);
+        assert(screen.cursor.x == old_cursor.x);
+        assert(screen.cursor.y == old_cursor.y);
+        screen.cursor.y -= 1;
+        screen.cursorDown(1);
 
         // The operations above can prune our cursor style so we need to
         // update. This should never fail because the above can only FREE
         // memory.
-        self.screens.active.manualStyleUpdate() catch |err| {
+        screen.manualStyleUpdate() catch |err| {
             std.log.warn("deleteLines manualStyleUpdate err={}", .{err});
-            self.screens.active.cursor.style = .{};
-            self.screens.active.manualStyleUpdate() catch unreachable;
+            screen.cursor.style = .{};
+            screen.manualStyleUpdate() catch unreachable;
         };
 
         return;
     }
 
     // Increase cursor by 1, maximum to bottom of scroll region
-    if (self.screens.active.cursor.y < self.scrolling_region.bottom) {
-        self.screens.active.cursorDown(1);
+    if (screen.cursor.y < self.scrolling_region.bottom) {
+        screen.cursorDown(1);
     }
 }
 
@@ -11374,20 +11414,240 @@ test "Terminal: semantic prompt continuations" {
     }
 }
 
+test "Terminal: index in prompt mode marks new row as prompt continuation" {
+    // This tests the Fish shell workaround: when in prompt mode and we get
+    // a newline, assume the new row is a prompt continuation (since Fish
+    // doesn't emit OSC133 k=s markers for continuation lines).
+    const alloc = testing.allocator;
+    var t = try init(alloc, .{ .cols = 10, .rows = 5 });
+    defer t.deinit(alloc);
+
+    // Start a prompt
+    try t.semanticPrompt(.init(.prompt_start));
+    for ("hello") |c| try t.print(c);
+
+    // Verify first row is marked as prompt
+    {
+        const list_cell = t.screens.active.pages.getCell(.{ .active = .{
+            .x = 0,
+            .y = 0,
+        } }).?;
+        try testing.expectEqual(.prompt, list_cell.row.semantic_prompt);
+    }
+
+    // Now do a linefeed while still in prompt mode
+    t.carriageReturn();
+    try t.linefeed();
+
+    // The new row should automatically be marked as prompt continuation
+    {
+        const list_cell = t.screens.active.pages.getCell(.{ .active = .{
+            .x = 0,
+            .y = 1,
+        } }).?;
+        try testing.expectEqual(.prompt_continuation, list_cell.row.semantic_prompt);
+    }
+
+    // The cursor semantic content should still be prompt
+    try testing.expectEqual(.prompt, t.screens.active.cursor.semantic_content);
+}
+
+test "Terminal: index in input mode does not mark new row as prompt" {
+    // Input mode should NOT trigger prompt continuation on newline
+    // (only prompt mode does, not input mode)
+    const alloc = testing.allocator;
+    var t = try init(alloc, .{ .cols = 10, .rows = 5 });
+    defer t.deinit(alloc);
+
+    // Start a prompt then switch to input
+    try t.semanticPrompt(.init(.prompt_start));
+    for ("$ ") |c| try t.print(c);
+    try t.semanticPrompt(.init(.end_prompt_start_input));
+    for ("echo \\") |c| try t.print(c);
+
+    // Linefeed while in input mode
+    t.carriageReturn();
+    try t.linefeed();
+
+    // The new row should NOT be marked as prompt continuation
+    {
+        const list_cell = t.screens.active.pages.getCell(.{ .active = .{
+            .x = 0,
+            .y = 1,
+        } }).?;
+        try testing.expectEqual(.none, list_cell.row.semantic_prompt);
+    }
+}
+
+test "Terminal: index in output mode does not mark new row as prompt" {
+    // Output mode should NOT trigger prompt continuation
+    const alloc = testing.allocator;
+    var t = try init(alloc, .{ .cols = 10, .rows = 5 });
+    defer t.deinit(alloc);
+
+    // Complete prompt cycle: prompt -> input -> output
+    try t.semanticPrompt(.init(.prompt_start));
+    for ("$ ") |c| try t.print(c);
+    try t.semanticPrompt(.init(.end_prompt_start_input));
+    for ("ls") |c| try t.print(c);
+    try t.semanticPrompt(.init(.end_input_start_output));
+
+    // Linefeed while in output mode
+    t.carriageReturn();
+    try t.linefeed();
+
+    // The new row should NOT be marked as a prompt
+    {
+        const list_cell = t.screens.active.pages.getCell(.{ .active = .{
+            .x = 0,
+            .y = 1,
+        } }).?;
+        try testing.expectEqual(.none, list_cell.row.semantic_prompt);
+    }
+}
+
+test "Terminal: OSC133C at x=0 on prompt row clears prompt mark" {
+    // This tests the second Fish heuristic: when Fish emits a newline
+    // then immediately sends OSC133C (start output) at column 0, we
+    // should clear the prompt continuation mark we just set.
+    const alloc = testing.allocator;
+    var t = try init(alloc, .{ .cols = 10, .rows = 5 });
+    defer t.deinit(alloc);
+
+    // Start a prompt
+    try t.semanticPrompt(.init(.prompt_start));
+    for ("$ echo \\") |c| try t.print(c);
+
+    // Simulate Fish behavior: newline first (which marks next row as prompt)
+    t.carriageReturn();
+    try t.linefeed();
+
+    // Verify the new row is marked as prompt continuation
+    {
+        const list_cell = t.screens.active.pages.getCell(.{ .active = .{
+            .x = 0,
+            .y = 1,
+        } }).?;
+        try testing.expectEqual(.prompt_continuation, list_cell.row.semantic_prompt);
+    }
+
+    // Now Fish sends OSC133C at column 0 (cursor is still at x=0)
+    try testing.expectEqual(@as(usize, 0), t.screens.active.cursor.x);
+    try t.semanticPrompt(.init(.end_input_start_output));
+
+    // The prompt continuation should be cleared
+    {
+        const list_cell = t.screens.active.pages.getCell(.{ .active = .{
+            .x = 0,
+            .y = 1,
+        } }).?;
+        try testing.expectEqual(.none, list_cell.row.semantic_prompt);
+    }
+}
+
+test "Terminal: OSC133C at x>0 on prompt row does not clear prompt mark" {
+    // If we're not at column 0, we shouldn't clear the prompt mark
+    const alloc = testing.allocator;
+    var t = try init(alloc, .{ .cols = 10, .rows = 5 });
+    defer t.deinit(alloc);
+
+    // Start a prompt on a row
+    try t.semanticPrompt(.init(.prompt_start));
+    for ("$ ") |c| try t.print(c);
+
+    // Move to a new line and mark it as prompt continuation manually
+    t.carriageReturn();
+    try t.linefeed();
+    try t.semanticPrompt(.{
+        .action = .prompt_start,
+        .options_unvalidated = "k=c",
+    });
+    for ("> ") |c| try t.print(c);
+
+    // Verify the row is marked as prompt continuation
+    {
+        const list_cell = t.screens.active.pages.getCell(.{ .active = .{
+            .x = 0,
+            .y = 1,
+        } }).?;
+        try testing.expectEqual(.prompt_continuation, list_cell.row.semantic_prompt);
+    }
+
+    // Now send OSC133C but cursor is NOT at column 0
+    try testing.expect(t.screens.active.cursor.x > 0);
+    try t.semanticPrompt(.init(.end_input_start_output));
+
+    // The prompt continuation should NOT be cleared (we're not at x=0)
+    {
+        const list_cell = t.screens.active.pages.getCell(.{ .active = .{
+            .x = 0,
+            .y = 1,
+        } }).?;
+        try testing.expectEqual(.prompt_continuation, list_cell.row.semantic_prompt);
+    }
+}
+
+test "Terminal: multiple newlines in prompt mode marks all rows" {
+    // Multiple newlines should each mark their row as prompt continuation
+    const alloc = testing.allocator;
+    var t = try init(alloc, .{ .cols = 10, .rows = 5 });
+    defer t.deinit(alloc);
+
+    // Start a prompt
+    try t.semanticPrompt(.init(.prompt_start));
+    for ("line1") |c| try t.print(c);
+
+    // Multiple newlines
+    t.carriageReturn();
+    try t.linefeed();
+    for ("line2") |c| try t.print(c);
+    t.carriageReturn();
+    try t.linefeed();
+    for ("line3") |c| try t.print(c);
+
+    // First row should be prompt
+    {
+        const list_cell = t.screens.active.pages.getCell(.{ .active = .{
+            .x = 0,
+            .y = 0,
+        } }).?;
+        try testing.expectEqual(.prompt, list_cell.row.semantic_prompt);
+    }
+
+    // Second and third rows should be prompt continuation
+    {
+        const list_cell = t.screens.active.pages.getCell(.{ .active = .{
+            .x = 0,
+            .y = 1,
+        } }).?;
+        try testing.expectEqual(.prompt_continuation, list_cell.row.semantic_prompt);
+    }
+    {
+        const list_cell = t.screens.active.pages.getCell(.{ .active = .{
+            .x = 0,
+            .y = 2,
+        } }).?;
+        try testing.expectEqual(.prompt_continuation, list_cell.row.semantic_prompt);
+    }
+}
+
 test "Terminal: cursorIsAtPrompt" {
     const alloc = testing.allocator;
-    var t = try init(alloc, .{ .cols = 3, .rows = 2 });
+    var t = try init(alloc, .{ .cols = 10, .rows = 3 });
     defer t.deinit(alloc);
 
     try testing.expect(!t.cursorIsAtPrompt());
     try t.semanticPrompt(.init(.prompt_start));
     try testing.expect(t.cursorIsAtPrompt());
+    for ("$ ") |c| try t.print(c);
 
     // Input is also a prompt
     try t.semanticPrompt(.init(.end_prompt_start_input));
     try testing.expect(t.cursorIsAtPrompt());
+    for ("ls") |c| try t.print(c);
 
     // But once we say we're starting output, we're not a prompt
+    // (cursor is not at x=0, so the Fish heuristic doesn't trigger)
     try t.semanticPrompt(.init(.end_input_start_output));
     // Still a prompt because this line has a prompt
     try testing.expect(t.cursorIsAtPrompt());
