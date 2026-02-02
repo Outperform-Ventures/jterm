@@ -201,7 +201,7 @@ function __ghostty_precmd() {
     # Marks. We need to do fresh line (A) at the beginning of the prompt
     # since if the cursor is not at the beginning of a line, the terminal
     # will emit a newline.
-    PS1='\[\e]133;A;redraw=last\a\]'$PS1'\[\e]133;B\a\]'
+    PS1='\[\e]133;A;redraw=last;cl=line\a\]'$PS1'\[\e]133;B\a\]'
     PS2='\[\e]133;A;k=s\a\]'$PS2'\[\e]133;B\a\]'
 
     # Bash doesn't redraw the leading lines in a multiline prompt so
@@ -240,7 +240,7 @@ function __ghostty_precmd() {
   fi
 
   # Fresh line and start of prompt.
-  builtin printf "\e]133;A;redraw=last;aid=%s\a" "$BASHPID"
+  builtin printf "\e]133;A;redraw=last;cl=line;aid=%s\a" "$BASHPID"
   _ghostty_executing=0
 }
 
