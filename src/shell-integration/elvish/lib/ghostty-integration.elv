@@ -36,6 +36,7 @@
 }
 
 {
+  use platform
   use str
 
   # List of enabled shell integration features
@@ -75,11 +76,6 @@
     }
 
     printf "\e]133;D;"$exit-status"\a"
-  }
-
-  fn report-pwd {
-    use platform
-    printf "\e]7;kitty-shell-cwd://%s%s\a" (platform:hostname) $pwd
   }
 
   fn sudo-with-terminfo {|@args|
@@ -180,16 +176,12 @@
 
   defer {
     mark-prompt-start
-    report-pwd
   }
 
   set edit:before-readline = (conj $edit:before-readline $mark-prompt-start~)
   set edit:after-readline  = (conj $edit:after-readline $mark-output-start~)
   set edit:after-command   = (conj $edit:after-command $mark-output-end~)
 
-  if (has-value $features title) {
-    set after-chdir = (conj $after-chdir {|_| report-pwd })
-  }
   if (has-value $features cursor) {
     fn beam  { printf "\e[5 q" }
     fn block { printf "\e[0 q" }
@@ -207,4 +199,9 @@
   if (and (str:contains $E:GHOSTTY_SHELL_FEATURES ssh-) (has-external ssh)) {
     edit:add-var ssh~ $ssh-integration~
   }
+
+  # Report changes to the current directory.
+  fn report-pwd { printf "\e]7;kitty-shell-cwd://%s%s\a" (platform:hostname) $pwd }
+  set after-chdir = (conj $after-chdir {|_| report-pwd })
+  report-pwd
 }
