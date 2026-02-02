@@ -3061,7 +3061,15 @@ fn promptClickLine(self: *Screen, click_pin: Pin) PromptClickMove {
             // If this row isn't soft-wrapped, we need to break out
             // because line based moving only handles single lines.
             // We're done!
-            if (!rac.row.wrap) break;
+            if (!rac.row.wrap) {
+                // If we never found our pin, that means we clicked further
+                // right/beyond it. If we're already on a non-empty input cell
+                // then we add one so we can move to the newest, empty cell
+                // at the end, matching typical editor behavior.
+                if (self.cursor.page_cell.semantic_content == .input) count += 1;
+
+                break;
+            }
         }
 
         return .{ .left = 0, .right = count };
@@ -10087,6 +10095,7 @@ test "Screen: promptClickMove line right cursor not on input" {
     try s.testWriteString("> ");
     s.cursorSetSemanticContent(.{ .input = .clear_explicit });
     try s.testWriteString("hello");
+    s.cursorSetSemanticContent(.output);
 
     // Move cursor back to prompt area (column 0, the '>')
     s.cursorAbsolute(0, 0);
@@ -10248,7 +10257,7 @@ test "Screen: promptClickMove line right stops at hard wrap" {
     const result = s.promptClickMove(click_pin);
 
     // Should stop at end of first line, not cross hard wrap
-    try testing.expectEqual(@as(usize, 4), result.right);
+    try testing.expectEqual(@as(usize, 5), result.right);
     try testing.expectEqual(@as(usize, 0), result.left);
 }
 
@@ -10295,7 +10304,7 @@ test "Screen: promptClickMove line right stops at non-continuation row" {
     const result = s.promptClickMove(click_pin);
 
     // Should stop at 'd' (end of world), not cross to new prompt
-    try testing.expectEqual(@as(usize, 4), result.right);
+    try testing.expectEqual(@as(usize, 5), result.right);
     try testing.expectEqual(@as(usize, 0), result.left);
 }
 
@@ -10426,4 +10435,141 @@ test "Screen: promptClickMove line left stops at hard wrap" {
     // Should stop at start of second line: d->l->r->o->w = 4 movements
     try testing.expectEqual(@as(usize, 4), result.left);
     try testing.expectEqual(@as(usize, 0), result.right);
+}
+
+test "Screen: promptClickMove click right of input same line" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    // Set up: "> hello" where "> " is prompt and "hello" is input
+    // Clicking to the right of the 'o' should move cursor past the input
+
+    var s = try init(alloc, .{ .cols = 20, .rows = 5, .max_scrollback = 0 });
+    defer s.deinit();
+
+    // Enable line click mode
+    s.semantic_prompt.click = .{ .cl = .line };
+
+    // Write a prompt and input
+    s.cursorSetSemanticContent(.{ .prompt = .initial });
+    try s.testWriteString("> ");
+    s.cursorSetSemanticContent(.{ .input = .clear_explicit });
+    try s.testWriteString("hello");
+
+    // Move cursor to start of input (column 2, the 'h')
+    s.cursorAbsolute(2, 0);
+
+    // Click beyond the input (column 15) - should move to one past the 'o'
+    const click_pin = s.pages.pin(.{ .active = .{ .x = 15, .y = 0 } }).?;
+    const result = s.promptClickMove(click_pin);
+
+    try testing.expectEqual(@as(usize, 5), result.right);
+    try testing.expectEqual(@as(usize, 0), result.left);
+}
+
+test "Screen: promptClickMove click right of input cursor at end" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, .{ .cols = 20, .rows = 5, .max_scrollback = 0 });
+    defer s.deinit();
+
+    // Enable line click mode
+    s.semantic_prompt.click = .{ .cl = .line };
+
+    // Write a prompt and input
+    s.cursorSetSemanticContent(.{ .prompt = .initial });
+    try s.testWriteString("> ");
+    s.cursorSetSemanticContent(.{ .input = .clear_explicit });
+    try s.testWriteString("hello");
+
+    // Cursor is already at column 7 (one past 'o') after writing
+    // Click beyond the input (column 15) - no movement needed since
+    // cursor is already at the end position
+    const click_pin = s.pages.pin(.{ .active = .{ .x = 15, .y = 0 } }).?;
+    const result = s.promptClickMove(click_pin);
+
+    try testing.expectEqual(@as(usize, 0), result.right);
+    try testing.expectEqual(@as(usize, 0), result.left);
+}
+
+test "Screen: promptClickMove click right of input on lower line" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, .{ .cols = 20, .rows = 5, .max_scrollback = 0 });
+    defer s.deinit();
+
+    // Enable line click mode
+    s.semantic_prompt.click = .{ .cl = .line };
+
+    // Write a prompt and input
+    s.cursorSetSemanticContent(.{ .prompt = .initial });
+    try s.testWriteString("> ");
+    s.cursorSetSemanticContent(.{ .input = .clear_explicit });
+    try s.testWriteString("hello");
+
+    // Move cursor to start of input (column 2, the 'h')
+    s.cursorAbsolute(2, 0);
+
+    // Click on a lower line (row 1) - should move to end of input
+    // This is outside the prompt area so should clamp to end
+    const click_pin = s.pages.pin(.{ .active = .{ .x = 5, .y = 1 } }).?;
+    const result = s.promptClickMove(click_pin);
+
+    // From 'h', we need to pass e, l, l, o (4 cells) + 1 past end = 5
+    try testing.expectEqual(@as(usize, 5), result.right);
+    try testing.expectEqual(@as(usize, 0), result.left);
+}
+
+test "Screen: promptClickMove click right of input cursor at end lower line" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, .{ .cols = 20, .rows = 5, .max_scrollback = 0 });
+    defer s.deinit();
+
+    // Enable line click mode
+    s.semantic_prompt.click = .{ .cl = .line };
+
+    // Write a prompt and input
+    s.cursorSetSemanticContent(.{ .prompt = .initial });
+    try s.testWriteString("> ");
+    s.cursorSetSemanticContent(.{ .input = .clear_explicit });
+    try s.testWriteString("hello");
+
+    // Cursor is at column 7 after writing (one past 'o')
+    // Click on a lower line (row 1) - cursor already at end, no movement needed
+    const click_pin = s.pages.pin(.{ .active = .{ .x = 5, .y = 1 } }).?;
+    const result = s.promptClickMove(click_pin);
+
+    try testing.expectEqual(@as(usize, 0), result.right);
+    try testing.expectEqual(@as(usize, 0), result.left);
+}
+
+test "Screen: promptClickMove click right of input cursor on last char" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, .{ .cols = 20, .rows = 5, .max_scrollback = 0 });
+    defer s.deinit();
+
+    // Enable line click mode
+    s.semantic_prompt.click = .{ .cl = .line };
+
+    // Write a prompt and input
+    s.cursorSetSemanticContent(.{ .prompt = .initial });
+    try s.testWriteString("> ");
+    s.cursorSetSemanticContent(.{ .input = .clear_explicit });
+    try s.testWriteString("hello");
+
+    // Move cursor to last input char (column 6, the 'o')
+    s.cursorAbsolute(6, 0);
+
+    // Click beyond the input (column 15)
+    const click_pin = s.pages.pin(.{ .active = .{ .x = 15, .y = 0 } }).?;
+    const result = s.promptClickMove(click_pin);
+
+    try testing.expectEqual(@as(usize, 1), result.right);
+    try testing.expectEqual(@as(usize, 0), result.left);
 }
