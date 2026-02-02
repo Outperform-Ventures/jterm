@@ -4374,9 +4374,23 @@ fn maybePromptClick(self: *Surface) !bool {
             } }, .locked);
         },
 
-        .cl => |cl| {
-            // TODO: Handle these
-            _ = cl;
+        .cl => {
+            const left_arrow = if (t.modes.get(.cursor_keys)) "\x1bOD" else "\x1b[D";
+            const right_arrow = if (t.modes.get(.cursor_keys)) "\x1bOC" else "\x1b[C";
+
+            const move = screen.promptClickMove(click_pin);
+            for (0..move.left) |_| {
+                self.queueIo(
+                    .{ .write_stable = left_arrow },
+                    .locked,
+                );
+            }
+            for (0..move.right) |_| {
+                self.queueIo(
+                    .{ .write_stable = right_arrow },
+                    .locked,
+                );
+            }
         },
     }
 
