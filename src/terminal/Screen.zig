@@ -2942,6 +2942,179 @@ pub fn lineIterator(self: *const Screen, start: Pin) LineIterator {
     };
 }
 
+pub const PromptClickMove = struct {
+    left: usize,
+    right: usize,
+
+    pub const zero = PromptClickMove{
+        .left = 0,
+        .right = 0,
+    };
+};
+
+/// Determine the inputs necessary to move the cursor to the given
+/// click location within a prompt input area.
+///
+/// If the cursor isn't currently at a prompt input location, this
+/// returns no movement.
+///
+/// This feature depends on well-behaved OSC133 shell integration. Specifically,
+/// this only moves over designated input areas (OSC 133 B). It is assumed
+/// that the shell will only move the cursor to input cells, so prompt cells
+/// and other blank cells are ignored as part of the movement calculation.
+pub fn promptClickMove(
+    self: *Screen,
+    click_pin: Pin,
+) PromptClickMove {
+    // If we're not at an input cell with our cursor, no movement will
+    // ever be possible.
+    if (self.cursor.semantic_content != .input and
+        self.cursor.page_cell.semantic_content != .input) return .zero;
+
+    return switch (self.semantic_prompt.click) {
+        // None doesn't support movement and click_events must use a
+        // different mechanism (SGR mouse events) that callers must handle.
+        .none, .click_events => .zero,
+        .cl => |cl| switch (cl) {
+            // All of these currently use dumb line-based navigation.
+            // But eventually we'll support more.
+            .line,
+            .multiple,
+            .conservative_vertical,
+            .smart_vertical,
+            => self.promptClickLine(click_pin),
+        },
+    };
+}
+
+/// Determine the inputs required to move from the cursor to the given
+/// click location. If the cursor isn't currently at a prompt input
+/// location, this will return zero.
+///
+/// This currently only supports moving a single line.
+fn promptClickLine(self: *Screen, click_pin: Pin) PromptClickMove {
+    // If our click pin is our cursor pin, no movement is needed.
+    // Do this early so we can assume later that they are different.
+    const cursor_pin = self.cursor.page_pin.*;
+    if (cursor_pin.eql(click_pin)) return .zero;
+
+    // If our cursor is before our click, we're only emitting right inputs.
+    if (cursor_pin.before(click_pin)) {
+        var count: usize = 0;
+
+        // We go row-by-row because soft-wrapped rows are still a single
+        // line to a shell, so we can't just look at our page row.
+        var row_it = cursor_pin.rowIterator(
+            .right_down,
+            click_pin,
+        );
+        row_it: while (row_it.next()) |row_pin| {
+            const rac = row_pin.rowAndCell();
+            const cells = row_pin.node.data.getCells(rac.row);
+
+            // Determine if this row is our cursor.
+            const is_cursor_row = row_pin.node == cursor_pin.node and
+                row_pin.y == cursor_pin.y;
+
+            // If this is not the cursor row, verify it's still part of the
+            // continuation of our starting prompt.
+            if (!is_cursor_row and
+                rac.row.semantic_prompt != .prompt_continuation) break;
+
+            // Determine where our input starts.
+            const start_x: usize = start_x: {
+                // If this is our cursor row then we start after the cursor.
+                if (is_cursor_row) break :start_x cursor_pin.x + 1;
+
+                // Otherwise, we start at the first input cell, because
+                // we expect the shell to properly translate arrows across
+                // lines to the start of the input. Some shells indent
+                // where input starts on subsequent lines so we must do
+                // this.
+                for (cells, 0..) |cell, x| {
+                    if (cell.semantic_content == .input) break :start_x x;
+                }
+
+                // We never found an input cell, so we need to move to the
+                // next row.
+                break :start_x cells.len;
+            };
+
+            // Iterate over the input cells and assume arrow keys only
+            // jump to input cells.
+            for (cells[start_x..], start_x..) |cell, x| {
+                // Ignore non-input cells, but allow breaks. We assume
+                // the shell will translate arrow keys to only input
+                // areas.
+                if (cell.semantic_content != .input) continue;
+
+                // Increment our input count
+                count += 1;
+
+                // If this is our target, we're done.
+                if (row_pin.node == click_pin.node and
+                    row_pin.y == click_pin.y and
+                    x == click_pin.x)
+                    break :row_it;
+            }
+
+            // If this row isn't soft-wrapped, we need to break out
+            // because line based moving only handles single lines.
+            // We're done!
+            if (!rac.row.wrap) break;
+        }
+
+        return .{ .left = 0, .right = count };
+    }
+
+    // Otherwise, cursor is after click, so we're emitting left inputs.
+    var count: usize = 0;
+
+    // We go row-by-row because soft-wrapped rows are still a single
+    // line to a shell, so we can't just look at our page row.
+    var row_it = cursor_pin.rowIterator(
+        .left_up,
+        click_pin,
+    );
+    row_it: while (row_it.next()) |row_pin| {
+        const rac = row_pin.rowAndCell();
+        const cells = row_pin.node.data.getCells(rac.row);
+
+        // Determine the length of the cells we look at in this row.
+        const end_len: usize = end_len: {
+            // If this is our cursor row then we end before the cursor.
+            if (row_pin.node == cursor_pin.node and
+                row_pin.y == cursor_pin.y) break :end_len cursor_pin.x;
+
+            // Otherwise, we end at the last cell in the row.
+            break :end_len cells.len;
+        };
+
+        // Iterate backwards over the input cells.
+        for (0..end_len) |rev_x| {
+            const x: usize = end_len - 1 - rev_x;
+            const cell = cells[x];
+
+            // Ignore non-input cells.
+            if (cell.semantic_content != .input) continue;
+
+            // Increment our input count
+            count += 1;
+
+            // If this is our target, we're done.
+            if (row_pin.node == click_pin.node and
+                row_pin.y == click_pin.y and
+                x == click_pin.x)
+                break :row_it;
+        }
+
+        // If this row is not a wrap continuation, then break out
+        if (!rac.row.wrap_continuation) break;
+    }
+
+    return .{ .left = count, .right = 0 };
+}
+
 /// Returns the change in x/y that is needed to reach "to" from "from"
 /// within a prompt. If "to" is before or after the prompt bounds then
 /// the result will be bounded to the prompt.
@@ -3080,8 +3253,8 @@ pub fn testWriteString(self: *Screen, text: []const u8) !void {
             if (self.cursor.semantic_content_clear_eol) {
                 self.cursorSetSemanticContent(.output);
             } else switch (self.cursor.semantic_content) {
-                .input, .output => {},
-                .prompt => self.cursor.page_row.semantic_prompt = .prompt_continuation,
+                .output => {},
+                .prompt, .input => self.cursor.page_row.semantic_prompt = .prompt_continuation,
             }
             continue;
         }
@@ -3116,8 +3289,8 @@ pub fn testWriteString(self: *Screen, text: []const u8) !void {
             self.cursorHorizontalAbsolute(0);
             self.cursor.page_row.wrap_continuation = true;
             switch (self.cursor.semantic_content) {
-                .input, .output => {},
-                .prompt => self.cursor.page_row.semantic_prompt = .prompt_continuation,
+                .output => {},
+                .input, .prompt => self.cursor.page_row.semantic_prompt = .prompt_continuation,
             }
         }
 
@@ -9870,4 +10043,387 @@ test "selectionString map allocation failure cleanup" {
 
     // If this test passes without memory leaks (when run with testing.allocator),
     // it means the errdefer properly cleaned up map.string when toOwnedSlice failed.
+}
+
+test "Screen: promptClickMove line right basic" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, .{ .cols = 20, .rows = 5, .max_scrollback = 0 });
+    defer s.deinit();
+
+    // Enable line click mode
+    s.semantic_prompt.click = .{ .cl = .line };
+
+    // Write a prompt and input
+    s.cursorSetSemanticContent(.{ .prompt = .initial });
+    try s.testWriteString("> ");
+    s.cursorSetSemanticContent(.{ .input = .clear_explicit });
+    try s.testWriteString("hello");
+
+    // Move cursor back to start of input (column 2, the 'h')
+    s.cursorAbsolute(2, 0);
+
+    // Click on first 'l' (column 4), should require 2 right movements (h->e->l)
+    const click_pin = s.pages.pin(.{ .active = .{ .x = 4, .y = 0 } }).?;
+    const result = s.promptClickMove(click_pin);
+
+    try testing.expectEqual(@as(usize, 2), result.right);
+    try testing.expectEqual(@as(usize, 0), result.left);
+}
+
+test "Screen: promptClickMove line right cursor not on input" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, .{ .cols = 20, .rows = 5, .max_scrollback = 0 });
+    defer s.deinit();
+
+    // Enable line click mode
+    s.semantic_prompt.click = .{ .cl = .line };
+
+    // Write a prompt and input
+    s.cursorSetSemanticContent(.{ .prompt = .initial });
+    try s.testWriteString("> ");
+    s.cursorSetSemanticContent(.{ .input = .clear_explicit });
+    try s.testWriteString("hello");
+
+    // Move cursor back to prompt area (column 0, the '>')
+    s.cursorAbsolute(0, 0);
+
+    // Cursor is on prompt, not input - should return zero
+    const click_pin = s.pages.pin(.{ .active = .{ .x = 4, .y = 0 } }).?;
+    const result = s.promptClickMove(click_pin);
+
+    try testing.expectEqual(PromptClickMove.zero, result);
+}
+
+test "Screen: promptClickMove line right click on same position" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, .{ .cols = 20, .rows = 5, .max_scrollback = 0 });
+    defer s.deinit();
+
+    // Enable line click mode
+    s.semantic_prompt.click = .{ .cl = .line };
+
+    // Write a prompt and input
+    s.cursorSetSemanticContent(.{ .prompt = .initial });
+    try s.testWriteString("> ");
+    s.cursorSetSemanticContent(.{ .input = .clear_explicit });
+    try s.testWriteString("hello");
+
+    // Move cursor to column 4
+    s.cursorAbsolute(4, 0);
+
+    // Click on same position - no movement needed
+    const click_pin = s.pages.pin(.{ .active = .{ .x = 4, .y = 0 } }).?;
+    const result = s.promptClickMove(click_pin);
+
+    try testing.expectEqual(PromptClickMove.zero, result);
+}
+
+test "Screen: promptClickMove line right skips non-input cells" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, .{ .cols = 20, .rows = 5, .max_scrollback = 0 });
+    defer s.deinit();
+
+    // Enable line click mode
+    s.semantic_prompt.click = .{ .cl = .line };
+
+    // Write: "> h" then output "X" then input "llo"
+    s.cursorSetSemanticContent(.{ .prompt = .initial });
+    try s.testWriteString("> ");
+    s.cursorSetSemanticContent(.{ .input = .clear_explicit });
+    try s.testWriteString("h");
+    s.cursorSetSemanticContent(.output);
+    try s.testWriteString("X");
+    s.cursorSetSemanticContent(.{ .input = .clear_explicit });
+    try s.testWriteString("llo");
+
+    // Move cursor to column 2 (the 'h')
+    s.cursorAbsolute(2, 0);
+
+    // Click on 'l' at column 5 - should skip the 'X' output cell
+    // Movement: h (start) -> l (col 4) -> l (col 5) = 2 right movements
+    const click_pin = s.pages.pin(.{ .active = .{ .x = 5, .y = 0 } }).?;
+    const result = s.promptClickMove(click_pin);
+
+    try testing.expectEqual(@as(usize, 2), result.right);
+    try testing.expectEqual(@as(usize, 0), result.left);
+}
+
+test "Screen: promptClickMove line right soft-wrapped line" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, .{ .cols = 10, .rows = 5, .max_scrollback = 0 });
+    defer s.deinit();
+
+    // Enable line click mode
+    s.semantic_prompt.click = .{ .cl = .line };
+
+    // Write a prompt and input that wraps
+    s.cursorSetSemanticContent(.{ .prompt = .initial });
+    try s.testWriteString("> ");
+    s.cursorSetSemanticContent(.{ .input = .clear_explicit });
+    // Write 8 chars of input, first row has 2 for prompt + 8 input = 10 cols
+    try s.testWriteString("abcdefgh");
+    // Continue on next row (soft-wrapped)
+    try s.testWriteString("ij");
+
+    // Verify soft wrap occurred
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings("> abcdefgh\nij", contents);
+    }
+
+    // Move cursor to column 2 (the 'a')
+    s.cursorAbsolute(2, 0);
+
+    // Click on 'j' at column 1, row 1 - should count all input cells
+    // Movement: a->b->c->d->e->f->g->h->i->j = 9 right movements
+    const click_pin = s.pages.pin(.{ .active = .{ .x = 1, .y = 1 } }).?;
+    const result = s.promptClickMove(click_pin);
+
+    try testing.expectEqual(@as(usize, 9), result.right);
+    try testing.expectEqual(@as(usize, 0), result.left);
+}
+
+test "Screen: promptClickMove disabled when click is none" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, .{ .cols = 20, .rows = 5, .max_scrollback = 0 });
+    defer s.deinit();
+
+    // Click mode is .none by default (disabled)
+    try testing.expectEqual(Screen.SemanticPrompt.SemanticClick.none, s.semantic_prompt.click);
+
+    // Write a prompt and input
+    s.cursorSetSemanticContent(.{ .prompt = .initial });
+    try s.testWriteString("> ");
+    s.cursorSetSemanticContent(.{ .input = .clear_explicit });
+    try s.testWriteString("hello");
+
+    // Move cursor to start of input
+    s.cursorAbsolute(2, 0);
+
+    // Click should return zero since click mode is disabled
+    const click_pin = s.pages.pin(.{ .active = .{ .x = 4, .y = 0 } }).?;
+    const result = s.promptClickMove(click_pin);
+
+    try testing.expectEqual(PromptClickMove.zero, result);
+}
+
+test "Screen: promptClickMove line right stops at hard wrap" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, .{ .cols = 20, .rows = 5, .max_scrollback = 0 });
+    defer s.deinit();
+
+    // Enable line click mode
+    s.semantic_prompt.click = .{ .cl = .line };
+
+    // Write prompt and input on first line
+    s.cursorSetSemanticContent(.{ .prompt = .initial });
+    try s.testWriteString("> ");
+    s.cursorSetSemanticContent(.{ .input = .clear_explicit });
+    try s.testWriteString("hello");
+    // Hard wrap (newline)
+    try s.testWriteString("\n");
+    try s.testWriteString("world");
+
+    // Move cursor to column 2 (the 'h')
+    s.cursorAbsolute(2, 0);
+
+    // Click on 'w' at column 0, row 1 - but line mode stops at hard wrap
+    // Should only move to end of first line: h->e->l->l->o = 4 movements
+    const click_pin = s.pages.pin(.{ .active = .{ .x = 0, .y = 1 } }).?;
+    const result = s.promptClickMove(click_pin);
+
+    // Should stop at end of first line, not cross hard wrap
+    try testing.expectEqual(@as(usize, 4), result.right);
+    try testing.expectEqual(@as(usize, 0), result.left);
+}
+
+test "Screen: promptClickMove line right stops at non-continuation row" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, .{ .cols = 20, .rows = 5, .max_scrollback = 0 });
+    defer s.deinit();
+
+    // Enable line click mode
+    s.semantic_prompt.click = .{ .cl = .line };
+
+    // Row 0: PROMPT "> hello"
+    s.cursorSetSemanticContent(.{ .prompt = .initial });
+    try s.testWriteString("> ");
+    s.cursorSetSemanticContent(.{ .input = .clear_explicit });
+    try s.testWriteString("hello\n");
+
+    // Row 1: CONTINUATION "world"
+    s.cursorSetSemanticContent(.{ .prompt = .continuation });
+    s.cursorSetSemanticContent(.{ .input = .clear_explicit });
+    try s.testWriteString("world\n");
+
+    // Row 2: NEW PROMPT "> again"
+    s.cursorSetSemanticContent(.{ .prompt = .initial });
+    try s.testWriteString("> ");
+    s.cursorSetSemanticContent(.{ .input = .clear_explicit });
+    try s.testWriteString("again");
+
+    // Verify content
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings("> hello\nworld\n> again", contents);
+    }
+
+    // Move cursor to 'w' at column 0, row 1
+    s.cursorAbsolute(0, 1);
+
+    // Click on 'a' at column 2, row 2 - but row 2 is a new prompt
+    // Should stop at end of "world": w->o->r->l->d = 4 movements
+    const click_pin = s.pages.pin(.{ .active = .{ .x = 2, .y = 2 } }).?;
+    const result = s.promptClickMove(click_pin);
+
+    // Should stop at 'd' (end of world), not cross to new prompt
+    try testing.expectEqual(@as(usize, 4), result.right);
+    try testing.expectEqual(@as(usize, 0), result.left);
+}
+
+test "Screen: promptClickMove line left basic" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, .{ .cols = 20, .rows = 5, .max_scrollback = 0 });
+    defer s.deinit();
+
+    // Enable line click mode
+    s.semantic_prompt.click = .{ .cl = .line };
+
+    // Write a prompt and input
+    s.cursorSetSemanticContent(.{ .prompt = .initial });
+    try s.testWriteString("> ");
+    s.cursorSetSemanticContent(.{ .input = .clear_explicit });
+    try s.testWriteString("hello");
+
+    // Cursor is at column 7 (after 'o'), move it to column 6 (the 'o')
+    s.cursorAbsolute(6, 0);
+
+    // Click on 'h' (column 2), should require 4 left movements (o->l->l->e->h)
+    const click_pin = s.pages.pin(.{ .active = .{ .x = 2, .y = 0 } }).?;
+    const result = s.promptClickMove(click_pin);
+
+    try testing.expectEqual(@as(usize, 4), result.left);
+    try testing.expectEqual(@as(usize, 0), result.right);
+}
+
+test "Screen: promptClickMove line left skips non-input cells" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, .{ .cols = 20, .rows = 5, .max_scrollback = 0 });
+    defer s.deinit();
+
+    // Enable line click mode
+    s.semantic_prompt.click = .{ .cl = .line };
+
+    // Write: "> h" then output "X" then input "llo"
+    s.cursorSetSemanticContent(.{ .prompt = .initial });
+    try s.testWriteString("> ");
+    s.cursorSetSemanticContent(.{ .input = .clear_explicit });
+    try s.testWriteString("h");
+    s.cursorSetSemanticContent(.output);
+    try s.testWriteString("X");
+    s.cursorSetSemanticContent(.{ .input = .clear_explicit });
+    try s.testWriteString("llo");
+
+    // Move cursor to column 6 (the 'o')
+    s.cursorAbsolute(6, 0);
+
+    // Click on 'h' at column 2 - should skip the 'X' output cell
+    // Movement: o->l->l->h = 3 left movements (skipping X)
+    const click_pin = s.pages.pin(.{ .active = .{ .x = 2, .y = 0 } }).?;
+    const result = s.promptClickMove(click_pin);
+
+    try testing.expectEqual(@as(usize, 3), result.left);
+    try testing.expectEqual(@as(usize, 0), result.right);
+}
+
+test "Screen: promptClickMove line left soft-wrapped line" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, .{ .cols = 10, .rows = 5, .max_scrollback = 0 });
+    defer s.deinit();
+
+    // Enable line click mode
+    s.semantic_prompt.click = .{ .cl = .line };
+
+    // Write a prompt and input that wraps
+    s.cursorSetSemanticContent(.{ .prompt = .initial });
+    try s.testWriteString("> ");
+    s.cursorSetSemanticContent(.{ .input = .clear_explicit });
+    // Write 8 chars of input, first row has 2 for prompt + 8 input = 10 cols
+    try s.testWriteString("abcdefgh");
+    // Continue on next row (soft-wrapped)
+    try s.testWriteString("ij");
+
+    // Verify soft wrap occurred
+    {
+        const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
+        defer alloc.free(contents);
+        try testing.expectEqualStrings("> abcdefgh\nij", contents);
+    }
+
+    // Cursor is at column 2, row 1 (after 'j'). Move to 'j' at column 1.
+    s.cursorAbsolute(1, 1);
+
+    // Click on 'a' at column 2, row 0 - should count all input cells backwards
+    // Movement: j->i->h->g->f->e->d->c->b->a = 9 left movements
+    const click_pin = s.pages.pin(.{ .active = .{ .x = 2, .y = 0 } }).?;
+    const result = s.promptClickMove(click_pin);
+
+    try testing.expectEqual(@as(usize, 9), result.left);
+    try testing.expectEqual(@as(usize, 0), result.right);
+}
+
+test "Screen: promptClickMove line left stops at hard wrap" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try init(alloc, .{ .cols = 20, .rows = 5, .max_scrollback = 0 });
+    defer s.deinit();
+
+    // Enable line click mode
+    s.semantic_prompt.click = .{ .cl = .line };
+
+    // Write prompt and input on first line, then hard wrap
+    s.cursorSetSemanticContent(.{ .prompt = .initial });
+    try s.testWriteString("> ");
+    s.cursorSetSemanticContent(.{ .input = .clear_explicit });
+    try s.testWriteString("hello");
+    // Hard wrap (newline)
+    try s.testWriteString("\n");
+    try s.testWriteString("world");
+
+    // Move cursor to 'd' at column 4, row 1 (an actual input cell)
+    s.cursorAbsolute(4, 1);
+
+    // Click on 'h' at column 2, row 0 - but line mode stops at hard wrap
+    // Should only move to start of second line, not cross to row 0
+    const click_pin = s.pages.pin(.{ .active = .{ .x = 2, .y = 0 } }).?;
+    const result = s.promptClickMove(click_pin);
+
+    // Should stop at start of second line: d->l->r->o->w = 4 movements
+    try testing.expectEqual(@as(usize, 4), result.left);
+    try testing.expectEqual(@as(usize, 0), result.right);
 }
