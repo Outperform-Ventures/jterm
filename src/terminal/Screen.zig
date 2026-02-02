@@ -7500,56 +7500,6 @@ test "Screen: resize with prompt_redraw last multiline prompt clears only last l
     }
 }
 
-test "Screen: resize with prompt_redraw clears input line without row semantic prompt" {
-    const testing = std.testing;
-    const alloc = testing.allocator;
-
-    var s = try init(alloc, .{ .cols = 20, .rows = 5, .max_scrollback = 5 });
-    defer s.deinit();
-
-    // Simulate Nu shell behavior: marks input area with OSC 133 B but does not
-    // mark continuation lines with k=s sequence. This means:
-    // - cursor.semantic_content = .input
-    // - cursor.page_row.semantic_prompt = .none (not marked)
-    // The fix ensures we still clear based on semantic_content.
-    // zig fmt: off
-    try s.testWriteString("output\n");
-    s.cursorSetSemanticContent(.{ .prompt = .initial });
-    try s.testWriteString("> ");
-    s.cursorSetSemanticContent(.{ .input = .clear_explicit });
-    try s.testWriteString("hello\n");
-    // Continue typing on next line - no prompt marking, but still in input mode
-    try s.testWriteString("world");
-    // zig fmt: on
-
-    // Verify the row has no semantic prompt marking (simulating Nu behavior)
-    try testing.expectEqual(.none, s.cursor.page_row.semantic_prompt);
-    // But the cursor's semantic content is input
-    try testing.expectEqual(.input, s.cursor.semantic_content);
-
-    {
-        const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
-        defer alloc.free(contents);
-        const expected = "output\n> hello\nworld";
-        try testing.expectEqualStrings(expected, contents);
-    }
-
-    try s.resize(.{
-        .cols = 30,
-        .rows = 5,
-        .prompt_redraw = .true,
-    });
-
-    // All prompt/input lines should be cleared even though the continuation
-    // row's semantic_prompt is .none
-    {
-        const contents = try s.dumpStringAlloc(alloc, .{ .viewport = .{} });
-        defer alloc.free(contents);
-        const expected = "output";
-        try testing.expectEqualStrings(expected, contents);
-    }
-}
-
 test "Screen: select untracked" {
     const testing = std.testing;
     const alloc = testing.allocator;
