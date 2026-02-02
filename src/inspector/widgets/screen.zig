@@ -363,7 +363,7 @@ pub fn internalStateTable(
         cimgui.c.ImGui_SameLine();
         widgets.helpMarker("Whether semantic prompt markers (OSC 133) have been seen.");
         _ = cimgui.c.ImGui_TableSetColumnIndex(1);
-        var value: bool = screen.flags.semantic_content;
+        var value: bool = screen.semantic_prompt.seen;
         _ = cimgui.c.ImGui_Checkbox("##semantic_content", &value);
     }
 }
