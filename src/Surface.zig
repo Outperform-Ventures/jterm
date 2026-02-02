@@ -3974,7 +3974,11 @@ pub fn mouseButtonCallback(
         // and we support some kind of click events, then we need to
         // move to it.
         if (self.maybePromptClick()) |handled| {
-            if (handled) return true;
+            if (handled) {
+                // Moving always resets the click count so that we don't highlight.
+                self.mouse.left_click_count = 0;
+                return true;
+            }
         } else |err| {
             log.warn("error processing prompt click err={}", .{err});
         }
@@ -4017,25 +4021,6 @@ pub fn mouseButtonCallback(
             // selection or highlighting.
             return true;
         }
-    }
-
-    // For left button click release we check if we are moving our cursor.
-    if (button == .left and
-        action == .release and
-        mods.alt)
-    click_move: {
-        self.renderer_state.mutex.lock();
-        defer self.renderer_state.mutex.unlock();
-
-        // If we have a selection then we do not do click to move because
-        // it means that we moved our cursor while pressing the mouse button.
-        if (self.io.terminal.screens.active.selection != null) break :click_move;
-
-        // Moving always resets the click count so that we don't highlight.
-        self.mouse.left_click_count = 0;
-        const pin = self.mouse.left_click_pin orelse break :click_move;
-        try self.clickMoveCursor(pin.*);
-        return true;
     }
 
     // For left button clicks we always record some information for
@@ -4395,60 +4380,6 @@ fn maybePromptClick(self: *Surface) !bool {
     }
 
     return true;
-}
-
-/// Performs the "click-to-move" logic to move the cursor to the given
-/// screen point if possible. This works by converting the path to the
-/// given point into a series of arrow key inputs.
-fn clickMoveCursor(self: *Surface, to: terminal.Pin) !void {
-    // If click-to-move is disabled then we're done.
-    if (!self.config.cursor_click_to_move) return;
-
-    const t = &self.io.terminal;
-
-    // Click to move cursor only works on the primary screen where prompts
-    // exist. This means that alt screen multiplexers like tmux will not
-    // support this feature. It is just too messy.
-    if (t.screens.active_key != .primary) return;
-
-    // This flag is only set if we've seen at least one semantic prompt
-    // OSC sequence. If we've never seen that sequence, we can't possibly
-    // move the cursor so we can fast path out of here.
-    if (!t.screens.active.semantic_prompt.seen) return;
-
-    // Get our path
-    const from = t.screens.active.cursor.page_pin.*;
-    const path = t.screens.active.promptPath(from, to);
-    log.debug("click-to-move-cursor from={} to={} path={}", .{ from, to, path });
-
-    // If we aren't moving at all, fast path out of here.
-    if (path.x == 0 and path.y == 0) return;
-
-    // Convert our path to arrow key inputs. Yes, that is how this works.
-    // Yes, that is pretty sad. Yes, this could backfire in various ways.
-    // But its the best we can do.
-
-    // We do Y first because it prevents any weird wrap behavior.
-    if (path.y != 0) {
-        const arrow = if (path.y < 0) arrow: {
-            break :arrow if (t.modes.get(.cursor_keys)) "\x1bOA" else "\x1b[A";
-        } else arrow: {
-            break :arrow if (t.modes.get(.cursor_keys)) "\x1bOB" else "\x1b[B";
-        };
-        for (0..@abs(path.y)) |_| {
-            self.queueIo(.{ .write_stable = arrow }, .locked);
-        }
-    }
-    if (path.x != 0) {
-        const arrow = if (path.x < 0) arrow: {
-            break :arrow if (t.modes.get(.cursor_keys)) "\x1bOD" else "\x1b[D";
-        } else arrow: {
-            break :arrow if (t.modes.get(.cursor_keys)) "\x1bOC" else "\x1b[C";
-        };
-        for (0..@abs(path.x)) |_| {
-            self.queueIo(.{ .write_stable = arrow }, .locked);
-        }
-    }
 }
 
 const Link = struct {
