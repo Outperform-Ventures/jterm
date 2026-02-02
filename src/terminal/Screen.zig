@@ -74,11 +74,11 @@ kitty_images: if (build_options.kitty_graphics)
 else
     struct {} = .{},
 
+/// Semantic prompt (OSC133) state.
+semantic_prompt: SemanticPrompt = .disabled,
+
 /// Dirty flags for the renderer.
 dirty: Dirty = .{},
-
-/// Packed flags for the screen, internal state.
-flags: Flags = .{},
 
 /// See Terminal.Dirty. This behaves the same way.
 pub const Dirty = packed struct {
@@ -91,15 +91,30 @@ pub const Dirty = packed struct {
     hyperlink_hover: bool = false,
 };
 
-/// A set of internal state that we pack for memory size.
-pub const Flags = packed struct {
+pub const SemanticPrompt = struct {
     /// This is flipped to true when any sort of semantic content is
     /// seen. In particular, this is set to true only when a `prompt` type
     /// is ever set on our cursor.
     ///
     /// This is used to optimize away semantic content operations if we know
     /// we've never seen them.
-    semantic_content: bool = false,
+    seen: bool,
+
+    /// This is set on any `cl` or `click_events` option set on the
+    /// most recent OSC 133 commands to specify how click handling in a
+    /// prompt is handling.
+    click: SemanticClick,
+
+    pub const disabled: SemanticPrompt = .{
+        .seen = false,
+        .click = .none,
+    };
+
+    pub const SemanticClick = union(enum) {
+        none,
+        click_events,
+        cl: osc.semantic_prompt.Click,
+    };
 };
 
 /// The cursor position and style.
@@ -378,7 +393,7 @@ pub fn reset(self: *Screen) void {
     self.charset = .{};
     self.kitty_keyboard = .{};
     self.protected_mode = .off;
-    self.flags = .{};
+    self.semantic_prompt = .disabled;
     self.clearSelection();
 }
 
@@ -2362,7 +2377,7 @@ pub fn cursorSetSemanticContent(self: *Screen, t: union(enum) {
         },
 
         .prompt => |kind| {
-            self.flags.semantic_content = true;
+            self.semantic_prompt.seen = true;
             cursor.semantic_content = .prompt;
             cursor.semantic_content_clear_eol = false;
             cursor.page_row.semantic_prompt = switch (kind) {
