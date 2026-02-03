@@ -2,10 +2,10 @@
 
 use github.nu
 
-# Approve a contributor by adding them to the APPROVED_CONTRIBUTORS file.
+# Vouch for a contributor by adding them to the VOUCHED file.
 #
 # This script checks if a comment matches "lgtm", verifies the commenter has
-# write access, and adds the issue author to the approved list if not already 
+# write access, and adds the issue author to the vouched list if not already 
 # present.
 #
 # Environment variables required:
@@ -17,16 +17,16 @@ use github.nu
 # Examples:
 #
 #   # Dry run (default) - see what would happen
-#   ./approve-contributor.nu 123 456789
+#   ./vouch.nu 123 456789
 #
-#   # Actually approve a contributor
-#   ./approve-contributor.nu 123 456789 --dry-run=false
+#   # Actually vouch for a contributor
+#   ./vouch.nu 123 456789 --dry-run=false
 #
 def main [
   issue_id: int,           # GitHub issue number
   comment_id: int,         # GitHub comment ID
   --repo (-R): string = "ghostty-org/ghostty", # Repository in "owner/repo" format
-  --approved-file: string = ".github/APPROVED_CONTRIBUTORS", # Path to approved contributors file
+  --vouched-file: string = ".github/VOUCHED", # Path to vouched contributors file
   --dry-run = true,        # Print what would happen without making changes
 ] {
   let owner = ($repo | split row "/" | first)
@@ -62,23 +62,23 @@ def main [
     return
   }
 
-  # Read approved contributors file
-  let content = open $approved_file
-  let approved_list = $content
+  # Read vouched contributors file
+  let content = open $vouched_file
+  let vouched_list = $content
     | lines
     | each { |line| $line | str trim | str downcase }
     | where { |line| ($line | is-not-empty) and (not ($line | str starts-with "#")) }
 
-  # Check if already approved
-  if ($issue_author | str downcase) in $approved_list {
-    print $"($issue_author) is already approved"
+  # Check if already vouched
+  if ($issue_author | str downcase) in $vouched_list {
+    print $"($issue_author) is already vouched"
 
     if not $dry_run {
       github api "post" $"/repos/($owner)/($repo_name)/issues/($issue_id)/comments" {
-        body: $"@($issue_author) is already in the approved contributors list."
+        body: $"@($issue_author) is already in the vouched contributors list."
       }
     } else {
-      print "(dry-run) Would post 'already approved' comment"
+      print "(dry-run) Would post 'already vouched' comment"
     }
 
     print "already"
@@ -86,7 +86,7 @@ def main [
   }
 
   if $dry_run {
-    print $"(dry-run) Would add ($issue_author) to ($approved_file)"
+    print $"(dry-run) Would add ($issue_author) to ($vouched_file)"
     print "added"
     return
   }
@@ -99,8 +99,8 @@ def main [
     | append $issue_author
     | sort -i
   let new_content = ($comments | append $contributors | str join "\n") + "\n"
-  $new_content | save -f $approved_file
+  $new_content | save -f $vouched_file
 
-  print $"Added ($issue_author) to approved contributors"
+  print $"Added ($issue_author) to vouched contributors"
   print "added"
 }

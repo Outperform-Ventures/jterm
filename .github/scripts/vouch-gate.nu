@@ -2,38 +2,38 @@
 
 use github.nu
 
-# Approved contributor gate commands.
+# Vouch gate commands.
 #
 # Environment variables required:
 #   GITHUB_TOKEN - GitHub API token with repo access. If this isn't
 #     set then we'll attempt to read from `gh` if it exists.
 def main [] {
-  print "Usage: approved-gate <command>"
+  print "Usage: vouch-gate <command>"
   print ""
   print "Commands:"
-  print "  pr    Check if a PR author is an approved contributor"
+  print "  pr    Check if a PR author is a vouched contributor"
 }
 
-# Check if a PR author is an approved contributor.
+# Check if a PR author is a vouched contributor.
 #
 # Checks if a PR author is a bot, collaborator with write access,
-# or in the approved contributors list. If not approved, it closes the PR
+# or in the vouched contributors list. If not vouched, it closes the PR
 # with a comment explaining the process.
 #
-# Outputs a status to stdout: "skipped", "approved", or "closed"
+# Outputs a status to stdout: "skipped", "vouched", or "closed"
 #
 # Examples:
 #
 #   # Dry run (default) - see what would happen
-#   ./approved-gate.nu pr 123
+#   ./vouch-gate.nu pr 123
 #
-#   # Actually close an unapproved PR
-#   ./approved-gate.nu pr 123 --dry-run=false
+#   # Actually close an unvouched PR
+#   ./vouch-gate.nu pr 123 --dry-run=false
 #
 def "main pr" [
   pr_number: int,            # GitHub pull request number
   --repo (-R): string = "ghostty-org/ghostty", # Repository in "owner/repo" format
-  --approved-file: string = ".github/APPROVED_CONTRIBUTORS", # Path to approved contributors file
+  --vouched-file: string = ".github/VOUCHED", # Path to vouched contributors file
   --dry-run = true,          # Print what would happen without making changes
 ] {
   let owner = ($repo | split row "/" | first)
@@ -60,26 +60,26 @@ def "main pr" [
 
   if ($permission in ["admin", "write"]) {
     print $"($pr_author) is a collaborator with ($permission) access"
-    print "approved"
+    print "vouched"
     return
   }
 
-  # Fetch approved contributors list from default branch
-  let file_data = github api "get" $"/repos/($owner)/($repo_name)/contents/($approved_file)?ref=($default_branch)"
+  # Fetch vouched contributors list from default branch
+  let file_data = github api "get" $"/repos/($owner)/($repo_name)/contents/($vouched_file)?ref=($default_branch)"
   let content = $file_data.content | decode base64 | decode utf-8
-  let approved_list = $content
+  let vouched_list = $content
     | lines
     | each { |line| $line | str trim | str downcase }
     | where { |line| ($line | is-not-empty) and (not ($line | str starts-with "#")) }
 
-  if ($pr_author | str downcase) in $approved_list {
-    print $"($pr_author) is in the approved contributors list"
-    print "approved"
+  if ($pr_author | str downcase) in $vouched_list {
+    print $"($pr_author) is in the vouched contributors list"
+    print "vouched"
     return
   }
 
-  # Not approved - close PR with comment
-  print $"($pr_author) is not approved, closing PR"
+  # Not vouched - close PR with comment
+  print $"($pr_author) is not vouched, closing PR"
 
   let message = $"Hi @($pr_author), thanks for your interest in contributing!
 
@@ -87,7 +87,7 @@ We ask new contributors to open an issue first before submitting a PR. This help
 
 **Next steps:**
 1. Open an issue describing what you want to change and why \(keep it concise, write in your human voice, AI slop will be closed\)
-2. Once a maintainer approves with `lgtm`, you'll be added to the approved contributors list
+2. Once a maintainer vouches for you with `lgtm`, you'll be added to the vouched contributors list
 3. Then you can submit your PR
 
 This PR will be closed automatically. See https://github.com/($owner)/($repo_name)/blob/($default_branch)/CONTRIBUTING.md for more details."

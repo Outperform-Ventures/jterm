@@ -25,11 +25,11 @@ jobs:
           name: ghostty
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
 
-      - name: Check if contributor is approved
+      - name: Check if contributor is vouched
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          nix develop -c nu .github/scripts/approved-gate.nu pr \
+          nix develop -c nu .github/scripts/vouch-gate.nu pr \
             -R ${{ github.repository }} \
             ${{ github.event.pull_request.number }} \
             --dry-run=false

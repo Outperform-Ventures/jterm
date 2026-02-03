@@ -1,11 +1,11 @@
-name: Approve Contributor
+name: Vouch
 
 on:
   issue_comment:
     types: [created]
 
 jobs:
-  approve:
+  vouch:
     if: ${{ !github.event.issue.pull_request }}
     runs-on: namespace-profile-ghostty-xsm
     permissions:
@@ -25,12 +25,12 @@ jobs:
           name: ghostty
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
 
-      - name: Add contributor to approved list
+      - name: Vouch for contributor
         id: update
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          status=$(nix develop -c nu .github/scripts/approve-contributor.nu \
+          status=$(nix develop -c nu .github/scripts/vouch.nu \
             -R ${{ github.repository }} \
             ${{ github.event.issue.number }} \
             ${{ github.event.comment.id }} \
@@ -43,8 +43,8 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add .github/APPROVED_CONTRIBUTORS
-          git diff --staged --quiet || git commit -m "chore: approve contributor ${{ github.event.issue.user.login }}"
+          git add .github/VOUCHED
+          git diff --staged --quiet || git commit -m "chore: vouch for contributor ${{ github.event.issue.user.login }}"
           git push
 
       - name: Comment on issue
@@ -53,4 +53,4 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh issue comment ${{ github.event.issue.number }} \
-            --body "@${{ github.event.issue.user.login }} has been added to the approved contributors list. You can now submit PRs. Thanks for contributing!"
+            --body "@${{ github.event.issue.user.login }} has been vouched for and added to the contributors list. You can now submit PRs. Thanks for contributing!"
