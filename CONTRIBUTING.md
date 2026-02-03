@@ -35,7 +35,7 @@ We use a vouch system for first-time contributors:
 
 1. Open an issue describing what you want to change and why. Use
    the "Contribution Proposal" template.
-2. Keep it concise (if it doesn't fit on one screen, it's too long)
+2. Keep it concise
 3. Write in your own voice, don't have an AI write this
 4. A maintainer will comment `lgtm` if approved
 5. Once approved, you can submit PRs
