@@ -11,7 +11,8 @@
 #
 # Syntax:
 #  - One handle per line (without @). Sorted alphabetically.
-#  - To denounce a user, prefix the line with a minus sign (-).
+#  - Optionally specify platform: `platform:username` (e.g., `github:mitchellh`).
+#  - To denounce a user, prefix with minus: `-username` or `-platform:username`.
 #  - Optionally, add comments after a space following the handle.
 #
 # Maintainers can vouch for new contributors by commenting "lgtm" on an

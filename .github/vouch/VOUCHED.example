@@ -11,12 +11,13 @@
 #
 # Syntax:
 #  - One handle per line (without @). Sorted alphabetically.
-#  - To denounce a user, prefix the line with a minus sign (-).
-#  - Optionally, add comments after a space following the handle.
+#  - Optionally specify platform: `platform:username` (e.g., `github:mitchellh`).
+#  - To denounce a user, prefix with minus: `-username` or `-platform:username`.
+#  - Optionally, add details after a space following the handle.
 #
 # Maintainers can vouch for new contributors by commenting "lgtm" on an
 # issue by the author. Maintainers can denounce users by commenting
 # "denounce" or "denounce [username]" on an issue or PR.
 mitchellh
--badguy
--slopmaster3000 Submitted endless amounts of AI slop
+-github:badguy
+-github:slopmaster3000 Submitted endless amounts of AI slop

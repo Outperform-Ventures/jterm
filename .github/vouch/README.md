@@ -56,10 +56,12 @@ Overview:
 
 ```
 # Comments start with #
-username
--denounced-user
--denounced-user reason for denouncement
+platform:username
+-platform:denounced-user
+-platform:denounced-user reason for denouncement
 ```
+
+The platform prefix (e.g., `github:`) specifies where the user identity comes from. Usernames without a platform prefix are also supported for backwards compatibility.
 
 ### Commands
 

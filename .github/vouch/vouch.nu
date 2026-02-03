@@ -34,11 +34,19 @@ export def main [] {
 #   # Actually add the user
 #   ./vouch.nu add someuser --dry-run=false
 #
+#   # Add with platform prefix
+#   ./vouch.nu add someuser --platform github --dry-run=false
+#
 export def "main add" [
-  username: string,          # GitHub username to vouch for
+  username: string,          # Username to vouch for
+  --platform: string = "",   # Platform prefix (e.g., "github")
   --vouched-file: string,    # Path to vouched contributors file (default: VOUCHED or .github/VOUCHED)
   --dry-run = true,          # Print what would happen without making changes
 ] {
+  if ($username | str starts-with "-") and ($platform | is-empty) {
+    error make { msg: "platform is required when username starts with -" }
+  }
+
   let file = if ($vouched_file | is-empty) {
     let default = default-vouched-file
     if ($default | is-empty) {
@@ -49,8 +57,10 @@ export def "main add" [
     $vouched_file
   }
 
+  let entry = if ($platform | is-empty) { $username } else { $"($platform):($username)" }
+
   if $dry_run {
-    print $"(dry-run) Would add ($username) to ($file)"
+    print $"\(dry-run\) Would add ($entry) to ($file)"
     return
   }
 
@@ -60,11 +70,11 @@ export def "main add" [
   let contributors = $lines
     | where { |line| not (($line | str starts-with "#") or ($line | str trim | is-empty)) }
 
-  let new_contributors = add-user $username $contributors
+  let new_contributors = add-user $username $contributors --platform $platform
   let new_content = ($comments | append $new_contributors | str join "\n") + "\n"
   $new_content | save -f $file
 
-  print $"Added ($username) to vouched contributors"
+  print $"Added ($entry) to vouched contributors"
 }
 
 # Manage contributor status via issue comments.
@@ -94,8 +104,10 @@ export def "main gh-manage-by-issue" [
   --vouched-file: string,  # Path to vouched contributors file (default: VOUCHED or .github/VOUCHED)
   --allow-vouch = true,   # Enable "lgtm" handling to vouch for contributors
   --allow-denounce = true, # Enable "denounce" handling to denounce users
+  --explicit-platform = false, # Add platform prefix (github:) to entries
   --dry-run = true,        # Print what would happen without making changes
 ] {
+  let platform = if $explicit_platform { "github" } else { "" }
   let file = if ($vouched_file | is-empty) {
     let default = default-vouched-file
     if ($default | is-empty) {
@@ -149,7 +161,7 @@ export def "main gh-manage-by-issue" [
   let lines = open-vouched-file $file
 
   if $is_lgtm {
-    let status = check-user $issue_author $lines
+    let status = check-user $issue_author $lines --platform github --default-platform github
     if $status == "vouched" {
       print $"($issue_author) is already vouched"
 
@@ -165,17 +177,18 @@ export def "main gh-manage-by-issue" [
       return
     }
 
+    let entry = if ($platform | is-empty) { $issue_author } else { $"($platform):($issue_author)" }
     if $dry_run {
-      print $"(dry-run) Would add ($issue_author) to ($file)"
+      print $"(dry-run) Would add ($entry) to ($file)"
       print "vouched"
       return
     }
 
-    let new_lines = add-user $issue_author $lines
+    let new_lines = add-user $issue_author $lines --platform $platform
     let new_content = ($new_lines | str join "\n") + "\n"
     $new_content | save -f $file
 
-    print $"Added ($issue_author) to vouched contributors"
+    print $"Added ($entry) to vouched contributors"
     print "vouched"
     return
   }
@@ -189,21 +202,22 @@ export def "main gh-manage-by-issue" [
     }
     let reason = $match.capture1? | default ""
 
-    let status = check-user $target_user $lines
+    let status = check-user $target_user $lines --platform github --default-platform github
     if $status == "denounced" {
       print $"($target_user) is already denounced"
       print "unchanged"
       return
     }
 
+    let handle = if ($platform | is-empty) { $target_user } else { $"($platform):($target_user)" }
     if $dry_run {
-      let entry = if ($reason | is-empty) { $"-($target_user)" } else { $"-($target_user) ($reason)" }
+      let entry = if ($reason | is-empty) { $"-($handle)" } else { $"-($handle) ($reason)" }
       print $"(dry-run) Would add ($entry) to ($file)"
       print "denounced"
       return
     }
 
-    let new_lines = denounce-user $target_user $reason $lines
+    let new_lines = denounce-user $target_user $reason $lines --platform $platform
     let new_content = ($new_lines | str join "\n") + "\n"
     $new_content | save -f $file
 
@@ -229,12 +243,20 @@ export def "main gh-manage-by-issue" [
 #   # Actually denounce the user
 #   ./vouch.nu denounce badactor --dry-run=false
 #
+#   # Denounce with platform prefix
+#   ./vouch.nu denounce badactor --platform github --dry-run=false
+#
 export def "main denounce" [
-  username: string,          # GitHub username to denounce
+  username: string,          # Username to denounce
   --reason: string,          # Optional reason for denouncement
+  --platform: string = "",   # Platform prefix (e.g., "github")
   --vouched-file: string,    # Path to vouched contributors file (default: VOUCHED or .github/VOUCHED)
   --dry-run = true,          # Print what would happen without making changes
 ] {
+  if ($username | str starts-with "-") and ($platform | is-empty) {
+    error make { msg: "platform is required when username starts with -" }
+  }
+
   let file = if ($vouched_file | is-empty) {
     let default = default-vouched-file
     if ($default | is-empty) {
@@ -245,18 +267,20 @@ export def "main denounce" [
     $vouched_file
   }
 
+  let handle = if ($platform | is-empty) { $username } else { $"($platform):($username)" }
+
   if $dry_run {
-    let entry = if ($reason | is-empty) { $"-($username)" } else { $"-($username) ($reason)" }
+    let entry = if ($reason | is-empty) { $"-($handle)" } else { $"-($handle) ($reason)" }
     print $"\(dry-run\) Would add ($entry) to ($file)"
     return
   }
 
   let lines = open-vouched-file $file
-  let new_lines = denounce-user $username $reason $lines
+  let new_lines = denounce-user $username $reason $lines --platform $platform
   let new_content = ($new_lines | str join "\n") + "\n"
   $new_content | save -f $file
 
-  print $"Denounced ($username)"
+  print $"Denounced ($handle)"
 }
 
 # Check a user's vouch status.
@@ -271,11 +295,14 @@ export def "main denounce" [
 # Examples:
 #
 #   ./vouch.nu check someuser
-#   ./vouch.nu check someuser path/to/VOUCHED
+#   ./vouch.nu check someuser --vouched-file path/to/VOUCHED
+#   ./vouch.nu check someuser --platform github --default-platform github
 #
 export def "main check" [
-  username: string,          # GitHub username to check
-  vouched_file?: path,       # Path to local vouched contributors file (default: VOUCHED or .github/VOUCHED)
+  username: string,          # Username to check
+  --platform: string = "",   # Platform to match (e.g., "github"). Empty matches any.
+  --default-platform: string = "", # Assumed platform for entries without explicit platform
+  --vouched-file: string,    # Path to vouched contributors file (default: VOUCHED or .github/VOUCHED)
 ] {
   let lines = try {
     open-vouched-file $vouched_file
@@ -284,7 +311,7 @@ export def "main check" [
     exit 1
   }
 
-  let status = check-user $username $lines
+  let status = check-user $username $lines --platform $platform --default-platform $default_platform
   print $status
   match $status {
     "vouched" => { exit 0 }
@@ -321,8 +348,10 @@ export def "main gh-check-pr" [
   --vouched-file: string = ".github/VOUCHED", # Path to vouched contributors file
   --require-vouch = true,    # Require users to be vouched; if false, only denounced users are blocked
   --auto-close = false,      # Close unvouched PRs with a comment
+  --explicit-platform = false, # Require platform prefix (github:) when matching
   --dry-run = true,          # Print what would happen without making changes
 ] {
+  let platform = if $explicit_platform { "github" } else { "" }
   let owner = ($repo | split row "/" | first)
   let repo_name = ($repo | split row "/" | last)
 
@@ -355,7 +384,7 @@ export def "main gh-check-pr" [
   let file_data = github api "get" $"/repos/($owner)/($repo_name)/contents/($vouched_file)?ref=($default_branch)"
   let content = $file_data.content | decode base64 | decode utf-8
   let lines = $content | lines
-  let status = check-user $pr_author $lines
+  let status = check-user $pr_author $lines --platform github --default-platform github
 
   if $status == "vouched" {
     print $"($pr_author) is in the vouched contributors list"
@@ -440,23 +469,38 @@ This PR will be closed automatically. See https://github.com/($owner)/($repo_nam
 # Check a user's status in contributor lines.
 #
 # Filters out comments and blank lines before checking.
+# Supports platform:username format (e.g., github:mitchellh).
 # Returns "vouched", "denounced", or "unknown".
-export def check-user [username: string, lines: list<string>] {
+export def check-user [
+  username: string,            # Username to check
+  lines: list<string>,         # Lines from the vouched file
+  --platform: string = "",     # Platform to match (e.g., "github"). Empty matches any.
+  --default-platform: string = "", # Assumed platform for entries without explicit platform
+] {
   let contributors = $lines
     | where { |line| not (($line | str starts-with "#") or ($line | str trim | is-empty)) }
 
   let username_lower = ($username | str downcase)
+  let platform_lower = ($platform | str downcase)
+  let default_platform_lower = ($default_platform | str downcase)
   for line in $contributors {
     let handle = ($line | str trim | split row " " | first)
     
-    if ($handle | str starts-with "-") {
-      let denounced_user = ($handle | str substring 1.. | str downcase)
-      if $denounced_user == $username_lower {
+    let is_denounced = ($handle | str starts-with "-")
+    let entry = if $is_denounced { $handle | str substring 1.. } else { $handle }
+    
+    # Parse platform:username or just username
+    let parsed = parse-handle $entry
+    let entry_platform = if ($parsed.platform | is-empty) { $default_platform_lower } else { $parsed.platform }
+    let entry_user = $parsed.username
+    
+    # Match if usernames match and (no platform filter OR platforms match)
+    let platform_matches = ($platform_lower | is-empty) or ($entry_platform | is-empty) or ($entry_platform == $platform_lower)
+    
+    if ($entry_user == $username_lower) and $platform_matches {
+      if $is_denounced {
         return "denounced"
-      }
-    } else {
-      let vouched_user = ($handle | str downcase)
-      if $vouched_user == $username_lower {
+      } else {
         return "vouched"
       }
     }
@@ -467,27 +511,46 @@ export def check-user [username: string, lines: list<string>] {
 
 # Add a user to the contributor lines, removing any existing entry first.
 #
+# Supports platform:username format (e.g., github:mitchellh).
 # Returns the updated lines with the user added and sorted.
-export def add-user [username: string, lines: list<string>] {
-  let filtered = remove-user $username $lines
-  $filtered | append $username | sort -i
+export def add-user [
+  username: string,            # Username to add
+  lines: list<string>,         # Lines from the vouched file
+  --platform: string = "",     # Platform prefix (e.g., "github")
+] {
+  let filtered = remove-user $username $lines --platform $platform
+  let entry = if ($platform | is-empty) { $username } else { $"($platform):($username)" }
+  $filtered | append $entry | sort -i
 }
 
 # Denounce a user in the contributor lines, removing any existing entry first.
 #
+# Supports platform:username format (e.g., github:mitchellh).
 # Returns the updated lines with the user added as denounced and sorted.
-export def denounce-user [username: string, reason: string, lines: list<string>] {
-  let filtered = remove-user $username $lines
-  let entry = if ($reason | is-empty) { $"-($username)" } else { $"-($username) ($reason)" }
+export def denounce-user [
+  username: string,            # Username to denounce
+  reason: string,              # Reason for denouncement (can be empty)
+  lines: list<string>,         # Lines from the vouched file
+  --platform: string = "",     # Platform prefix (e.g., "github")
+] {
+  let filtered = remove-user $username $lines --platform $platform
+  let handle = if ($platform | is-empty) { $username } else { $"($platform):($username)" }
+  let entry = if ($reason | is-empty) { $"-($handle)" } else { $"-($handle) ($reason)" }
   $filtered | append $entry | sort -i
 }
 
 # Remove a user from the contributor lines (whether vouched or denounced).
 # Comments and blank lines are ignored (passed through unchanged).
 #
+# Supports platform:username format (e.g., github:mitchellh).
 # Returns the filtered lines after removal.
-export def remove-user [username: string, lines: list<string>] {
+export def remove-user [
+  username: string,            # Username to remove
+  lines: list<string>,         # Lines from the vouched file
+  --platform: string = "",     # Platform to match (e.g., "github"). Empty matches any.
+] {
   let username_lower = ($username | str downcase)
+  let platform_lower = ($platform | str downcase)
   $lines | where { |line|
     # Pass through comments and blank lines
     if ($line | str starts-with "#") or ($line | str trim | is-empty) {
@@ -495,13 +558,19 @@ export def remove-user [username: string, lines: list<string>] {
     }
 
     let handle = ($line | split row " " | first)
-    let normalized = if ($handle | str starts-with "-") {
-      $handle | str substring 1.. | str downcase
+    let entry = if ($handle | str starts-with "-") {
+      $handle | str substring 1..
     } else {
-      $handle | str downcase
+      $handle
     }
 
-    $normalized != $username_lower
+    let parsed = parse-handle $entry
+    let entry_platform = $parsed.platform
+    let entry_user = $parsed.username
+    
+    # Keep if username doesn't match OR (platform filter set AND platforms don't match AND entry has platform)
+    let platform_matches = ($platform_lower | is-empty) or ($entry_platform | is-empty) or ($entry_platform == $platform_lower)
+    not (($entry_user == $username_lower) and $platform_matches)
   }
 }
 
@@ -532,4 +601,17 @@ def open-vouched-file [vouched_file?: path] {
   }
 
   open $file | lines
+}
+
+# Parse a handle into platform and username components.
+#
+# Handles format: "platform:username" or just "username"
+# Returns a record with {platform: string, username: string}
+def parse-handle [handle: string] {
+  let parts = $handle | str downcase | split row ":"
+  if ($parts | length) >= 2 {
+    {platform: ($parts | first), username: ($parts | skip 1 | str join ":")}
+  } else {
+    {platform: "", username: ($parts | first)}
+  }
 }
