@@ -29,7 +29,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          nix develop -c nu .github/scripts/vouch-gate.nu pr \
+          nix develop -c nu .github/scripts/vouch.nu check-pr \
             -R ${{ github.repository }} \
             ${{ github.event.pull_request.number }} \
             --dry-run=false
