@@ -1,5 +1,7 @@
 #!/usr/bin/env nu
 
+use github.nu
+
 # Approve a contributor by adding them to the APPROVED_CONTRIBUTORS file.
 #
 # This script checks if a comment matches "lgtm", verifies the commenter has
@@ -31,8 +33,8 @@ def main [
   let repo_name = ($repo | split row "/" | last)
 
   # Fetch issue and comment data from GitHub API
-  let issue_data = github-api "get" $"/repos/($owner)/($repo_name)/issues/($issue_id)"
-  let comment_data = github-api "get" $"/repos/($owner)/($repo_name)/issues/comments/($comment_id)"
+  let issue_data = github api "get" $"/repos/($owner)/($repo_name)/issues/($issue_id)"
+  let comment_data = github api "get" $"/repos/($owner)/($repo_name)/issues/comments/($comment_id)"
 
   let issue_author = $issue_data.user.login
   let commenter = $comment_data.user.login
@@ -47,7 +49,7 @@ def main [
 
   # Check if commenter has write access
   let permission = try {
-    github-api "get" $"/repos/($owner)/($repo_name)/collaborators/($commenter)/permission" | get permission
+    github api "get" $"/repos/($owner)/($repo_name)/collaborators/($commenter)/permission" | get permission
   } catch {
     print $"($commenter) does not have collaborator access"
     print "skipped"
@@ -72,7 +74,7 @@ def main [
     print $"($issue_author) is already approved"
 
     if not $dry_run {
-      github-api "post" $"/repos/($owner)/($repo_name)/issues/($issue_id)/comments" {
+      github api "post" $"/repos/($owner)/($repo_name)/issues/($issue_id)/comments" {
         body: $"@($issue_author) is already in the approved contributors list."
       }
     } else {
@@ -101,34 +103,4 @@ def main [
 
   print $"Added ($issue_author) to approved contributors"
   print "added"
-}
-
-# Make a GitHub API request with proper headers
-def github-api [
-  method: string,  # HTTP method (get, post, etc.)
-  endpoint: string # API endpoint (e.g., /repos/owner/repo/issues/1/comments)
-  body?: record    # Optional request body
-] {
-  let url = $"https://api.github.com($endpoint)"
-  let headers = [
-    Authorization $"Bearer (get-github-token)"
-    Accept "application/vnd.github+json"
-    X-GitHub-Api-Version "2022-11-28"
-  ]
-
-  match $method {
-    "get" => { http get $url --headers $headers },
-    "post" => { http post $url --headers $headers $body },
-    _ => { error make { msg: $"Unsupported HTTP method: ($method)" } }
-  }
-}
-
-# Get GitHub token from environment or gh CLI (cached in env)
-def get-github-token [] {
-  if ($env.GITHUB_TOKEN? | is-not-empty) {
-    return $env.GITHUB_TOKEN
-  } 
-
-  $env.GITHUB_TOKEN = (gh auth token | str trim)
-  $env.GITHUB_TOKEN
 }
