@@ -12,10 +12,158 @@ export def main [] {
   print "Usage: vouch <command>"
   print ""
   print "Commands:"
+  print "  add               Add a user to the vouched contributors list"
+  print "  approve-by-issue  Vouch for a contributor via issue comment"
   print "  check             Check a user's vouch status"
   print "  check-pr          Check if a PR author is a vouched contributor"
-  print "  approve-by-issue  Vouch for a contributor via issue comment"
-  print "  add               Add a user to the vouched contributors list"
+}
+
+# Add a user to the vouched contributors list.
+#
+# This adds the user to the vouched list, removing any existing entry
+# (vouched or denounced) for that user first.
+#
+# Examples:
+#
+#   # Dry run (default) - see what would happen
+#   ./vouch.nu add someuser
+#
+#   # Actually add the user
+#   ./vouch.nu add someuser --dry-run=false
+#
+export def "main add" [
+  username: string,          # GitHub username to vouch for
+  --vouched-file: string,    # Path to vouched contributors file (default: VOUCHED or .github/VOUCHED)
+  --dry-run = true,          # Print what would happen without making changes
+] {
+  let file = if ($vouched_file | is-empty) {
+    let default = default-vouched-file
+    if ($default | is-empty) {
+      error make { msg: "no VOUCHED file found" }
+    }
+    $default
+  } else {
+    $vouched_file
+  }
+
+  if $dry_run {
+    print $"(dry-run) Would add ($username) to ($file)"
+    return
+  }
+
+  let content = open $file
+  let lines = $content | lines
+  let comments = $lines | where { |line| ($line | str starts-with "#") or ($line | str trim | is-empty) }
+  let contributors = $lines
+    | where { |line| not (($line | str starts-with "#") or ($line | str trim | is-empty)) }
+
+  let new_contributors = add-user $username $contributors
+  let new_content = ($comments | append $new_contributors | str join "\n") + "\n"
+  $new_content | save -f $file
+
+  print $"Added ($username) to vouched contributors"
+}
+
+# Vouch for a contributor by adding them to the VOUCHED file.
+#
+# This checks if a comment matches "lgtm", verifies the commenter has
+# write access, and adds the issue author to the vouched list if not already 
+# present.
+#
+# Outputs a status to stdout: "skipped", "already", or "added"
+#
+# Examples:
+#
+#   # Dry run (default) - see what would happen
+#   ./vouch.nu approve-by-issue 123 456789
+#
+#   # Actually vouch for a contributor
+#   ./vouch.nu approve-by-issue 123 456789 --dry-run=false
+#
+export def "main approve-by-issue" [
+  issue_id: int,           # GitHub issue number
+  comment_id: int,         # GitHub comment ID
+  --repo (-R): string = "ghostty-org/ghostty", # Repository in "owner/repo" format
+  --vouched-file: string,  # Path to vouched contributors file (default: VOUCHED or .github/VOUCHED)
+  --dry-run = true,        # Print what would happen without making changes
+] {
+  let file = if ($vouched_file | is-empty) {
+    let default = default-vouched-file
+    if ($default | is-empty) {
+      error make { msg: "no VOUCHED file found" }
+    }
+    $default
+  } else {
+    $vouched_file
+  }
+
+  # Fetch issue and comment data from GitHub API
+  let owner = ($repo | split row "/" | first)
+  let repo_name = ($repo | split row "/" | last)
+  let issue_data = github api "get" $"/repos/($owner)/($repo_name)/issues/($issue_id)"
+  let comment_data = github api "get" $"/repos/($owner)/($repo_name)/issues/comments/($comment_id)"
+
+  let issue_author = $issue_data.user.login
+  let commenter = $comment_data.user.login
+  let comment_body = ($comment_data.body | default "")
+
+  # Check if comment matches "lgtm"
+  if not ($comment_body | str trim | parse -r '(?i)^\s*lgtm\b' | is-not-empty) {
+    print "Comment does not match lgtm"
+    print "skipped"
+    return
+  }
+
+  # Check if commenter has write access
+  let permission = try {
+    github api "get" $"/repos/($owner)/($repo_name)/collaborators/($commenter)/permission" | get permission
+  } catch {
+    print $"($commenter) does not have collaborator access"
+    print "skipped"
+    return
+  }
+
+  if not ($permission in ["admin", "write"]) {
+    print $"($commenter) does not have write access"
+    print "skipped"
+    return
+  }
+
+  # Check if already vouched using check-status
+  let status = check-status $issue_author $file
+  if $status == "vouched" {
+    print $"($issue_author) is already vouched"
+
+    if not $dry_run {
+      github api "post" $"/repos/($owner)/($repo_name)/issues/($issue_id)/comments" {
+        body: $"@($issue_author) is already in the vouched contributors list."
+      }
+    } else {
+      print "(dry-run) Would post 'already vouched' comment"
+    }
+
+    print "already"
+    return
+  }
+
+  if $dry_run {
+    print $"(dry-run) Would add ($issue_author) to ($file)"
+    print "added"
+    return
+  }
+
+  let content = open $file
+  let lines = $content | lines
+  let comments = $lines | where { |line| ($line | str starts-with "#") or ($line | str trim | is-empty) }
+  let contributors = $lines
+    | where { |line| not (($line | str starts-with "#") or ($line | str trim | is-empty)) }
+
+  let new_contributors = add-user $issue_author $contributors
+  let new_content = ($comments | append $new_contributors | str join "\n") + "\n"
+  $new_content | save -f $file
+
+  print $"Added ($issue_author) to vouched contributors"
+  print "added"
 }
 
 # Check a user's vouch status.
@@ -151,154 +299,6 @@ This PR will be closed automatically. See https://github.com/($owner)/($repo_nam
   }
 
   print "closed"
-}
-
-# Vouch for a contributor by adding them to the VOUCHED file.
-#
-# This checks if a comment matches "lgtm", verifies the commenter has
-# write access, and adds the issue author to the vouched list if not already 
-# present.
-#
-# Outputs a status to stdout: "skipped", "already", or "added"
-#
-# Examples:
-#
-#   # Dry run (default) - see what would happen
-#   ./vouch.nu approve-by-issue 123 456789
-#
-#   # Actually vouch for a contributor
-#   ./vouch.nu approve-by-issue 123 456789 --dry-run=false
-#
-export def "main approve-by-issue" [
-  issue_id: int,           # GitHub issue number
-  comment_id: int,         # GitHub comment ID
-  --repo (-R): string = "ghostty-org/ghostty", # Repository in "owner/repo" format
-  --vouched-file: string,  # Path to vouched contributors file (default: VOUCHED or .github/VOUCHED)
-  --dry-run = true,        # Print what would happen without making changes
-] {
-  let file = if ($vouched_file | is-empty) {
-    let default = default-vouched-file
-    if ($default | is-empty) {
-      error make { msg: "no VOUCHED file found" }
-    }
-    $default
-  } else {
-    $vouched_file
-  }
-
-  # Fetch issue and comment data from GitHub API
-  let owner = ($repo | split row "/" | first)
-  let repo_name = ($repo | split row "/" | last)
-  let issue_data = github api "get" $"/repos/($owner)/($repo_name)/issues/($issue_id)"
-  let comment_data = github api "get" $"/repos/($owner)/($repo_name)/issues/comments/($comment_id)"
-
-  let issue_author = $issue_data.user.login
-  let commenter = $comment_data.user.login
-  let comment_body = ($comment_data.body | default "")
-
-  # Check if comment matches "lgtm"
-  if not ($comment_body | str trim | parse -r '(?i)^\s*lgtm\b' | is-not-empty) {
-    print "Comment does not match lgtm"
-    print "skipped"
-    return
-  }
-
-  # Check if commenter has write access
-  let permission = try {
-    github api "get" $"/repos/($owner)/($repo_name)/collaborators/($commenter)/permission" | get permission
-  } catch {
-    print $"($commenter) does not have collaborator access"
-    print "skipped"
-    return
-  }
-
-  if not ($permission in ["admin", "write"]) {
-    print $"($commenter) does not have write access"
-    print "skipped"
-    return
-  }
-
-  # Check if already vouched using check-status
-  let status = check-status $issue_author $file
-  if $status == "vouched" {
-    print $"($issue_author) is already vouched"
-
-    if not $dry_run {
-      github api "post" $"/repos/($owner)/($repo_name)/issues/($issue_id)/comments" {
-        body: $"@($issue_author) is already in the vouched contributors list."
-      }
-    } else {
-      print "(dry-run) Would post 'already vouched' comment"
-    }
-
-    print "already"
-    return
-  }
-
-  if $dry_run {
-    print $"(dry-run) Would add ($issue_author) to ($file)"
-    print "added"
-    return
-  }
-
-  let content = open $file
-  let lines = $content | lines
-  let comments = $lines | where { |line| ($line | str starts-with "#") or ($line | str trim | is-empty) }
-  let contributors = $lines
-    | where { |line| not (($line | str starts-with "#") or ($line | str trim | is-empty)) }
-
-  let new_contributors = add-user $issue_author $contributors
-  let new_content = ($comments | append $new_contributors | str join "\n") + "\n"
-  $new_content | save -f $file
-
-  print $"Added ($issue_author) to vouched contributors"
-  print "added"
-}
-
-# Add a user to the vouched contributors list.
-#
-# This adds the user to the vouched list, removing any existing entry
-# (vouched or denounced) for that user first.
-#
-# Examples:
-#
-#   # Dry run (default) - see what would happen
-#   ./vouch.nu add someuser
-#
-#   # Actually add the user
-#   ./vouch.nu add someuser --dry-run=false
-#
-export def "main add" [
-  username: string,          # GitHub username to vouch for
-  --vouched-file: string,    # Path to vouched contributors file (default: VOUCHED or .github/VOUCHED)
-  --dry-run = true,          # Print what would happen without making changes
-] {
-  let file = if ($vouched_file | is-empty) {
-    let default = default-vouched-file
-    if ($default | is-empty) {
-      error make { msg: "no VOUCHED file found" }
-    }
-    $default
-  } else {
-    $vouched_file
-  }
-
-  if $dry_run {
-    print $"(dry-run) Would add ($username) to ($file)"
-    return
-  }
-
-  let content = open $file
-  let lines = $content | lines
-  let comments = $lines | where { |line| ($line | str starts-with "#") or ($line | str trim | is-empty) }
-  let contributors = $lines
-    | where { |line| not (($line | str starts-with "#") or ($line | str trim | is-empty)) }
-
-  let new_contributors = add-user $username $contributors
-  let new_content = ($comments | append $new_contributors | str join "\n") + "\n"
-  $new_content | save -f $file
-
-  print $"Added ($username) to vouched contributors"
 }
 
 # Check a user's status in a vouched file.
