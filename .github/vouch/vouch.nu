@@ -12,8 +12,48 @@ export def main [] {
   print "Usage: vouch <command>"
   print ""
   print "Commands:"
+  print "  check             Check a user's vouch status"
   print "  check-pr          Check if a PR author is a vouched contributor"
   print "  approve-by-issue  Vouch for a contributor via issue comment"
+  print "  add               Add a user to the vouched contributors list"
+}
+
+# Check a user's vouch status.
+#
+# Checks if a user is vouched or denounced (prefixed with -) in a local VOUCHED file.
+#
+# Exit codes:
+#   0 - vouched
+#   1 - denounced  
+#   2 - unknown
+#
+# Examples:
+#
+#   ./vouch.nu check someuser
+#   ./vouch.nu check someuser path/to/VOUCHED
+#
+export def "main check" [
+  username: string,          # GitHub username to check
+  vouched_file?: path,       # Path to local vouched contributors file (default: VOUCHED or .github/VOUCHED)
+] {
+  let file = if ($vouched_file | is-empty) {
+    let default = default-vouched-file
+    if ($default | is-empty) {
+      print "error: no VOUCHED file found"
+      exit 1
+    }
+    $default
+  } else {
+    $vouched_file
+  }
+
+  let status = check-status $username $file
+  print $status
+  match $status {
+    "vouched" => { exit 0 }
+    "denounced" => { exit 1 }
+    _ => { exit 2 }
+  }
 }
 
 # Check if a PR author is a vouched contributor.
@@ -133,13 +173,22 @@ export def "main approve-by-issue" [
   issue_id: int,           # GitHub issue number
   comment_id: int,         # GitHub comment ID
   --repo (-R): string = "ghostty-org/ghostty", # Repository in "owner/repo" format
-  --vouched-file: string = ".github/VOUCHED", # Path to vouched contributors file
+  --vouched-file: string,  # Path to vouched contributors file (default: VOUCHED or .github/VOUCHED)
   --dry-run = true,        # Print what would happen without making changes
 ] {
-  let owner = ($repo | split row "/" | first)
-  let repo_name = ($repo | split row "/" | last)
+  let file = if ($vouched_file | is-empty) {
+    let default = default-vouched-file
+    if ($default | is-empty) {
+      error make { msg: "no VOUCHED file found" }
+    }
+    $default
+  } else {
+    $vouched_file
+  }
 
   # Fetch issue and comment data from GitHub API
+  let owner = ($repo | split row "/" | first)
+  let repo_name = ($repo | split row "/" | last)
   let issue_data = github api "get" $"/repos/($owner)/($repo_name)/issues/($issue_id)"
   let comment_data = github api "get" $"/repos/($owner)/($repo_name)/issues/comments/($comment_id)"
 
@@ -169,15 +218,9 @@ export def "main approve-by-issue" [
     return
   }
 
-  # Read vouched contributors file
-  let content = open $vouched_file
-  let vouched_list = $content
-    | lines
-    | each { |line| $line | str trim | str downcase }
-    | where { |line| ($line | is-not-empty) and (not ($line | str starts-with "#")) }
-
-  # Check if already vouched
-  if ($issue_author | str downcase) in $vouched_list {
+  # Check if already vouched using check-status
+  let status = check-status $issue_author $file
+  if $status == "vouched" {
     print $"($issue_author) is already vouched"
 
     if not $dry_run {
@@ -193,21 +236,153 @@ export def "main approve-by-issue" [
   }
 
   if $dry_run {
-    print $"(dry-run) Would add ($issue_author) to ($vouched_file)"
+    print $"(dry-run) Would add ($issue_author) to ($file)"
     print "added"
     return
   }
 
-  # Add contributor to the file and sort (preserving comments at top)
+  let content = open $file
   let lines = $content | lines
   let comments = $lines | where { |line| ($line | str starts-with "#") or ($line | str trim | is-empty) }
   let contributors = $lines
     | where { |line| not (($line | str starts-with "#") or ($line | str trim | is-empty)) }
-    | append $issue_author
-    | sort -i
-  let new_content = ($comments | append $contributors | str join "\n") + "\n"
-  $new_content | save -f $vouched_file
+
+  let new_contributors = add-user $issue_author $contributors
+  let new_content = ($comments | append $new_contributors | str join "\n") + "\n"
+  $new_content | save -f $file
 
   print $"Added ($issue_author) to vouched contributors"
   print "added"
+}
+
+# Add a user to the vouched contributors list.
+#
+# This adds the user to the vouched list, removing any existing entry
+# (vouched or denounced) for that user first.
+#
+# Examples:
+#
+#   # Dry run (default) - see what would happen
+#   ./vouch.nu add someuser
+#
+#   # Actually add the user
+#   ./vouch.nu add someuser --dry-run=false
+#
+export def "main add" [
+  username: string,          # GitHub username to vouch for
+  --vouched-file: string,    # Path to vouched contributors file (default: VOUCHED or .github/VOUCHED)
+  --dry-run = true,          # Print what would happen without making changes
+] {
+  let file = if ($vouched_file | is-empty) {
+    let default = default-vouched-file
+    if ($default | is-empty) {
+      error make { msg: "no VOUCHED file found" }
+    }
+    $default
+  } else {
+    $vouched_file
+  }
+
+  if $dry_run {
+    print $"(dry-run) Would add ($username) to ($file)"
+    return
+  }
+
+  let content = open $file
+  let lines = $content | lines
+  let comments = $lines | where { |line| ($line | str starts-with "#") or ($line | str trim | is-empty) }
+  let contributors = $lines
+    | where { |line| not (($line | str starts-with "#") or ($line | str trim | is-empty)) }
+
+  let new_contributors = add-user $username $contributors
+  let new_content = ($comments | append $new_contributors | str join "\n") + "\n"
+  $new_content | save -f $file
+
+  print $"Added ($username) to vouched contributors"
+}
+
+# Check a user's status in a vouched file.
+#
+# Returns "vouched", "denounced", or "unknown".
+export def check-status [username: string, vouched_file?: path] {
+  let file = if ($vouched_file | is-empty) {
+    let default = default-vouched-file
+    if ($default | is-empty) {
+      error make { msg: "no VOUCHED file found" }
+    }
+    $default
+  } else {
+    $vouched_file
+  }
+
+  # Grab the lines of the vouch file excluding our comments.
+  let lines = open $file
+    | lines
+    | each { |line| $line | str trim }
+    | where { |line| ($line | is-not-empty) and (not ($line | str starts-with "#")) }
+
+  # Check each user
+  let username_lower = ($username | str downcase)
+  for line in $lines {
+    let handle = ($line | split row " " | first)
+    
+    if ($handle | str starts-with "-") {
+      let denounced_user = ($handle | str substring 1.. | str downcase)
+      if $denounced_user == $username_lower {
+        return "denounced"
+      }
+    } else {
+      let vouched_user = ($handle | str downcase)
+      if $vouched_user == $username_lower {
+        return "vouched"
+      }
+    }
+  }
+
+  "unknown"
+}
+
+# Add a user to the contributor lines, removing any existing entry first.
+#
+# Returns the updated lines with the user added and sorted.
+export def add-user [username: string, lines: list<string>] {
+  let filtered = remove-user $username $lines
+  $filtered | append $username | sort -i
+}
+
+# Remove a user from the contributor lines (whether vouched or denounced).
+# Comments and blank lines are ignored (passed through unchanged).
+#
+# Returns the filtered lines after removal.
+export def remove-user [username: string, lines: list<string>] {
+  let username_lower = ($username | str downcase)
+  $lines | where { |line|
+    # Pass through comments and blank lines
+    if ($line | str starts-with "#") or ($line | str trim | is-empty) {
+      return true
+    }
+
+    let handle = ($line | split row " " | first)
+    let normalized = if ($handle | str starts-with "-") {
+      $handle | str substring 1.. | str downcase
+    } else {
+      $handle | str downcase
+    }
+
+    $normalized != $username_lower
+  }
+}
+
+# Find the default VOUCHED file by checking common locations.
+#
+# Checks for VOUCHED in the current directory first, then .github/VOUCHED.
+# Returns null if neither exists.
+def default-vouched-file [] {
+  if ("VOUCHED" | path exists) {
+    "VOUCHED"
+  } else if (".github/VOUCHED" | path exists) {
+    ".github/VOUCHED"
+  } else {
+    null
+  }
 }

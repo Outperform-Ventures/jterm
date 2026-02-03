@@ -1,11 +1,20 @@
-# GitHub handles of vouched contributors.
+# The list of vouched (or actively denounced) users for this repository.
 #
-# See CONTRIBUTING.md for details. The basic idea is that AI in particular
-# has made it too easy to create plausible-looking but low-quality 
-# contributions. This process lets us move to a network of trust model.
+# The high-level idea is that only vouched users can participate in
+# contributing to this project. And a denounced user is explicitly
+# blocked from contributing (issues, PRs, etc. auto-closed). 
 #
-# One handle per line (without @). Sorted alphabetically.
+# We choose to maintain a denouncement list rather than or in additino to u
+# sing the platform's block features so other projects can slurp in our 
+# list of denounced users if they trust us and want to adopt our prior
+# knowledge about bad actors.
+#
+# Syntax:
+#  - One handle per line (without @). Sorted alphabetically.
+#  - To denounce a user, prefix the line with a minus sign (-).
+#  - Optionally, add comments after a space following the handle.
 #
 # Maintainers can vouch for new contributors by commenting "lgtm" on an
-# issue by the author.
+# issue by the author. Maintainers can denounce users by commenting
+# "denounce" or "denounce [username]" on an issue or PR.
 mitchellh
