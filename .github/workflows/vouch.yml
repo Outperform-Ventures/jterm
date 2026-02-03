@@ -30,7 +30,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          status=$(nix develop -c nu .github/scripts/vouch.nu approve-by-issue \
+          status=$(nix develop -c nu .github/vouch/vouch.nu approve-by-issue \
             -R ${{ github.repository }} \
             ${{ github.event.issue.number }} \
             ${{ github.event.comment.id }} \

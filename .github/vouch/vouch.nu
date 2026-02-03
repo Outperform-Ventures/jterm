@@ -5,9 +5,10 @@ use github.nu
 # Vouch - contributor trust management.
 #
 # Environment variables required:
+#
 #   GITHUB_TOKEN - GitHub API token with repo access. If this isn't
 #     set then we'll attempt to read from `gh` if it exists.
-def main [] {
+export def main [] {
   print "Usage: vouch <command>"
   print ""
   print "Commands:"
@@ -31,7 +32,7 @@ def main [] {
 #   # Actually close an unvouched PR
 #   ./vouch.nu check-pr 123 --dry-run=false
 #
-def "main check-pr" [
+export def "main check-pr" [
   pr_number: int,            # GitHub pull request number
   --repo (-R): string = "ghostty-org/ghostty", # Repository in "owner/repo" format
   --vouched-file: string = ".github/VOUCHED", # Path to vouched contributors file
@@ -128,7 +129,7 @@ This PR will be closed automatically. See https://github.com/($owner)/($repo_nam
 #   # Actually vouch for a contributor
 #   ./vouch.nu approve-by-issue 123 456789 --dry-run=false
 #
-def "main approve-by-issue" [
+export def "main approve-by-issue" [
   issue_id: int,           # GitHub issue number
   comment_id: int,         # GitHub comment ID
   --repo (-R): string = "ghostty-org/ghostty", # Repository in "owner/repo" format
