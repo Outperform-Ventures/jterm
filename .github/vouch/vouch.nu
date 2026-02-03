@@ -132,8 +132,8 @@ export def "main gh-approve-by-issue" [
     return
   }
 
-  # Check if already vouched using check-status
-  let status = check-status $issue_author $file
+  let lines = open-vouched-file $file
+  let status = check-user $issue_author $lines
   if $status == "vouched" {
     print $"($issue_author) is already vouched"
 
@@ -155,14 +155,8 @@ export def "main gh-approve-by-issue" [
     return
   }
 
-  let content = open $file
-  let lines = $content | lines
-  let comments = $lines | where { |line| ($line | str starts-with "#") or ($line | str trim | is-empty) }
-  let contributors = $lines
-    | where { |line| not (($line | str starts-with "#") or ($line | str trim | is-empty)) }
-
-  let new_contributors = add-user $issue_author $contributors
-  let new_content = ($comments | append $new_contributors | str join "\n") + "\n"
+  let new_lines = add-user $issue_author $lines
+  let new_content = ($new_lines | str join "\n") + "\n"
   $new_content | save -f $file
 
   print $"Added ($issue_author) to vouched contributors"
@@ -207,14 +201,9 @@ export def "main denounce" [
     return
   }
 
-  let content = open $file
-  let lines = $content | lines
-  let comments = $lines | where { |line| ($line | str starts-with "#") or ($line | str trim | is-empty) }
-  let contributors = $lines
-    | where { |line| not (($line | str starts-with "#") or ($line | str trim | is-empty)) }
-
-  let new_contributors = denounce-user $username $reason $contributors
-  let new_content = ($comments | append $new_contributors | str join "\n") + "\n"
+  let lines = open-vouched-file $file
+  let new_lines = denounce-user $username $reason $lines
+  let new_content = ($new_lines | str join "\n") + "\n"
   $new_content | save -f $file
 
   print $"Denounced ($username)"
@@ -238,18 +227,14 @@ export def "main check" [
   username: string,          # GitHub username to check
   vouched_file?: path,       # Path to local vouched contributors file (default: VOUCHED or .github/VOUCHED)
 ] {
-  let file = if ($vouched_file | is-empty) {
-    let default = default-vouched-file
-    if ($default | is-empty) {
-      print "error: no VOUCHED file found"
-      exit 1
-    }
-    $default
-  } else {
-    $vouched_file
+  let lines = try {
+    open-vouched-file $vouched_file
+  } catch {
+    print "error: no VOUCHED file found"
+    exit 1
   }
 
-  let status = check-status $username $file
+  let status = check-user $username $lines
   print $status
   match $status {
     "vouched" => { exit 0 }
@@ -315,18 +300,46 @@ export def "main gh-check-pr" [
   # Fetch vouched contributors list from default branch
   let file_data = github api "get" $"/repos/($owner)/($repo_name)/contents/($vouched_file)?ref=($default_branch)"
   let content = $file_data.content | decode base64 | decode utf-8
-  let vouched_list = $content
-    | lines
-    | each { |line| $line | str trim | str downcase }
-    | where { |line| ($line | is-not-empty) and (not ($line | str starts-with "#")) }
+  let lines = $content | lines
+  let status = check-user $pr_author $lines
 
-  if ($pr_author | str downcase) in $vouched_list {
+  if $status == "vouched" {
     print $"($pr_author) is in the vouched contributors list"
     print "vouched"
     return
   }
 
-  # Not vouched
+  if $status == "denounced" {
+    print $"($pr_author) is denounced"
+
+    if not $auto_close {
+      print "closed"
+      return
+    }
+
+    print "Closing PR"
+
+    let message = "This PR has been automatically closed because the author has been denounced."
+
+    if $dry_run {
+      print "(dry-run) Would post comment and close PR"
+      print "closed"
+      return
+    }
+
+    github api "post" $"/repos/($owner)/($repo_name)/issues/($pr_number)/comments" {
+      body: $message
+    }
+
+    github api "patch" $"/repos/($owner)/($repo_name)/pulls/($pr_number)" {
+      state: "closed"
+    }
+
+    print "closed"
+    return
+  }
+
+  # Unknown - not vouched
   print $"($pr_author) is not vouched"
 
   if not $auto_close {
@@ -353,12 +366,10 @@ This PR will be closed automatically. See https://github.com/($owner)/($repo_nam
     return
   }
 
-  # Post comment
   github api "post" $"/repos/($owner)/($repo_name)/issues/($pr_number)/comments" {
     body: $message
   }
 
-  # Close the PR
   github api "patch" $"/repos/($owner)/($repo_name)/pulls/($pr_number)" {
     state: "closed"
   }
@@ -366,30 +377,17 @@ This PR will be closed automatically. See https://github.com/($owner)/($repo_nam
   print "closed"
 }
 
-# Check a user's status in a vouched file.
+# Check a user's status in contributor lines.
 #
+# Filters out comments and blank lines before checking.
 # Returns "vouched", "denounced", or "unknown".
-export def check-status [username: string, vouched_file?: path] {
-  let file = if ($vouched_file | is-empty) {
-    let default = default-vouched-file
-    if ($default | is-empty) {
-      error make { msg: "no VOUCHED file found" }
-    }
-    $default
-  } else {
-    $vouched_file
-  }
+export def check-user [username: string, lines: list<string>] {
+  let contributors = $lines
+    | where { |line| not (($line | str starts-with "#") or ($line | str trim | is-empty)) }
 
-  # Grab the lines of the vouch file excluding our comments.
-  let lines = open $file
-    | lines
-    | each { |line| $line | str trim }
-    | where { |line| ($line | is-not-empty) and (not ($line | str starts-with "#")) }
-
-  # Check each user
   let username_lower = ($username | str downcase)
-  for line in $lines {
-    let handle = ($line | split row " " | first)
+  for line in $contributors {
+    let handle = ($line | str trim | split row " " | first)
     
     if ($handle | str starts-with "-") {
       let denounced_user = ($handle | str substring 1.. | str downcase)
@@ -459,4 +457,19 @@ def default-vouched-file [] {
   } else {
     null
   }
+}
+
+# Open a vouched file and return all lines.
+def open-vouched-file [vouched_file?: path] {
+  let file = if ($vouched_file | is-empty) {
+    let default = default-vouched-file
+    if ($default | is-empty) {
+      error make { msg: "no VOUCHED file found" }
+    }
+    $default
+  } else {
+    $vouched_file
+  }
+
+  open $file | lines
 }
