@@ -18,7 +18,7 @@ export def main [] {
   print ""
   print "GitHub integration:"
   print "  gh-check-pr         Check if a PR author is a vouched contributor"
-  print "  gh-approve-by-issue Vouch for a contributor via issue comment"
+  print "  gh-manage-by-issue  Manage contributor status via issue comment"
 }
 
 # Add a user to the vouched contributors list.
@@ -67,27 +67,33 @@ export def "main add" [
   print $"Added ($username) to vouched contributors"
 }
 
-# Vouch for a contributor by adding them to the VOUCHED file.
+# Manage contributor status via issue comments.
 #
-# This checks if a comment matches "lgtm", verifies the commenter has
-# write access, and adds the issue author to the vouched list if not already 
-# present.
+# This checks if a comment matches "lgtm" (vouch) or "denounce" (denounce),
+# verifies the commenter has write access, and updates the vouched list accordingly.
 #
-# Outputs a status to stdout: "skipped", "already", or "added"
+# For denounce, the comment can be:
+#   - "denounce" - denounces the issue author
+#   - "denounce username" - denounces the specified user
+#   - "denounce username reason" - denounces with a reason
+#
+# Outputs a status to stdout: "skipped", "already", "vouched", or "denounced"
 #
 # Examples:
 #
 #   # Dry run (default) - see what would happen
-#   ./vouch.nu gh-approve-by-issue 123 456789
+#   ./vouch.nu gh-manage-by-issue 123 456789
 #
-#   # Actually vouch for a contributor
-#   ./vouch.nu gh-approve-by-issue 123 456789 --dry-run=false
+#   # Actually perform the action
+#   ./vouch.nu gh-manage-by-issue 123 456789 --dry-run=false
 #
-export def "main gh-approve-by-issue" [
+export def "main gh-manage-by-issue" [
   issue_id: int,           # GitHub issue number
   comment_id: int,         # GitHub comment ID
   --repo (-R): string = "ghostty-org/ghostty", # Repository in "owner/repo" format
   --vouched-file: string,  # Path to vouched contributors file (default: VOUCHED or .github/VOUCHED)
+  --allow-vouch = true,   # Enable "lgtm" handling to vouch for contributors
+  --allow-denounce = true, # Enable "denounce" handling to denounce users
   --dry-run = true,        # Print what would happen without making changes
 ] {
   let file = if ($vouched_file | is-empty) {
@@ -108,11 +114,19 @@ export def "main gh-approve-by-issue" [
 
   let issue_author = $issue_data.user.login
   let commenter = $comment_data.user.login
-  let comment_body = ($comment_data.body | default "")
+  let comment_body = ($comment_data.body | default "" | str trim)
 
-  # Check if comment matches "lgtm"
-  if not ($comment_body | str trim | parse -r '(?i)^\s*lgtm\b' | is-not-empty) {
-    print "Comment does not match lgtm"
+  # Determine action type
+  let is_lgtm = $allow_vouch and ($comment_body | parse -r '(?i)^\s*lgtm\b' | is-not-empty)
+  let denounce_match = if $allow_denounce {
+    $comment_body | parse -r '(?i)^\s*denounce(?:\s+(\S+))?(?:\s+(.+))?$'
+  } else {
+    []
+  }
+  let is_denounce = ($denounce_match | is-not-empty)
+
+  if not $is_lgtm and not $is_denounce {
+    print "Comment does not match any enabled action"
     print "skipped"
     return
   }
@@ -133,34 +147,70 @@ export def "main gh-approve-by-issue" [
   }
 
   let lines = open-vouched-file $file
-  let status = check-user $issue_author $lines
-  if $status == "vouched" {
-    print $"($issue_author) is already vouched"
 
-    if not $dry_run {
-      github api "post" $"/repos/($owner)/($repo_name)/issues/($issue_id)/comments" {
-        body: $"@($issue_author) is already in the vouched contributors list."
+  if $is_lgtm {
+    let status = check-user $issue_author $lines
+    if $status == "vouched" {
+      print $"($issue_author) is already vouched"
+
+      if not $dry_run {
+        github api "post" $"/repos/($owner)/($repo_name)/issues/($issue_id)/comments" {
+          body: $"@($issue_author) is already in the vouched contributors list."
+        }
+      } else {
+        print "(dry-run) Would post 'already vouched' comment"
       }
-    } else {
-      print "(dry-run) Would post 'already vouched' comment"
+
+      print "already"
+      return
     }
 
-    print "already"
+    if $dry_run {
+      print $"(dry-run) Would add ($issue_author) to ($file)"
+      print "vouched"
+      return
+    }
+
+    let new_lines = add-user $issue_author $lines
+    let new_content = ($new_lines | str join "\n") + "\n"
+    $new_content | save -f $file
+
+    print $"Added ($issue_author) to vouched contributors"
+    print "vouched"
     return
   }
 
-  if $dry_run {
-    print $"(dry-run) Would add ($issue_author) to ($file)"
-    print "added"
+  if $is_denounce {
+    let match = $denounce_match | first
+    let target_user = if ($match.capture0? | default "" | is-empty) {
+      $issue_author
+    } else {
+      $match.capture0
+    }
+    let reason = $match.capture1? | default ""
+
+    let status = check-user $target_user $lines
+    if $status == "denounced" {
+      print $"($target_user) is already denounced"
+      print "already"
+      return
+    }
+
+    if $dry_run {
+      let entry = if ($reason | is-empty) { $"-($target_user)" } else { $"-($target_user) ($reason)" }
+      print $"(dry-run) Would add ($entry) to ($file)"
+      print "denounced"
+      return
+    }
+
+    let new_lines = denounce-user $target_user $reason $lines
+    let new_content = ($new_lines | str join "\n") + "\n"
+    $new_content | save -f $file
+
+    print $"Denounced ($target_user)"
+    print "denounced"
     return
   }
-
-  let new_lines = add-user $issue_author $lines
-  let new_content = ($new_lines | str join "\n") + "\n"
-  $new_content | save -f $file
-
-  print $"Added ($issue_author) to vouched contributors"
-  print "added"
 }
 
 # Denounce a user by adding them to the VOUCHED file with a minus prefix.
