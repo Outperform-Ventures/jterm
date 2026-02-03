@@ -249,7 +249,7 @@ export def "main check" [
 # or in the vouched contributors list. If not vouched and --auto-close is set,
 # it closes the PR with a comment explaining the process.
 #
-# Outputs a status to stdout: "skipped", "vouched", or "closed"
+# Outputs a status to stdout: "skipped", "vouched", "allowed", or "closed"
 #
 # Examples:
 #
@@ -262,10 +262,14 @@ export def "main check" [
 #   # Actually close an unvouched PR
 #   ./vouch.nu gh-check-pr 123 --auto-close --dry-run=false
 #
+#   # Allow unvouched users but still block denounced users
+#   ./vouch.nu gh-check-pr 123 --require-vouch=false --auto-close
+#
 export def "main gh-check-pr" [
   pr_number: int,            # GitHub pull request number
   --repo (-R): string = "ghostty-org/ghostty", # Repository in "owner/repo" format
   --vouched-file: string = ".github/VOUCHED", # Path to vouched contributors file
+  --require-vouch = true,    # Require users to be vouched; if false, only denounced users are blocked
   --auto-close = false,      # Close unvouched PRs with a comment
   --dry-run = true,          # Print what would happen without making changes
 ] {
@@ -341,6 +345,12 @@ export def "main gh-check-pr" [
 
   # Unknown - not vouched
   print $"($pr_author) is not vouched"
+
+  if not $require_vouch {
+    print $"($pr_author) is allowed (vouch not required)"
+    print "allowed"
+    return
+  }
 
   if not $auto_close {
     print "closed"
