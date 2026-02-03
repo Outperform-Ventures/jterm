@@ -77,7 +77,7 @@ export def "main add" [
 #   - "denounce username" - denounces the specified user
 #   - "denounce username reason" - denounces with a reason
 #
-# Outputs a status to stdout: "skipped", "already", "vouched", or "denounced"
+# Outputs a status to stdout: "vouched", "denounced", or "unchanged"
 #
 # Examples:
 #
@@ -127,7 +127,7 @@ export def "main gh-manage-by-issue" [
 
   if not $is_lgtm and not $is_denounce {
     print "Comment does not match any enabled action"
-    print "skipped"
+    print "unchanged"
     return
   }
 
@@ -136,13 +136,13 @@ export def "main gh-manage-by-issue" [
     github api "get" $"/repos/($owner)/($repo_name)/collaborators/($commenter)/permission" | get permission
   } catch {
     print $"($commenter) does not have collaborator access"
-    print "skipped"
+    print "unchanged"
     return
   }
 
   if not ($permission in ["admin", "write"]) {
     print $"($commenter) does not have write access"
-    print "skipped"
+    print "unchanged"
     return
   }
 
@@ -161,7 +161,7 @@ export def "main gh-manage-by-issue" [
         print "(dry-run) Would post 'already vouched' comment"
       }
 
-      print "already"
+      print "unchanged"
       return
     }
 
@@ -192,7 +192,7 @@ export def "main gh-manage-by-issue" [
     let status = check-user $target_user $lines
     if $status == "denounced" {
       print $"($target_user) is already denounced"
-      print "already"
+      print "unchanged"
       return
     }
 

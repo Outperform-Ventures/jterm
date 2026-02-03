@@ -1,4 +1,4 @@
-name: PR Gate
+name: Vouch PR Gate
 
 on:
   pull_request_target:
@@ -29,7 +29,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          nix develop -c nu .github/vouch/vouch.nu check-pr \
+          nix develop -c nu .github/vouch/vouch.nu gh-check-pr \
             -R ${{ github.repository }} \
             ${{ github.event.pull_request.number }} \
             --dry-run=false
