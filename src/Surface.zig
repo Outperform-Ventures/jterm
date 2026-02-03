@@ -3974,11 +3974,7 @@ pub fn mouseButtonCallback(
         // and we support some kind of click events, then we need to
         // move to it.
         if (self.maybePromptClick()) |handled| {
-            if (handled) {
-                // Moving always resets the click count so that we don't highlight.
-                self.mouse.left_click_count = 0;
-                return true;
-            }
+            if (handled) return true;
         } else |err| {
             log.warn("error processing prompt click err={}", .{err});
         }
