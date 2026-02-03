@@ -1,43 +1,12 @@
 {
-  fn restore-xdg-dirs {
-    use str
-    var integration-dir = $E:GHOSTTY_SHELL_INTEGRATION_XDG_DIR
-    var xdg-dirs = [(str:split ':' $E:XDG_DATA_DIRS)]
-    var len = (count $xdg-dirs)
-
-    var index = $nil
-    range $len | each {|dir-index|
-      if (eq $xdg-dirs[$dir-index] $integration-dir) {
-        set index = $dir-index
-        break
-      }
-    }
-    if (eq $nil $index) { return } # will appear as an error
-
-    if (== 0 $index) {
-      set xdg-dirs = $xdg-dirs[1..]
-    } elif (== (- $len 1) $index) {
-      set xdg-dirs = $xdg-dirs[0..(- $len 1)]
-    } else {
-      # no builtin function for this : )
-      set xdg-dirs = [ (take $index $xdg-dirs) (drop (+ 1 $index) $xdg-dirs) ]
-    }
-
-    if (== 0 (count $xdg-dirs)) {
-      unset-env XDG_DATA_DIRS
-    } else {
-      set-env XDG_DATA_DIRS (str:join ':' $xdg-dirs)
-    }
-    unset-env GHOSTTY_SHELL_INTEGRATION_XDG_DIR
-  }
-  if (and (has-env GHOSTTY_SHELL_INTEGRATION_XDG_DIR) (has-env XDG_DATA_DIRS)) {
-    restore-xdg-dirs
-  }
-}
-
-{
   use platform
   use str
+
+  # Clean up XDG_DATA_DIRS by removing GHOSTTY_SHELL_INTEGRATION_XDG_DIR
+  if (and (has-env GHOSTTY_SHELL_INTEGRATION_XDG_DIR) (has-env XDG_DATA_DIRS)) {
+    set-env XDG_DATA_DIRS (str:replace $E:GHOSTTY_SHELL_INTEGRATION_XDG_DIR":" "" $E:XDG_DATA_DIRS)
+    unset-env GHOSTTY_SHELL_INTEGRATION_XDG_DIR
+  }
 
   # List of enabled shell integration features
   var features = [(str:split ',' $E:GHOSTTY_SHELL_FEATURES)]
