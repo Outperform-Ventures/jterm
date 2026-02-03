@@ -16,6 +16,7 @@ export def main [] {
   print "  approve-by-issue  Vouch for a contributor via issue comment"
   print "  check             Check a user's vouch status"
   print "  check-pr          Check if a PR author is a vouched contributor"
+  print "  denounce          Denounce a user by adding them to the vouched file"
 }
 
 # Add a user to the vouched contributors list.
@@ -164,6 +165,57 @@ export def "main approve-by-issue" [
 
   print $"Added ($issue_author) to vouched contributors"
   print "added"
+}
+
+# Denounce a user by adding them to the VOUCHED file with a minus prefix.
+#
+# This removes any existing entry for the user and adds them as denounced.
+# An optional reason can be provided which will be added after the username.
+#
+# Examples:
+#
+#   # Dry run (default) - see what would happen
+#   ./vouch.nu denounce badactor
+#
+#   # Denounce with a reason
+#   ./vouch.nu denounce badactor --reason "Submitted AI slop"
+#
+#   # Actually denounce the user
+#   ./vouch.nu denounce badactor --dry-run=false
+#
+export def "main denounce" [
+  username: string,          # GitHub username to denounce
+  --reason: string,          # Optional reason for denouncement
+  --vouched-file: string,    # Path to vouched contributors file (default: VOUCHED or .github/VOUCHED)
+  --dry-run = true,          # Print what would happen without making changes
+] {
+  let file = if ($vouched_file | is-empty) {
+    let default = default-vouched-file
+    if ($default | is-empty) {
+      error make { msg: "no VOUCHED file found" }
+    }
+    $default
+  } else {
+    $vouched_file
+  }
+
+  if $dry_run {
+    let entry = if ($reason | is-empty) { $"-($username)" } else { $"-($username) ($reason)" }
+    print $"\(dry-run\) Would add ($entry) to ($file)"
+    return
+  }
+
+  let content = open $file
+  let lines = $content | lines
+  let comments = $lines | where { |line| ($line | str starts-with "#") or ($line | str trim | is-empty) }
+  let contributors = $lines
+    | where { |line| not (($line | str starts-with "#") or ($line | str trim | is-empty)) }
+
+  let new_contributors = denounce-user $username $reason $contributors
+  let new_content = ($comments | append $new_contributors | str join "\n") + "\n"
+  $new_content | save -f $file
+
+  print $"Denounced ($username)"
 }
 
 # Check a user's vouch status.
@@ -348,6 +400,15 @@ export def check-status [username: string, vouched_file?: path] {
 export def add-user [username: string, lines: list<string>] {
   let filtered = remove-user $username $lines
   $filtered | append $username | sort -i
+}
+
+# Denounce a user in the contributor lines, removing any existing entry first.
+#
+# Returns the updated lines with the user added as denounced and sorted.
+export def denounce-user [username: string, reason: string, lines: list<string>] {
+  let filtered = remove-user $username $lines
+  let entry = if ($reason | is-empty) { $"-($username)" } else { $"-($username) ($reason)" }
+  $filtered | append $entry | sort -i
 }
 
 # Remove a user from the contributor lines (whether vouched or denounced).
