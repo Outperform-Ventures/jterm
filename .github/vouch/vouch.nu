@@ -28,20 +28,20 @@ export def main [] {
 #
 # Examples:
 #
-#   # Dry run (default) - see what would happen
+#   # Preview new file contents (default)
 #   ./vouch.nu add someuser
 #
-#   # Actually add the user
-#   ./vouch.nu add someuser --dry-run=false
+#   # Write the file in-place
+#   ./vouch.nu add someuser --write
 #
 #   # Add with platform prefix
-#   ./vouch.nu add someuser --platform github --dry-run=false
+#   ./vouch.nu add someuser --platform github --write
 #
 export def "main add" [
   username: string,          # Username to vouch for
   --platform: string = "",   # Platform prefix (e.g., "github")
   --vouched-file: string,    # Path to vouched contributors file (default: VOUCHED or .github/VOUCHED)
-  --dry-run = true,          # Print what would happen without making changes
+  --write (-w),              # Write the file in-place (default: output to stdout)
 ] {
   if ($username | str starts-with "-") and ($platform | is-empty) {
     error make { msg: "platform is required when username starts with -" }
@@ -57,13 +57,6 @@ export def "main add" [
     $vouched_file
   }
 
-  let entry = if ($platform | is-empty) { $username } else { $"($platform):($username)" }
-
-  if $dry_run {
-    print $"\(dry-run\) Would add ($entry) to ($file)"
-    return
-  }
-
   let content = open $file
   let lines = $content | lines
   let comments = $lines | where { |line| ($line | str starts-with "#") or ($line | str trim | is-empty) }
@@ -72,9 +65,14 @@ export def "main add" [
 
   let new_contributors = add-user $username $contributors --platform $platform
   let new_content = ($comments | append $new_contributors | str join "\n") + "\n"
-  $new_content | save -f $file
 
-  print $"Added ($entry) to vouched contributors"
+  if $write {
+    $new_content | save -f $file
+    let entry = if ($platform | is-empty) { $username } else { $"($platform):($username)" }
+    print $"Added ($entry) to vouched contributors"
+  } else {
+    print -n $new_content
+  }
 }
 
 # Manage contributor status via issue comments.
@@ -234,24 +232,24 @@ export def "main gh-manage-by-issue" [
 #
 # Examples:
 #
-#   # Dry run (default) - see what would happen
+#   # Preview new file contents (default)
 #   ./vouch.nu denounce badactor
 #
 #   # Denounce with a reason
 #   ./vouch.nu denounce badactor --reason "Submitted AI slop"
 #
-#   # Actually denounce the user
-#   ./vouch.nu denounce badactor --dry-run=false
+#   # Write the file in-place
+#   ./vouch.nu denounce badactor --write
 #
 #   # Denounce with platform prefix
-#   ./vouch.nu denounce badactor --platform github --dry-run=false
+#   ./vouch.nu denounce badactor --platform github --write
 #
 export def "main denounce" [
   username: string,          # Username to denounce
   --reason: string,          # Optional reason for denouncement
   --platform: string = "",   # Platform prefix (e.g., "github")
   --vouched-file: string,    # Path to vouched contributors file (default: VOUCHED or .github/VOUCHED)
-  --dry-run = true,          # Print what would happen without making changes
+  --write (-w),              # Write the file in-place (default: output to stdout)
 ] {
   if ($username | str starts-with "-") and ($platform | is-empty) {
     error make { msg: "platform is required when username starts with -" }
@@ -267,20 +265,17 @@ export def "main denounce" [
     $vouched_file
   }
 
-  let handle = if ($platform | is-empty) { $username } else { $"($platform):($username)" }
-
-  if $dry_run {
-    let entry = if ($reason | is-empty) { $"-($handle)" } else { $"-($handle) ($reason)" }
-    print $"\(dry-run\) Would add ($entry) to ($file)"
-    return
-  }
-
   let lines = open-vouched-file $file
   let new_lines = denounce-user $username $reason $lines --platform $platform
   let new_content = ($new_lines | str join "\n") + "\n"
-  $new_content | save -f $file
 
-  print $"Denounced ($handle)"
+  if $write {
+    $new_content | save -f $file
+    let handle = if ($platform | is-empty) { $username } else { $"($platform):($username)" }
+    print $"Denounced ($handle)"
+  } else {
+    print -n $new_content
+  }
 }
 
 # Check a user's vouch status.
