@@ -49,7 +49,7 @@ The only requirement is [Nu](https://www.nushell.sh/).
 ### VOUCHED File
 
 See [VOUCHED.example](VOUCHED.example) for the file format. The file is
-looked up at `VOUCHED` or `.github/VOUCHED` by default. Create en
+looked up at `VOUCHED` or `.github/VOUCHED` by default. Create an
 empty `VOUCHED` file.
 
 Overview:
