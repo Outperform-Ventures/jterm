@@ -6,7 +6,7 @@ body:
     attributes:
       value: |
         **Before you start:** Read [CONTRIBUTING.md](https://github.com/ghostty-org/ghostty/blob/main/CONTRIBUTING.md).
-        
+
         Keep this short. If it doesn't fit on one screen, it's too long. Write in your own voice. Do not use AI.
 
   - type: textarea
