@@ -11,12 +11,14 @@ use github.nu
 export def main [] {
   print "Usage: vouch <command>"
   print ""
-  print "Commands:"
+  print "Local Commands:"
   print "  add               Add a user to the vouched contributors list"
-  print "  approve-by-issue  Vouch for a contributor via issue comment"
   print "  check             Check a user's vouch status"
-  print "  check-pr          Check if a PR author is a vouched contributor"
   print "  denounce          Denounce a user by adding them to the vouched file"
+  print ""
+  print "GitHub integration:"
+  print "  gh-check-pr         Check if a PR author is a vouched contributor"
+  print "  gh-approve-by-issue Vouch for a contributor via issue comment"
 }
 
 # Add a user to the vouched contributors list.
@@ -76,12 +78,12 @@ export def "main add" [
 # Examples:
 #
 #   # Dry run (default) - see what would happen
-#   ./vouch.nu approve-by-issue 123 456789
+#   ./vouch.nu gh-approve-by-issue 123 456789
 #
 #   # Actually vouch for a contributor
-#   ./vouch.nu approve-by-issue 123 456789 --dry-run=false
+#   ./vouch.nu gh-approve-by-issue 123 456789 --dry-run=false
 #
-export def "main approve-by-issue" [
+export def "main gh-approve-by-issue" [
   issue_id: int,           # GitHub issue number
   comment_id: int,         # GitHub comment ID
   --repo (-R): string = "ghostty-org/ghostty", # Repository in "owner/repo" format
@@ -259,23 +261,27 @@ export def "main check" [
 # Check if a PR author is a vouched contributor.
 #
 # Checks if a PR author is a bot, collaborator with write access,
-# or in the vouched contributors list. If not vouched, it closes the PR
-# with a comment explaining the process.
+# or in the vouched contributors list. If not vouched and --auto-close is set,
+# it closes the PR with a comment explaining the process.
 #
 # Outputs a status to stdout: "skipped", "vouched", or "closed"
 #
 # Examples:
 #
-#   # Dry run (default) - see what would happen
-#   ./vouch.nu check-pr 123
+#   # Check if PR author is vouched
+#   ./vouch.nu gh-check-pr 123
+#
+#   # Dry run with auto-close - see what would happen
+#   ./vouch.nu gh-check-pr 123 --auto-close
 #
 #   # Actually close an unvouched PR
-#   ./vouch.nu check-pr 123 --dry-run=false
+#   ./vouch.nu gh-check-pr 123 --auto-close --dry-run=false
 #
-export def "main check-pr" [
+export def "main gh-check-pr" [
   pr_number: int,            # GitHub pull request number
   --repo (-R): string = "ghostty-org/ghostty", # Repository in "owner/repo" format
   --vouched-file: string = ".github/VOUCHED", # Path to vouched contributors file
+  --auto-close = false,      # Close unvouched PRs with a comment
   --dry-run = true,          # Print what would happen without making changes
 ] {
   let owner = ($repo | split row "/" | first)
@@ -320,8 +326,15 @@ export def "main check-pr" [
     return
   }
 
-  # Not vouched - close PR with comment
-  print $"($pr_author) is not vouched, closing PR"
+  # Not vouched
+  print $"($pr_author) is not vouched"
+
+  if not $auto_close {
+    print "closed"
+    return
+  }
+
+  print "Closing PR"
 
   let message = $"Hi @($pr_author), thanks for your interest in contributing!
 
