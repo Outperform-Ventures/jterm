@@ -1,0 +1,11 @@
+# GitHub handles of users approved to submit PRs.
+#
+# See CONTRIBUTING.md for details. The basic idea is that AI in particular
+# has made it too easy to create plausible-looking but low-quality 
+# contributions. This process lets us move to a network of trust model.
+#
+# One handle per line (without @). Sorted alphabetically.
+#
+# Maintainers can add new contributors by commenting "lgtm" on an
+# issue by the author.
+mitchellh
