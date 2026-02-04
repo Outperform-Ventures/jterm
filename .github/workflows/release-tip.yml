@@ -4,7 +4,11 @@ on:
     types: [completed]
     branches: [main]
 
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      pr:
+        type: number
+        required: false
 
 name: Release Tip
 
@@ -424,12 +428,21 @@ jobs:
           source-dir: blob
           destination-dir: ./
 
-      - name: Echo Release URLs
+      - name: Show and Save Release URLs
         run: |
-          echo "Release URLs:"
-          echo "  App Bundle: https://tip.files.ghostty.org/${GHOSTTY_COMMIT_LONG}/ghostty-macos-universal.zip"
-          echo "  Debug Symbols: https://tip.files.ghostty.org/${GHOSTTY_COMMIT_LONG}/ghostty-macos-universal-dsym.zip"
-          echo "  DMG: https://tip.files.ghostty.org/${GHOSTTY_COMMIT_LONG}/Ghostty.dmg"
+          cat << EOF | tee release-urls.txt
+          Release URLs:
+            App Bundle: https://tip.files.ghostty.org/${GHOSTTY_COMMIT_LONG}/ghostty-macos-universal.zip
+            Debug Symbols: https://tip.files.ghostty.org/${GHOSTTY_COMMIT_LONG}/ghostty-macos-universal-dsym.zip
+            DMG: https://tip.files.ghostty.org/${GHOSTTY_COMMIT_LONG}/Ghostty.dmg
+          EOF
+
+      - name: Upload Release URLs
+        uses: actions/upload-artifact@47309c993abb98030a35d55ef7ff34b7fa1074b5 # v6.0
+        with:
+          name: release-urls-${{ inputs.pr || '0' }}
+          path: release-urls.txt
+          retention-days: 2
 
   build-macos-debug-slow:
     needs: [setup]
