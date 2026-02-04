@@ -48,9 +48,9 @@ The only requirement is [Nu](https://www.nushell.sh/).
 
 ### VOUCHED File
 
-See [VOUCHED.example](VOUCHED.example) for the file format. The file is
-looked up at `VOUCHED` or `.github/VOUCHED` by default. Create an
-empty `VOUCHED` file.
+See [VOUCHED.example.td](VOUCHED.example.td) for the file format. The file is
+looked up at `VOUCHED.td` or `.github/VOUCHED.td` by default. Create an
+empty `VOUCHED.td` file.
 
 Overview:
 
@@ -61,7 +61,11 @@ platform:username
 -platform:denounced-user reason for denouncement
 ```
 
-The platform prefix (e.g., `github:`) specifies where the user identity comes from. Usernames without a platform prefix are also supported for backwards compatibility.
+The platform prefix (e.g., `github:`) specifies where the user identity
+comes from. The platform prefix is optional, since most projects exist
+within the realm of a single platform. All the commands below take
+`--default-platform` flags to specify what platform to assume when none
+is present.
 
 ### Commands
 

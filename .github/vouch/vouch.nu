@@ -40,7 +40,7 @@ export def main [] {
 export def "main add" [
   username: string,          # Username to vouch for (supports platform:user format)
   --default-platform: string = "", # Assumed platform for entries without explicit platform
-  --vouched-file: string,    # Path to vouched contributors file (default: VOUCHED or .github/VOUCHED)
+  --vouched-file: string,    # Path to vouched contributors file (default: VOUCHED.td or .github/VOUCHED.td)
   --write (-w),              # Write the file in-place (default: output to stdout)
 ] {
   let file = if ($vouched_file | is-empty) {
@@ -94,7 +94,7 @@ export def "main gh-manage-by-issue" [
   issue_id: int,           # GitHub issue number
   comment_id: int,         # GitHub comment ID
   --repo (-R): string = "ghostty-org/ghostty", # Repository in "owner/repo" format
-  --vouched-file: string,  # Path to vouched contributors file (default: VOUCHED or .github/VOUCHED)
+  --vouched-file: string,  # Path to vouched contributors file (default: VOUCHED.td or .github/VOUCHED.td)
   --allow-vouch = true,   # Enable "lgtm" handling to vouch for contributors
   --allow-denounce = true, # Enable "denounce" handling to denounce users
   --dry-run = true,        # Print what would happen without making changes
@@ -239,7 +239,7 @@ export def "main denounce" [
   username: string,          # Username to denounce (supports platform:user format)
   --default-platform: string = "", # Assumed platform for entries without explicit platform
   --reason: string,          # Optional reason for denouncement
-  --vouched-file: string,    # Path to vouched contributors file (default: VOUCHED or .github/VOUCHED)
+  --vouched-file: string,    # Path to vouched contributors file (default: VOUCHED.td or .github/VOUCHED.td)
   --write (-w),              # Write the file in-place (default: output to stdout)
 ] {
   let file = if ($vouched_file | is-empty) {
@@ -283,7 +283,7 @@ export def "main denounce" [
 export def "main check" [
   username: string,          # Username to check (supports platform:user format)
   --default-platform: string = "", # Assumed platform for entries without explicit platform
-  --vouched-file: string,    # Path to vouched contributors file (default: VOUCHED or .github/VOUCHED)
+  --vouched-file: string,    # Path to vouched contributors file (default: VOUCHED.td or .github/VOUCHED.td)
 ] {
   let lines = try {
     open-vouched-file $vouched_file
@@ -326,7 +326,7 @@ export def "main check" [
 export def "main gh-check-pr" [
   pr_number: int,            # GitHub pull request number
   --repo (-R): string = "ghostty-org/ghostty", # Repository in "owner/repo" format
-  --vouched-file: string = ".github/VOUCHED", # Path to vouched contributors file
+  --vouched-file: string = ".github/VOUCHED.td", # Path to vouched contributors file
   --require-vouch = true,    # Require users to be vouched; if false, only denounced users are blocked
   --auto-close = false,      # Close unvouched PRs with a comment
   --dry-run = true,          # Print what would happen without making changes
@@ -565,13 +565,13 @@ export def remove-user [
 
 # Find the default VOUCHED file by checking common locations.
 #
-# Checks for VOUCHED in the current directory first, then .github/VOUCHED.
+# Checks for VOUCHED.td in the current directory first, then .github/VOUCHED.td.
 # Returns null if neither exists.
 def default-vouched-file [] {
-  if ("VOUCHED" | path exists) {
-    "VOUCHED"
-  } else if (".github/VOUCHED" | path exists) {
-    ".github/VOUCHED"
+  if ("VOUCHED.td" | path exists) {
+    "VOUCHED.td"
+  } else if (".github/VOUCHED.td" | path exists) {
+    ".github/VOUCHED.td"
   } else {
     null
   }
