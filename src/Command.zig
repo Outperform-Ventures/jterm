@@ -18,6 +18,7 @@ const Command = @This();
 
 const std = @import("std");
 const builtin = @import("builtin");
+const configpkg = @import("config.zig");
 const global_state = &@import("global.zig").state;
 const internal_os = @import("os/main.zig");
 const windows = internal_os.windows;
@@ -30,8 +31,20 @@ const testing = std.testing;
 const Allocator = std.mem.Allocator;
 const File = std.fs.File;
 const EnvMap = std.process.EnvMap;
+const apprt = @import("apprt.zig");
 
-const PreExecFn = fn (*Command) void;
+/// Function prototype for a function executed /in the child process/ after the
+/// fork, but before exec'ing the command. If the function returns a u8, the
+/// child process will be exited with that error code.
+const PreExecFn = fn (*Command) ?u8;
+
+/// Allowable set of errors that can be returned by a post fork function. Any
+/// errors will result in the failure to create the surface.
+pub const PostForkError = error{PostForkError};
+
+/// Function prototype for a function executed /in the parent process/
+/// after the fork.
+const PostForkFn = fn (*Command) PostForkError!void;
 
 /// Path to the command to run. This doesn't have to be an absolute path,
 /// because use exec functions that search the PATH, if necessary.
@@ -63,9 +76,25 @@ stderr: ?File = null,
 /// If set, this will be executed /in the child process/ after fork but
 /// before exec. This is useful to setup some state in the child before the
 /// exec process takes over, such as signal handlers, setsid, setuid, etc.
-pre_exec: ?*const PreExecFn = null,
+os_pre_exec: ?*const PreExecFn,
 
-linux_cgroup: LinuxCgroup = linux_cgroup_default,
+/// If set, this will be executed /in the child process/ after fork but
+/// before exec. This is useful to setup some state in the child before the
+/// exec process takes over, such as signal handlers, setsid, setuid, etc.
+rt_pre_exec: ?*const PreExecFn,
+
+/// Configuration information needed by the apprt pre exec function. Note
+/// that this should be a trivially copyable struct and not require any
+/// allocation/deallocation.
+rt_pre_exec_info: RtPreExecInfo,
+
+/// If set, this will be executed in the /in the parent process/ after the fork.
+rt_post_fork: ?*const PostForkFn,
+
+/// Configuration information needed by the apprt post fork function. Note
+/// that this should be a trivially copyable struct and not require any
+/// allocation/deallocation.
+rt_post_fork_info: RtPostForkInfo,
 
 /// If set, then the process will be created attached to this pseudo console.
 /// `stdin`, `stdout`, and `stderr` will be ignored if set.
@@ -78,11 +107,6 @@ data: ?*anyopaque = null,
 
 /// Process ID is set after start is called.
 pid: ?posix.pid_t = null,
-
-/// LinuxCGroup type depends on our target OS
-pub const LinuxCgroup = if (builtin.os.tag == .linux) ?[]const u8 else void;
-pub const linux_cgroup_default = if (LinuxCgroup == void)
-{} else null;
 
 /// The various methods a process may exit.
 pub const Exit = if (builtin.os.tag == .windows) union(enum) {
@@ -109,6 +133,24 @@ pub const Exit = if (builtin.os.tag == .windows) union(enum) {
             Exit{ .Stopped = posix.W.STOPSIG(status) }
         else
             Exit{ .Unknown = status };
+    }
+};
+
+/// Configuration information needed by the apprt pre exec function. Note
+/// that this should be a trivially copyable struct and not require any
+/// allocation/deallocation.
+pub const RtPreExecInfo = if (@hasDecl(apprt.runtime, "pre_exec")) apprt.runtime.pre_exec.PreExecInfo else struct {
+    pub inline fn init(_: *const configpkg.Config) @This() {
+        return .{};
+    }
+};
+
+/// Configuration information needed by the apprt post fork function. Note
+/// that this should be a trivially copyable struct and not require any
+/// allocation/deallocation.
+pub const RtPostForkInfo = if (@hasDecl(apprt.runtime, "post_fork")) apprt.runtime.post_fork.PostForkInfo else struct {
+    pub inline fn init(_: *const configpkg.Config) @This() {
+        return .{};
     }
 };
 
@@ -143,19 +185,13 @@ fn startPosix(self: *Command, arena: Allocator) !void {
     else
         @compileError("missing env vars");
 
-    // Fork. If we have a cgroup specified on Linxu then we use clone
-    const pid: posix.pid_t = switch (builtin.os.tag) {
-        .linux => if (self.linux_cgroup) |cgroup|
-            try internal_os.cgroup.cloneInto(cgroup)
-        else
-            try posix.fork(),
-
-        else => try posix.fork(),
-    };
+    // Fork.
+    const pid = try posix.fork();
 
     if (pid != 0) {
         // Parent, return immediately.
         self.pid = @intCast(pid);
+        if (self.rt_post_fork) |f| try f(self);
         return;
     }
 
@@ -182,8 +218,9 @@ fn startPosix(self: *Command, arena: Allocator) !void {
     // any failures are ignored (its best effort).
     global_state.rlimits.restore();
 
-    // If the user requested a pre exec callback, call it now.
-    if (self.pre_exec) |f| f(self);
+    // If there are pre exec callbacks, call them now.
+    if (self.os_pre_exec) |f| if (f(self)) |exitcode| posix.exit(exitcode);
+    if (self.rt_pre_exec) |f| if (f(self)) |exitcode| posix.exit(exitcode);
 
     // Finally, replace our process.
     // Note: we must use the "p"-variant of exec here because we
