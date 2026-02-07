@@ -570,18 +570,22 @@ test "createNullDelimitedEnvMap" {
     }
 }
 
-test "Command: pre exec" {
+test "Command: os pre exec 1" {
     if (builtin.os.tag == .windows) return error.SkipZigTest;
     var cmd: Command = .{
         .path = "/bin/sh",
         .args = &.{ "/bin/sh", "-v" },
-        .pre_exec = (struct {
-            fn do(_: *Command) void {
+        .os_pre_exec = (struct {
+            fn do(_: *Command) ?u8 {
                 // This runs in the child, so we can exit and it won't
                 // kill the test runner.
                 posix.exit(42);
             }
         }).do,
+        .rt_pre_exec = null,
+        .rt_post_fork = null,
+        .rt_pre_exec_info = undefined,
+        .rt_post_fork_info = undefined,
     };
 
     try cmd.testingStart();
@@ -591,8 +595,115 @@ test "Command: pre exec" {
     try testing.expect(exit.Exited == 42);
 }
 
+test "Command: os pre exec 2" {
+    if (builtin.os.tag == .windows) return error.SkipZigTest;
+    var cmd: Command = .{
+        .path = "/bin/sh",
+        .args = &.{ "/bin/sh", "-v" },
+        .os_pre_exec = (struct {
+            fn do(_: *Command) ?u8 {
+                // This runs in the child, so we can exit and it won't
+                // kill the test runner.
+                return 42;
+            }
+        }).do,
+        .rt_pre_exec = null,
+        .rt_post_fork = null,
+        .rt_pre_exec_info = undefined,
+        .rt_post_fork_info = undefined,
+    };
+
+    try cmd.testingStart();
+    try testing.expect(cmd.pid != null);
+    const exit = try cmd.wait(true);
+    try testing.expect(exit == .Exited);
+    try testing.expect(exit.Exited == 42);
+}
+
+test "Command: rt pre exec 1" {
+    if (builtin.os.tag == .windows) return error.SkipZigTest;
+    var cmd: Command = .{
+        .path = "/bin/sh",
+        .args = &.{ "/bin/sh", "-v" },
+        .os_pre_exec = null,
+        .rt_pre_exec = (struct {
+            fn do(_: *Command) ?u8 {
+                // This runs in the child, so we can exit and it won't
+                // kill the test runner.
+                posix.exit(42);
+            }
+        }).do,
+        .rt_post_fork = null,
+        .rt_pre_exec_info = undefined,
+        .rt_post_fork_info = undefined,
+    };
+
+    try cmd.testingStart();
+    try testing.expect(cmd.pid != null);
+    const exit = try cmd.wait(true);
+    try testing.expect(exit == .Exited);
+    try testing.expect(exit.Exited == 42);
+}
+
+test "Command: rt pre exec 2" {
+    if (builtin.os.tag == .windows) return error.SkipZigTest;
+    var cmd: Command = .{
+        .path = "/bin/sh",
+        .args = &.{ "/bin/sh", "-v" },
+        .os_pre_exec = null,
+        .rt_pre_exec = (struct {
+            fn do(_: *Command) ?u8 {
+                // This runs in the child, so we can exit and it won't
+                // kill the test runner.
+                return 42;
+            }
+        }).do,
+        .rt_post_fork = null,
+        .rt_pre_exec_info = undefined,
+        .rt_post_fork_info = undefined,
+    };
+
+    try cmd.testingStart();
+    try testing.expect(cmd.pid != null);
+    const exit = try cmd.wait(true);
+    try testing.expect(exit == .Exited);
+    try testing.expect(exit.Exited == 42);
+}
+
+test "Command: rt post fork 1" {
+    if (builtin.os.tag == .windows) return error.SkipZigTest;
+    var cmd: Command = .{
+        .path = "/bin/sh",
+        .args = &.{ "/bin/sh", "-c", "sleep 1" },
+        .os_pre_exec = null,
+        .rt_pre_exec = null,
+        .rt_post_fork = (struct {
+            fn do(_: *Command) PostForkError!void {
+                return error.PostForkError;
+            }
+        }).do,
+        .rt_pre_exec_info = undefined,
+        .rt_post_fork_info = undefined,
+    };
+
+    try testing.expectError(error.PostForkError, cmd.testingStart());
+}
+
 fn createTestStdout(dir: std.fs.Dir) !File {
     const file = try dir.createFile("stdout.txt", .{ .read = true });
+    if (builtin.os.tag == .windows) {
+        try windows.SetHandleInformation(
+            file.handle,
+            windows.HANDLE_FLAG_INHERIT,
+            windows.HANDLE_FLAG_INHERIT,
+        );
+    }
+
+    return file;
+}
+
+fn createTestStderr(dir: std.fs.Dir) !File {
+    const file = try dir.createFile("stderr.txt", .{ .read = true });
     if (builtin.os.tag == .windows) {
         try windows.SetHandleInformation(
             file.handle,
@@ -618,6 +729,11 @@ test "Command: redirect stdout to file" {
         .path = "/bin/sh",
         .args = &.{ "/bin/sh", "-c", "echo hello" },
         .stdout = stdout,
+        .os_pre_exec = null,
+        .rt_pre_exec = null,
+        .rt_post_fork = null,
+        .rt_pre_exec_info = undefined,
+        .rt_post_fork_info = undefined,
     };
 
     try cmd.testingStart();
@@ -648,11 +764,21 @@ test "Command: custom env vars" {
         .args = &.{ "C:\\Windows\\System32\\cmd.exe", "/C", "echo %VALUE%" },
         .stdout = stdout,
         .env = &env,
+        .os_pre_exec = null,
+        .rt_pre_exec = null,
+        .rt_post_fork = null,
+        .rt_pre_exec_info = undefined,
+        .rt_post_fork_info = undefined,
     } else .{
         .path = "/bin/sh",
         .args = &.{ "/bin/sh", "-c", "echo $VALUE" },
         .stdout = stdout,
         .env = &env,
+        .os_pre_exec = null,
+        .rt_pre_exec = null,
+        .rt_post_fork = null,
+        .rt_pre_exec_info = undefined,
+        .rt_post_fork_info = undefined,
     };
 
     try cmd.testingStart();
@@ -684,11 +810,21 @@ test "Command: custom working directory" {
         .args = &.{ "C:\\Windows\\System32\\cmd.exe", "/C", "cd" },
         .stdout = stdout,
         .cwd = "C:\\Windows\\System32",
+        .os_pre_exec = null,
+        .rt_pre_exec = null,
+        .rt_post_fork = null,
+        .rt_pre_exec_info = undefined,
+        .rt_post_fork_info = undefined,
     } else .{
         .path = "/bin/sh",
         .args = &.{ "/bin/sh", "-c", "pwd" },
         .stdout = stdout,
         .cwd = "/tmp",
+        .os_pre_exec = null,
+        .rt_pre_exec = null,
+        .rt_post_fork = null,
+        .rt_pre_exec_info = undefined,
+        .rt_post_fork_info = undefined,
     };
 
     try cmd.testingStart();
@@ -725,12 +861,20 @@ test "Command: posix fork handles execveZ failure" {
     defer td.deinit();
     var stdout = try createTestStdout(td.dir);
     defer stdout.close();
+    var stderr = try createTestStderr(td.dir);
+    defer stderr.close();
 
     var cmd: Command = .{
         .path = "/not/a/binary",
         .args = &.{ "/not/a/binary", "" },
         .stdout = stdout,
+        .stderr = stderr,
         .cwd = "/bin",
+        .os_pre_exec = null,
+        .rt_pre_exec = null,
+        .rt_post_fork = null,
+        .rt_pre_exec_info = undefined,
+        .rt_post_fork_info = undefined,
     };
 
     try cmd.testingStart();
