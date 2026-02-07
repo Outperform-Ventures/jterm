@@ -3410,6 +3410,9 @@ keybind: Keybinds = .{},
 /// initialization will fail. By default, this will not prevent Ghostty from
 /// working (see `linux-cgroup-hard-fail`).
 ///
+/// Changing this value and reloading the config will not affect existing
+/// surfaces.
+///
 /// Valid values are:
 ///
 ///   * `never` - Never use cgroups.
@@ -3429,6 +3432,9 @@ else
 /// `systemd-oom` to handle killing processes that have too much memory
 /// pressure.
 ///
+/// Changing this value and reloading the config will not affect existing
+/// surfaces.
+///
 /// See the `systemd.resource-control` manual page for more information:
 /// https://www.freedesktop.org/software/systemd/man/latest/systemd.resource-control.html
 @"linux-cgroup-memory-limit": ?u64 = null,
@@ -3438,6 +3444,9 @@ else
 ///
 /// Note that this sets the `TasksMax` setting on the transient `systemd` scope,
 /// which is a hard limit.
+///
+/// Changing this value and reloading the config will not affect existing
+/// surfaces.
 ///
 /// See the `systemd.resource-control` manual page for more information:
 /// https://www.freedesktop.org/software/systemd/man/latest/systemd.resource-control.html
@@ -3452,6 +3461,8 @@ else
 /// If this is true, then any transient `systemd` scope creation failure will
 /// cause surface creation to fail.
 ///
+/// Changing this value and reloading the config will not affect existing
+/// surfaces.
 @"linux-cgroup-hard-fail": bool = false,
 
 /// Enable or disable GTK's OpenGL debugging logs. The default is `true` for
