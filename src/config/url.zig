@@ -101,8 +101,8 @@ const bare_relative_path_prefix =
 ;
 
 const bare_relative_path_branch =
-    bare_relative_path_prefix ++
     dotted_path_lookahead ++
+    bare_relative_path_prefix ++
     path_chars ++ "+" ++
     dotted_path_space_segments ++
     trailing_spaces_at_eol;
@@ -410,6 +410,11 @@ test "url regex" {
             .input = "  - shared/src/foo/SomeItem.m:12, shared/src/",
             .expect = "shared/src/foo/SomeItem.m:12",
         },
+        // mid-string dot should not partially match but fully
+        .{
+            .input = "foo.local/share",
+            .expect = "foo.local/share",
+        },
     };
 
     for (cases) |case| {
@@ -425,8 +430,8 @@ test "url regex" {
         try testing.expectEqualStrings(case.expect, match);
     }
 
-    // Bare relative paths without any dot should not match as file paths
     const no_match_cases = [_][]const u8{
+        // bare relative paths without any dot should not match as file paths
         "input/output",
         "foo/bar",
     };
