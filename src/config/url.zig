@@ -75,7 +75,7 @@ const scheme_url_branch =
     no_trailing_punctuation;
 
 const rooted_or_relative_path_prefix =
-    \\(?:\.\.\/|\.\/|~\/|\$[A-Za-z_]\w*\/|\.[\w][\w\-.]*\/|(?<!\w)\/)
+    \\(?:\.\.\/|\.\/|~\/|(?:[\w][\w\-.]*\/)*\$[A-Za-z_]\w*\/|\.[\w][\w\-.]*\/|(?<!\w)\/)
 ;
 
 // Branch 2: Absolute paths and dot-relative paths (/, ./, ../).
@@ -392,6 +392,15 @@ test "url regex" {
         .{
             .input = "project dir: $PWD/src/ghostty/main.zig",
             .expect = "$PWD/src/ghostty/main.zig",
+        },
+        // $VAR mid-path should match fully, not partially from the $
+        .{
+            .input = "foo/$BAR/baz",
+            .expect = "foo/$BAR/baz",
+        },
+        .{
+            .input = ".foo/bar/$VAR",
+            .expect = ".foo/bar/$VAR",
         },
         .{
             .input = ".config/ghostty/config",
