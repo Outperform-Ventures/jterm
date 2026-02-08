@@ -97,7 +97,7 @@ const rooted_or_relative_path_branch =
 
 // Branch 3: Bare relative paths such as src/config/url.zig.
 const bare_relative_path_prefix =
-    \\[A-Za-z_][\w\-.]*\/
+    \\(?<!\$\d*)[\w][\w\-.]*\/
 ;
 
 const bare_relative_path_branch =
@@ -423,6 +423,11 @@ test "url regex" {
         .{
             .input = "foo.local/share",
             .expect = "foo.local/share",
+        },
+        // numeric directory should match fully
+        .{
+            .input = "2024/report.txt",
+            .expect = "2024/report.txt",
         },
     };
 
