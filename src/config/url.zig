@@ -97,7 +97,7 @@ const rooted_or_relative_path_branch =
 
 // Branch 3: Bare relative paths such as src/config/url.zig.
 const bare_relative_path_prefix =
-    \\[\w][\w\-.]*\/
+    \\[A-Za-z_][\w\-.]*\/
 ;
 
 const bare_relative_path_branch =
@@ -446,6 +446,7 @@ test "url regex" {
         // $-numeric character should not match
         "$10/bar",
         "$10/$20",
+        "$10/bar.txt",
     };
     for (no_match_cases) |input| {
         var result = re.search(input, .{});
