@@ -75,7 +75,7 @@ const scheme_url_branch =
     no_trailing_punctuation;
 
 const rooted_or_relative_path_prefix =
-    \\(?:\.\.\/|\.\/|~\/|\$\w+\/|\.[\w][\w\-.]*\/|(?<!\w)\/)
+    \\(?:\.\.\/|\.\/|~\/|\$[A-Za-z_]\w*\/|\.[\w][\w\-.]*\/|(?<!\w)\/)
 ;
 
 // Branch 2: Absolute paths and dot-relative paths (/, ./, ../).
@@ -434,6 +434,9 @@ test "url regex" {
         // bare relative paths without any dot should not match as file paths
         "input/output",
         "foo/bar",
+        // $-numeric character should not match
+        "$10/bar",
+        "$10/$20",
     };
     for (no_match_cases) |input| {
         var result = re.search(input, .{});
