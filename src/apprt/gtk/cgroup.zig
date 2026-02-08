@@ -64,9 +64,6 @@ pub fn createScope(
         // https://www.freedesktop.org/software/systemd/man/latest/systemd-oomd.service.html
         builder.add("(sv)", "ManagedOOMMemoryPressure", glib.Variant.newString("kill"));
 
-        // Delegate
-        builder.add("(sv)", "Delegate", glib.Variant.newBoolean(@intFromBool(true)));
-
         // PID to move into the unit
         const pids_value_type = glib.VariantType.new("u");
         defer glib.free(pids_value_type);
