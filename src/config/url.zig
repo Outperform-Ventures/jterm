@@ -53,11 +53,11 @@ const trailing_spaces_at_eol =
 ;
 
 const dotted_path_lookahead =
-    \\(?=[\w\-.~:\/?#@!$&*+,;=%]*\.)
+    \\(?=[\w\-.~:\/?#@!$&*+;=%]*\.)
 ;
 
 const non_dotted_path_lookahead =
-    \\(?![\w\-.~:\/?#@!$&*+,;=%]*\.)
+    \\(?![\w\-.~:\/?#@!$&*+;=%]*\.)
 ;
 
 const dotted_path_space_segments =
@@ -369,6 +369,11 @@ test "url regex" {
             .input = "some-pkg/src/file.txt more text",
             .expect = "some-pkg/src/file.txt",
         },
+        // comma should match substrings
+        .{
+            .input = "src/foo.c,baz.txt",
+            .expect = "src/foo.c",
+        },
         .{
             .input = "~/foo/bar.txt",
             .expect = "~/foo/bar.txt",
@@ -452,6 +457,8 @@ test "url regex" {
         "$10/bar",
         "$10/$20",
         "$10/bar.txt",
+        // comma should not let dot detection look past it
+        "foo/bar,baz.txt",
     };
     for (no_match_cases) |input| {
         var result = re.search(input, .{});
