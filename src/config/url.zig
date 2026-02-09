@@ -75,7 +75,7 @@ const scheme_url_branch =
     no_trailing_punctuation;
 
 const rooted_or_relative_path_prefix =
-    \\(?:\.\.\/|\.\/|~\/|(?:[\w][\w\-.]*\/)*(?<!\w)\$[A-Za-z_]\w*\/|\.[\w][\w\-.]*\/|(?<!\w)\/)
+    \\(?:\.\.\/|\.\/|(?<!\w)~\/|(?:[\w][\w\-.]*\/)*(?<!\w)\$[A-Za-z_]\w*\/|\.[\w][\w\-.]*\/|(?<![\w~])\/)
 ;
 
 // Branch 2: Absolute paths and dot-relative paths (/, ./, ../).
@@ -461,6 +461,8 @@ test "url regex" {
         "foo/bar,baz.txt",
         // $VAR should not match mid-word
         "foo$BAR/baz.txt",
+        // ~ should not match mid-word
+        "foo~/bar.txt",
     };
     for (no_match_cases) |input| {
         var result = re.search(input, .{});
