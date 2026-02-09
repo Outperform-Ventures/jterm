@@ -61,11 +61,11 @@ const non_dotted_path_lookahead =
 ;
 
 const dotted_path_space_segments =
-    \\(?: [\w\-.~:\/?#@!$&*+,;=%]*[\/.])*
+    \\(?: [\w\-.~:\/?#@!$&*+;=%]*[\/.])*
 ;
 
 const any_path_space_segments =
-    \\(?: [\w\-.~:\/?#@!$&*+,;=%]+)*
+    \\(?: [\w\-.~:\/?#@!$&*+;=%]+)*
 ;
 
 // Branch 1: URLs with explicit schemes (http, mailto, ftp, etc.).
@@ -433,6 +433,15 @@ test "url regex" {
         .{
             .input = "2024/report.txt",
             .expect = "2024/report.txt",
+        },
+        // comma should stop matching in spaced path segments
+        .{
+            .input = "./foo bar,baz",
+            .expect = "./foo bar",
+        },
+        .{
+            .input = "/tmp/foo bar,baz",
+            .expect = "/tmp/foo bar",
         },
     };
 
