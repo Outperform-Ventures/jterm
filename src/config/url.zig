@@ -75,7 +75,7 @@ const scheme_url_branch =
     no_trailing_punctuation;
 
 const rooted_or_relative_path_prefix =
-    \\(?:\.\.\/|\.\/|~\/|(?:[\w][\w\-.]*\/)*\$[A-Za-z_]\w*\/|\.[\w][\w\-.]*\/|(?<!\w)\/)
+    \\(?:\.\.\/|\.\/|~\/|(?:[\w][\w\-.]*\/)*(?<!\w)\$[A-Za-z_]\w*\/|\.[\w][\w\-.]*\/|(?<!\w)\/)
 ;
 
 // Branch 2: Absolute paths and dot-relative paths (/, ./, ../).
@@ -97,7 +97,7 @@ const rooted_or_relative_path_branch =
 
 // Branch 3: Bare relative paths such as src/config/url.zig.
 const bare_relative_path_prefix =
-    \\(?<!\$\d*)[\w][\w\-.]*\/
+    \\(?<!\$\d*)(?<!\w)[\w][\w\-.]*\/
 ;
 
 const bare_relative_path_branch =
@@ -459,6 +459,8 @@ test "url regex" {
         "$10/bar.txt",
         // comma should not let dot detection look past it
         "foo/bar,baz.txt",
+        // $VAR should not match mid-word
+        "foo$BAR/baz.txt",
     };
     for (no_match_cases) |input| {
         var result = re.search(input, .{});
