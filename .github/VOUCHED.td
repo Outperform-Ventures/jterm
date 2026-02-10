@@ -15,7 +15,7 @@
 #  - To denounce a user, prefix with minus: `-username` or `-platform:username`.
 #  - Optionally, add comments after a space following the handle.
 #
-# Maintainers can vouch for new contributors by commenting "lgtm" on an
-# issue by the author. Maintainers can denounce users by commenting
-# "denounce" or "denounce [username]" on an issue or PR.
+# Maintainers can vouch for new contributors by commenting "!vouch" on a
+# discussion by the author. Maintainers can denounce users by commenting
+# "!denounce" or "!denounce [username]" on a discussion.
 mitchellh
