@@ -33,8 +33,9 @@ the [AI Usage Policy](AI_POLICY.md). **This is very important.**
 
 We use a vouch system for first-time contributors:
 
-1. Open an issue describing what you want to change and why. Use
-   the "Contribution Proposal" template.
+1. Open a
+   [discussion in the "Vouch Request"](https://github.com/ghostty-org/ghostty/discussions/new?category=vouch-request)
+   category describing what you want to change and why. Follow the template.
 2. Keep it concise
 3. Write in your own voice, don't have an AI write this
 4. A maintainer will comment `lgtm` if approved
