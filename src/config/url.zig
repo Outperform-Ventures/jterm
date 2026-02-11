@@ -61,11 +61,11 @@ const non_dotted_path_lookahead =
 ;
 
 const dotted_path_space_segments =
-    \\(?: [\w\-.~:\/?#@!$&*+;=%]*[\/.])*
+    \\(?: (?!\w+:\/\/)[\w\-.~:\/?#@!$&*+;=%]*[\/.])*
 ;
 
 const any_path_space_segments =
-    \\(?: [\w\-.~:\/?#@!$&*+;=%]+)*
+    \\(?: (?!\w+:\/\/)[\w\-.~:\/?#@!$&*+;=%]+)*
 ;
 
 // Branch 1: URLs with explicit schemes (http, mailto, ftp, etc.).
@@ -225,6 +225,10 @@ test "url regex" {
         .{
             .input = "match git://example.com git links",
             .expect = "git://example.com",
+        },
+        .{
+            .input = "/tmp/test.txt http://www.google.com",
+            .expect = "/tmp/test.txt",
         },
         .{
             .input = "match tel:+18005551234 tel links",
