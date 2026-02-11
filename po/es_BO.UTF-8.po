@@ -88,7 +88,7 @@ msgstr "Ghostty: Inspector de la terminal"
 
 #: src/apprt/gtk/ui/1.2/search-overlay.blp:29
 msgid "Find…"
-msgstr "Encontrar..."
+msgstr "Encontrar…"
 
 #: src/apprt/gtk/ui/1.2/search-overlay.blp:64
 msgid "Previous Match"
@@ -118,7 +118,7 @@ msgstr ""
 
 #: src/apprt/gtk/ui/1.2/surface.blp:107
 msgid "Read-only"
-msgstr "Solo-lectura"
+msgstr "Solo lectura"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:260 src/apprt/gtk/ui/1.5/window.blp:198
 msgid "Copy"
@@ -243,7 +243,7 @@ msgstr "Salir"
 
 #: src/apprt/gtk/ui/1.5/command-palette.blp:17
 msgid "Execute a command…"
-msgstr "Ejecutar comando..."
+msgstr "Ejecutar comando…"
 
 #: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:198
 msgid ""
