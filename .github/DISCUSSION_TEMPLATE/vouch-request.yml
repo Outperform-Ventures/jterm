@@ -10,7 +10,7 @@ body:
         >
         > Keep your request **concise** and write it **in
         > your own voice** — do not have an AI write this
-        > for you. A maintainer will comment `lgtm` if your
+        > for you. A maintainer will comment `!vouch` if your
         > request is approved, after which you can submit
         > PRs.
 

@@ -38,7 +38,7 @@ We use a vouch system for first-time contributors:
    category describing what you want to change and why. Follow the template.
 2. Keep it concise
 3. Write in your own voice, don't have an AI write this
-4. A maintainer will comment `lgtm` if approved
+4. A maintainer will comment `!vouch` if approved
 5. Once approved, you can submit PRs
 
 If you aren't vouched, any pull requests you open will be
