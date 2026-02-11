@@ -88,23 +88,23 @@ msgstr "Ghostty: Inspector de la terminal"
 
 #: src/apprt/gtk/ui/1.2/search-overlay.blp:29
 msgid "Find…"
-msgstr ""
+msgstr "Encontrar..."
 
 #: src/apprt/gtk/ui/1.2/search-overlay.blp:64
 msgid "Previous Match"
-msgstr ""
+msgstr "Resultado anterior"
 
 #: src/apprt/gtk/ui/1.2/search-overlay.blp:74
 msgid "Next Match"
-msgstr ""
+msgstr "Resultado siguiente"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:6
 msgid "Oh, no."
-msgstr ""
+msgstr "¡Epa!"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:7
 msgid "Unable to acquire an OpenGL context for rendering."
-msgstr ""
+msgstr "No se puede iniciar OpenGL para rendering."
 
 #: src/apprt/gtk/ui/1.2/surface.blp:97
 msgid ""
@@ -112,10 +112,13 @@ msgid ""
 "through the content, but no input events will be sent to the running "
 "application."
 msgstr ""
+"La terminal está en modo de lectura. Puedes ver, seleccionar, y desplazar"
+"a travez del contenido, pero ninguna entrada (evento) va a ser enviado"
+"a la aplicación que se está ejecutando"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:107
 msgid "Read-only"
-msgstr ""
+msgstr "Solo-lectura"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:260 src/apprt/gtk/ui/1.5/window.blp:198
 msgid "Copy"
@@ -127,7 +130,7 @@ msgstr "Pegar"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:270
 msgid "Notify on Next Command Finish"
-msgstr ""
+msgstr "Notifcar cuando el próximo comando finalice"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:277 src/apprt/gtk/ui/1.5/window.blp:266
 msgid "Clear"
