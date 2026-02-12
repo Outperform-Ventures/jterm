@@ -85,7 +85,7 @@ msgstr "Ghostty 终端调试器"
 
 #: src/apprt/gtk/ui/1.2/search-overlay.blp:29
 msgid "Find…"
-msgstr "查找……"
+msgstr "查找…"
 
 #: src/apprt/gtk/ui/1.2/search-overlay.blp:64
 msgid "Previous Match"
@@ -142,7 +142,7 @@ msgstr "分屏"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:292 src/apprt/gtk/ui/1.5/window.blp:238
 msgid "Change Title…"
-msgstr "更改标题……"
+msgstr "更改标题…"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:297 src/apprt/gtk/ui/1.5/window.blp:175
 #: src/apprt/gtk/ui/1.5/window.blp:243
@@ -239,7 +239,7 @@ msgstr "退出"
 
 #: src/apprt/gtk/ui/1.5/command-palette.blp:17
 msgid "Execute a command…"
-msgstr "选择要执行的命令……"
+msgstr "选择要执行的命令…"
 
 #: src/apprt/gtk/class/clipboard_confirmation_dialog.zig:198
 msgid ""
