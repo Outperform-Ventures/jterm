@@ -1,7 +1,7 @@
 # Irish translations for com.mitchellh.ghostty package.
 # Copyright (C) 2025 Mitchell Hashimoto, Ghostty contributors
 # This file is distributed under the same license as the com.mitchellh.ghostty package.
-# Aindriú Mac Giolla Eoin <aindriu80@gmail.com>, 2025.
+# Aindriú Mac Giolla Eoin <aindriu80@yahoo.com>, 2026.
 #
 msgid ""
 msgstr ""
@@ -16,7 +16,6 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=3; plural=n==1 ? 0 : n==2 ? 1 : 2;\n"
-"X-Generator: Poedit 3.8\n"
 
 #: src/apprt/gtk/ui/1.0/clipboard-confirmation-dialog.blp:12
 #: src/apprt/gtk/ui/1.4/clipboard-confirmation-dialog.blp:12
