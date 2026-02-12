@@ -649,6 +649,8 @@ pub const Application = extern struct {
             .close_tab => return Action.closeTab(target, value),
             .close_window => return Action.closeWindow(target),
 
+            .copy_title => return Action.copyTitle(target),
+
             .config_change => try Action.configChange(
                 self,
                 target,
@@ -1894,6 +1896,21 @@ const Action = struct {
                 return surface.as(gtk.Widget).activateAction("win.close", null) != 0;
             },
         }
+    }
+
+    pub fn copyTitle(target: apprt.Target) bool {
+        return switch (target) {
+            .app => false,
+            .surface => |v| surface: {
+                const title = v.rt_surface.surface.getEffectiveTitle() orelse break :surface false;
+                if (title.len == 0) break :surface false;
+                v.rt_surface.surface.setClipboard(.standard, &.{.{
+                    .mime = "text/plain",
+                    .data = title,
+                }}, false);
+                break :surface true;
+            },
+        };
     }
 
     pub fn configChange(
