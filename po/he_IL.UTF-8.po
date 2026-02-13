@@ -1,16 +1,17 @@
 # Hebrew translations for com.mitchellh.ghostty.
-# Copyright (C) 2025 Mitchell Hashimoto
+# Copyright (C) 2026 "Mitchell Hashimoto, Ghostty contributors"
 # This file is distributed under the same license as the com.mitchellh.ghostty package.
-# Sl (Shahaf Levi), Sl's Repository Ltd <ghostty@slsrepo.com>, 2025.
+# Sl (Shahaf Levi), Sl's Repository Ltd <ghostty@slsrepo.com>, 2026.
 # CraziestOwl <craziestowl@proton.me>, 2025.
 #
+#, fuzzy
 msgid ""
 msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
 "POT-Creation-Date: 2026-02-05 10:23+0800\n"
-"PO-Revision-Date: 2025-08-23 08:00+0300\n"
-"Last-Translator: CraziestOwl <craziestowl@proton.me>\n"
+"PO-Revision-Date: 2026-02-11 22:45+0300\n"
+"Last-Translator: Sl (Shahaf Levi), Sl's Repository Ltd <ghostty@slsrepo.com>\n"
 "Language-Team: Hebrew <he_IL@lists.sourceforge.net>\n"
 "Language: he\n"
 "MIME-Version: 1.0\n"
@@ -87,23 +88,23 @@ msgstr "Ghostty: בודק המסוף"
 
 #: src/apprt/gtk/ui/1.2/search-overlay.blp:29
 msgid "Find…"
-msgstr ""
+msgstr "חפש/י…"
 
 #: src/apprt/gtk/ui/1.2/search-overlay.blp:64
 msgid "Previous Match"
-msgstr ""
+msgstr "ההתאמה הקודמת"
 
 #: src/apprt/gtk/ui/1.2/search-overlay.blp:74
 msgid "Next Match"
-msgstr ""
+msgstr "ההתאמה הבאה"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:6
 msgid "Oh, no."
-msgstr ""
+msgstr "אוי, לא"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:7
 msgid "Unable to acquire an OpenGL context for rendering."
-msgstr ""
+msgstr "לא ניתן לקבל הקשר OpenGL לצורך רינדור."
 
 #: src/apprt/gtk/ui/1.2/surface.blp:97
 msgid ""
@@ -111,10 +112,12 @@ msgid ""
 "through the content, but no input events will be sent to the running "
 "application."
 msgstr ""
+"מסוף זה נמצא במצב קריאה בלבד. עדיין תוכל/י לצפות, לבחור ולגלול בתוכן, אך לא "
+"יישלחו אירועי קלט לאפליקציה הפעילה."
 
 #: src/apprt/gtk/ui/1.2/surface.blp:107
 msgid "Read-only"
-msgstr ""
+msgstr "לקריאה בלבד"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:260 src/apprt/gtk/ui/1.5/window.blp:198
 msgid "Copy"
@@ -126,7 +129,7 @@ msgstr "הדבקה"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:270
 msgid "Notify on Next Command Finish"
-msgstr ""
+msgstr "תזכורת בסיום הפקודה הבאה"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:277 src/apprt/gtk/ui/1.5/window.blp:266
 msgid "Clear"
@@ -300,15 +303,15 @@ msgstr "התהליך שרץ כרגע בפיצול זה יסתיים."
 
 #: src/apprt/gtk/class/surface.zig:1108
 msgid "Command Finished"
-msgstr ""
+msgstr "הפקודה הסתיימה"
 
 #: src/apprt/gtk/class/surface.zig:1109
 msgid "Command Succeeded"
-msgstr ""
+msgstr "הפקודה הצליחה"
 
 #: src/apprt/gtk/class/surface.zig:1110
 msgid "Command Failed"
-msgstr ""
+msgstr "הפקודה נכשלה"
 
 #: src/apprt/gtk/class/surface_child_exited.zig:109
 msgid "Command succeeded"
