@@ -1901,15 +1901,7 @@ const Action = struct {
     pub fn copyTitleToClipboard(target: apprt.Target) bool {
         return switch (target) {
             .app => false,
-            .surface => |v| surface: {
-                const title = v.rt_surface.surface.getEffectiveTitle() orelse break :surface false;
-                if (title.len == 0) break :surface false;
-                v.rt_surface.surface.setClipboard(.standard, &.{.{
-                    .mime = "text/plain",
-                    .data = title,
-                }}, false);
-                break :surface true;
-            },
+            .surface => |v| v.rt_surface.gobj().copyTitleToClipboard(),
         };
     }
 

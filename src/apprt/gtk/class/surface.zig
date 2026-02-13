@@ -1989,6 +1989,17 @@ pub const Surface = extern struct {
         return priv.title_override orelse priv.title;
     }
 
+    /// Copies the effective title to the clipboard.
+    pub fn copyTitleToClipboard(self: *Self) bool {
+        const title = self.getEffectiveTitle() orelse return false;
+        if (title.len == 0) return false;
+        self.setClipboard(.standard, &.{.{
+            .mime = "text/plain",
+            .data = title,
+        }}, false);
+        return true;
+    }
+
     /// Set the title for this surface, copies the value. This should always
     /// be the title as set by the terminal program, not any manually set
     /// title. For manually set titles see `setTitleOverride`.
