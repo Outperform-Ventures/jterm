@@ -647,8 +647,8 @@ extension Ghostty {
             case GHOSTTY_ACTION_SHOW_CHILD_EXITED:
                 Ghostty.logger.info("known but unimplemented action action=\(action.tag.rawValue)")
                 return false
-            case GHOSTTY_ACTION_COPY_TITLE:
-                return copyTitle(app, target: target)
+            case GHOSTTY_ACTION_COPY_TITLE_TO_CLIPBOARD:
+                return copyTitleToClipboard(app, target: target)
             default:
                 Ghostty.logger.warning("unknown action action=\(action.tag.rawValue)")
                 return false
@@ -1508,7 +1508,7 @@ extension Ghostty {
             }
         }
 
-        private static func copyTitle(
+        private static func copyTitleToClipboard(
             _ app: ghostty_app_t,
             target: ghostty_target_s) -> Bool {
             switch (target.tag) {

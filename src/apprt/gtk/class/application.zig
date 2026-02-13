@@ -649,7 +649,7 @@ pub const Application = extern struct {
             .close_tab => return Action.closeTab(target, value),
             .close_window => return Action.closeWindow(target),
 
-            .copy_title => return Action.copyTitle(target),
+            .copy_title_to_clipboard => return Action.copyTitleToClipboard(target),
 
             .config_change => try Action.configChange(
                 self,
@@ -1898,7 +1898,7 @@ const Action = struct {
         }
     }
 
-    pub fn copyTitle(target: apprt.Target) bool {
+    pub fn copyTitleToClipboard(target: apprt.Target) bool {
         return switch (target) {
             .app => false,
             .surface => |v| surface: {

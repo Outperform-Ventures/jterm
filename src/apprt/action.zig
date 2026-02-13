@@ -333,7 +333,7 @@ pub const Action = union(Key) {
     /// Copy the effective title of the surface to the clipboard.
     /// The effective title is the user-overridden title if set,
     /// otherwise the terminal-set title.
-    copy_title,
+    copy_title_to_clipboard,
 
     /// Sync with: ghostty_action_tag_e
     pub const Key = enum(c_int) {
@@ -400,7 +400,7 @@ pub const Action = union(Key) {
         search_total,
         search_selected,
         readonly,
-        copy_title,
+        copy_title_to_clipboard,
     };
 
     /// Sync with: ghostty_action_u

@@ -5400,7 +5400,7 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
 
         .copy_title_to_clipboard => return try self.rt_app.performAction(
             .{ .surface = self },
-            .copy_title,
+            .copy_title_to_clipboard,
             {},
         ),
 
