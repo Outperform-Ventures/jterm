@@ -48,6 +48,10 @@ const no_trailing_punctuation =
     \\(?<![,.])
 ;
 
+const no_trailing_colon =
+    \\(?<!:)
+;
+
 const trailing_spaces_at_eol =
     \\(?: +(?= *$))?
 ;
@@ -61,11 +65,11 @@ const non_dotted_path_lookahead =
 ;
 
 const dotted_path_space_segments =
-    \\(?: (?!\w+:\/\/)[\w\-.~:\/?#@!$&*+;=%]*[\/.])*
+    \\(?:(?<!:) (?!\w+:\/\/)[\w\-.~:\/?#@!$&*+;=%]*[\/.])*
 ;
 
 const any_path_space_segments =
-    \\(?: (?!\w+:\/\/)[\w\-.~:\/?#@!$&*+;=%]+)*
+    \\(?:(?<!:) (?!\w+:\/\/)[\w\-.~:\/?#@!$&*+;=%]+)*
 ;
 
 // Branch 1: URLs with explicit schemes (http, mailto, ftp, etc.).
@@ -87,11 +91,13 @@ const rooted_or_relative_path_branch =
     dotted_path_lookahead ++
     path_chars ++ "+" ++
     dotted_path_space_segments ++
+    no_trailing_colon ++
     trailing_spaces_at_eol ++
     "|" ++
     non_dotted_path_lookahead ++
     path_chars ++ "+" ++
     any_path_space_segments ++
+    no_trailing_colon ++
     trailing_spaces_at_eol ++
     ")";
 
@@ -105,6 +111,7 @@ const bare_relative_path_branch =
     bare_relative_path_prefix ++
     path_chars ++ "+" ++
     dotted_path_space_segments ++
+    no_trailing_colon ++
     trailing_spaces_at_eol;
 
 pub const regex =
@@ -446,6 +453,15 @@ test "url regex" {
         .{
             .input = "/tmp/foo bar,baz",
             .expect = "/tmp/foo bar",
+        },
+        // trailing colon should not be part of the path
+        .{
+            .input = "./.config/ghostty: Needs upstream (main)",
+            .expect = "./.config/ghostty",
+        },
+        .{
+            .input = "./Downloads: Operation not permitted",
+            .expect = "./Downloads",
         },
     };
 
