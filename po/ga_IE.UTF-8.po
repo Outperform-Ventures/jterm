@@ -8,7 +8,7 @@ msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
 "POT-Creation-Date: 2026-02-05 10:23+0800\n"
-"PO-Revision-Date: 2026-02-11 19:24+0000\n"
+"PO-Revision-Date: 2026-02-14 17:57+0000\n"
 "Last-Translator: Aindriú Mac Giolla Eoin <aindriu80@yahoo.com>\n"
 "Language-Team: Irish <gaeilge-gnulinux@lists.sourceforge.net>\n"
 "Language: ga\n"
@@ -16,6 +16,7 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=3; plural=n==1 ? 0 : n==2 ? 1 : 2;\n"
+
 
 #: src/apprt/gtk/ui/1.0/clipboard-confirmation-dialog.blp:12
 #: src/apprt/gtk/ui/1.4/clipboard-confirmation-dialog.blp:12
@@ -87,7 +88,7 @@ msgstr "Ghostty: Cigire teirminéil"
 
 #: src/apprt/gtk/ui/1.2/search-overlay.blp:29
 msgid "Find…"
-msgstr "Aimsigh…"
+msgstr "Cuardaigh…"
 
 #: src/apprt/gtk/ui/1.2/search-overlay.blp:64
 msgid "Previous Match"
@@ -99,7 +100,7 @@ msgstr "An chéad toradh eile"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:6
 msgid "Oh, no."
-msgstr "Ó, níl."
+msgstr "Ó, fadbh."
 
 #: src/apprt/gtk/ui/1.2/surface.blp:7
 msgid "Unable to acquire an OpenGL context for rendering."
@@ -111,13 +112,13 @@ msgid ""
 "through the content, but no input events will be sent to the running "
 "application."
 msgstr ""
-"Tá an teirminéal seo i mód léite amháin. Is féidir leat an t-ábhar a "
-"fheiceáil, a roghnú agus scrollú tríd fós, ach ní sheolfar aon imeachtaí "
-"ionchuir chuig an bhfeidhmchlár atá ag rith."
+"Tá an teirminéal seo i mód inléite amháin. Is féidir leat fós féachaint, "
+"roghnú agus scroláil tríd an ábhar, ach ní seolfar aon teagmhais ionchuir "
+"chuig an bhfeidhmchlár atá ag rith."
 
 #: src/apprt/gtk/ui/1.2/surface.blp:107
 msgid "Read-only"
-msgstr "Léite amháin"
+msgstr "inléite amháin"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:260 src/apprt/gtk/ui/1.5/window.blp:198
 msgid "Copy"
@@ -129,7 +130,7 @@ msgstr "Greamaigh"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:270
 msgid "Notify on Next Command Finish"
-msgstr "Cuir fógra nuair a chríochnaíonn an chéad ordú eile"
+msgstr "Seol fógra nuair a chríochnaíonn an chéad ordú eile"
 
 #: src/apprt/gtk/ui/1.2/surface.blp:277 src/apprt/gtk/ui/1.5/window.blp:266
 msgid "Clear"
