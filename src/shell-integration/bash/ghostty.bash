@@ -278,7 +278,9 @@ if (( BASH_VERSINFO[0] > 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] >= 4) )
   __ghostty_hook() {
     builtin local ret=$?
     __ghostty_precmd "$ret"
-    PS0=$__ghostty_ps0
+    if [[ "$PS0" != *"$__ghostty_ps0"* ]]; then
+      PS0=$PS0"${__ghostty_ps0}"
+    fi
   }
 
   # Append our hook to PROMPT_COMMAND, preserving its existing type.
