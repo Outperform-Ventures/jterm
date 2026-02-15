@@ -11,7 +11,7 @@ concurrency:
 permissions:
   contents: write
   issues: write
-  pull-requests: read
+  pull-requests: write
 
 jobs:
   manage:
@@ -19,7 +19,7 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      - uses: mitchellh/vouch/action/manage-by-issue@8c4f29bb7f2ddfa0b8dbc1bb6575e3f27c95d10a # v1.2.0
+      - uses: mitchellh/vouch/action/manage-by-issue@0e11a71bba23218a284d3ecca162e75a110fd7e3 # v1.3.0
         with:
           repo: ${{ github.repository }}
           issue-id: ${{ github.event.issue.number }}
@@ -27,5 +27,7 @@ jobs:
           vouch-keyword: "!vouch"
           denounce-keyword: "!denounce"
           unvouch-keyword: "!unvouch"
+          pull-request: "true"
+          merge-immediately: "true"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
