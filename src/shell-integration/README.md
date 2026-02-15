@@ -44,7 +44,7 @@ Elvish, on startup, searches for paths defined in `XDG_DATA_DIRS`
 variable for `./elvish/lib/*.elv` files and imports them. They are thus
 made available for use as modules by way of `use <filename>`.
 
-Ghostty launches Elvish, passing the environment with `XDG_DATA_DIRS`prepended
+Ghostty launches Elvish, passing the environment with `XDG_DATA_DIRS` prepended
 with `$GHOSTTY_RESOURCES_DIR/src/shell-integration`. It contains
 `./elvish/lib/ghostty-integration.elv`. The user can then import it
 by `use ghostty-integration` every time after shell startup or
@@ -57,7 +57,7 @@ of your `rc.elv` file:
 
 ```elvish
 if (eq $E:TERM "xterm-ghostty") {
-  use ghostty-integration
+  try { use ghostty-integration } catch { }
 }
 ```
 
@@ -84,7 +84,8 @@ Nushell's vendor autoload mechanism. Ghostty then automatically imports
 the module using the `-e "use ghostty *"` flag when starting Nushell.
 
 Nushell provides many shell features itself, such as `title` and `cursor`,
-so our integration focuses on Ghostty-specific features like `sudo`.
+so our integration focuses on Ghostty-specific features like `sudo`,
+`ssh-env`, and `ssh-terminfo`.
 
 The shell integration is automatically enabled when running Nushell in Ghostty,
 but you can also load it manually is shell integration is disabled:
