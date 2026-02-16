@@ -237,14 +237,19 @@ pub fn needsConfirmQuit(self: *const App) bool {
 /// Drain the mailbox.
 fn drainMailbox(self: *App, rt_app: *apprt.App) !void {
     while (self.mailbox.pop()) |message| {
-        log.debug("mailbox message={s}", .{@tagName(message)});
+        if (comptime std.log.logEnabled(.debug, .app)) {
+            switch (message) {
+                // these tend to be way too verbose for normal debugging
+                .redraw_surface => {},
+                else => log.debug("mailbox message={t}", .{message}),
+            }
+        }
         switch (message) {
             .open_config => try self.performAction(rt_app, .open_config),
             .new_window => |msg| try self.newWindow(rt_app, msg),
             .close => |surface| self.closeSurface(surface),
             .surface_message => |msg| try self.surfaceMessage(msg.surface, msg.message),
             .redraw_surface => |surface| try self.redrawSurface(rt_app, surface),
-            .redraw_inspector => |surface| self.redrawInspector(rt_app, surface),
 
             // If we're quitting, then we set the quit flag and stop
             // draining the mailbox immediately. This lets us defer
@@ -281,11 +286,6 @@ fn redrawSurface(
         .render,
         {},
     );
-}
-
-fn redrawInspector(self: *App, rt_app: *apprt.App, surface: *apprt.Surface) void {
-    if (!self.hasRtSurface(surface)) return;
-    rt_app.redrawInspector(surface);
 }
 
 /// Create a new window
@@ -357,15 +357,17 @@ pub fn keyEvent(
     // Get the keybind entry for this event. We don't support key sequences
     // so we can look directly in the top-level set.
     const entry = rt_app.config.keybind.set.getEvent(event) orelse return false;
-    const leaf: input.Binding.Set.Leaf = switch (entry.value_ptr.*) {
+    const leaf: input.Binding.Set.GenericLeaf = switch (entry.value_ptr.*) {
         // Sequences aren't supported. Our configuration parser verifies
         // this for global keybinds but we may still get an entry for
         // a non-global keybind.
         .leader => return false,
 
         // Leaf entries are good
-        .leaf => |leaf| leaf,
+        inline .leaf, .leaf_chained => |leaf| leaf.generic(),
     };
+    const actions: []const input.Binding.Action = leaf.actionsSlice();
+    assert(actions.len > 0);
 
     // If we aren't focused, then we only process global keybinds.
     if (!self.focused and !leaf.flags.global) return false;
@@ -373,13 +375,7 @@ pub fn keyEvent(
     // Global keybinds are done using performAll so that they
     // can target all surfaces too.
     if (leaf.flags.global) {
-        self.performAllAction(rt_app, leaf.action) catch |err| {
-            log.warn("error performing global keybind action action={s} err={}", .{
-                @tagName(leaf.action),
-                err,
-            });
-        };
-
+        self.performAllChainedAction(rt_app, actions);
         return true;
     }
 
@@ -389,14 +385,20 @@ pub fn keyEvent(
 
     // If we are focused, then we process keybinds only if they are
     // app-scoped. Otherwise, we do nothing. Surface-scoped should
-    // be processed by Surface.keyEvent.
-    const app_action = leaf.action.scoped(.app) orelse return false;
-    self.performAction(rt_app, app_action) catch |err| {
-        log.warn("error performing app keybind action action={s} err={}", .{
-            @tagName(app_action),
-            err,
-        });
-    };
+    // be processed by Surface.keyEvent. For chained actions, all
+    // actions must be app-scoped.
+    for (actions) |action| if (action.scoped(.app) == null) return false;
+    for (actions) |action| {
+        self.performAction(
+            rt_app,
+            action.scoped(.app).?,
+        ) catch |err| {
+            log.warn("error performing app keybind action action={s} err={}", .{
+                @tagName(action),
+                err,
+            });
+        };
+    }
 
     return true;
 }
@@ -451,6 +453,23 @@ pub fn performAction(
         .undo => _ = try rt_app.performAction(.app, .undo, {}),
 
         .redo => _ = try rt_app.performAction(.app, .redo, {}),
+    }
+}
+
+/// Performs a chained action. We will continue executing each action
+/// even if there is a failure in a prior action.
+pub fn performAllChainedAction(
+    self: *App,
+    rt_app: *apprt.App,
+    actions: []const input.Binding.Action,
+) void {
+    for (actions) |action| {
+        self.performAllAction(rt_app, action) catch |err| {
+            log.warn("error performing chained action action={s} err={}", .{
+                @tagName(action),
+                err,
+            });
+        };
     }
 }
 
@@ -539,10 +558,6 @@ pub const Message = union(enum) {
     /// wake up the renderer thread. The renderer thread will send this
     /// message if it needs to.
     redraw_surface: *apprt.Surface,
-
-    /// Redraw the inspector. This is called whenever some non-OS event
-    /// causes the inspector to need to be redrawn.
-    redraw_inspector: *apprt.Surface,
 
     const NewWindow = struct {
         /// The parent surface

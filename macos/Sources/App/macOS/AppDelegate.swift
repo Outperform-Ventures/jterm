@@ -46,6 +46,8 @@ class AppDelegate: NSObject,
     @IBOutlet private var menuSelectAll: NSMenuItem?
     @IBOutlet private var menuFindParent: NSMenuItem?
     @IBOutlet private var menuFind: NSMenuItem?
+    @IBOutlet private var menuSelectionForFind: NSMenuItem?
+    @IBOutlet private var menuScrollToSelection: NSMenuItem?
     @IBOutlet private var menuFindNext: NSMenuItem?
     @IBOutlet private var menuFindPrevious: NSMenuItem?
     @IBOutlet private var menuHideFindBar: NSMenuItem?
@@ -94,7 +96,7 @@ class AppDelegate: NSObject,
     private var derivedConfig: DerivedConfig = DerivedConfig()
 
     /// The ghostty global state. Only one per process.
-    let ghostty: Ghostty.App = Ghostty.App()
+    let ghostty: Ghostty.App
 
     /// The global undo manager for app-level state such as window restoration.
     lazy var undoManager = ExpiringUndoManager()
@@ -153,6 +155,11 @@ class AppDelegate: NSObject,
     @Published private(set) var appIcon: NSImage? = nil
 
     override init() {
+#if DEBUG
+        ghostty = Ghostty.App(configPath: ProcessInfo.processInfo.environment["GHOSTTY_CONFIG_PATH"])
+#else
+        ghostty = Ghostty.App()
+#endif
         super.init()
 
         ghostty.delegate = self
@@ -469,7 +476,7 @@ class AppDelegate: NSObject,
             // profile/rc files for the shell, which is super important on macOS
             // due to things like Homebrew. Instead, we set the command to
             // `<filename>; exit` which is what Terminal and iTerm2 do.
-            config.initialInput = "\(filename); exit\n"
+            config.initialInput = "\(Ghostty.Shell.quote(filename)); exit\n"
             
             // For commands executed directly, we want to ensure we wait after exit
             // because in most cases scripts don't block on exit and we don't want
@@ -615,6 +622,8 @@ class AppDelegate: NSObject,
         syncMenuShortcut(config, action: "paste_from_selection", menuItem: self.menuPasteSelection)
         syncMenuShortcut(config, action: "select_all", menuItem: self.menuSelectAll)
         syncMenuShortcut(config, action: "start_search", menuItem: self.menuFind)
+        syncMenuShortcut(config, action: "search_selection", menuItem: self.menuSelectionForFind)
+        syncMenuShortcut(config, action: "scroll_to_selection", menuItem: self.menuScrollToSelection)
         syncMenuShortcut(config, action: "search:next", menuItem: self.menuFindNext)
         syncMenuShortcut(config, action: "search:previous", menuItem: self.menuFindPrevious)
 
@@ -685,6 +694,18 @@ class AppDelegate: NSObject,
     }
 
     private func localEventKeyDown(_ event: NSEvent) -> NSEvent? {
+        // If the tab overview is visible and escape is pressed, close it.
+        // This can't POSSIBLY be right and is probably a FirstResponder problem
+        // that we should handle elsewhere in our program. But this works and it
+        // is guarded by the tab overview currently showing.
+        if event.keyCode == 0x35, // Escape key
+           let window = NSApp.keyWindow,
+           let tabGroup = window.tabGroup,
+           tabGroup.isOverviewVisible {
+            window.toggleTabOverview(nil)
+            return nil
+        }
+
         // If we have a main window then we don't process any of the keys
         // because we let it capture and propagate.
         guard NSApp.mainWindow == nil else { return event }
@@ -930,33 +951,8 @@ class AppDelegate: NSObject,
         var appIconName: String? = config.macosIcon.rawValue
 
         switch (config.macosIcon) {
-        case .official:
-            // Discard saved icon name
-            appIconName = nil
-            break
-        case .blueprint:
-            appIcon = NSImage(named: "BlueprintImage")!
-
-        case .chalkboard:
-            appIcon = NSImage(named: "ChalkboardImage")!
-
-        case .glass:
-            appIcon = NSImage(named: "GlassImage")!
-
-        case .holographic:
-            appIcon = NSImage(named: "HolographicImage")!
-
-        case .microchip:
-            appIcon = NSImage(named: "MicrochipImage")!
-
-        case .paper:
-            appIcon = NSImage(named: "PaperImage")!
-
-        case .retro:
-            appIcon = NSImage(named: "RetroImage")!
-
-        case .xray:
-            appIcon = NSImage(named: "XrayImage")!
+        case let icon where icon.assetName != nil:
+            appIcon = NSImage(named: icon.assetName!)!
 
         case .custom:
             if let userIcon = NSImage(contentsOfFile: config.macosCustomIcon) {
@@ -966,6 +962,7 @@ class AppDelegate: NSObject,
                 appIcon = nil // Revert back to official icon if invalid location
                 appIconName = nil // Discard saved icon name
             }
+
         case .customStyle:
             // Discard saved icon name
             // if no valid colours were found
@@ -981,10 +978,20 @@ class AppDelegate: NSObject,
             let colorStrings = ([ghostColor] + screenColors).compactMap(\.hexString)
             appIconName = (colorStrings + [config.macosIconFrame.rawValue])
                 .joined(separator: "_")
+
+        default:
+            // Discard saved icon name
+            appIconName = nil
         }
-        // Only change the icon if it has actually changed
-        // from the current one
-        guard UserDefaults.standard.string(forKey: "CustomGhosttyIcon") != appIconName else {
+
+        // Only change the icon if it has actually changed from the current one,
+        // or if the app build has changed (e.g. after an update that reset the icon)
+        let cachedIconName = UserDefaults.standard.string(forKey: "CustomGhosttyIcon")
+        let cachedIconBuild = UserDefaults.standard.string(forKey: "CustomGhosttyIconBuild")
+        let currentBuild = Bundle.main.infoDictionary?["CFBundleVersion"] as? String
+        let buildChanged = cachedIconBuild != currentBuild
+
+        guard cachedIconName != appIconName || buildChanged else {
 #if DEBUG
             if appIcon == nil {
                 await MainActor.run {
@@ -1001,14 +1008,16 @@ class AppDelegate: NSObject,
         let newIcon = appIcon
 
         let appPath = Bundle.main.bundlePath
-        NSWorkspace.shared.setIcon(newIcon, forFile: appPath, options: [])
+        guard NSWorkspace.shared.setIcon(newIcon, forFile: appPath, options: []) else { return }
         NSWorkspace.shared.noteFileSystemChanged(appPath)
 
         await MainActor.run {
             self.appIcon = newIcon
             NSApplication.shared.applicationIconImage = newIcon
         }
+
         UserDefaults.standard.set(appIconName, forKey: "CustomGhosttyIcon")
+        UserDefaults.standard.set(currentBuild, forKey: "CustomGhosttyIconBuild")
     }
 
     //MARK: - Restorable State

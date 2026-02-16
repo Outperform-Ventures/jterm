@@ -214,6 +214,11 @@ pub const Application = extern struct {
         /// Providers for loading custom stylesheets defined by user
         custom_css_providers: std.ArrayListUnmanaged(*gtk.CssProvider) = .empty,
 
+        /// A copy of the LANG environment variable that was provided to Ghostty
+        /// by the system. If this is null, the LANG environment variable did
+        /// not exist in Ghostty's environment variable.
+        saved_language: ?[:0]const u8 = null,
+
         pub var offset: c_int = 0;
     };
 
@@ -250,15 +255,6 @@ pub const Application = extern struct {
         gtk_version.logVersion();
         adw_version.logVersion();
 
-        // Set gettext global domain to be our app so that our unqualified
-        // translations map to our translations.
-        internal_os.i18n.initGlobalDomain() catch |err| {
-            // Failures shuldn't stop application startup. Our app may
-            // not translate correctly but it should still work. In the
-            // future we may want to add this to the GUI to show.
-            log.warn("i18n initialization failed error={}", .{err});
-        };
-
         // Load our configuration.
         var config = CoreConfig.load(alloc) catch |err| err: {
             // If we fail to load the configuration, then we should log
@@ -275,6 +271,27 @@ pub const Application = extern struct {
             break :err def;
         };
         defer config.deinit();
+
+        const saved_language: ?[:0]const u8 = saved_language: {
+            const old_language = old_language: {
+                const result = (internal_os.getenv(alloc, "LANG") catch break :old_language null) orelse break :old_language null;
+                defer result.deinit(alloc);
+                break :old_language alloc.dupeZ(u8, result.value) catch break :old_language null;
+            };
+
+            if (config.language) |language| _ = internal_os.setenv("LANG", language);
+
+            break :saved_language old_language;
+        };
+
+        // Set gettext global domain to be our app so that our unqualified
+        // translations map to our translations.
+        internal_os.i18n.initGlobalDomain() catch |err| {
+            // Failures shuldn't stop application startup. Our app may
+            // not translate correctly but it should still work. In the
+            // future we may want to add this to the GUI to show.
+            log.warn("i18n initialization failed error={}", .{err});
+        };
 
         // Setup our GTK init env vars
         setGtkEnv(&config) catch |err| switch (err) {
@@ -375,7 +392,7 @@ pub const Application = extern struct {
         // Setup our private state. More setup is done in the init
         // callback that GObject calls, but we can't pass this data through
         // to there (and we don't need it there directly) so this is here.
-        const priv = self.private();
+        const priv: *Private = self.private();
         priv.* = .{
             .rt_app = rt_app,
             .core_app = core_app,
@@ -384,6 +401,7 @@ pub const Application = extern struct {
             .css_provider = css_provider,
             .custom_css_providers = .empty,
             .global_shortcuts = gobject.ext.newInstance(GlobalShortcuts, .{}),
+            .saved_language = saved_language,
         };
 
         // Signals
@@ -416,11 +434,12 @@ pub const Application = extern struct {
     /// ensures that our memory is cleaned up properly.
     pub fn deinit(self: *Self) void {
         const alloc = self.allocator();
-        const priv = self.private();
+        const priv: *Private = self.private();
         priv.config.unref();
         priv.winproto.deinit(alloc);
         priv.global_shortcuts.unref();
         if (priv.transient_cgroup_base) |base| alloc.free(base);
+        if (priv.saved_language) |language| alloc.free(language);
         if (gdk.Display.getDefault()) |display| {
             gtk.StyleContext.removeProviderForDisplay(
                 display,
@@ -444,6 +463,12 @@ pub const Application = extern struct {
     /// this wherever possible so we get leak detection in debug/tests.
     pub fn allocator(self: *Self) std.mem.Allocator {
         return self.private().core_app.alloc;
+    }
+
+    /// Get the original language that Ghostty was launched with. This returns a
+    /// pointer to internal memory so it must be copied by callers.
+    pub fn savedLanguage(self: *Self) ?[:0]const u8 {
+        return self.private().saved_language;
     }
 
     /// Run the application. This is a replacement for `gio.Application.run`
@@ -650,6 +675,8 @@ pub const Application = extern struct {
             .close_tab => return Action.closeTab(target, value),
             .close_window => return Action.closeWindow(target),
 
+            .copy_title_to_clipboard => return Action.copyTitleToClipboard(target),
+
             .config_change => try Action.configChange(
                 self,
                 target,
@@ -669,6 +696,9 @@ pub const Application = extern struct {
             .initial_size => return Action.initialSize(target, value),
 
             .inspector => return Action.controlInspector(target, value),
+
+            .key_sequence => return Action.keySequence(target, value),
+            .key_table => return Action.keyTable(target, value),
 
             .mouse_over_link => Action.mouseOverLink(target, value),
             .mouse_shape => Action.mouseShape(target, value),
@@ -731,8 +761,9 @@ pub const Application = extern struct {
             .toggle_split_zoom => return Action.toggleSplitZoom(target),
             .show_on_screen_keyboard => return Action.showOnScreenKeyboard(target),
             .command_finished => return Action.commandFinished(target, value),
+            .readonly => return Action.setReadonly(target, value),
 
-            .start_search => Action.startSearch(target),
+            .start_search => Action.startSearch(target, value),
             .end_search => Action.endSearch(target),
             .search_total => Action.searchTotal(target, value),
             .search_selected => Action.searchSelected(target, value),
@@ -744,7 +775,6 @@ pub const Application = extern struct {
             .toggle_visibility,
             .toggle_background_opacity,
             .cell_size,
-            .key_sequence,
             .render_inspector,
             .renderer_health,
             .color_change,
@@ -752,7 +782,6 @@ pub const Application = extern struct {
             .check_for_updates,
             .undo,
             .redo,
-            .readonly,
             => {
                 log.warn("unimplemented action={}", .{action});
                 return false;
@@ -1895,6 +1924,13 @@ const Action = struct {
         }
     }
 
+    pub fn copyTitleToClipboard(target: apprt.Target) bool {
+        return switch (target) {
+            .app => false,
+            .surface => |v| v.rt_surface.gobj().copyTitleToClipboard(),
+        };
+    }
+
     pub fn configChange(
         self: *Application,
         target: apprt.Target,
@@ -2237,8 +2273,8 @@ const Action = struct {
             .{},
         );
 
-        // Create a new tab
-        win.newTab(parent);
+        // Create a new tab with window context (first tab in new window)
+        win.newTabForWindow(parent);
 
         // Show the window
         gtk.Window.present(win.as(gtk.Window));
@@ -2412,9 +2448,13 @@ const Action = struct {
                     SplitTree,
                     surface.as(gtk.Widget),
                 ) orelse {
-                    log.warn("surface is not in a split tree, ignoring goto_split", .{});
+                    log.warn("surface is not in a split tree, ignoring resize_split", .{});
                     return false;
                 };
+
+                // If the tree has no splits (only one leaf), this action is not performable.
+                // This allows the key event to pass through to the terminal.
+                if (!tree.getIsSplit()) return false;
 
                 return tree.resize(
                     switch (value.direction) {
@@ -2451,17 +2491,17 @@ const Action = struct {
         }
     }
 
-    pub fn startSearch(target: apprt.Target) void {
+    pub fn startSearch(target: apprt.Target, value: apprt.action.StartSearch) void {
         switch (target) {
             .app => {},
-            .surface => |v| v.rt_surface.surface.setSearchActive(true),
+            .surface => |v| v.rt_surface.surface.setSearchActive(true, value.needle),
         }
     }
 
     pub fn endSearch(target: apprt.Target) void {
         switch (target) {
             .app => {},
-            .surface => |v| v.rt_surface.surface.setSearchActive(false),
+            .surface => |v| v.rt_surface.surface.setSearchActive(false, ""),
         }
     }
 
@@ -2562,6 +2602,18 @@ const Action = struct {
             .surface => |core| {
                 // TODO: pass surface ID when we have that
                 const surface = core.rt_surface.surface;
+                const tree = ext.getAncestor(
+                    SplitTree,
+                    surface.as(gtk.Widget),
+                ) orelse {
+                    log.warn("surface is not in a split tree, ignoring toggle_split_zoom", .{});
+                    return false;
+                };
+
+                // If the tree has no splits (only one leaf), this action is not performable.
+                // This allows the key event to pass through to the terminal.
+                if (!tree.getIsSplit()) return false;
+
                 return surface.as(gtk.Widget).activateAction("split-tree.zoom", null) != 0;
             },
         }
@@ -2670,6 +2722,45 @@ const Action = struct {
             .app => return false,
             .surface => |surface| {
                 return surface.rt_surface.gobj().commandFinished(value);
+            },
+        }
+    }
+
+    pub fn setReadonly(target: apprt.Target, value: apprt.Action.Value(.readonly)) bool {
+        switch (target) {
+            .app => return false,
+            .surface => |surface| {
+                return surface.rt_surface.gobj().setReadonly(value);
+            },
+        }
+    }
+
+    pub fn keySequence(target: apprt.Target, value: apprt.Action.Value(.key_sequence)) bool {
+        switch (target) {
+            .app => {
+                log.warn("key_sequence action to app is unexpected", .{});
+                return false;
+            },
+            .surface => |core| {
+                core.rt_surface.gobj().keySequenceAction(value) catch |err| {
+                    log.warn("error handling key_sequence action: {}", .{err});
+                };
+                return true;
+            },
+        }
+    }
+
+    pub fn keyTable(target: apprt.Target, value: apprt.Action.Value(.key_table)) bool {
+        switch (target) {
+            .app => {
+                log.warn("key_table action to app is unexpected", .{});
+                return false;
+            },
+            .surface => |core| {
+                core.rt_surface.gobj().keyTableAction(value) catch |err| {
+                    log.warn("error handling key_table action: {}", .{err});
+                };
+                return true;
             },
         }
     }

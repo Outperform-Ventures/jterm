@@ -8,16 +8,16 @@ import GhosttyKit
 class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Controller {
     override var windowNibName: NSNib.Name? {
         let defaultValue = "Terminal"
-
+        
         guard let appDelegate = NSApp.delegate as? AppDelegate else { return defaultValue }
         let config = appDelegate.ghostty.config
-
+        
         // If we have no window decorations, there's no reason to do anything but
         // the default titlebar (because there will be no titlebar).
         if !config.windowDecorations {
             return defaultValue
         }
-
+        
         let nib = switch config.macosTitlebarStyle {
         case "native": "Terminal"
         case "hidden": "TerminalHiddenTitlebar"
@@ -34,33 +34,33 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 #endif
         default: defaultValue
         }
-
+        
         return nib
     }
-
+    
     /// This is set to true when we care about frame changes. This is a small optimization since
     /// this controller registers a listener for ALL frame change notifications and this lets us bail
     /// early if we don't care.
     private var tabListenForFrame: Bool = false
-
+    
     /// This is the hash value of the last tabGroup.windows array. We use this to detect order
     /// changes in the list.
     private var tabWindowsHash: Int = 0
-
+    
     /// This is set to false by init if the window managed by this controller should not be restorable.
     /// For example, terminals executing custom scripts are not restorable.
     private var restorable: Bool = true
-
+    
     /// The configuration derived from the Ghostty config so we don't need to rely on references.
     private(set) var derivedConfig: DerivedConfig
-
-
+    
+    
     /// The notification cancellable for focused surface property changes.
     private var surfaceAppearanceCancellables: Set<AnyCancellable> = []
-
+    
     /// This will be set to the initial frame of the window from the xib on load.
     private var initialFrame: NSRect? = nil
-
+    
     init(_ ghostty: Ghostty.App,
          withBaseConfig base: Ghostty.SurfaceConfiguration? = nil,
          withSurfaceTree tree: SplitTree<Ghostty.SurfaceView>? = nil,
@@ -72,12 +72,12 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         // as the script. We may want to revisit this behavior when we have scrollback
         // restoration.
         self.restorable = (base?.command ?? "") == ""
-
+        
         // Setup our initial derived config based on the current app config
         self.derivedConfig = DerivedConfig(ghostty.config)
-
+        
         super.init(ghostty, baseConfig: base, surfaceTree: tree)
-
+        
         // Setup our notifications for behaviors
         let center = NotificationCenter.default
         center.addObserver(
@@ -134,35 +134,55 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             object: nil
         )
     }
-
+    
     required init?(coder: NSCoder) {
         fatalError("init(coder:) is not supported for this view")
     }
-
+    
     deinit {
         // Remove all of our notificationcenter subscriptions
         let center = NotificationCenter.default
         center.removeObserver(self)
     }
-
+    
     // MARK: Base Controller Overrides
-
+    
     override func surfaceTreeDidChange(from: SplitTree<Ghostty.SurfaceView>, to: SplitTree<Ghostty.SurfaceView>) {
         super.surfaceTreeDidChange(from: from, to: to)
-
+        
         // Whenever our surface tree changes in any way (new split, close split, etc.)
         // we want to invalidate our state.
         invalidateRestorableState()
-
+        
         // Update our zoom state
         if let window = window as? TerminalWindow {
             window.surfaceIsZoomed = to.zoomed != nil
         }
-
+        
         // If our surface tree is now nil then we close our window.
         if (to.isEmpty) {
             self.window?.close()
         }
+    }
+    
+    override func replaceSurfaceTree(
+        _ newTree: SplitTree<Ghostty.SurfaceView>,
+        moveFocusTo newView: Ghostty.SurfaceView? = nil,
+        moveFocusFrom oldView: Ghostty.SurfaceView? = nil,
+        undoAction: String? = nil
+    ) {
+        // We have a special case if our tree is empty to close our tab immediately.
+        // This makes it so that undo is handled properly.
+        if newTree.isEmpty {
+            closeTabImmediately()
+            return
+        }
+        
+        super.replaceSurfaceTree(
+            newTree,
+            moveFocusTo: newView,
+            moveFocusFrom: oldView,
+            undoAction: undoAction)
     }
 
     // MARK: Terminal Creation
@@ -268,6 +288,72 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
                         ghostty,
                         withBaseConfig: baseConfig,
                         withParent: explicitParent)
+                }
+            }
+        }
+
+        return c
+    }
+
+    /// Create a new window with an existing split tree.
+    /// The window will be sized to match the tree's current view bounds if available.
+    /// - Parameters:
+    ///   - ghostty: The Ghostty app instance.
+    ///   - tree: The split tree to use for the new window.
+    ///   - position: Optional screen position (top-left corner) for the new window.
+    ///               If nil, the window will cascade from the last cascade point.
+    static func newWindow(
+        _ ghostty: Ghostty.App,
+        tree: SplitTree<Ghostty.SurfaceView>,
+        position: NSPoint? = nil,
+        confirmUndo: Bool = true,
+    ) -> TerminalController {
+        let c = TerminalController.init(ghostty, withSurfaceTree: tree)
+
+        // Calculate the target frame based on the tree's view bounds
+        let treeSize: CGSize? = tree.root?.viewBounds()
+
+        DispatchQueue.main.async {
+            if let window = c.window {
+                // If we have a tree size, resize the window's content to match
+                if let treeSize, treeSize.width > 0, treeSize.height > 0 {
+                    window.setContentSize(treeSize)
+                    window.constrainToScreen()
+                }
+
+                if !window.styleMask.contains(.fullScreen) {
+                    if let position {
+                        window.setFrameTopLeftPoint(position)
+                        window.constrainToScreen()
+                    } else {
+                        Self.lastCascadePoint = window.cascadeTopLeft(from: Self.lastCascadePoint)
+                    }
+                }
+            }
+
+            c.showWindow(self)
+        }
+
+        // Setup our undo
+        if let undoManager = c.undoManager {
+            undoManager.setActionName("New Window")
+            undoManager.registerUndo(
+                withTarget: c,
+                expiresAfter: c.undoExpiration
+            ) { target in
+                undoManager.disableUndoRegistration {
+                    if confirmUndo {
+                        target.closeWindow(nil)
+                    } else {
+                        target.closeWindowImmediately()
+                    }
+                }
+
+                undoManager.registerUndo(
+                    withTarget: ghostty,
+                    expiresAfter: target.undoExpiration
+                ) { ghostty in
+                    _ = TerminalController.newWindow(ghostty, tree: tree)
                 }
             }
         }
@@ -397,7 +483,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
         return controller
     }
-
+    
     //MARK: - Methods
 
     @objc private func ghosttyConfigDidChange(_ notification: Notification) {
@@ -548,7 +634,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         closeWindow(nil)
     }
 
-    private func closeTabImmediately(registerRedo: Bool = true) {
+    func closeTabImmediately(registerRedo: Bool = true) {
         guard let window = window else { return }
         guard let tabGroup = window.tabGroup,
                 tabGroup.windows.count > 1 else {
@@ -671,7 +757,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
     /// Closes the current window (including any other tabs) immediately and without
     /// confirmation. This will setup proper undo state so the action can be undone.
-    private func closeWindowImmediately() {
+    func closeWindowImmediately() {
         guard let window = window else { return }
 
         registerUndoForCloseWindow()
@@ -879,12 +965,19 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
                 // Make it the key window
                 window.makeKeyAndOrderFront(nil)
             }
-
+            
             // Restore focus to the previously focused surface
             if let focusedUUID = undoState.focusedSurface,
                let focusTarget = surfaceTree.first(where: { $0.id == focusedUUID }) {
                 DispatchQueue.main.async {
                     Ghostty.moveFocus(to: focusTarget, from: nil)
+                }
+            } else if let focusedSurface = surfaceTree.first {
+                // No prior focused surface or we can't find it, let's focus
+                // the first.
+                self.focusedSurface = focusedSurface
+                DispatchQueue.main.async {
+                    Ghostty.moveFocus(to: focusedSurface, from: nil)
                 }
             }
         }
@@ -936,11 +1029,11 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         }
 
         // Initialize our content view to the SwiftUI root
-        window.contentView = NSHostingView(rootView: TerminalView(
+        window.contentView = TerminalViewContainer(
             ghostty: self.ghostty,
             viewModel: self,
             delegate: self,
-        ))
+        )
 
         // If we have a default size, we want to apply it.
         if let defaultSize {
@@ -952,9 +1045,13 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             case .contentIntrinsicSize:
                 // Content intrinsic size requires a short delay so that AppKit
                 // can layout our SwiftUI views.
-                DispatchQueue.main.asyncAfter(deadline: .now() + .microseconds(10_000)) { [weak window] in
-                    guard let window else { return }
+                DispatchQueue.main.asyncAfter(deadline: .now() + .microseconds(10_000)) { [weak self, weak window] in
+                    guard let self, let window else { return }
                     defaultSize.apply(to: window)
+                    if let screen = window.screen ?? NSScreen.main {
+                        let frame = self.adjustForWindowPosition(frame: window.frame, on: screen)
+                        window.setFrameOrigin(frame.origin)
+                    }
                 }
             }
         }
