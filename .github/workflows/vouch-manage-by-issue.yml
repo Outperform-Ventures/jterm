@@ -19,7 +19,7 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      - uses: mitchellh/vouch/action/manage-by-issue@0e11a71bba23218a284d3ecca162e75a110fd7e3 # v1.3.0
+      - uses: mitchellh/vouch/action/manage-by-issue@6803dde571265e13489c3f118200f60b6ab59e4d # v1.3.1
         with:
           repo: ${{ github.repository }}
           issue-id: ${{ github.event.issue.number }}
