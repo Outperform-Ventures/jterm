@@ -2275,26 +2275,6 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             //     std.log.warn("[rebuildCells time] {}\t{}", .{start_micro, end.since(start) / std.time.ns_per_us});
             // }
 
-            // Determine our x/y range for preedit. We don't want to render anything
-            // here because we will render the preedit separately.
-            const preedit_range: ?PreeditRange = if (preedit) |preedit_v| preedit: {
-                // We base the preedit on the position of the cursor in the
-                // viewport. If the cursor isn't visible in the viewport we
-                // don't show it.
-                const cursor_vp = state.cursor.viewport orelse
-                    break :preedit null;
-
-                const range = preedit_v.range(
-                    cursor_vp.x,
-                    state.cols - 1,
-                );
-                break :preedit .{
-                    .y = @intCast(cursor_vp.y),
-                    .x = .{ range.start, range.end },
-                    .cp_offset = range.cp_offset,
-                };
-            } else null;
-
             const grid_size_diff =
                 self.cells.size.rows != state.rows or
                 self.cells.size.columns != state.cols;
@@ -2352,6 +2332,32 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 state.rows,
                 self.cells.size.rows,
             );
+
+            // Determine our x/y range for preedit. We don't want to render anything
+            // here because we will render the preedit separately.
+            const preedit_range: ?PreeditRange = if (preedit) |preedit_v| preedit: {
+                // We base the preedit on the position of the cursor in the
+                // viewport. If the cursor isn't visible in the viewport we
+                // don't show it.
+                const cursor_vp = state.cursor.viewport orelse
+                    break :preedit null;
+
+                // If our preedit row isn't dirty then we don't need the
+                // preedit range. This also avoids an issue later where we
+                // unconditionally add preedit cells when this is set.
+                if (!rebuild and !row_dirty[cursor_vp.y]) break :preedit null;
+
+                const range = preedit_v.range(
+                    cursor_vp.x,
+                    state.cols - 1,
+                );
+                break :preedit .{
+                    .y = @intCast(cursor_vp.y),
+                    .x = .{ range.start, range.end },
+                    .cp_offset = range.cp_offset,
+                };
+            } else null;
+
             for (
                 0..,
                 row_raws[0..row_len],
@@ -2527,8 +2533,8 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             }
 
             // Setup our preedit text.
-            if (preedit) |preedit_v| {
-                const range = preedit_range.?;
+            if (preedit) |preedit_v| preedit: {
+                const range = preedit_range orelse break :preedit;
                 var x = range.x[0];
                 for (preedit_v.codepoints[range.cp_offset..]) |cp| {
                     self.addPreeditCell(
