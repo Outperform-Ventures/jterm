@@ -65,11 +65,11 @@ const non_dotted_path_lookahead =
 ;
 
 const dotted_path_space_segments =
-    \\(?:(?<!:) (?!\w+:\/\/)[\w\-.~:\/?#@!$&*+;=%]*[\/.])*
+    \\(?:(?<!:) (?!\w+:\/\/)(?!\.{0,2}\/)(?!~\/)[\w\-.~:\/?#@!$&*+;=%]*[\/.])*
 ;
 
 const any_path_space_segments =
-    \\(?:(?<!:) (?!\w+:\/\/)[\w\-.~:\/?#@!$&*+;=%]+)*
+    \\(?:(?<!:) (?!\w+:\/\/)(?!\.{0,2}\/)(?!~\/)[\w\-.~:\/?#@!$&*+;=%]+)*
 ;
 
 // Branch 1: URLs with explicit schemes (http, mailto, ftp, etc.).
@@ -358,6 +358,19 @@ test "url regex" {
         .{
             .input = "/tmp/test folder/file.txt",
             .expect = "/tmp/test folder/file.txt",
+        },
+        .{
+            .input = "/tmp/test  folder/file.txt",
+            .expect = "/tmp/test",
+        },
+        // Two space-separated absolute paths should match only the first
+        .{
+            .input = "/tmp/foo /tmp/bar",
+            .expect = "/tmp/foo",
+        },
+        .{
+            .input = "/tmp/foo.txt /tmp/bar.txt",
+            .expect = "/tmp/foo.txt",
         },
         // Bare relative file paths (no ./ or ../ prefix)
         .{
