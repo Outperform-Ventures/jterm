@@ -61,6 +61,12 @@ pub fn initShared(
         .{ .include_extensions = &.{".h"} },
     );
 
+    // We always require the system SDK so that our system headers are available.
+    // This makes things like `os/log.h` and iOS SDK available for cross-compiling.
+    if (lib.rootModuleTarget().os.tag.isDarwin()) {
+        try @import("apple_sdk").addPaths(b, lib);
+    }
+
     // Get our debug symbols
     const dsymutil: ?std.Build.LazyPath = dsymutil: {
         if (!target.result.os.tag.isDarwin()) {
