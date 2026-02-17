@@ -2540,7 +2540,6 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     self.addPreeditCell(
                         cp,
                         .{ .x = x, .y = range.y },
-                        state.colors.background,
                         state.colors.foreground,
                     ) catch |err| {
                         log.warn("error building preedit cell, will be invalid x={} y={}, err={}", .{
@@ -3270,7 +3269,6 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             self: *Self,
             cp: renderer.State.Preedit.Codepoint,
             coord: terminal.Coordinate,
-            screen_bg: terminal.color.RGB,
             screen_fg: terminal.color.RGB,
         ) !void {
             // Render the glyph for our preedit text
@@ -3288,16 +3286,6 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 log.warn("failed to find font for preedit codepoint={X}", .{cp.codepoint});
                 return;
             };
-
-            // Add our opaque background cell
-            self.cells.bgCell(coord.y, coord.x).* = .{
-                screen_bg.r, screen_bg.g, screen_bg.b, 255,
-            };
-            if (cp.wide and coord.x < self.cells.size.columns - 1) {
-                self.cells.bgCell(coord.y, coord.x + 1).* = .{
-                    screen_bg.r, screen_bg.g, screen_bg.b, 255,
-                };
-            }
 
             // Add our text
             try self.cells.add(self.alloc, .text, .{
