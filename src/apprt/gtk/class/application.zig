@@ -36,6 +36,7 @@ const Config = @import("config.zig").Config;
 const Surface = @import("surface.zig").Surface;
 const SplitTree = @import("split_tree.zig").SplitTree;
 const Window = @import("window.zig").Window;
+const Tab = @import("tab.zig").Tab;
 const CloseConfirmationDialog = @import("close_confirmation_dialog.zig").CloseConfirmationDialog;
 const ConfigErrorsDialog = @import("config_errors_dialog.zig").ConfigErrorsDialog;
 const GlobalShortcuts = @import("global_shortcuts.zig").GlobalShortcuts;
@@ -673,6 +674,8 @@ pub const Application = extern struct {
         switch (action) {
             .close_tab => return Action.closeTab(target, value),
             .close_window => return Action.closeWindow(target),
+
+            .copy_title_to_clipboard => return Action.copyTitleToClipboard(target),
 
             .config_change => try Action.configChange(
                 self,
@@ -1921,6 +1924,13 @@ const Action = struct {
         }
     }
 
+    pub fn copyTitleToClipboard(target: apprt.Target) bool {
+        return switch (target) {
+            .app => false,
+            .surface => |v| v.rt_surface.gobj().copyTitleToClipboard(),
+        };
+    }
+
     pub fn configChange(
         self: *Application,
         target: apprt.Target,
@@ -2356,8 +2366,21 @@ const Action = struct {
                 },
             },
             .tab => {
-                // GTK does not yet support tab title prompting
-                return false;
+                switch (target) {
+                    .app => return false,
+                    .surface => |v| {
+                        const surface = v.rt_surface.surface;
+                        const tab = ext.getAncestor(
+                            Tab,
+                            surface.as(gtk.Widget),
+                        ) orelse {
+                            log.warn("surface is not in a tab, ignoring prompt_tab_title", .{});
+                            return false;
+                        };
+                        tab.promptTabTitle();
+                        return true;
+                    },
+                }
             },
         }
     }
