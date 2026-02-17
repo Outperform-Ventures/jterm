@@ -50,49 +50,110 @@ pub const Palette = [256]RGB;
 /// Mask that can be used to set which palette indexes were set.
 pub const PaletteMask = std.StaticBitSet(@typeInfo(Palette).array.len);
 
+/// Generate the 256-color palette from the user's base16 theme colors,
+/// terminal background, and terminal foreground.
+///
+/// Motivation: The default 256-color palette uses fixed, fully-saturated
+/// colors that clash with custom base16 themes, have poor readability in
+/// dark shades (the first non-black shade jumps to 37% intensity instead
+/// of the expected 20%), and exhibit inconsistent perceived brightness
+/// across hues of the same shade (e.g., blue appears darker than green).
+/// By generating the extended palette from the user's chosen colors,
+/// programs can use the richer 256-color range without requiring their
+/// own theme configuration, and light/dark switching works automatically.
+///
+/// The 216-color cube (indices 16–231) is built via trilinear
+/// interpolation in CIELAB space over the 8 base colors. The base16
+/// palette maps to the 8 corners of a 6×6×6 RGB cube as follows:
+///
+///   R=0 edge: bg      → base[1] (red)
+///   R=5 edge: base[6] → fg
+///   G=0 edge: bg/base[6] (via R) → base[2]/base[4] (green/blue via R)
+///   G=5 edge: base[1]/fg (via R) → base[3]/base[5] (yellow/magenta via R)
+///
+/// For each R slice, four corner colors (c0–c3) are interpolated along
+/// the R axis, then for each G row two edge colors (c4–c5) are
+/// interpolated along G, and finally each B cell is interpolated along B
+/// to produce the final color. CIELAB interpolation ensures perceptually
+/// uniform brightness transitions across different hues.
+///
+/// The 24-step grayscale ramp (indices 232–255) is a simple linear
+/// interpolation in CIELAB from the background to the foreground,
+/// excluding pure black and white (available in the cube at (0,0,0)
+/// and (5,5,5)). The interpolation parameter runs from 1/25 to 24/25.
+///
 /// Fill `skip` with user-defined color indexes to avoid replacing them.
+///
+/// Reference: https://gist.github.com/jake-stewart/0a8ea46159a7da2c808e5be2177e1783
 pub fn generate256Color(
     base: Palette,
     skip: PaletteMask,
     bg: RGB,
     fg: RGB,
 ) Palette {
-    var palette = base;
-    var base8_lab: [8]LAB = undefined;
-    for (0..8) |i| base8_lab[i] = LAB.fromRgb(palette[i]);
-    const bg_lab = LAB.fromRgb(bg);
-    const fg_lab = LAB.fromRgb(fg);
+    // Convert the background, foreground, and 8 base theme colors into
+    // CIELAB space so that all interpolation is perceptually uniform.
+    const bg_lab: LAB = .fromRgb(bg);
+    const fg_lab: LAB = .fromRgb(fg);
+    const base8_lab: [8]LAB = base8: {
+        var base8: [8]LAB = undefined;
+        for (0..8) |i| base8[i] = .fromRgb(base[i]);
+        break :base8 base8;
+    };
 
+    // Start from the base palette so indices 0–15 are preserved as-is.
+    var result = base;
+
+    // Build the 216-color cube (indices 16–231) via trilinear interpolation
+    // in CIELAB. The three nested loops correspond to the R, G, and B axes
+    // of a 6×6×6 cube. For each R slice, four corner colors (c0–c3) are
+    // interpolated along R from the 8 base colors, mapping the cube corners
+    // to theme-aware anchors (see doc comment for the mapping). Then for
+    // each G row, two edge colors (c4–c5) blend along G, and finally each
+    // B cell interpolates along B to produce the final color.
     var idx: usize = 16;
     for (0..6) |ri| {
+        // R-axis corners: blend base colors along the red dimension.
         const tr = @as(f32, @floatFromInt(ri)) / 5.0;
-        const c0 = LAB.lerp(tr, bg_lab, base8_lab[1]);
-        const c1 = LAB.lerp(tr, base8_lab[2], base8_lab[3]);
-        const c2 = LAB.lerp(tr, base8_lab[4], base8_lab[5]);
-        const c3 = LAB.lerp(tr, base8_lab[6], fg_lab);
+        const c0: LAB = .lerp(tr, bg_lab, base8_lab[1]);
+        const c1: LAB = .lerp(tr, base8_lab[2], base8_lab[3]);
+        const c2: LAB = .lerp(tr, base8_lab[4], base8_lab[5]);
+        const c3: LAB = .lerp(tr, base8_lab[6], fg_lab);
         for (0..6) |gi| {
+            // G-axis edges: blend the R-interpolated corners along green.
             const tg = @as(f32, @floatFromInt(gi)) / 5.0;
-            const c4 = LAB.lerp(tg, c0, c1);
-            const c5 = LAB.lerp(tg, c2, c3);
+            const c4: LAB = .lerp(tg, c0, c1);
+            const c5: LAB = .lerp(tg, c2, c3);
             for (0..6) |bi| {
+                // B-axis: final interpolation along blue, then convert back to RGB.
                 if (!skip.isSet(idx)) {
-                    const c6 = LAB.lerp(@as(f32, @floatFromInt(bi)) / 5.0, c4, c5);
-                    palette[idx] = c6.toRgb();
+                    const c6: LAB = .lerp(
+                        @as(f32, @floatFromInt(bi)) / 5.0,
+                        c4,
+                        c5,
+                    );
+                    result[idx] = c6.toRgb();
                 }
+
                 idx += 1;
             }
         }
     }
 
+    // Build the 24-step grayscale ramp (indices 232–255) by linearly
+    // interpolating in CIELAB from background to foreground. The parameter
+    // runs from 1/25 to 24/25, excluding the endpoints which are already
+    // available in the cube at (0,0,0) and (5,5,5).
     for (0..24) |i| {
         const t = @as(f32, @floatFromInt(i + 1)) / 25.0;
         if (!skip.isSet(idx)) {
-            palette[idx] = LAB.lerp(t, bg_lab, fg_lab).toRgb();
+            const c: LAB = .lerp(t, bg_lab, fg_lab);
+            result[idx] = c.toRgb();
         }
         idx += 1;
     }
 
-    return palette;
+    return result;
 }
 
 /// A palette that can have its colors changed and reset. Purposely built
@@ -860,6 +921,71 @@ test "LAB.fromRgb" {
     try testing.expectApproxEqAbs(@as(f32, 32.30), blue.l, epsilon);
     try testing.expectApproxEqAbs(@as(f32, 79.20), blue.a, epsilon);
     try testing.expectApproxEqAbs(@as(f32, -107.86), blue.b, epsilon);
+}
+
+test "generate256Color: base16 preserved" {
+    const testing = std.testing;
+
+    const bg = RGB{ .r = 0, .g = 0, .b = 0 };
+    const fg = RGB{ .r = 255, .g = 255, .b = 255 };
+    const palette = generate256Color(default, .initEmpty(), bg, fg);
+
+    // The first 16 colors (base16) must remain unchanged.
+    for (0..16) |i| {
+        try testing.expectEqual(default[i], palette[i]);
+    }
+}
+
+test "generate256Color: cube corners match base colors" {
+    const testing = std.testing;
+
+    const bg = RGB{ .r = 0, .g = 0, .b = 0 };
+    const fg = RGB{ .r = 255, .g = 255, .b = 255 };
+    const palette = generate256Color(default, .initEmpty(), bg, fg);
+
+    // Index 16 is cube (0,0,0) which should equal bg.
+    try testing.expectEqual(bg, palette[16]);
+
+    // Index 231 is cube (5,5,5) which should equal fg.
+    try testing.expectEqual(fg, palette[231]);
+}
+
+test "generate256Color: grayscale ramp monotonic luminance" {
+    const testing = std.testing;
+
+    const bg = RGB{ .r = 0, .g = 0, .b = 0 };
+    const fg = RGB{ .r = 255, .g = 255, .b = 255 };
+    const palette = generate256Color(default, .initEmpty(), bg, fg);
+
+    // The grayscale ramp (232–255) should have monotonically increasing
+    // luminance from near-black to near-white.
+    var prev_lum: f64 = 0.0;
+    for (232..256) |i| {
+        const lum = palette[i].luminance();
+        try testing.expect(lum >= prev_lum);
+        prev_lum = lum;
+    }
+}
+
+test "generate256Color: skip mask preserves original colors" {
+    const testing = std.testing;
+
+    const bg = RGB{ .r = 0, .g = 0, .b = 0 };
+    const fg = RGB{ .r = 255, .g = 255, .b = 255 };
+
+    // Mark a few indices as skipped; they should keep their base value.
+    var skip: PaletteMask = .initEmpty();
+    skip.set(20);
+    skip.set(100);
+    skip.set(240);
+
+    const palette = generate256Color(default, skip, bg, fg);
+    try testing.expectEqual(default[20], palette[20]);
+    try testing.expectEqual(default[100], palette[100]);
+    try testing.expectEqual(default[240], palette[240]);
+
+    // A non-skipped index in the cube should differ from the default.
+    try testing.expect(!palette[21].eql(default[21]));
 }
 
 test "LAB.toRgb" {
