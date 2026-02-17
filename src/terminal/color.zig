@@ -47,8 +47,16 @@ pub const default: Palette = default: {
 /// Palette is the 256 color palette.
 pub const Palette = [256]RGB;
 
+/// Mask that can be used to set which palette indexes were set.
+pub const PaletteMask = std.StaticBitSet(@typeInfo(Palette).array.len);
+
 /// Fill `skip` with user-defined color indexes to avoid replacing them.
-pub fn generate_256_palette(base: Palette, skip: std.StaticBitSet(@typeInfo(Palette).array.len), bg: RGB, fg: RGB) Palette {
+pub fn generate256Color(
+    base: Palette,
+    skip: PaletteMask,
+    bg: RGB,
+    fg: RGB,
+) Palette {
     var palette = base;
     var base8_lab: [8]LAB = undefined;
     for (0..8) |i| base8_lab[i] = LAB.fromRgb(palette[i]);
@@ -565,31 +573,54 @@ const LAB = struct {
     a: f32,
     b: f32,
 
+    /// RGB to LAB
     pub fn fromRgb(rgb: RGB) LAB {
+        // Step 1: Normalize sRGB channels from [0, 255] to [0.0, 1.0].
         var r: f32 = @as(f32, @floatFromInt(rgb.r)) / 255.0;
         var g: f32 = @as(f32, @floatFromInt(rgb.g)) / 255.0;
         var b: f32 = @as(f32, @floatFromInt(rgb.b)) / 255.0;
 
+        // Step 2: Apply the inverse sRGB companding (gamma correction) to
+        // convert from sRGB to linear RGB. The sRGB transfer function has
+        // two segments: a linear portion for small values and a power curve
+        // for the rest.
         r = if (r > 0.04045) std.math.pow(f32, (r + 0.055) / 1.055, 2.4) else r / 12.92;
         g = if (g > 0.04045) std.math.pow(f32, (g + 0.055) / 1.055, 2.4) else g / 12.92;
         b = if (b > 0.04045) std.math.pow(f32, (b + 0.055) / 1.055, 2.4) else b / 12.92;
 
+        // Step 3: Convert linear RGB to CIE XYZ using the sRGB to XYZ
+        // transformation matrix (D65 illuminant). The X and Z values are
+        // normalized by the D65 white point reference values (Xn=0.95047,
+        // Zn=1.08883; Yn=1.0 is implicit).
         var x = (r * 0.4124564 + g * 0.3575761 + b * 0.1804375) / 0.95047;
         var y = r * 0.2126729 + g * 0.7151522 + b * 0.0721750;
         var z = (r * 0.0193339 + g * 0.1191920 + b * 0.9503041) / 1.08883;
 
+        // Step 4: Apply the CIE f(t) nonlinear transform to each XYZ
+        // component. Above the threshold (epsilon ≈ 0.008856) the cube
+        // root is used; below it, a linear approximation avoids numerical
+        // instability near zero.
         x = if (x > 0.008856) std.math.cbrt(x) else 7.787 * x + 16.0 / 116.0;
         y = if (y > 0.008856) std.math.cbrt(y) else 7.787 * y + 16.0 / 116.0;
         z = if (z > 0.008856) std.math.cbrt(z) else 7.787 * z + 16.0 / 116.0;
 
+        // Step 5: Compute the final CIELAB values from the transformed XYZ.
+        // L* is lightness (0–100), a* is green–red, b* is blue–yellow.
         return .{ .l = 116.0 * y - 16.0, .a = 500.0 * (x - y), .b = 200.0 * (y - z) };
     }
 
+    /// LAB to RGB
     pub fn toRgb(self: LAB) RGB {
+        // Step 1: Recover the intermediate f(Y), f(X), f(Z) values from
+        // L*a*b* by inverting the CIELAB formulas.
         const y = (self.l + 16.0) / 116.0;
         const x = self.a / 500.0 + y;
         const z = y - self.b / 200.0;
 
+        // Step 2: Apply the inverse CIE f(t) transform to get back to
+        // XYZ. Above epsilon (≈0.008856) the cube is used; below it the
+        // linear segment is inverted. Results are then scaled by the D65
+        // white point reference values (Xn=0.95047, Zn=1.08883; Yn=1.0).
         const x3 = x * x * x;
         const y3 = y * y * y;
         const z3 = z * z * z;
@@ -597,14 +628,21 @@ const LAB = struct {
         const yf = if (y3 > 0.008856) y3 else (y - 16.0 / 116.0) / 7.787;
         const zf = (if (z3 > 0.008856) z3 else (z - 16.0 / 116.0) / 7.787) * 1.08883;
 
+        // Step 3: Convert CIE XYZ back to linear RGB using the XYZ to sRGB
+        // matrix (inverse of the sRGB to XYZ matrix, D65 illuminant).
         var r = xf * 3.2404542 - yf * 1.5371385 - zf * 0.4985314;
         var g = -xf * 0.9692660 + yf * 1.8760108 + zf * 0.0415560;
         var b = xf * 0.0556434 - yf * 0.2040259 + zf * 1.0572252;
 
+        // Step 4: Apply sRGB companding (gamma correction) to convert from
+        // linear RGB back to sRGB. This is the forward sRGB transfer
+        // function with the same two-segment split as the inverse.
         r = if (r > 0.0031308) 1.055 * std.math.pow(f32, r, 1.0 / 2.4) - 0.055 else 12.92 * r;
         g = if (g > 0.0031308) 1.055 * std.math.pow(f32, g, 1.0 / 2.4) - 0.055 else 12.92 * g;
         b = if (b > 0.0031308) 1.055 * std.math.pow(f32, b, 1.0 / 2.4) - 0.055 else 12.92 * b;
 
+        // Step 5: Clamp to [0.0, 1.0], scale to [0, 255], and round to
+        // the nearest integer to produce the final 8-bit sRGB values.
         return .{
             .r = @intFromFloat(@min(@max(r, 0.0), 1.0) * 255.0 + 0.5),
             .g = @intFromFloat(@min(@max(g, 0.0), 1.0) * 255.0 + 0.5),
@@ -612,8 +650,15 @@ const LAB = struct {
         };
     }
 
+    /// Linearly interpolate between two LAB colors component-wise.
+    /// `t` is the interpolation factor in [0, 1]: t=0 returns `a`,
+    /// t=1 returns `b`, and values in between blend proportionally.
     pub fn lerp(t: f32, a: LAB, b: LAB) LAB {
-        return .{ .l = a.l + t * (b.l - a.l), .a = a.a + t * (b.a - a.a), .b = a.b + t * (b.b - a.b) };
+        return .{
+            .l = a.l + t * (b.l - a.l),
+            .a = a.a + t * (b.a - a.a),
+            .b = a.b + t * (b.b - a.b),
+        };
     }
 };
 
@@ -780,4 +825,62 @@ test "DynamicPalette: changeDefault with multiple changes" {
     try testing.expectEqual(green, p.current[2]);
     try testing.expectEqual(blue, p.current[3]);
     try testing.expectEqual(@as(usize, 3), p.mask.count());
+}
+
+test "LAB.fromRgb" {
+    const testing = std.testing;
+    const epsilon = 0.5;
+
+    // White (255, 255, 255) -> L*=100, a*=0, b*=0
+    const white = LAB.fromRgb(.{ .r = 255, .g = 255, .b = 255 });
+    try testing.expectApproxEqAbs(@as(f32, 100.0), white.l, epsilon);
+    try testing.expectApproxEqAbs(@as(f32, 0.0), white.a, epsilon);
+    try testing.expectApproxEqAbs(@as(f32, 0.0), white.b, epsilon);
+
+    // Black (0, 0, 0) -> L*=0, a*=0, b*=0
+    const black = LAB.fromRgb(.{ .r = 0, .g = 0, .b = 0 });
+    try testing.expectApproxEqAbs(@as(f32, 0.0), black.l, epsilon);
+    try testing.expectApproxEqAbs(@as(f32, 0.0), black.a, epsilon);
+    try testing.expectApproxEqAbs(@as(f32, 0.0), black.b, epsilon);
+
+    // Pure red (255, 0, 0) -> L*≈53.23, a*≈80.11, b*≈67.22
+    const red = LAB.fromRgb(.{ .r = 255, .g = 0, .b = 0 });
+    try testing.expectApproxEqAbs(@as(f32, 53.23), red.l, epsilon);
+    try testing.expectApproxEqAbs(@as(f32, 80.11), red.a, epsilon);
+    try testing.expectApproxEqAbs(@as(f32, 67.22), red.b, epsilon);
+
+    // Pure green (0, 128, 0) -> L*≈46.23, a*≈-51.70, b*≈49.90
+    const green = LAB.fromRgb(.{ .r = 0, .g = 128, .b = 0 });
+    try testing.expectApproxEqAbs(@as(f32, 46.23), green.l, epsilon);
+    try testing.expectApproxEqAbs(@as(f32, -51.70), green.a, epsilon);
+    try testing.expectApproxEqAbs(@as(f32, 49.90), green.b, epsilon);
+
+    // Pure blue (0, 0, 255) -> L*≈32.30, a*≈79.20, b*≈-107.86
+    const blue = LAB.fromRgb(.{ .r = 0, .g = 0, .b = 255 });
+    try testing.expectApproxEqAbs(@as(f32, 32.30), blue.l, epsilon);
+    try testing.expectApproxEqAbs(@as(f32, 79.20), blue.a, epsilon);
+    try testing.expectApproxEqAbs(@as(f32, -107.86), blue.b, epsilon);
+}
+
+test "LAB.toRgb" {
+    const testing = std.testing;
+
+    // Round-trip: RGB -> LAB -> RGB should recover the original values.
+    const cases = [_]RGB{
+        .{ .r = 255, .g = 255, .b = 255 },
+        .{ .r = 0, .g = 0, .b = 0 },
+        .{ .r = 255, .g = 0, .b = 0 },
+        .{ .r = 0, .g = 128, .b = 0 },
+        .{ .r = 0, .g = 0, .b = 255 },
+        .{ .r = 128, .g = 128, .b = 128 },
+        .{ .r = 64, .g = 224, .b = 208 },
+    };
+
+    for (cases) |expected| {
+        const lab = LAB.fromRgb(expected);
+        const actual = lab.toRgb();
+        try testing.expectEqual(expected.r, actual.r);
+        try testing.expectEqual(expected.g, actual.g);
+        try testing.expectEqual(expected.b, actual.b);
+    }
 }
