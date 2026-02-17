@@ -48,12 +48,7 @@ pub const default: Palette = default: {
 pub const Palette = [256]RGB;
 
 /// Fill `skip` with user-defined color indexes to avoid replacing them.
-pub fn generate_256_palette(
-    base: Palette,
-    skip: std.StaticBitSet(@typeInfo(Palette).array.len),
-    bg: RGB,
-    fg: RGB
-) Palette {
+pub fn generate_256_palette(base: Palette, skip: std.StaticBitSet(@typeInfo(Palette).array.len), bg: RGB, fg: RGB) Palette {
     var palette = base;
     var base8_lab: [8]LAB = undefined;
     for (0..8) |i| base8_lab[i] = LAB.fromRgb(palette[i]);
@@ -73,8 +68,7 @@ pub fn generate_256_palette(
             const c5 = LAB.lerp(tg, c2, c3);
             for (0..6) |bi| {
                 if (!skip.isSet(idx)) {
-                    const c6 = LAB.lerp(
-                        @as(f32, @floatFromInt(bi)) / 5.0, c4, c5);
+                    const c6 = LAB.lerp(@as(f32, @floatFromInt(bi)) / 5.0, c4, c5);
                     palette[idx] = c6.toRgb();
                 }
                 idx += 1;
@@ -619,14 +613,9 @@ const LAB = struct {
     }
 
     pub fn lerp(t: f32, a: LAB, b: LAB) LAB {
-        return .{
-            .l = a.l + t * (b.l - a.l),
-            .a = a.a + t * (b.a - a.a),
-            .b = a.b + t * (b.b - a.b)
-        };
+        return .{ .l = a.l + t * (b.l - a.l), .a = a.a + t * (b.a - a.a), .b = a.b + t * (b.b - a.b) };
     }
 };
-
 
 test "palette: default" {
     const testing = std.testing;

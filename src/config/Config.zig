@@ -10443,4 +10443,3 @@ test "compatibility: window new-window" {
         );
     }
 }
-
