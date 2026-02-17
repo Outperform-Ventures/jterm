@@ -167,9 +167,7 @@ pub const DynamicPalette = struct {
 
     /// A bitset where each bit represents whether the corresponding
     /// palette index has been modified from its default value.
-    mask: Mask,
-
-    const Mask = std.StaticBitSet(@typeInfo(Palette).array.len);
+    mask: PaletteMask,
 
     pub const default: DynamicPalette = .init(colorpkg.default);
 

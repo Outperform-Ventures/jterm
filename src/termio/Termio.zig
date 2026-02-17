@@ -175,8 +175,13 @@ pub const DerivedConfig = struct {
         errdefer arena.deinit();
         const alloc = arena.allocator();
 
-        const palette = if (config.@"generate-256-palette")
-            terminalpkg.color.generate_256_palette(config.palette.value, config.palette.mask, config.background.toTerminalRGB(), config.foreground.toTerminalRGB())
+        const palette: terminalpkg.color.Palette = if (config.@"palette-generate")
+            terminalpkg.color.generate256Color(
+                config.palette.value,
+                config.palette.mask,
+                config.background.toTerminalRGB(),
+                config.foreground.toTerminalRGB(),
+            )
         else
             config.palette.value;
 
