@@ -63,7 +63,7 @@ pub fn addStepDependencies(
 fn createUpdateStep(b: *std.Build) !*std.Build.Step {
     const xgettext = b.addSystemCommand(&.{
         "xgettext",
-        "--language=C", //  Silence the "unknown extension" errors
+        "--language=C", // Silence the "unknown extension" errors
         "--from-code=UTF-8",
         "--keyword=_",
         "--keyword=C_:1c,2",
