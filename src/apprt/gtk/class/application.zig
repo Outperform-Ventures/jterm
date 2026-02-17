@@ -36,6 +36,7 @@ const Config = @import("config.zig").Config;
 const Surface = @import("surface.zig").Surface;
 const SplitTree = @import("split_tree.zig").SplitTree;
 const Window = @import("window.zig").Window;
+const Tab = @import("tab.zig").Tab;
 const CloseConfirmationDialog = @import("close_confirmation_dialog.zig").CloseConfirmationDialog;
 const ConfigErrorsDialog = @import("config_errors_dialog.zig").ConfigErrorsDialog;
 const GlobalShortcuts = @import("global_shortcuts.zig").GlobalShortcuts;
@@ -213,6 +214,11 @@ pub const Application = extern struct {
         /// Providers for loading custom stylesheets defined by user
         custom_css_providers: std.ArrayListUnmanaged(*gtk.CssProvider) = .empty,
 
+        /// A copy of the LANG environment variable that was provided to Ghostty
+        /// by the system. If this is null, the LANG environment variable did
+        /// not exist in Ghostty's environment variable.
+        saved_language: ?[:0]const u8 = null,
+
         pub var offset: c_int = 0;
     };
 
@@ -249,15 +255,6 @@ pub const Application = extern struct {
         gtk_version.logVersion();
         adw_version.logVersion();
 
-        // Set gettext global domain to be our app so that our unqualified
-        // translations map to our translations.
-        internal_os.i18n.initGlobalDomain() catch |err| {
-            // Failures shuldn't stop application startup. Our app may
-            // not translate correctly but it should still work. In the
-            // future we may want to add this to the GUI to show.
-            log.warn("i18n initialization failed error={}", .{err});
-        };
-
         // Load our configuration.
         var config = CoreConfig.load(alloc) catch |err| err: {
             // If we fail to load the configuration, then we should log
@@ -274,6 +271,27 @@ pub const Application = extern struct {
             break :err def;
         };
         defer config.deinit();
+
+        const saved_language: ?[:0]const u8 = saved_language: {
+            const old_language = old_language: {
+                const result = (internal_os.getenv(alloc, "LANG") catch break :old_language null) orelse break :old_language null;
+                defer result.deinit(alloc);
+                break :old_language alloc.dupeZ(u8, result.value) catch break :old_language null;
+            };
+
+            if (config.language) |language| _ = internal_os.setenv("LANG", language);
+
+            break :saved_language old_language;
+        };
+
+        // Set gettext global domain to be our app so that our unqualified
+        // translations map to our translations.
+        internal_os.i18n.initGlobalDomain() catch |err| {
+            // Failures shuldn't stop application startup. Our app may
+            // not translate correctly but it should still work. In the
+            // future we may want to add this to the GUI to show.
+            log.warn("i18n initialization failed error={}", .{err});
+        };
 
         // Setup our GTK init env vars
         setGtkEnv(&config) catch |err| switch (err) {
@@ -374,7 +392,7 @@ pub const Application = extern struct {
         // Setup our private state. More setup is done in the init
         // callback that GObject calls, but we can't pass this data through
         // to there (and we don't need it there directly) so this is here.
-        const priv = self.private();
+        const priv: *Private = self.private();
         priv.* = .{
             .rt_app = rt_app,
             .core_app = core_app,
@@ -383,6 +401,7 @@ pub const Application = extern struct {
             .css_provider = css_provider,
             .custom_css_providers = .empty,
             .global_shortcuts = gobject.ext.newInstance(GlobalShortcuts, .{}),
+            .saved_language = saved_language,
         };
 
         // Signals
@@ -415,11 +434,12 @@ pub const Application = extern struct {
     /// ensures that our memory is cleaned up properly.
     pub fn deinit(self: *Self) void {
         const alloc = self.allocator();
-        const priv = self.private();
+        const priv: *Private = self.private();
         priv.config.unref();
         priv.winproto.deinit(alloc);
         priv.global_shortcuts.unref();
         if (priv.transient_cgroup_base) |base| alloc.free(base);
+        if (priv.saved_language) |language| alloc.free(language);
         if (gdk.Display.getDefault()) |display| {
             gtk.StyleContext.removeProviderForDisplay(
                 display,
@@ -443,6 +463,12 @@ pub const Application = extern struct {
     /// this wherever possible so we get leak detection in debug/tests.
     pub fn allocator(self: *Self) std.mem.Allocator {
         return self.private().core_app.alloc;
+    }
+
+    /// Get the original language that Ghostty was launched with. This returns a
+    /// pointer to internal memory so it must be copied by callers.
+    pub fn savedLanguage(self: *Self) ?[:0]const u8 {
+        return self.private().saved_language;
     }
 
     /// Run the application. This is a replacement for `gio.Application.run`
@@ -648,6 +674,8 @@ pub const Application = extern struct {
         switch (action) {
             .close_tab => return Action.closeTab(target, value),
             .close_window => return Action.closeWindow(target),
+
+            .copy_title_to_clipboard => return Action.copyTitleToClipboard(target),
 
             .config_change => try Action.configChange(
                 self,
@@ -1896,6 +1924,13 @@ const Action = struct {
         }
     }
 
+    pub fn copyTitleToClipboard(target: apprt.Target) bool {
+        return switch (target) {
+            .app => false,
+            .surface => |v| v.rt_surface.gobj().copyTitleToClipboard(),
+        };
+    }
+
     pub fn configChange(
         self: *Application,
         target: apprt.Target,
@@ -2331,8 +2366,21 @@ const Action = struct {
                 },
             },
             .tab => {
-                // GTK does not yet support tab title prompting
-                return false;
+                switch (target) {
+                    .app => return false,
+                    .surface => |v| {
+                        const surface = v.rt_surface.surface;
+                        const tab = ext.getAncestor(
+                            Tab,
+                            surface.as(gtk.Widget),
+                        ) orelse {
+                            log.warn("surface is not in a tab, ignoring prompt_tab_title", .{});
+                            return false;
+                        };
+                        tab.promptTabTitle();
+                        return true;
+                    },
+                }
             },
         }
     }
