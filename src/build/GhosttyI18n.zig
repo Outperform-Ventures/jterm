@@ -147,7 +147,7 @@ fn createUpdateStep(b: *std.Build) !*std.Build.Step {
         }
     }
 
-    // Add suport for localizing our `nautilus` integration
+    // Add support for localizing our `nautilus` integration
     const xgettext_py = b.addSystemCommand(&.{
         "xgettext",
         "--language=Python",
