@@ -7,7 +7,13 @@ extension NSWorkspace {
     var defaultTextEditor: URL? {
         defaultApplicationURL(forContentType: UTType.plainText.identifier)
     }
-    
+
+    /// Returns the URL of the default terminal (Unix Executable) application.
+    /// - Returns: The URL of the default terminal, or nil if no default terminal is found.
+    var defaultTerminal: URL? {
+        defaultApplicationURL(forContentType: UTType.unixExecutable.identifier)
+    }
+
     /// Returns the URL of the default application for opening files with the specified content type.
     /// - Parameter contentType: The content type identifier (UTI) to find the default application for.
     /// - Returns: The URL of the default application, or nil if no default application is found.
@@ -26,5 +32,4 @@ extension NSWorkspace {
         guard let uti = UTType(filenameExtension: ext) else { return nil}
         return defaultApplicationURL(forContentType: uti.identifier)
     }
-    
 }
