@@ -20,6 +20,7 @@ jobs:
       - build-examples
       - build-flatpak
       - build-libghostty-vt
+      - build-libghostty-vt-macos
       - build-linux
       - build-linux-libghostty
       - build-nix
