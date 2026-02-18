@@ -20,10 +20,12 @@
 # "!denounce" or "!denounce [username]" on a discussion.
 bennettp123
 bernsno
+bitigchi
 bkircher
 daiimus
 doprz
 elias8
+eriksremess
 filip7
 hakonhagland
 hqnna
@@ -34,6 +36,7 @@ mahnokropotkinvich
 marrocco-simone
 mikailmm
 mitchellh
+pan93412
 peilingjiang
 peterdavehello
 pluiedev
@@ -43,4 +46,5 @@ prsweet
 qwerasd205
 rmunn
 tweedbeetle
+vlsi
 yamshta
