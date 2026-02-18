@@ -1,6 +1,7 @@
 const GhosttyLibVt = @This();
 
 const std = @import("std");
+const builtin = @import("builtin");
 const assert = std.debug.assert;
 const RunStep = std.Build.Step.Run;
 const GhosttyZig = @import("GhosttyZig.zig");
@@ -61,9 +62,14 @@ pub fn initShared(
         .{ .include_extensions = &.{".h"} },
     );
 
+    if (lib.rootModuleTarget().os.tag.isDarwin()) {
+        lib.use_llvm = true;
+        lib.headerpad_max_install_names = true;
+    }
+
     // We always require the system SDK so that our system headers are available.
     // This makes things like `os/log.h` and iOS SDK available for cross-compiling.
-    if (lib.rootModuleTarget().os.tag.isDarwin()) {
+    if (builtin.os.tag.isDarwin() and lib.rootModuleTarget().os.tag.isDarwin()) {
         try @import("apple_sdk").addPaths(b, lib);
     }
 
