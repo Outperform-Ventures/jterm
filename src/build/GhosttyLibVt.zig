@@ -63,14 +63,16 @@ pub fn initShared(
     );
 
     if (lib.rootModuleTarget().os.tag.isDarwin()) {
+        // Self-hosted x86_64 doesn't work for darwin. It may not work
+        // for other platforms too but definitely darwin.
         lib.use_llvm = true;
-        lib.headerpad_max_install_names = true;
-    }
 
-    // We always require the system SDK so that our system headers are available.
-    // This makes things like `os/log.h` and iOS SDK available for cross-compiling.
-    if (builtin.os.tag.isDarwin() and lib.rootModuleTarget().os.tag.isDarwin()) {
-        try @import("apple_sdk").addPaths(b, lib);
+        // This is required for codesign and dynamic linking to work.
+        lib.headerpad_max_install_names = true;
+
+        // If we're not cross compiling then we try to find the Apple
+        // SDK using standard Apple tooling.
+        if (builtin.os.tag.isDarwin()) try @import("apple_sdk").addPaths(b, lib);
     }
 
     // Get our debug symbols
