@@ -1174,7 +1174,7 @@ fn selectionScrollTick(self: *Surface) !void {
     }
 
     // Scroll the viewport as required
-    try t.scrollViewport(.{ .delta = delta });
+    t.scrollViewport(.{ .delta = delta });
 
     // Next, trigger our drag behavior
     const pin = t.screens.active.pages.pin(.{
@@ -2779,7 +2779,7 @@ pub fn keyCallback(
             try self.setSelection(null);
         }
 
-        if (self.config.scroll_to_bottom.keystroke) try self.io.terminal.scrollViewport(.bottom);
+        if (self.config.scroll_to_bottom.keystroke) self.io.terminal.scrollViewport(.bottom);
 
         try self.queueRender();
     }
@@ -3532,7 +3532,7 @@ pub fn scrollCallback(
             // Modify our viewport, this requires a lock since it affects
             // rendering. We have to switch signs here because our delta
             // is negative down but our viewport is positive down.
-            try self.io.terminal.scrollViewport(.{ .delta = y.delta * -1 });
+            self.io.terminal.scrollViewport(.{ .delta = y.delta * -1 });
         }
     }
 
@@ -5063,7 +5063,7 @@ pub fn posToViewport(self: Surface, xpos: f64, ypos: f64) terminal.point.Coordin
 ///
 /// Precondition: the render_state mutex must be held.
 fn scrollToBottom(self: *Surface) !void {
-    try self.io.terminal.scrollViewport(.{ .bottom = {} });
+    self.io.terminal.scrollViewport(.{ .bottom = {} });
     try self.queueRender();
 }
 

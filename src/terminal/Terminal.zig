@@ -1625,7 +1625,7 @@ pub const ScrollViewport = union(enum) {
 };
 
 /// Scroll the viewport of the terminal grid.
-pub fn scrollViewport(self: *Terminal, behavior: ScrollViewport) !void {
+pub fn scrollViewport(self: *Terminal, behavior: ScrollViewport) void {
     self.screens.active.scroll(switch (behavior) {
         .top => .{ .top = {} },
         .bottom => .{ .active = {} },
