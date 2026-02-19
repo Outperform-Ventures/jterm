@@ -128,7 +128,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
         /// Tracks the last bottom-right pin of the screen to detect new output.
         /// When the final line changes (node or y differs), new content was added.
         /// Used for scroll-to-bottom on output feature.
-        last_bottom_node: ?*terminal.PageList.List.Node,
+        last_bottom_node: ?usize,
         last_bottom_y: terminal.size.CellCountInt,
 
         /// The most recent viewport matches so that we can render search
@@ -1176,6 +1176,26 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     return;
                 }
 
+                // If scroll-to-bottom on output is enabled, check if the final line
+                // changed by comparing the bottom-right pin. If the node pointer or
+                // y offset changed, new content was added to the screen.
+                // Update this BEFORE we update our render state so we can
+                // draw the new scrolled data immediately.
+                if (self.config.scroll_to_bottom_on_output) scroll: {
+                    const br = state.terminal.screens.active.pages.getBottomRight(.screen) orelse break :scroll;
+
+                    // If the pin hasn't changed, then don't scroll.
+                    if (self.last_bottom_node == @intFromPtr(br.node) and
+                        self.last_bottom_y == br.y) break :scroll;
+
+                    // Update tracked pin state for next frame
+                    self.last_bottom_node = @intFromPtr(br.node);
+                    self.last_bottom_y = br.y;
+
+                    // Scroll
+                    state.terminal.scrollViewport(.bottom);
+                }
+
                 // Update our terminal state
                 try self.terminal_state.update(self.alloc, state.terminal);
 
@@ -1191,25 +1211,6 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 // can be expensive) and also makes it so we don't need another
                 // cross-thread mailbox message within the IO path.
                 const scrollbar = state.terminal.screens.active.pages.scrollbar();
-
-                // If scroll-to-bottom on output is enabled, check if the final line
-                // changed by comparing the bottom-right pin. If the node pointer or
-                // y offset changed, new content was added to the screen.
-                if (self.config.scroll_to_bottom_on_output) {
-                    const bottom_right = state.terminal.screens.active.pages.getBottomRight(.screen);
-                    if (bottom_right) |br| {
-                        const pin_changed = (self.last_bottom_node != br.node) or
-                            (self.last_bottom_y != br.y);
-
-                        if (pin_changed and !state.terminal.screens.active.viewportIsBottom()) {
-                            _ = self.surface_mailbox.push(.scroll_to_bottom, .instant);
-                        }
-
-                        // Update tracked pin state for next frame
-                        self.last_bottom_node = br.node;
-                        self.last_bottom_y = br.y;
-                    }
-                }
 
                 // Get our preedit state
                 const preedit: ?renderer.State.Preedit = preedit: {

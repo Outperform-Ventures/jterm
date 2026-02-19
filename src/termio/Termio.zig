@@ -641,10 +641,13 @@ pub fn clearScreen(self: *Termio, td: *ThreadData, history: bool) !void {
 }
 
 /// Scroll the viewport
-pub fn scrollViewport(self: *Termio, scroll: terminalpkg.Terminal.ScrollViewport) !void {
+pub fn scrollViewport(
+    self: *Termio,
+    scroll: terminalpkg.Terminal.ScrollViewport,
+) void {
     self.renderer_state.mutex.lock();
     defer self.renderer_state.mutex.unlock();
-    try self.terminal.scrollViewport(scroll);
+    self.terminal.scrollViewport(scroll);
 }
 
 /// Jump the viewport to the prompt.
