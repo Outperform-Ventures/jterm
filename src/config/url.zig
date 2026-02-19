@@ -110,7 +110,6 @@ const bare_relative_path_branch =
     dotted_path_lookahead ++
     bare_relative_path_prefix ++
     path_chars ++ "+" ++
-    dotted_path_space_segments ++
     no_trailing_colon ++
     trailing_spaces_at_eol;
 
@@ -362,6 +361,11 @@ test "url regex" {
         .{
             .input = "/tmp/test  folder/file.txt",
             .expect = "/tmp/test",
+        },
+        // unified diff lines
+        .{
+            .input = "diff --git a/src/font/shaper/harfbuzz.zig b/src/font/shaper/harfbuzz.zig",
+            .expect = "a/src/font/shaper/harfbuzz.zig",
         },
         // Two space-separated absolute paths should match only the first
         .{
