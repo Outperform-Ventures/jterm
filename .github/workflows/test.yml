@@ -11,10 +11,25 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  paths:
+    if: github.repository == 'ghostty-org/ghostty'
+    runs-on: namespace-profile-ghostty-xsm
+    outputs:
+      macos: ${{ steps.filter.outputs.macos }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
+        id: filter
+        with:
+          filters: |
+            macos:
+              - 'macos/**'
+
   required:
     name: "Required Checks: Test"
     runs-on: namespace-profile-ghostty-xsm
     needs:
+      - paths
       - build-bench
       - build-dist
       - build-examples
@@ -929,8 +944,9 @@ jobs:
         run: nix develop -c prettier --check .
 
   swiftlint:
-    if: github.repository == 'ghostty-org/ghostty'
+    if: github.repository == 'ghostty-org/ghostty' && needs.paths.outputs.macos == 'true'
     runs-on: namespace-profile-ghostty-macos-tahoe
+    needs: paths
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
