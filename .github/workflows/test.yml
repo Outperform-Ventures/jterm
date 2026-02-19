@@ -36,6 +36,7 @@ jobs:
       - test-macos
       - pinact
       - prettier
+      - swiftlint
       - alejandra
       - typos
       - shellcheck
@@ -926,6 +927,27 @@ jobs:
           useDaemon: false # sometimes fails on short jobs
       - name: prettier check
         run: nix develop -c prettier --check .
+
+  swiftlint:
+    if: github.repository == 'ghostty-org/ghostty'
+    runs-on: namespace-profile-ghostty-macos-tahoe
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      # TODO(tahoe): https://github.com/NixOS/nix/issues/13342
+      - uses: DeterminateSystems/nix-installer-action@main
+        with:
+          determinate: true
+      - uses: cachix/cachix-action@3ba601ff5bbb07c7220846facfa2cd81eeee15a1 # v16
+        with:
+          name: ghostty
+          authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
+          skipPush: true
+          useDaemon: false # sometimes fails on short jobs
+
+      - name: swiftlint check
+        run: nix develop -c swiftlint lint --strict macos
 
   alejandra:
     if: github.repository == 'ghostty-org/ghostty'
