@@ -1,0 +1,16 @@
+{
+  "id": "PHASE-00-GOLDEN",
+  "phase": 0,
+  "description": "Golden baseline sanity for ls and basic remote round-trip",
+  "operations": [
+    {
+      "name": "ls-shape",
+      "args": ["ls"]
+    },
+    {
+      "name": "ls-json",
+      "args": ["ls"],
+      "compare": true
+    }
+  ]
+}

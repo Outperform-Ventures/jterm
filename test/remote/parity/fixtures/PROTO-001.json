@@ -1,0 +1,12 @@
+{
+  "id": "PROTO-001",
+  "description": "Basic ls round-trip returns ok JSON for both backends",
+  "operations": [
+    {
+      "name": "ls",
+      "args": ["ls"],
+      "expect_rc": 0,
+      "compare": false
+    }
+  ]
+}

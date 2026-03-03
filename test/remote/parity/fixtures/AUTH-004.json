@@ -1,0 +1,17 @@
+{
+  "id": "AUTH-004",
+  "description": "CLI accepts --password-env option syntax",
+  "operations": [
+    {
+      "name": "password-env",
+      "global_options": ["--password-env=JTERM_PARITY_PASSWORD"],
+      "args": ["ls"],
+      "env": {
+        "JTERM_PARITY_PASSWORD": "demo"
+      },
+      "expect_rc": 0,
+      "compare": false,
+      "known_result_codes": [0, 124]
+    }
+  ]
+}

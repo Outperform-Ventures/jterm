@@ -1,0 +1,34 @@
+{
+  "id": "PHASE-01-PROTOCOL-CLI",
+  "phase": 1,
+  "description": "Global options, no-response semantics, and basic protocol-level command handling",
+  "operations": [
+    {
+      "name": "global-match-ls",
+      "global_options": ["--match=id:1"],
+      "args": ["ls"],
+      "compare": true
+    },
+    {
+      "name": "global-match-tab-ls",
+      "global_options": ["--match-tab=title:jterm"],
+      "args": ["ls"],
+      "compare": true
+    },
+    {
+      "name": "global-ignore-no-match",
+      "global_options": ["--ignore-no-match", "--match=id:999999"],
+      "args": ["focus-window"],
+      "compare": true,
+      "timeout_seconds": 5
+    },
+    {
+      "name": "global-no-response",
+      "global_options": ["--no-response"],
+      "args": ["ls"],
+      "compare": true,
+      "compare_rc": true,
+      "expect_stdout_empty": true
+    }
+  ]
+}

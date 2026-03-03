@@ -1,0 +1,47 @@
+{
+  "id": "PHASE-06-METADATA",
+  "phase": 6,
+  "description": "env/user-vars/markers/title/color/logo parity coverage",
+  "operations": [
+    {
+      "name": "env-set",
+      "args": ["env", "PARITY_KEY=phase6"],
+      "compare": true
+    },
+    {
+      "name": "set-user-vars",
+      "args": ["set-user-vars", "PARITY_VAR=phase6"],
+      "compare": true
+    },
+    {
+      "name": "create-marker",
+      "args": ["create-marker", "phase6"],
+      "compare": true
+    },
+    {
+      "name": "remove-marker",
+      "args": ["remove-marker", "phase6"],
+      "compare": true
+    },
+    {
+      "name": "set-window-title",
+      "args": ["set-window-title", "phase6-window"],
+      "compare": true
+    },
+    {
+      "name": "set-tab-title",
+      "args": ["set-tab-title", "phase6-tab"],
+      "compare": true
+    },
+    {
+      "name": "set-tab-color",
+      "args": ["set-tab-color", "active_fg=#ffffff", "active_bg=#303030"],
+      "compare": true
+    },
+    {
+      "name": "set-window-logo",
+      "args": ["set-window-logo", "none"],
+      "compare": true
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "id": "TARGET-004",
+  "description": "close-window with --ignore-no-match succeeds on missing target",
+  "operations": [
+    {
+      "name": "ignore-no-match",
+      "args": ["close-window", "--ignore-no-match", "--match=id:999999999"],
+      "expect_rc": 0,
+      "compare": false
+    }
+  ]
+}

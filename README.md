@@ -51,6 +51,12 @@ See the [download page](https://ghostty.org/download) on the Ghostty website.
 
 See the [documentation](https://ghostty.org/docs) on the Ghostty website.
 
+## jTerm Remote Control
+
+For jTerm-specific remote control usage (`jterm @ ...`), see:
+
+- [`docs/JTERM_REMOTE_CONTROL_USER_GUIDE.md`](docs/JTERM_REMOTE_CONTROL_USER_GUIDE.md)
+
 ## Contributing and Developing
 
 If you have any ideas, issues, etc. regarding Ghostty, or would like to

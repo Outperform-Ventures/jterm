@@ -1,0 +1,25 @@
+{
+  "id": "PHASE-03-LAUNCH-CREATION",
+  "phase": 3,
+  "description": "new-window/new-tab/launch parity coverage",
+  "operations": [
+    {
+      "name": "new-window",
+      "args": ["new-window"],
+      "compare": true,
+      "timeout_seconds": 10
+    },
+    {
+      "name": "launch-minimal",
+      "args": ["launch", "--type=os-window", "--title=phase3", "--env=PARITY_PHASE=3", "bash", "-lc", "echo phase3"],
+      "compare": true,
+      "timeout_seconds": 10
+    },
+    {
+      "name": "launch-window-type",
+      "args": ["launch", "--type=window", "bash", "-lc", "echo phase3-window"],
+      "compare": true,
+      "timeout_seconds": 10
+    }
+  ]
+}

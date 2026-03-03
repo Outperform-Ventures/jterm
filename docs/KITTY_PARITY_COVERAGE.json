@@ -1,0 +1,459 @@
+{
+  "command_count": 39,
+  "command_option_count_total": 205,
+  "commands": {
+    "action": {
+      "options": {
+        "--help, -h [=no]": "complete",
+        "--match, -m": "complete",
+        "--no-response [=no]": "complete",
+        "--self [=no]": "complete"
+      },
+      "phase": 5,
+      "status": "complete"
+    },
+    "close-tab": {
+      "options": {
+        "--help, -h [=no]": "complete",
+        "--ignore-no-match [=no]": "complete",
+        "--match, -m": "complete",
+        "--no-response [=no]": "complete",
+        "--self [=no]": "complete"
+      },
+      "phase": 4,
+      "status": "complete"
+    },
+    "close-window": {
+      "options": {
+        "--help, -h [=no]": "complete",
+        "--ignore-no-match [=no]": "complete",
+        "--match, -m": "complete",
+        "--no-response [=no]": "complete",
+        "--self [=no]": "complete"
+      },
+      "phase": 4,
+      "status": "complete"
+    },
+    "create-marker": {
+      "options": {
+        "--help, -h [=no]": "complete",
+        "--match, -m": "complete",
+        "--self [=no]": "complete"
+      },
+      "phase": 6,
+      "status": "complete"
+    },
+    "detach-tab": {
+      "options": {
+        "--help, -h [=no]": "complete",
+        "--match, -m": "complete",
+        "--self [=no]": "complete",
+        "--target-tab, -t": "complete"
+      },
+      "phase": 4,
+      "status": "complete"
+    },
+    "detach-window": {
+      "options": {
+        "--help, -h [=no]": "complete",
+        "--match, -m": "complete",
+        "--self [=no]": "complete",
+        "--stay-in-tab [=no]": "complete",
+        "--target-tab, -t": "complete"
+      },
+      "phase": 4,
+      "status": "complete"
+    },
+    "disable-ligatures": {
+      "options": {
+        "--all, -a [=no]": "complete",
+        "--help, -h [=no]": "complete",
+        "--match, -m": "complete",
+        "--match-tab, -t": "complete"
+      },
+      "phase": 7,
+      "status": "complete"
+    },
+    "env": {
+      "options": {
+        "--help, -h [=no]": "complete"
+      },
+      "phase": 6,
+      "status": "complete"
+    },
+    "focus-tab": {
+      "options": {
+        "--help, -h [=no]": "complete",
+        "--match, -m": "complete",
+        "--no-response [=no]": "complete"
+      },
+      "phase": 4,
+      "status": "complete"
+    },
+    "focus-window": {
+      "options": {
+        "--help, -h [=no]": "complete",
+        "--match, -m": "complete",
+        "--no-response [=no]": "complete"
+      },
+      "phase": 4,
+      "status": "complete"
+    },
+    "get-colors": {
+      "options": {
+        "--configured, -c [=no]": "complete",
+        "--help, -h [=no]": "complete",
+        "--match, -m": "complete"
+      },
+      "phase": 7,
+      "status": "complete"
+    },
+    "get-text": {
+      "options": {
+        "--add-cursor [=no]": "complete",
+        "--add-wrap-markers [=no]": "complete",
+        "--ansi [=no]": "complete",
+        "--clear-selection [=no]": "complete",
+        "--extent [=screen]": "complete",
+        "--help, -h [=no]": "complete",
+        "--match, -m": "complete",
+        "--self [=no]": "complete"
+      },
+      "phase": 7,
+      "status": "complete"
+    },
+    "goto-layout": {
+      "options": {
+        "--help, -h [=no]": "complete",
+        "--match, -m": "complete"
+      },
+      "phase": 4,
+      "status": "complete"
+    },
+    "kitten": {
+      "options": {
+        "--help, -h [=no]": "complete",
+        "--match, -m": "complete"
+      },
+      "phase": 5,
+      "status": "complete"
+    },
+    "last-used-layout": {
+      "options": {
+        "--all, -a [=no]": "complete",
+        "--help, -h [=no]": "complete",
+        "--match, -m": "complete",
+        "--no-response [=no]": "complete"
+      },
+      "phase": 4,
+      "status": "complete"
+    },
+    "launch": {
+      "options": {
+        "--add-to-session": "complete",
+        "--allow-remote-control [=no]": "complete",
+        "--bias [=0]": "complete",
+        "--color": "complete",
+        "--copy-cmdline [=no]": "complete",
+        "--copy-colors [=no]": "complete",
+        "--copy-env [=no]": "complete",
+        "--cwd": "complete",
+        "--dont-take-focus, --keep-focus [=no]": "complete",
+        "--env": "complete",
+        "--help, -h [=no]": "complete",
+        "--hold [=no]": "complete",
+        "--hold-after-ssh [=no]": "complete",
+        "--location [=default]": "complete",
+        "--logo": "complete",
+        "--logo-alpha [=-1]": "complete",
+        "--logo-position": "complete",
+        "--marker": "complete",
+        "--match, -m": "complete",
+        "--next-to": "complete",
+        "--no-response [=no]": "complete",
+        "--os-panel": "complete",
+        "--os-window-class": "complete",
+        "--os-window-name": "complete",
+        "--os-window-state [=normal]": "complete",
+        "--os-window-title": "complete",
+        "--remote-control-password": "complete",
+        "--response-timeout [=86400]": "complete",
+        "--self [=no]": "complete",
+        "--source-window": "complete",
+        "--spacing": "complete",
+        "--stdin-add-formatting [=no]": "complete",
+        "--stdin-add-line-wrap-markers [=no]": "complete",
+        "--stdin-source [=none]": "complete",
+        "--tab-title": "complete",
+        "--title, --window-title": "complete",
+        "--type [=window]": "complete",
+        "--var": "complete",
+        "--wait-for-child-to-exit [=no]": "complete",
+        "--watcher, -w": "complete"
+      },
+      "phase": 3,
+      "status": "complete"
+    },
+    "load-config": {
+      "options": {
+        "--help, -h [=no]": "complete",
+        "--ignore-overrides [=no]": "complete",
+        "--no-response [=no]": "complete",
+        "--override, -o": "complete"
+      },
+      "phase": 8,
+      "status": "complete"
+    },
+    "ls": {
+      "options": {
+        "--all-env-vars [=no]": "complete",
+        "--help, -h [=no]": "complete",
+        "--match, -m": "complete",
+        "--match-tab, -t": "complete",
+        "--output-format [=json]": "complete",
+        "--self [=no]": "complete"
+      },
+      "phase": 2,
+      "status": "complete"
+    },
+    "new-window": {
+      "options": {
+        "--cwd": "complete",
+        "--dont-take-focus, --keep-focus [=no]": "complete",
+        "--help, -h [=no]": "complete",
+        "--match, -m": "complete",
+        "--new-tab [=no]": "complete",
+        "--no-response [=no]": "complete",
+        "--tab-title": "complete",
+        "--title": "complete",
+        "--window-type [=kitty]": "complete"
+      },
+      "phase": 3,
+      "status": "complete"
+    },
+    "remove-marker": {
+      "options": {
+        "--help, -h [=no]": "complete",
+        "--match, -m": "complete",
+        "--self [=no]": "complete"
+      },
+      "phase": 6,
+      "status": "complete"
+    },
+    "resize-os-window": {
+      "options": {
+        "--action [=resize]": "complete",
+        "--height [=0]": "complete",
+        "--help, -h [=no]": "complete",
+        "--incremental [=no]": "complete",
+        "--match, -m": "complete",
+        "--no-response [=no]": "complete",
+        "--self [=no]": "complete",
+        "--unit [=cells]": "complete",
+        "--width [=0]": "complete"
+      },
+      "phase": 4,
+      "status": "complete"
+    },
+    "resize-window": {
+      "options": {
+        "--axis, -a [=horizontal]": "complete",
+        "--help, -h [=no]": "complete",
+        "--increment, -i [=2]": "complete",
+        "--match, -m": "complete",
+        "--self [=no]": "complete"
+      },
+      "phase": 4,
+      "status": "complete"
+    },
+    "run": {
+      "options": {
+        "--allow-remote-control [=no]": "complete",
+        "--env": "complete",
+        "--help, -h [=no]": "complete",
+        "--remote-control-password": "complete"
+      },
+      "phase": 5,
+      "status": "complete"
+    },
+    "scroll-window": {
+      "options": {
+        "--help, -h [=no]": "complete",
+        "--match, -m": "complete",
+        "--no-response [=no]": "complete"
+      },
+      "phase": 5,
+      "status": "complete"
+    },
+    "select-window": {
+      "options": {
+        "--exclude-active [=no]": "complete",
+        "--help, -h [=no]": "complete",
+        "--match, -m": "complete",
+        "--reactivate-prev-tab [=no]": "complete",
+        "--response-timeout [=60]": "complete",
+        "--self [=no]": "complete",
+        "--title": "complete"
+      },
+      "phase": 4,
+      "status": "complete"
+    },
+    "send-key": {
+      "options": {
+        "--all [=no]": "complete",
+        "--exclude-active [=no]": "complete",
+        "--help, -h [=no]": "complete",
+        "--match, -m": "complete",
+        "--match-tab, -t": "complete"
+      },
+      "phase": 5,
+      "status": "complete"
+    },
+    "send-text": {
+      "options": {
+        "--all [=no]": "complete",
+        "--bracketed-paste [=disable]": "complete",
+        "--exclude-active [=no]": "complete",
+        "--from-file": "complete",
+        "--help, -h [=no]": "complete",
+        "--match, -m": "complete",
+        "--match-tab, -t": "complete",
+        "--stdin [=no]": "complete"
+      },
+      "phase": 5,
+      "status": "complete"
+    },
+    "set-background-image": {
+      "options": {
+        "--all, -a [=no]": "complete",
+        "--configured, -c [=no]": "complete",
+        "--help, -h [=no]": "complete",
+        "--layout [=configured]": "complete",
+        "--match, -m": "complete",
+        "--no-response [=no]": "complete"
+      },
+      "phase": 7,
+      "status": "complete"
+    },
+    "set-background-opacity": {
+      "options": {
+        "--all, -a [=no]": "complete",
+        "--help, -h [=no]": "complete",
+        "--match, -m": "complete",
+        "--match-tab, -t": "complete",
+        "--toggle [=no]": "complete"
+      },
+      "phase": 7,
+      "status": "complete"
+    },
+    "set-colors": {
+      "options": {
+        "--all, -a [=no]": "complete",
+        "--configured, -c [=no]": "complete",
+        "--help, -h [=no]": "complete",
+        "--match, -m": "complete",
+        "--match-tab, -t": "complete",
+        "--reset [=no]": "complete"
+      },
+      "phase": 7,
+      "status": "complete"
+    },
+    "set-enabled-layouts": {
+      "options": {
+        "--configured [=no]": "complete",
+        "--help, -h [=no]": "complete",
+        "--match, -m": "complete"
+      },
+      "phase": 4,
+      "status": "complete"
+    },
+    "set-font-size": {
+      "options": {
+        "--all, -a [=no]": "complete",
+        "--help, -h [=no]": "complete"
+      },
+      "phase": 7,
+      "status": "complete"
+    },
+    "set-spacing": {
+      "options": {
+        "--all, -a [=no]": "complete",
+        "--configured, -c [=no]": "complete",
+        "--help, -h [=no]": "complete",
+        "--match, -m": "complete",
+        "--match-tab, -t": "complete"
+      },
+      "phase": 7,
+      "status": "complete"
+    },
+    "set-tab-color": {
+      "options": {
+        "--help, -h [=no]": "complete",
+        "--match, -m": "complete",
+        "--self [=no]": "complete"
+      },
+      "phase": 6,
+      "status": "complete"
+    },
+    "set-tab-title": {
+      "options": {
+        "--help, -h [=no]": "complete",
+        "--match, -m": "complete"
+      },
+      "phase": 6,
+      "status": "complete"
+    },
+    "set-user-vars": {
+      "options": {
+        "--help, -h [=no]": "complete",
+        "--match, -m": "complete"
+      },
+      "phase": 6,
+      "status": "complete"
+    },
+    "set-window-logo": {
+      "options": {
+        "--alpha [=-1]": "complete",
+        "--help, -h [=no]": "complete",
+        "--match, -m": "complete",
+        "--no-response [=no]": "complete",
+        "--position": "complete",
+        "--self [=no]": "complete"
+      },
+      "phase": 6,
+      "status": "complete"
+    },
+    "set-window-title": {
+      "options": {
+        "--help, -h [=no]": "complete",
+        "--match, -m": "complete",
+        "--temporary [=no]": "complete"
+      },
+      "phase": 6,
+      "status": "complete"
+    },
+    "signal-child": {
+      "options": {
+        "--help, -h [=no]": "complete",
+        "--match, -m": "complete",
+        "--no-response [=no]": "complete"
+      },
+      "phase": 8,
+      "status": "complete"
+    }
+  },
+  "kitty_version": "0.45.0",
+  "phases": {
+    "0": "complete",
+    "1": "complete",
+    "10": "complete",
+    "2": "complete",
+    "3": "complete",
+    "4": "complete",
+    "5": "complete",
+    "6": "complete",
+    "7": "complete",
+    "8": "complete",
+    "9": "complete"
+  }
+}

@@ -1,0 +1,38 @@
+{
+  "id": "PHASE-09-SECURITY-POLICY",
+  "phase": 9,
+  "description": "password and policy-related parity coverage",
+  "operations": [
+    {
+      "name": "password-inline",
+      "global_options": ["--password=demo"],
+      "args": ["ls"],
+      "compare": true
+    },
+    {
+      "name": "password-file",
+      "global_options": ["--password-file=/tmp/jterm-parity-password.txt"],
+      "args": ["ls"],
+      "compare": true
+    },
+    {
+      "name": "password-env",
+      "global_options": ["--password-env=PARITY_PASSWORD"],
+      "env": {"PARITY_PASSWORD": "demo"},
+      "args": ["ls"],
+      "compare": true
+    },
+    {
+      "name": "use-password-always",
+      "global_options": ["--use-password=always", "--password=demo"],
+      "args": ["ls"],
+      "compare": true
+    },
+    {
+      "name": "use-password-never",
+      "global_options": ["--use-password=never", "--password=demo"],
+      "args": ["ls"],
+      "compare": true
+    }
+  ]
+}

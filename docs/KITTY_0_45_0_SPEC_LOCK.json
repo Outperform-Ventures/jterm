@@ -1,0 +1,454 @@
+{
+  "kitty_version": "0.45.0",
+  "command_count": 39,
+  "global_options": [
+    "--to",
+    "--password",
+    "--password-file [=rc-pass]",
+    "--password-env [=KITTY_RC_PASSWORD]",
+    "--use-password [=if-available]",
+    "--help, -h [=no]"
+  ],
+  "commands": [
+    {
+      "name": "action",
+      "option_count": 4,
+      "options": [
+        "--self [=no]",
+        "--no-response [=no]",
+        "--match, -m",
+        "--help, -h [=no]"
+      ]
+    },
+    {
+      "name": "close-tab",
+      "option_count": 5,
+      "options": [
+        "--match, -m",
+        "--no-response [=no]",
+        "--self [=no]",
+        "--ignore-no-match [=no]",
+        "--help, -h [=no]"
+      ]
+    },
+    {
+      "name": "close-window",
+      "option_count": 5,
+      "options": [
+        "--match, -m",
+        "--no-response [=no]",
+        "--self [=no]",
+        "--ignore-no-match [=no]",
+        "--help, -h [=no]"
+      ]
+    },
+    {
+      "name": "create-marker",
+      "option_count": 3,
+      "options": [
+        "--match, -m",
+        "--self [=no]",
+        "--help, -h [=no]"
+      ]
+    },
+    {
+      "name": "detach-tab",
+      "option_count": 4,
+      "options": [
+        "--match, -m",
+        "--target-tab, -t",
+        "--self [=no]",
+        "--help, -h [=no]"
+      ]
+    },
+    {
+      "name": "detach-window",
+      "option_count": 5,
+      "options": [
+        "--match, -m",
+        "--target-tab, -t",
+        "--self [=no]",
+        "--stay-in-tab [=no]",
+        "--help, -h [=no]"
+      ]
+    },
+    {
+      "name": "disable-ligatures",
+      "option_count": 4,
+      "options": [
+        "--all, -a [=no]",
+        "--match, -m",
+        "--match-tab, -t",
+        "--help, -h [=no]"
+      ]
+    },
+    {
+      "name": "env",
+      "option_count": 1,
+      "options": [
+        "--help, -h [=no]"
+      ]
+    },
+    {
+      "name": "focus-tab",
+      "option_count": 3,
+      "options": [
+        "--match, -m",
+        "--no-response [=no]",
+        "--help, -h [=no]"
+      ]
+    },
+    {
+      "name": "focus-window",
+      "option_count": 3,
+      "options": [
+        "--match, -m",
+        "--no-response [=no]",
+        "--help, -h [=no]"
+      ]
+    },
+    {
+      "name": "get-colors",
+      "option_count": 3,
+      "options": [
+        "--configured, -c [=no]",
+        "--match, -m",
+        "--help, -h [=no]"
+      ]
+    },
+    {
+      "name": "get-text",
+      "option_count": 8,
+      "options": [
+        "--match, -m",
+        "--extent [=screen]",
+        "--ansi [=no]",
+        "--add-cursor [=no]",
+        "--add-wrap-markers [=no]",
+        "--clear-selection [=no]",
+        "--self [=no]",
+        "--help, -h [=no]"
+      ]
+    },
+    {
+      "name": "goto-layout",
+      "option_count": 2,
+      "options": [
+        "--match, -m",
+        "--help, -h [=no]"
+      ]
+    },
+    {
+      "name": "kitten",
+      "option_count": 2,
+      "options": [
+        "--match, -m",
+        "--help, -h [=no]"
+      ]
+    },
+    {
+      "name": "last-used-layout",
+      "option_count": 4,
+      "options": [
+        "--all, -a [=no]",
+        "--no-response [=no]",
+        "--match, -m",
+        "--help, -h [=no]"
+      ]
+    },
+    {
+      "name": "launch",
+      "option_count": 40,
+      "options": [
+        "--match, -m",
+        "--wait-for-child-to-exit [=no]",
+        "--response-timeout [=86400]",
+        "--no-response [=no]",
+        "--self [=no]",
+        "--source-window",
+        "--title, --window-title",
+        "--tab-title",
+        "--type [=window]",
+        "--dont-take-focus, --keep-focus [=no]",
+        "--cwd",
+        "--add-to-session",
+        "--env",
+        "--var",
+        "--hold [=no]",
+        "--copy-colors [=no]",
+        "--copy-cmdline [=no]",
+        "--copy-env [=no]",
+        "--location [=default]",
+        "--next-to",
+        "--bias [=0]",
+        "--allow-remote-control [=no]",
+        "--remote-control-password",
+        "--stdin-source [=none]",
+        "--stdin-add-formatting [=no]",
+        "--stdin-add-line-wrap-markers [=no]",
+        "--marker",
+        "--os-window-class",
+        "--os-window-name",
+        "--os-window-title",
+        "--os-window-state [=normal]",
+        "--logo",
+        "--logo-position",
+        "--logo-alpha [=-1]",
+        "--color",
+        "--spacing",
+        "--watcher, -w",
+        "--os-panel",
+        "--hold-after-ssh [=no]",
+        "--help, -h [=no]"
+      ]
+    },
+    {
+      "name": "load-config",
+      "option_count": 4,
+      "options": [
+        "--ignore-overrides [=no]",
+        "--override, -o",
+        "--no-response [=no]",
+        "--help, -h [=no]"
+      ]
+    },
+    {
+      "name": "ls",
+      "option_count": 6,
+      "options": [
+        "--all-env-vars [=no]",
+        "--self [=no]",
+        "--output-format [=json]",
+        "--match, -m",
+        "--match-tab, -t",
+        "--help, -h [=no]"
+      ]
+    },
+    {
+      "name": "new-window",
+      "option_count": 9,
+      "options": [
+        "--match, -m",
+        "--title",
+        "--cwd",
+        "--dont-take-focus, --keep-focus [=no]",
+        "--window-type [=kitty]",
+        "--new-tab [=no]",
+        "--tab-title",
+        "--no-response [=no]",
+        "--help, -h [=no]"
+      ]
+    },
+    {
+      "name": "remove-marker",
+      "option_count": 3,
+      "options": [
+        "--match, -m",
+        "--self [=no]",
+        "--help, -h [=no]"
+      ]
+    },
+    {
+      "name": "resize-os-window",
+      "option_count": 9,
+      "options": [
+        "--match, -m",
+        "--action [=resize]",
+        "--unit [=cells]",
+        "--width [=0]",
+        "--height [=0]",
+        "--incremental [=no]",
+        "--self [=no]",
+        "--no-response [=no]",
+        "--help, -h [=no]"
+      ]
+    },
+    {
+      "name": "resize-window",
+      "option_count": 5,
+      "options": [
+        "--match, -m",
+        "--increment, -i [=2]",
+        "--axis, -a [=horizontal]",
+        "--self [=no]",
+        "--help, -h [=no]"
+      ]
+    },
+    {
+      "name": "run",
+      "option_count": 4,
+      "options": [
+        "--env",
+        "--allow-remote-control [=no]",
+        "--remote-control-password",
+        "--help, -h [=no]"
+      ]
+    },
+    {
+      "name": "scroll-window",
+      "option_count": 3,
+      "options": [
+        "--match, -m",
+        "--no-response [=no]",
+        "--help, -h [=no]"
+      ]
+    },
+    {
+      "name": "select-window",
+      "option_count": 7,
+      "options": [
+        "--match, -m",
+        "--response-timeout [=60]",
+        "--self [=no]",
+        "--title",
+        "--exclude-active [=no]",
+        "--reactivate-prev-tab [=no]",
+        "--help, -h [=no]"
+      ]
+    },
+    {
+      "name": "send-key",
+      "option_count": 5,
+      "options": [
+        "--match, -m",
+        "--match-tab, -t",
+        "--all [=no]",
+        "--exclude-active [=no]",
+        "--help, -h [=no]"
+      ]
+    },
+    {
+      "name": "send-text",
+      "option_count": 8,
+      "options": [
+        "--match, -m",
+        "--match-tab, -t",
+        "--all [=no]",
+        "--exclude-active [=no]",
+        "--stdin [=no]",
+        "--from-file",
+        "--bracketed-paste [=disable]",
+        "--help, -h [=no]"
+      ]
+    },
+    {
+      "name": "set-background-image",
+      "option_count": 6,
+      "options": [
+        "--all, -a [=no]",
+        "--configured, -c [=no]",
+        "--layout [=configured]",
+        "--no-response [=no]",
+        "--match, -m",
+        "--help, -h [=no]"
+      ]
+    },
+    {
+      "name": "set-background-opacity",
+      "option_count": 5,
+      "options": [
+        "--all, -a [=no]",
+        "--toggle [=no]",
+        "--match, -m",
+        "--match-tab, -t",
+        "--help, -h [=no]"
+      ]
+    },
+    {
+      "name": "set-colors",
+      "option_count": 6,
+      "options": [
+        "--all, -a [=no]",
+        "--configured, -c [=no]",
+        "--reset [=no]",
+        "--match, -m",
+        "--match-tab, -t",
+        "--help, -h [=no]"
+      ]
+    },
+    {
+      "name": "set-enabled-layouts",
+      "option_count": 3,
+      "options": [
+        "--match, -m",
+        "--configured [=no]",
+        "--help, -h [=no]"
+      ]
+    },
+    {
+      "name": "set-font-size",
+      "option_count": 2,
+      "options": [
+        "--all, -a [=no]",
+        "--help, -h [=no]"
+      ]
+    },
+    {
+      "name": "set-spacing",
+      "option_count": 5,
+      "options": [
+        "--all, -a [=no]",
+        "--configured, -c [=no]",
+        "--match, -m",
+        "--match-tab, -t",
+        "--help, -h [=no]"
+      ]
+    },
+    {
+      "name": "set-tab-color",
+      "option_count": 3,
+      "options": [
+        "--match, -m",
+        "--self [=no]",
+        "--help, -h [=no]"
+      ]
+    },
+    {
+      "name": "set-tab-title",
+      "option_count": 2,
+      "options": [
+        "--match, -m",
+        "--help, -h [=no]"
+      ]
+    },
+    {
+      "name": "set-user-vars",
+      "option_count": 2,
+      "options": [
+        "--match, -m",
+        "--help, -h [=no]"
+      ]
+    },
+    {
+      "name": "set-window-logo",
+      "option_count": 6,
+      "options": [
+        "--match, -m",
+        "--self [=no]",
+        "--position",
+        "--alpha [=-1]",
+        "--no-response [=no]",
+        "--help, -h [=no]"
+      ]
+    },
+    {
+      "name": "set-window-title",
+      "option_count": 3,
+      "options": [
+        "--temporary [=no]",
+        "--match, -m",
+        "--help, -h [=no]"
+      ]
+    },
+    {
+      "name": "signal-child",
+      "option_count": 3,
+      "options": [
+        "--no-response [=no]",
+        "--match, -m",
+        "--help, -h [=no]"
+      ]
+    }
+  ],
+  "command_option_count_total": 205
+}

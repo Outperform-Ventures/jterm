@@ -1,0 +1,12 @@
+{
+  "id": "CERT-003",
+  "description": "Cloudbeam env-tagged window discovery via ls hierarchy",
+  "operations": [
+    {
+      "name": "ls-compare",
+      "args": ["ls"],
+      "expect_rc": 0,
+      "compare": true
+    }
+  ]
+}

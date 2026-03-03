@@ -1,0 +1,10 @@
+{
+  "id": "CRYPTO-001",
+  "algorithm": "AES-256-GCM",
+  "key_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+  "nonce_hex": "1af38c2dc2b96ffdd86694092341bc04",
+  "aad_hex": "feedfacedeadbeeffeedfacedeadbeefabaddad2",
+  "plaintext_hex": "d9313225f88406e5a55909c5aff5269a",
+  "ciphertext_hex": "",
+  "tag_hex": ""
+}

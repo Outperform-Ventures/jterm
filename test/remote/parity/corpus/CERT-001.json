@@ -1,0 +1,27 @@
+{
+  "id": "CERT-001",
+  "description": "Cloudbeam/Symph launch-if-missing flow basic replay",
+  "operations": [
+    {
+      "name": "launch",
+      "args": [
+        "launch",
+        "--type=os-window",
+        "--title=symph: demo",
+        "--env=SYMPH_WINDOW=demo",
+        "bash",
+        "-lc",
+        "sleep 5"
+      ],
+      "expect_rc": 0,
+      "compare": false,
+      "delay_after_seconds": 0.75
+    },
+    {
+      "name": "focus-window",
+      "args": ["focus-window", "--match=env:SYMPH_WINDOW=^demo$"],
+      "expect_rc": 0,
+      "compare": false
+    }
+  ]
+}

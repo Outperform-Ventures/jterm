@@ -1,0 +1,12 @@
+{
+  "id": "INPUT-001",
+  "description": "send-text returns success",
+  "operations": [
+    {
+      "name": "send-text",
+      "args": ["send-text", "echo parity-input"],
+      "expect_rc": 0,
+      "compare": false
+    }
+  ]
+}

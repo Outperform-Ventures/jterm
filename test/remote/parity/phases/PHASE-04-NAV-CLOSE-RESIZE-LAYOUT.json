@@ -1,0 +1,77 @@
+{
+  "id": "PHASE-04-NAV-CLOSE-RESIZE-LAYOUT",
+  "phase": 4,
+  "description": "Focus/select/close/detach/resize/layout command parity coverage",
+  "operations": [
+    {
+      "name": "focus-window",
+      "args": ["focus-window"],
+      "compare": true
+    },
+    {
+      "name": "focus-tab",
+      "args": ["focus-tab", "1"],
+      "compare": true
+    },
+    {
+      "name": "select-window-timeout",
+      "args": ["select-window", "--response-timeout=1"],
+      "compare": true,
+      "timeout_seconds": 5
+    },
+    {
+      "name": "resize-window",
+      "args": ["resize-window", "wider", "--increment=2"],
+      "compare": true
+    },
+    {
+      "name": "resize-os-window",
+      "args": ["resize-os-window", "--width=80", "--height=24"],
+      "compare": true
+    },
+    {
+      "name": "goto-layout",
+      "args": ["goto-layout", "tall"],
+      "compare": true
+    },
+    {
+      "name": "last-used-layout",
+      "args": ["last-used-layout"],
+      "compare": true
+    },
+    {
+      "name": "set-enabled-layouts",
+      "args": ["set-enabled-layouts", "tall,grid"],
+      "compare": true
+    },
+    {
+      "name": "detach-window",
+      "args": ["detach-window", "--target-tab=current"],
+      "compare": true,
+      "timeout_seconds": 8
+    },
+    {
+      "name": "detach-tab",
+      "args": ["detach-tab", "--target-tab=current"],
+      "compare": true,
+      "timeout_seconds": 8
+    },
+    {
+      "name": "close-window-ignore-no-match",
+      "global_options": ["--match=id:999999", "--ignore-no-match"],
+      "args": ["close-window"],
+      "compare": true
+    },
+    {
+      "name": "close-tab-ignore-no-match",
+      "global_options": ["--match=id:999999", "--ignore-no-match"],
+      "args": ["close-tab"],
+      "compare": true
+    },
+    {
+      "name": "scroll-window",
+      "args": ["scroll-window", "page-down"],
+      "compare": true
+    }
+  ]
+}

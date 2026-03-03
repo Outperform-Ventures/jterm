@@ -1,0 +1,34 @@
+{
+  "id": "PHASE-05-INPUT-RUNNER",
+  "phase": 5,
+  "description": "send-text/send-key/run/action/kitten parity coverage",
+  "operations": [
+    {
+      "name": "send-text",
+      "args": ["send-text", "echo phase5"],
+      "compare": true
+    },
+    {
+      "name": "send-key",
+      "args": ["send-key", "ctrl+c"],
+      "compare": true
+    },
+    {
+      "name": "run",
+      "args": ["run", "bash", "-lc", "echo phase5-run"],
+      "compare": true,
+      "timeout_seconds": 10
+    },
+    {
+      "name": "action",
+      "args": ["action", "clear_terminal"],
+      "compare": true
+    },
+    {
+      "name": "kitten",
+      "args": ["kitten", "themes"],
+      "compare": true,
+      "timeout_seconds": 10
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "id": "LS-002",
+  "description": "ls returns hierarchical os_window/tab/window structure",
+  "operations": [
+    {
+      "name": "ls-compare",
+      "args": ["ls"],
+      "expect_rc": 0,
+      "compare": true
+    }
+  ]
+}

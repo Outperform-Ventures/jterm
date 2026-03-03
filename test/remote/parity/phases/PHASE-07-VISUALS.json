@@ -1,0 +1,48 @@
+{
+  "id": "PHASE-07-VISUALS",
+  "phase": 7,
+  "description": "color/text/background/font/spacing/ligature parity coverage",
+  "operations": [
+    {
+      "name": "get-colors",
+      "args": ["get-colors", "--configured"],
+      "compare": true
+    },
+    {
+      "name": "set-colors",
+      "args": ["set-colors", "foreground=#ffffff", "background=#000000"],
+      "compare": true
+    },
+    {
+      "name": "get-text",
+      "args": ["get-text", "--extent=screen", "--ansi"],
+      "compare": true,
+      "timeout_seconds": 8
+    },
+    {
+      "name": "set-background-image",
+      "args": ["set-background-image", "none"],
+      "compare": true
+    },
+    {
+      "name": "set-background-opacity",
+      "args": ["set-background-opacity", "0.9"],
+      "compare": true
+    },
+    {
+      "name": "set-font-size",
+      "args": ["set-font-size", "11"],
+      "compare": true
+    },
+    {
+      "name": "set-spacing",
+      "args": ["set-spacing", "margin=2", "padding=2"],
+      "compare": true
+    },
+    {
+      "name": "disable-ligatures",
+      "args": ["disable-ligatures", "never"],
+      "compare": true
+    }
+  ]
+}

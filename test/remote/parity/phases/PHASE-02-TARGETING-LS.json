@@ -1,0 +1,31 @@
+{
+  "id": "PHASE-02-TARGETING-LS",
+  "phase": 2,
+  "description": "Matcher and ls targeting semantics",
+  "operations": [
+    {
+      "name": "ls-match-id",
+      "global_options": ["--match=id:1"],
+      "args": ["ls"],
+      "compare": true
+    },
+    {
+      "name": "ls-match-state",
+      "global_options": ["--match=state:focused"],
+      "args": ["ls"],
+      "compare": true
+    },
+    {
+      "name": "ls-match-env",
+      "global_options": ["--match=env:PARITY_KEY=^phase2$"],
+      "args": ["ls"],
+      "compare": true
+    },
+    {
+      "name": "ls-match-tab-title",
+      "global_options": ["--match-tab=title:jterm"],
+      "args": ["ls"],
+      "compare": true
+    }
+  ]
+}

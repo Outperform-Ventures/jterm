@@ -1,0 +1,14 @@
+{
+  "id": "AUTH-003",
+  "description": "CLI accepts --password-file option syntax",
+  "operations": [
+    {
+      "name": "password-file",
+      "global_options": ["--password-file=/tmp/jterm-parity-password.txt"],
+      "args": ["ls"],
+      "expect_rc": 0,
+      "compare": false,
+      "known_result_codes": [0, 124]
+    }
+  ]
+}

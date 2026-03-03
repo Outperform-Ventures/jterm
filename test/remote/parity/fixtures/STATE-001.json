@@ -1,0 +1,12 @@
+{
+  "id": "STATE-001",
+  "description": "set-window-title returns success",
+  "operations": [
+    {
+      "name": "set-window-title",
+      "args": ["set-window-title", "parity-title"],
+      "expect_rc": 0,
+      "compare": false
+    }
+  ]
+}

@@ -142,13 +142,16 @@ pub const GlobalState = struct {
         // As early as possible, initialize our resource limits.
         self.rlimits = .init();
 
-        // Initialize our crash reporting.
-        crash.init(self.alloc) catch |err| {
-            std.log.warn(
-                "sentry init failed, no crash capture available err={}",
-                .{err},
-            );
-        };
+        const is_remote_control_action = self.action != null and self.action.? == .@"remote-control";
+        if (!is_remote_control_action) {
+            // Initialize our crash reporting.
+            crash.init(self.alloc) catch |err| {
+                std.log.warn(
+                    "sentry init failed, no crash capture available err={}",
+                    .{err},
+                );
+            };
+        }
 
         // const sentrylib = @import("sentry");
         // if (sentrylib.captureEvent(sentrylib.Value.initMessageEvent(
@@ -185,8 +188,12 @@ pub const GlobalState = struct {
     pub fn deinit(self: *GlobalState) void {
         self.resources_dir.deinit(self.alloc);
 
-        // Flush our crash logs
-        crash.deinit();
+        // Flush our crash logs (unless we intentionally skipped init for
+        // remote-control CLI actions).
+        const is_remote_control_action = self.action != null and self.action.? == .@"remote-control";
+        if (!is_remote_control_action) {
+            crash.deinit();
+        }
 
         if (self.gpa) |*value| {
             // We want to ensure that we deinit the GPA because this is

@@ -1,0 +1,12 @@
+{
+  "id": "WINDOW-NEW-001",
+  "description": "new-window creates a window and returns success",
+  "operations": [
+    {
+      "name": "new-window",
+      "args": ["new-window"],
+      "expect_rc": 0,
+      "compare": false
+    }
+  ]
+}

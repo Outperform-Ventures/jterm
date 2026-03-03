@@ -1,0 +1,18 @@
+{
+  "id": "PHASE-08-CONFIG-SIGNAL",
+  "phase": 8,
+  "description": "load-config and signal-child parity coverage",
+  "operations": [
+    {
+      "name": "load-config",
+      "args": ["load-config"],
+      "compare": true,
+      "timeout_seconds": 8
+    },
+    {
+      "name": "signal-child",
+      "args": ["signal-child", "SIGINT"],
+      "compare": true
+    }
+  ]
+}

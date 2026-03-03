@@ -92,6 +92,11 @@ pub const compatibility = std.StaticStringMap(
     // Ghostty 1.3 rename the "window" option to "new-window".
     // See: https://github.com/ghostty-org/ghostty/pull/9764
     .{ "macos-dock-drop-behavior", compatMacOSDockDropBehavior },
+
+    // Kitty-compatible naming for this jterm-specific setting.
+    .{ "allow_remote_control", cli.compatibilityRenamed(Config, "allow-remote-control") },
+    .{ "remote_control_default_no_response", cli.compatibilityRenamed(Config, "remote-control-default-no-response") },
+    .{ "remote_control_password", cli.compatibilityRenamed(Config, "remote-control-password") },
 });
 
 /// Set Ghostty's graphical user interface language to a language other than the
@@ -2491,6 +2496,45 @@ keybind: Keybinds = .{},
 /// `false` will mean that Ghostty will quit after the configured delay if no
 /// window is ever created. Only implemented on Linux and macOS.
 @"initial-window": bool = true,
+
+/// Enable kitty-style remote control over a local Unix socket.
+///
+/// When this is `true`, jterm starts a socket listener at startup and accepts
+/// commands from `jterm @ ...`. By default, jterm listens on
+/// `unix:/tmp/jterm.sock`.
+///
+/// You can override the socket target with the `JTERM_LISTEN_ON` environment
+/// variable, for example:
+///
+///     JTERM_LISTEN_ON=unix:/tmp/jterm-custom.sock
+///
+/// This setting can be changed at runtime by reloading the config. Enabling
+/// it starts the listener, and disabling it stops the listener immediately.
+///
+/// Default: `false`.
+@"allow-remote-control": bool = false,
+
+/// When enabled, `jterm @ ...` defaults to the equivalent of
+/// `--no-response` for all remote-control commands.
+///
+/// This makes remote-control invocations silent by default, which is useful
+/// when you only care about side effects (for example, opening a new window)
+/// and do not want JSON response output for each command.
+///
+/// Command-line flags still take precedence:
+///   * `--response` forces a printed response.
+///   * `--no-response` forces no printed response.
+///
+/// Default: `false`.
+@"remote-control-default-no-response": bool = false,
+
+/// Optional shared-secret password for remote control requests.
+///
+/// When set, every `jterm @ ...` command must provide a matching
+/// `--password=...` value or the request is rejected.
+///
+/// If unset, no password is required.
+@"remote-control-password": ?[:0]const u8 = null,
 
 /// The duration that undo operations remain available. After this
 /// time, the operation will be removed from the undo stack and

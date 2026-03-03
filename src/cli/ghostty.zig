@@ -19,6 +19,7 @@ const crash_report = @import("crash_report.zig");
 const show_face = @import("show_face.zig");
 const boo = @import("boo.zig");
 const new_window = @import("new_window.zig");
+const remote_control = @import("remote_control.zig");
 
 /// Special commands that can be invoked via CLI flags. These are all
 /// invoked by using `+<action>` as a CLI flag. The only exception is
@@ -69,13 +70,21 @@ pub const Action = enum {
     // Use IPC to tell the running Ghostty to open a new window.
     @"new-window",
 
+    // Kitty-compatible remote control entrypoint.
+    @"remote-control",
+
     pub fn detectSpecialCase(arg: []const u8) ?SpecialCase(Action) {
         // If we see a "-e" and we haven't seen a command yet, then
         // we are done looking for commands. This special case enables
-        // `ghostty -e ghostty +command`. If we've seen a command we
+        // `jterm -e jterm +command`. If we've seen a command we
         // still want to keep looking because
-        // `ghostty +command -e +command` is invalid.
+        // `jterm +command -e +command` is invalid.
         if (std.mem.eql(u8, arg, "-e")) return .abort_if_no_action;
+
+        // Support kitty-compatible `jterm @ ...` invocations.
+        if (std.mem.eql(u8, arg, "@")) {
+            return .{ .action = .@"remote-control" };
+        }
 
         // Special case, --version always outputs the version no
         // matter what, no matter what other args exist.
@@ -147,6 +156,7 @@ pub const Action = enum {
             .@"show-face" => try show_face.run(alloc),
             .boo => try boo.run(alloc),
             .@"new-window" => try new_window.run(alloc),
+            .@"remote-control" => try remote_control.run(alloc),
         };
     }
 
@@ -186,6 +196,7 @@ pub const Action = enum {
                 .@"show-face" => show_face.Options,
                 .boo => boo.Options,
                 .@"new-window" => new_window.Options,
+                .@"remote-control" => remote_control.Options,
             };
         }
     }
@@ -298,5 +309,40 @@ test "parse action plus ignores -e" {
             actionpkg.DetectError.MultipleActions,
             actionpkg.detectIter(Action, &iter),
         );
+    }
+}
+
+test "parse action @ fallback" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    {
+        var iter = try std.process.ArgIteratorGeneral(.{}).init(
+            alloc,
+            "@ ls",
+        );
+        defer iter.deinit();
+        const action = try actionpkg.detectIter(Action, &iter);
+        try testing.expect(action.? == .@"remote-control");
+    }
+
+    {
+        var iter = try std.process.ArgIteratorGeneral(.{}).init(
+            alloc,
+            "+list-fonts @ ls",
+        );
+        defer iter.deinit();
+        const action = try actionpkg.detectIter(Action, &iter);
+        try testing.expect(action.? == .@"remote-control");
+    }
+
+    {
+        var iter = try std.process.ArgIteratorGeneral(.{}).init(
+            alloc,
+            "-e @ ls",
+        );
+        defer iter.deinit();
+        const action = try actionpkg.detectIter(Action, &iter);
+        try testing.expect(action == null);
     }
 }

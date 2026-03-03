@@ -1,0 +1,12 @@
+{
+  "id": "TARGET-003",
+  "description": "send-text accepts --match-tab selector semantics",
+  "operations": [
+    {
+      "name": "match-tab",
+      "args": ["send-text", "--match-tab=all", "echo target-003"],
+      "expect_rc": 0,
+      "compare": false
+    }
+  ]
+}

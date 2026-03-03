@@ -1,0 +1,38 @@
+{
+  "id": "PHASE-10-CERTIFICATION",
+  "phase": 10,
+  "description": "Final mixed certification replay touching all command families",
+  "operations": [
+    {
+      "name": "cert-ls",
+      "args": ["ls"],
+      "compare": true
+    },
+    {
+      "name": "cert-set-window-title",
+      "args": ["set-window-title", "cert-window"],
+      "compare": true
+    },
+    {
+      "name": "cert-set-tab-title",
+      "args": ["set-tab-title", "cert-tab"],
+      "compare": true
+    },
+    {
+      "name": "cert-send-text",
+      "args": ["send-text", "echo cert"],
+      "compare": true
+    },
+    {
+      "name": "cert-focus-window",
+      "args": ["focus-window"],
+      "compare": true
+    },
+    {
+      "name": "cert-new-window",
+      "args": ["new-window"],
+      "compare": true,
+      "timeout_seconds": 10
+    }
+  ]
+}

@@ -1,0 +1,30 @@
+{
+  "id": "CERT-004",
+  "description": "Mixed remote operations replay",
+  "operations": [
+    {
+      "name": "new-window",
+      "args": ["new-window"],
+      "expect_rc": 0,
+      "compare": false
+    },
+    {
+      "name": "set-window-title",
+      "args": ["set-window-title", "corpus-title"],
+      "expect_rc": 0,
+      "compare": false
+    },
+    {
+      "name": "send-text",
+      "args": ["send-text", "echo corpus"],
+      "expect_rc": 0,
+      "compare": false
+    },
+    {
+      "name": "action",
+      "args": ["action", "clear_screen"],
+      "expect_rc": 0,
+      "compare": false
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "id": "WINDOW-001",
+  "description": "focus-window by id succeeds",
+  "operations": [
+    {
+      "name": "focus-window",
+      "args": ["focus-window", "--match=id:1"],
+      "expect_rc": 0,
+      "compare": false
+    }
+  ]
+}
