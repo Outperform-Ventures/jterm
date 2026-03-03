@@ -83,11 +83,14 @@ fn initTarget(
     target: std.Build.ResolvedTarget,
 ) !void {
     // Update our metallib
-    self.metallib = .create(b, .{
-        .name = "Ghostty",
-        .target = target,
-        .sources = &.{b.path("src/renderer/shaders/shaders.metal")},
-    });
+    self.metallib = if (self.config.renderer == .metal)
+        .create(b, .{
+            .name = "Ghostty",
+            .target = target,
+            .sources = &.{b.path("src/renderer/shaders/shaders.metal")},
+        })
+    else
+        null;
 
     // Change our config
     const config = try b.allocator.create(Config);
@@ -380,11 +383,13 @@ pub fn add(
     if (step.rootModuleTarget().os.tag.isDarwin()) {
         try @import("apple_sdk").addPaths(b, step);
 
-        const metallib = self.metallib.?;
-        metallib.output.addStepDependencies(&step.step);
-        step.root_module.addAnonymousImport("ghostty_metallib", .{
-            .root_source_file = metallib.output,
-        });
+        if (self.config.renderer == .metal) {
+            const metallib = self.metallib.?;
+            metallib.output.addStepDependencies(&step.step);
+            step.root_module.addAnonymousImport("ghostty_metallib", .{
+                .root_source_file = metallib.output,
+            });
+        }
     }
 
     // Other dependencies, mostly pure Zig
@@ -477,7 +482,7 @@ pub fn add(
         .freetype = true,
         .@"backend-metal" = target.result.os.tag.isDarwin(),
         .@"backend-osx" = target.result.os.tag == .macos,
-        .@"backend-opengl3" = target.result.os.tag != .macos,
+        .@"backend-opengl3" = self.config.renderer == .opengl,
     })) |dep| {
         step.root_module.addImport("dcimgui", dep.module("dcimgui"));
         step.linkLibrary(dep.artifact("dcimgui"));
@@ -566,6 +571,31 @@ fn addGtkNg(
         .optimize = optimize,
     });
     if (gobject_) |gobject| {
+        const clear_modules = .{
+            "adw1",
+            "gdk4",
+            "gio2",
+            "glib2",
+            "gobject2",
+            "gtk4",
+            "xlib2",
+            "gsk4",
+            "graphene1",
+            "cairo1",
+            "pangocairo1",
+            "pango1",
+            "harfbuzz0",
+            "freetype22",
+            "gmodule2",
+            "gdkpixbuf2",
+            "gdkx114",
+            "gdkwayland4",
+        };
+        inline for (clear_modules) |name| {
+            const m = gobject.module(name);
+            m.link_objects.clearRetainingCapacity();
+        }
+
         const gobject_imports = .{
             .{ "adw", "adw1" },
             .{ "gdk", "gdk4" },
@@ -581,7 +611,6 @@ fn addGtkNg(
         }
     }
 
-    step.linkSystemLibrary2("gtk4", dynamic_link_opts);
     step.linkSystemLibrary2("libadwaita-1", dynamic_link_opts);
 
     if (self.config.x11) {
@@ -800,7 +829,6 @@ pub fn gtkNgDistResources(
             }),
         });
         blueprint_exe.linkLibC();
-        blueprint_exe.linkSystemLibrary2("gtk4", dynamic_link_opts);
         blueprint_exe.linkSystemLibrary2("libadwaita-1", dynamic_link_opts);
 
         for (gresource.blueprints) |bp| {

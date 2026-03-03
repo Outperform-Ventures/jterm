@@ -1,4 +1,4 @@
-//! The main entrypoint for the `ghostty` application. This also serves
+//! The main entrypoint for the `jterm` application. This also serves
 //! as the process initialization code for the `libghostty` library.
 
 const std = @import("std");
@@ -44,7 +44,7 @@ pub fn main() !MainReturn {
             error.InvalidAction => try stderr.print(
                 "Error: unknown CLI action specified. CLI actions are specified with\n" ++
                     "the '+' character.\n\n" ++
-                    "All valid CLI actions can be listed with `ghostty +help`\n",
+                    "All valid CLI actions can be listed with `jterm +help`\n",
                 .{},
             ),
 
@@ -57,7 +57,7 @@ pub fn main() !MainReturn {
 
     if (comptime builtin.mode == .Debug) {
         std.log.warn("This is a debug build. Performance will be very poor.", .{});
-        std.log.warn("You should only use a debug build for developing Ghostty.", .{});
+        std.log.warn("You should only use a debug build for developing jterm.", .{});
         std.log.warn("Otherwise, please rebuild in a release mode.", .{});
     }
 
@@ -73,15 +73,15 @@ pub fn main() !MainReturn {
 
     if (comptime build_config.app_runtime == .none) {
         const stdout = std.io.getStdOut().writer();
-        try stdout.print("Usage: ghostty +<action> [flags]\n\n", .{});
+        try stdout.print("Usage: jterm +<action> [flags]\n\n", .{});
         try stdout.print(
-            \\This is the Ghostty helper CLI that accompanies the graphical Ghostty app.
+            \\This is the jterm helper CLI that accompanies the graphical jterm app.
             \\To launch the terminal directly, please launch the graphical app
-            \\(i.e. Ghostty.app on macOS). This CLI can be used to perform various
+            \\(i.e. jTerm.app on macOS). This CLI can be used to perform various
             \\actions such as inspecting the version, listing fonts, etc.
             \\
-            \\On macOS, the terminal can also be launched using `open -na Ghostty.app`,
-            \\or `open -na Ghostty.app --args --foo=bar --baz=qux` to pass arguments.
+            \\On macOS, the terminal can also be launched using `open -na jTerm.app`,
+            \\or `open -na jTerm.app --args --foo=bar --baz=qux` to pass arguments.
             \\
             \\We don't have proper help output yet, sorry! Please refer to the
             \\source code or Discord community for help for now. We'll fix this in time.
@@ -120,7 +120,7 @@ fn logFn(
 ) void {
     // On Mac, we use unified logging. To view this:
     //
-    //   sudo log stream --level debug --predicate 'subsystem=="com.mitchellh.ghostty"'
+    //   sudo log stream --level debug --predicate 'subsystem=="com.jterm.app"'
     //
     // macOS logging is thread safe so no need for locks/mutexes
     macos: {

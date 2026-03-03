@@ -1,6 +1,6 @@
 import Testing
 import Foundation
-@testable import Ghostty
+@testable import jterm
 
 struct ReleaseNotesTests {
     /// Test tagged release (semantic version)

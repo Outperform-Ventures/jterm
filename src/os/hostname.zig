@@ -115,8 +115,13 @@ test "isLocal returns true when hostname is local" {
 }
 
 test "isLocal returns false when hostname is not local" {
+    var buf: [posix.HOST_NAME_MAX]u8 = undefined;
+    const localHostname = try posix.gethostname(&buf);
+    const non_local = try std.fmt.allocPrint(std.testing.allocator, "{s}.invalid", .{localHostname});
+    defer std.testing.allocator.free(non_local);
+
     try std.testing.expectEqual(
         false,
-        try isLocal("not-the-local-hostname"),
+        try isLocal(non_local),
     );
 }

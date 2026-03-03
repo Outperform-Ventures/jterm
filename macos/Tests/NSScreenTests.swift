@@ -7,7 +7,7 @@
 
 import Testing
 import AppKit
-@testable import Ghostty
+@testable import jterm
 
 struct NSScreenExtensionTests {
     /// Test positive coordinate conversion from top-left to bottom-left

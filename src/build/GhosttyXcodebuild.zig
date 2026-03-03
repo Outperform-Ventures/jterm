@@ -49,7 +49,7 @@ pub fn init(
     };
 
     const env = try std.process.getEnvMap(b.allocator);
-    const app_path = b.fmt("macos/build/{s}/Ghostty.app", .{xc_config});
+    const app_path = b.fmt("macos/build/{s}/jTerm.app", .{xc_config});
 
     // Our step to build the Ghostty macOS app.
     const build = build: {
@@ -122,7 +122,7 @@ pub fn init(
         break :xctest step;
     };
 
-    // Our step to open the resulting Ghostty app.
+    // Our step to open the resulting jterm app.
     const open = open: {
         const disable_save_state = RunStep.create(b, "disable save state");
         disable_save_state.has_side_effects = true;
@@ -137,11 +137,11 @@ pub fn init(
         disable_save_state.expectExitCode(0);
         disable_save_state.step.dependOn(&build.step);
 
-        const open = RunStep.create(b, "run Ghostty app");
+        const open = RunStep.create(b, "run jterm app");
         open.has_side_effects = true;
         open.cwd = b.path("");
         open.addArgs(&.{b.fmt(
-            "{s}/Contents/MacOS/ghostty",
+            "{s}/Contents/MacOS/jterm",
             .{app_path},
         )});
 

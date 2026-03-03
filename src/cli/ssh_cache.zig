@@ -39,13 +39,13 @@ pub const Options = struct {
 /// multiple actions into separate commands.
 ///
 /// Examples:
-///   ghostty +ssh-cache                          # List all cached hosts
-///   ghostty +ssh-cache --host=example.com       # Check if host is cached
-///   ghostty +ssh-cache --add=example.com        # Manually add host to cache
-///   ghostty +ssh-cache --add=user@example.com   # Add user@host combination
-///   ghostty +ssh-cache --remove=example.com     # Remove host from cache
-///   ghostty +ssh-cache --clear                  # Clear entire cache
-///   ghostty +ssh-cache --expire-days=30         # Set custom expiration period
+///   jterm +ssh-cache                          # List all cached hosts
+///   jterm +ssh-cache --host=example.com       # Check if host is cached
+///   jterm +ssh-cache --add=example.com        # Manually add host to cache
+///   jterm +ssh-cache --add=user@example.com   # Add user@host combination
+///   jterm +ssh-cache --remove=example.com     # Remove host from cache
+///   jterm +ssh-cache --clear                  # Clear entire cache
+///   jterm +ssh-cache --expire-days=30         # Set custom expiration period
 pub fn run(alloc_gpa: Allocator) !u8 {
     var arena = std.heap.ArenaAllocator.init(alloc_gpa);
     defer arena.deinit();
