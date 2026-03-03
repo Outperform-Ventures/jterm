@@ -25,10 +25,6 @@ template $GhosttyInspectorWindow: Adw.ApplicationWindow {
       hexpand: true;
       vexpand: true;
 
-      $GhosttyDebugWarning {
-        visible: bind template.debug;
-      }
-
       $GhosttyInspectorWidget inspector_widget {
         notify::surface => $notify_inspector_surface();
         surface: bind template.surface;

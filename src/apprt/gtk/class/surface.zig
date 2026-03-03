@@ -1924,6 +1924,29 @@ pub const Surface = extern struct {
         return priv.title_override orelse priv.title;
     }
 
+    /// Returns a copy of the containing window's title, if this surface is in
+    /// a window and it has a title set.
+    pub fn getWindowTitleAlloc(self: *Self, alloc: Allocator) Allocator.Error!?[]u8 {
+        const window = ext.getAncestor(
+            Window,
+            self.as(gtk.Widget),
+        ) orelse return null;
+
+        var title_val = gobject.ext.Value.new(?[:0]const u8);
+        defer title_val.unset();
+        gobject.Object.getProperty(
+            window.as(gobject.Object),
+            "title",
+            &title_val,
+        );
+        const title = gobject.ext.Value.get(
+            &title_val,
+            ?[:0]const u8,
+        ) orelse return null;
+
+        return try alloc.dupe(u8, title);
+    }
+
     /// Copies the effective title to the clipboard.
     pub fn copyTitleToClipboard(self: *Self) bool {
         const title = self.getEffectiveTitle() orelse return false;
@@ -3268,10 +3291,6 @@ pub const Surface = extern struct {
         const surface = try alloc.create(CoreSurface);
         errdefer alloc.destroy(surface);
 
-        // Add ourselves to the list of surfaces on the app.
-        try app.core().addSurface(self.rt());
-        errdefer app.core().deleteSurface(self.rt());
-
         // Initialize our surface configuration.
         var config = try apprt.surface.newConfig(
             app.core(),
@@ -3299,6 +3318,12 @@ pub const Surface = extern struct {
 
         // Store it!
         priv.core_surface = surface;
+        errdefer priv.core_surface = null;
+
+        // Add ourselves to the list of surfaces on the app after core_surface
+        // is set so app-level bookkeeping can safely resolve rt_surface.core().
+        try app.core().addSurface(self.rt());
+        errdefer app.core().deleteSurface(self.rt());
 
         // Emit the signal that we initialized the surface.
         Surface.signals.init.impl.emit(

@@ -390,6 +390,10 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         let controller = TerminalController.init(ghostty, withBaseConfig: baseConfig)
         guard let window = controller.window else { return controller }
 
+        // Keep OS-window title consistent across native tab groups.
+        // On macOS, each tab is backed by a separate NSWindow/controller.
+        controller.titleOverride = parentController.titleOverride
+
         // If the parent is miniaturized, then macOS exhibits really strange behaviors
         // so we have to bring it back out.
         if (parent.isMiniaturized) { parent.deminiaturize(self) }

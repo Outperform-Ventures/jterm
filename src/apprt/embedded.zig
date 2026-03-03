@@ -142,9 +142,14 @@ pub const App = struct {
             .opts = opts,
             .keymap = keymap,
         };
+
+        core_app.setRemoteControlEnabled(self.config.@"allow-remote-control");
+        try core_app.setRemoteControlPassword(self.config.@"remote-control-password");
+        try core_app.startRemoteControl(self);
     }
 
     pub fn terminate(self: *App) void {
+        self.core_app.stopRemoteControl();
         self.keymap.deinit();
         self.config.deinit();
     }
@@ -295,11 +300,13 @@ pub const App = struct {
             .set_title => switch (target) {
                 .app => {},
                 .surface => |surface| {
-                    // Dupe the title so that we can store it. If we get an allocation
-                    // error we just ignore it, since this only breaks a few minor things.
-                    const alloc = self.core_app.alloc;
-                    if (surface.rt_surface.title) |v| alloc.free(v);
-                    surface.rt_surface.title = alloc.dupeZ(u8, value.title) catch null;
+                    storeSurfaceTitle(self.core_app.alloc, &surface.rt_surface.title, value.title);
+                },
+            },
+            .set_window_title => switch (target) {
+                .app => {},
+                .surface => |surface| {
+                    storeSurfaceTitle(self.core_app.alloc, &surface.rt_surface.window_title, value.title);
                 },
             },
 
@@ -318,6 +325,14 @@ pub const App = struct {
 
             else => {},
         }
+    }
+
+    fn storeSurfaceTitle(alloc: Allocator, slot: *?[:0]const u8, value: [:0]const u8) void {
+        if (slot.*) |v| alloc.free(v);
+        slot.* = null;
+
+        if (value.len == 0) return;
+        slot.* = alloc.dupeZ(u8, value) catch null;
     }
 
     /// Send the given IPC to a running Ghostty. Returns `true` if the action was
@@ -417,6 +432,9 @@ pub const Surface = struct {
     /// The current title of the surface. The embedded apprt saves this so
     /// that getTitle works without the implementer needing to save it.
     title: ?[:0]const u8 = null,
+
+    /// The current title of the containing window, if explicitly set.
+    window_title: ?[:0]const u8 = null,
 
     /// Surface initialization options.
     pub const Options = extern struct {
@@ -589,6 +607,7 @@ pub const Surface = struct {
 
         // Free our title
         if (self.title) |v| self.app.core_app.alloc.free(v);
+        if (self.window_title) |v| self.app.core_app.alloc.free(v);
 
         // Remove ourselves from the list of known surfaces in the app.
         self.app.core_app.deleteSurface(self);
@@ -646,6 +665,14 @@ pub const Surface = struct {
 
     pub fn getTitle(self: *Surface) ?[:0]const u8 {
         return self.title;
+    }
+
+    pub fn getWindowTitleAlloc(
+        self: *Surface,
+        alloc: Allocator,
+    ) !?[]u8 {
+        const title = self.window_title orelse self.title orelse return null;
+        return try alloc.dupe(u8, title);
     }
 
     pub fn supportsClipboard(
@@ -875,6 +902,13 @@ pub const Surface = struct {
     pub fn textCallback(self: *Surface, text: []const u8) void {
         _ = self.core_surface.textCallback(text) catch |err| {
             log.err("error in key callback err={}", .{err});
+            return;
+        };
+    }
+
+    pub fn remoteInputCallback(self: *Surface, data: []const u8) void {
+        _ = self.core_surface.remoteInputCallback(data) catch |err| {
+            log.err("error in remote input callback err={}", .{err});
             return;
         };
     }
@@ -1279,6 +1313,22 @@ pub const CAPI = struct {
         }
     };
 
+    // ghostty_prompt_input_s
+    const PromptInput = extern struct {
+        x: f64,
+        y: f64,
+        width: f64,
+        height: f64,
+        text: ?[*:0]const u8,
+        text_len: usize,
+
+        pub fn deinit(self: *PromptInput) void {
+            if (self.text) |ptr| {
+                global.alloc.free(ptr[0..self.text_len :0]);
+            }
+        }
+    };
+
     // ghostty_point_s
     const Point = extern struct {
         tag: Tag,
@@ -1616,6 +1666,30 @@ pub const CAPI = struct {
         return readTextLocked(surface, core_sel, result);
     }
 
+    /// Read editable prompt input state (if available).
+    ///
+    /// Returns false if prompt input semantics are not currently active.
+    export fn ghostty_surface_read_prompt_input(
+        surface: *Surface,
+        result: *PromptInput,
+    ) bool {
+        const v = surface.core_surface.promptInput(global.alloc) catch |err| {
+            log.warn("error reading prompt input err={}", .{err});
+            return false;
+        } orelse return false;
+
+        result.* = .{
+            .x = v.x,
+            .y = v.y,
+            .width = v.width,
+            .height = v.height,
+            .text = v.text.ptr,
+            .text_len = v.text.len,
+        };
+
+        return true;
+    }
+
     fn readTextLocked(
         surface: *Surface,
         core_sel: terminal.Selection,
@@ -1651,7 +1725,16 @@ pub const CAPI = struct {
         return true;
     }
 
-    export fn ghostty_surface_free_text(ptr: *Text) void {
+    export fn ghostty_surface_free_text(surface: *Surface, ptr: *Text) void {
+        _ = surface;
+        ptr.deinit();
+    }
+
+    export fn ghostty_surface_free_prompt_input(
+        surface: *Surface,
+        ptr: *PromptInput,
+    ) void {
+        _ = surface;
         ptr.deinit();
     }
 
@@ -1711,6 +1794,13 @@ pub const CAPI = struct {
     /// Update the occlusion state of a surface.
     export fn ghostty_surface_set_occlusion(surface: *Surface, visible: bool) void {
         surface.occlusionCallback(visible);
+    }
+
+    /// Force terminal cursor visibility.
+    export fn ghostty_surface_set_cursor_visible(surface: *Surface, visible: bool) void {
+        surface.core_surface.cursorVisibleCallback(visible) catch |err| {
+            log.warn("error updating cursor visibility err={}", .{err});
+        };
     }
 
     /// Filter the mods if necessary. This handles settings such as
@@ -1778,6 +1868,16 @@ pub const CAPI = struct {
         len: usize,
     ) void {
         surface.textCallback(ptr[0..len]);
+    }
+
+    /// Send raw bytes directly to the PTY input stream. This bypasses paste
+    /// handling and bracketed-paste framing.
+    export fn ghostty_surface_remote_input(
+        surface: *Surface,
+        ptr: [*]const u8,
+        len: usize,
+    ) void {
+        surface.remoteInputCallback(ptr[0..len]);
     }
 
     /// Set the preedit text for the surface. This is used for IME

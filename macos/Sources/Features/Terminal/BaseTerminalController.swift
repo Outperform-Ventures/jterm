@@ -84,14 +84,14 @@ class BaseTerminalController: NSWindowController,
     /// The cancellables related to our focused surface.
     private var focusedSurfaceCancellables: Set<AnyCancellable> = []
 
-    /// An override title for the tab/window set by the user via prompt_tab_title.
+    /// An override title for the window.
     /// When set, this takes precedence over the computed title from the terminal.
     var titleOverride: String? = nil {
         didSet { applyTitleToWindow() }
     }
 
     /// The last computed title from the focused surface (without the override).
-    private var lastComputedTitle: String = "👻"
+    private var lastComputedTitle: String = "⚡"
 
     /// The time that undo/redo operations that contain running ptys are valid for.
     var undoExpiration: Duration {
@@ -347,7 +347,7 @@ class BaseTerminalController: NSWindowController,
         self.alert = alert
     }
 
-    /// Prompt the user to change the tab/window title.
+    /// Prompt the user to change the tab title.
     func promptTabTitle() {
         guard let window else { return }
 
@@ -357,7 +357,12 @@ class BaseTerminalController: NSWindowController,
         alert.alertStyle = .informational
 
         let textField = NSTextField(frame: NSRect(x: 0, y: 0, width: 250, height: 24))
-        textField.stringValue = titleOverride ?? window.title
+        textField.stringValue = {
+            if let terminalWindow = window as? TerminalWindow {
+                return terminalWindow.tabTitleOverride ?? terminalWindow.baseTabTitle
+            }
+            return window.title
+        }()
         alert.accessoryView = textField
 
         alert.addButton(withTitle: "OK")
@@ -370,11 +375,67 @@ class BaseTerminalController: NSWindowController,
             guard response == .alertFirstButtonReturn else { return }
 
             let newTitle = textField.stringValue
-            if newTitle.isEmpty {
-                self.titleOverride = nil
+            if let terminalWindow = window as? TerminalWindow {
+                terminalWindow.tabTitleOverride = newTitle.isEmpty ? nil : newTitle
             } else {
-                self.titleOverride = newTitle
+                // Fallback for non-terminal windows.
+                window.title = newTitle.isEmpty ? "⚡" : newTitle
             }
+        }
+    }
+
+    /// Apply a window title override to all windows in the same native tab group.
+    /// This keeps a single OS-window title behavior across tabs on macOS.
+    func setWindowTitleOverride(_ override: String?) {
+        guard let window else {
+            titleOverride = override
+            return
+        }
+
+        let windows: [NSWindow] = {
+            if let tabbedWindows = window.tabbedWindows, !tabbedWindows.isEmpty {
+                return tabbedWindows
+            }
+            if let tabGroupWindows = window.tabGroup?.windows, !tabGroupWindows.isEmpty {
+                return tabGroupWindows
+            }
+            return [window]
+        }()
+
+        for candidate in windows {
+            if let controller = candidate.windowController as? BaseTerminalController {
+                controller.titleOverride = override
+            } else if let override {
+                candidate.title = override
+            } else {
+                candidate.title = "⚡"
+            }
+        }
+    }
+
+    /// Prompt the user to change the window title.
+    func promptWindowTitle() {
+        guard let window else { return }
+
+        let alert = NSAlert()
+        alert.messageText = "Change Terminal Title"
+        alert.informativeText = "Leave blank to restore the default."
+        alert.alertStyle = .informational
+
+        let textField = NSTextField(frame: NSRect(x: 0, y: 0, width: 250, height: 24))
+        textField.stringValue = titleOverride ?? window.title
+        alert.accessoryView = textField
+
+        alert.addButton(withTitle: "OK")
+        alert.addButton(withTitle: "Cancel")
+        alert.window.initialFirstResponder = textField
+
+        alert.beginSheetModal(for: window) { [weak self] response in
+            guard let self else { return }
+            guard response == .alertFirstButtonReturn else { return }
+
+            let newTitle = textField.stringValue
+            self.setWindowTitleOverride(newTitle.isEmpty ? nil : newTitle)
         }
     }
 
@@ -814,7 +875,7 @@ class BaseTerminalController: NSWindowController,
                 .store(in: &focusedSurfaceCancellables)
         } else {
             // There is no surface to listen to titles for.
-            titleDidChange(to: "👻")
+            titleDidChange(to: "⚡")
         }
     }
     
@@ -829,6 +890,9 @@ class BaseTerminalController: NSWindowController,
 
     private func titleDidChange(to: String) {
         lastComputedTitle = to
+        if let terminalWindow = window as? TerminalWindow {
+            terminalWindow.baseTabTitle = to
+        }
         applyTitleToWindow()
     }
 
@@ -1268,6 +1332,10 @@ class BaseTerminalController: NSWindowController,
 
     @IBAction func changeTabTitle(_ sender: Any) {
         promptTabTitle()
+    }
+
+    @IBAction func changeTitle(_ sender: Any) {
+        promptWindowTitle()
     }
 
     @IBAction func splitRight(_ sender: Any) {

@@ -357,11 +357,34 @@ class TerminalWindow: NSWindow {
 
     // MARK: Title Text
 
+    /// Optional tab title override set via remote control.
+    /// This affects only the tab label, never the window title.
+    var tabTitleOverride: String? = nil {
+        didSet { syncTabTitle() }
+    }
+
+    /// The computed tab title for this controller when no explicit tab override is set.
+    /// This is independent of `window.title` so window-title changes don't relabel tabs.
+    var baseTabTitle: String = "⚡" {
+        didSet { syncTabTitle() }
+    }
+
+    private var effectiveTabTitle: String {
+        tabTitleOverride ?? baseTabTitle
+    }
+
+    private func syncTabTitle() {
+        if let attributedTitle {
+            tab.attributedTitle = attributedTitle
+            return
+        }
+
+        tab.attributedTitle = nil
+        tab.title = effectiveTabTitle
+    }
+
     override var title: String {
         didSet {
-            // Whenever we change the window title we must also update our
-            // tab title if we're using custom fonts.
-            tab.attributedTitle = attributedTitle
             /// We also needs to update this here, just in case
             /// the value is not what we want
             ///
@@ -383,7 +406,7 @@ class TerminalWindow: NSWindow {
             ///
             /// This behaviour is the opposite of what happens in the title bar’s text field, which is quite odd...
             titlebarTextField?.usesSingleLineMode = !hasMoreThanOneTabs
-            tab.attributedTitle = attributedTitle
+            syncTabTitle()
         }
     }
 
@@ -402,7 +425,7 @@ class TerminalWindow: NSWindow {
             .font: titlebarFont,
             .foregroundColor: isKeyWindow ? NSColor.labelColor : NSColor.secondaryLabelColor,
         ]
-        return NSAttributedString(string: title, attributes: attributes)
+        return NSAttributedString(string: effectiveTabTitle, attributes: attributes)
     }
 
     var titlebarContainer: NSView? {

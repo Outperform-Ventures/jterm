@@ -387,6 +387,15 @@ typedef struct {
   uintptr_t text_len;
 } ghostty_text_s;
 
+typedef struct {
+  double x;
+  double y;
+  double width;
+  double height;
+  const char* text;
+  uintptr_t text_len;
+} ghostty_prompt_input_s;
+
 typedef enum {
   GHOSTTY_POINT_ACTIVE,
   GHOSTTY_POINT_VIEWPORT,
@@ -695,6 +704,27 @@ typedef struct {
   uint32_t max_height;
 } ghostty_action_size_limit_s;
 
+// apprt.action.OsWindowControl.Operation
+typedef enum {
+  GHOSTTY_OS_WINDOW_CONTROL_MOVE_MONITOR,
+  GHOSTTY_OS_WINDOW_CONTROL_MAXIMIZE,
+  GHOSTTY_OS_WINDOW_CONTROL_MINIMIZE,
+  GHOSTTY_OS_WINDOW_CONTROL_HIDE,
+  GHOSTTY_OS_WINDOW_CONTROL_SNAP_LEFT,
+  GHOSTTY_OS_WINDOW_CONTROL_SNAP_RIGHT,
+  GHOSTTY_OS_WINDOW_CONTROL_SNAP_TOP_LEFT,
+  GHOSTTY_OS_WINDOW_CONTROL_SNAP_TOP_RIGHT,
+  GHOSTTY_OS_WINDOW_CONTROL_SNAP_BOTTOM_LEFT,
+  GHOSTTY_OS_WINDOW_CONTROL_SNAP_BOTTOM_RIGHT,
+} ghostty_action_os_window_control_operation_e;
+
+// apprt.action.OsWindowControl
+typedef struct {
+  ghostty_action_os_window_control_operation_e operation;
+  // 0 = current monitor, 1+ = explicit monitor index (m1, m2, ...).
+  int32_t monitor;
+} ghostty_action_os_window_control_s;
+
 // apprt.action.InitialSize
 typedef struct {
   uint32_t width;
@@ -874,6 +904,7 @@ typedef enum {
   GHOSTTY_ACTION_RENDER_INSPECTOR,
   GHOSTTY_ACTION_DESKTOP_NOTIFICATION,
   GHOSTTY_ACTION_SET_TITLE,
+  GHOSTTY_ACTION_SET_WINDOW_TITLE,
   GHOSTTY_ACTION_PROMPT_TITLE,
   GHOSTTY_ACTION_PWD,
   GHOSTTY_ACTION_MOUSE_SHAPE,
@@ -904,7 +935,9 @@ typedef enum {
   GHOSTTY_ACTION_SEARCH_TOTAL,
   GHOSTTY_ACTION_SEARCH_SELECTED,
   GHOSTTY_ACTION_READONLY,
+  GHOSTTY_ACTION_SET_TAB_TITLE,
   GHOSTTY_ACTION_COPY_TITLE_TO_CLIPBOARD,
+  GHOSTTY_ACTION_OS_WINDOW_CONTROL,
 } ghostty_action_tag_e;
 
 typedef union {
@@ -922,6 +955,7 @@ typedef union {
   ghostty_action_inspector_e inspector;
   ghostty_action_desktop_notification_s desktop_notification;
   ghostty_action_set_title_s set_title;
+  ghostty_action_set_title_s set_window_title;
   ghostty_action_prompt_title_e prompt_title;
   ghostty_action_pwd_s pwd;
   ghostty_action_mouse_shape_e mouse_shape;
@@ -945,6 +979,8 @@ typedef union {
   ghostty_action_search_total_s search_total;
   ghostty_action_search_selected_s search_selected;
   ghostty_action_readonly_e readonly;
+  ghostty_action_set_title_s set_tab_title;
+  ghostty_action_os_window_control_s os_window_control;
 } ghostty_action_u;
 
 typedef struct {
@@ -1068,6 +1104,7 @@ void ghostty_surface_draw(ghostty_surface_t);
 void ghostty_surface_set_content_scale(ghostty_surface_t, double, double);
 void ghostty_surface_set_focus(ghostty_surface_t, bool);
 void ghostty_surface_set_occlusion(ghostty_surface_t, bool);
+void ghostty_surface_set_cursor_visible(ghostty_surface_t, bool);
 void ghostty_surface_set_size(ghostty_surface_t, uint32_t, uint32_t);
 ghostty_surface_size_s ghostty_surface_size(ghostty_surface_t);
 void ghostty_surface_set_color_scheme(ghostty_surface_t,
@@ -1079,6 +1116,7 @@ bool ghostty_surface_key_is_binding(ghostty_surface_t,
                                     ghostty_input_key_s,
                                     ghostty_binding_flags_e*);
 void ghostty_surface_text(ghostty_surface_t, const char*, uintptr_t);
+void ghostty_surface_remote_input(ghostty_surface_t, const char*, uintptr_t);
 void ghostty_surface_preedit(ghostty_surface_t, const char*, uintptr_t);
 bool ghostty_surface_mouse_captured(ghostty_surface_t);
 bool ghostty_surface_mouse_button(ghostty_surface_t,
@@ -1114,6 +1152,8 @@ bool ghostty_surface_read_text(ghostty_surface_t,
                                ghostty_selection_s,
                                ghostty_text_s*);
 void ghostty_surface_free_text(ghostty_surface_t, ghostty_text_s*);
+bool ghostty_surface_read_prompt_input(ghostty_surface_t, ghostty_prompt_input_s*);
+void ghostty_surface_free_prompt_input(ghostty_surface_t, ghostty_prompt_input_s*);
 
 #ifdef __APPLE__
 void ghostty_surface_set_display_id(ghostty_surface_t, uint32_t);

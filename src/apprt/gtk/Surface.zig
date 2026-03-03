@@ -41,7 +41,14 @@ pub fn cgroup(self: *Self) ?[]const u8 {
 }
 
 pub fn getTitle(self: *Self) ?[:0]const u8 {
-    return self.surface.getTitle();
+    return self.surface.getEffectiveTitle();
+}
+
+pub fn getWindowTitleAlloc(
+    self: *Self,
+    alloc: std.mem.Allocator,
+) !?[]u8 {
+    return try self.surface.getWindowTitleAlloc(alloc);
 }
 
 pub fn getContentScale(self: *const Self) !apprt.ContentScale {

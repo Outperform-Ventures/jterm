@@ -278,7 +278,6 @@ fileprivate struct CommandPaletteQuery: View {
                     }
                 }
                 .onExitCommand { onEvent?(.exit) }
-                .onMoveCommand { onEvent?(.move($0)) }
                 .onSubmit { onEvent?(.submit) }
         }
     }

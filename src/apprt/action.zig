@@ -196,6 +196,10 @@ pub const Action = union(Key) {
     /// Set the title of the target to the requested value.
     set_title: SetTitle,
 
+    /// Set the window title of the target window to the requested value.
+    /// This should not modify tab titles.
+    set_window_title: SetTitle,
+
     /// Set the title of the target to a prompted value. It is up to
     /// the apprt to prompt. The value specifies whether to prompt for the
     /// surface title or the tab title.
@@ -330,10 +334,17 @@ pub const Action = union(Key) {
     /// The readonly state of the surface has changed.
     readonly: Readonly,
 
+    /// Set a tab title override for the target surface's containing tab.
+    /// An empty title clears the override and restores computed tab titles.
+    set_tab_title: SetTitle,
+
     /// Copy the effective title of the surface to the clipboard.
     /// The effective title is the user-overridden title if set,
     /// otherwise the terminal-set title.
     copy_title_to_clipboard,
+
+    /// Control native OS window placement/state for the target surface window.
+    os_window_control: OsWindowControl,
 
     /// Sync with: ghostty_action_tag_e
     pub const Key = enum(c_int) {
@@ -370,6 +381,7 @@ pub const Action = union(Key) {
         render_inspector,
         desktop_notification,
         set_title,
+        set_window_title,
         prompt_title,
         pwd,
         mouse_shape,
@@ -400,7 +412,9 @@ pub const Action = union(Key) {
         search_total,
         search_selected,
         readonly,
+        set_tab_title,
         copy_title_to_clipboard,
+        os_window_control,
     };
 
     /// Sync with: ghostty_action_u
@@ -603,6 +617,27 @@ pub const SizeLimit = extern struct {
     min_height: u32,
     max_width: u32,
     max_height: u32,
+};
+
+pub const OsWindowControl = extern struct {
+    operation: Operation,
+
+    /// Monitor to apply the operation on:
+    /// 0 = current/active monitor, 1+ = explicit monitor index (m1, m2, ...).
+    monitor: i32,
+
+    pub const Operation = enum(c_int) {
+        move_monitor,
+        maximize,
+        minimize,
+        hide,
+        snap_left,
+        snap_right,
+        snap_top_left,
+        snap_top_right,
+        snap_bottom_left,
+        snap_bottom_right,
+    };
 };
 
 pub const InitialSize = extern struct {

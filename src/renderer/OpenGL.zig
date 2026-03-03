@@ -137,22 +137,35 @@ fn prepareContext(getProcAddress: anytype) !void {
     errdefer gl.glad.unload();
     log.info("loaded OpenGL {}.{}", .{ major, minor });
 
+    const allow_macos_41 = builtin.target.os.tag == .macos and
+        std.posix.getenv("JTERM_ALLOW_OPENGL_41") != null;
+    const required_minor: c_uint = if (allow_macos_41) 1 else MIN_VERSION_MINOR;
+
     // Need to check version before trying to enable it
     if (major < MIN_VERSION_MAJOR or
-        (major == MIN_VERSION_MAJOR and minor < MIN_VERSION_MINOR))
+        (major == MIN_VERSION_MAJOR and minor < required_minor))
     {
         log.warn(
             "OpenGL version is too old. Ghostty requires OpenGL {d}.{d}",
-            .{ MIN_VERSION_MAJOR, MIN_VERSION_MINOR },
+            .{ MIN_VERSION_MAJOR, required_minor },
         );
         return error.OpenGLOutdated;
     }
 
-    // Enable debug output for the context.
-    try gl.enable(gl.c.GL_DEBUG_OUTPUT);
+    if (allow_macos_41 and minor < MIN_VERSION_MINOR) {
+        log.warn(
+            "JTERM_ALLOW_OPENGL_41 is set; using experimental OpenGL {d}.{d} compatibility mode",
+            .{ major, minor },
+        );
+    }
 
-    // Register our debug message callback with the OpenGL context.
-    gl.glad.context.DebugMessageCallback.?(glDebugMessageCallback, null);
+    if (!allow_macos_41) {
+        // Enable debug output for the context.
+        try gl.enable(gl.c.GL_DEBUG_OUTPUT);
+
+        // Register our debug message callback with the OpenGL context.
+        gl.glad.context.DebugMessageCallback.?(glDebugMessageCallback, null);
+    }
 
     // Enable SRGB framebuffer for linear blending support.
     try gl.enable(gl.c.GL_FRAMEBUFFER_SRGB);

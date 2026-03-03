@@ -6,6 +6,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
 const apprt = @import("../../apprt.zig");
+const input = @import("../../input.zig");
 const configpkg = @import("../../config.zig");
 const Config = configpkg.Config;
 const CoreApp = @import("../../App.zig");
@@ -23,14 +24,14 @@ pub const must_draw_from_app_thread = true;
 
 /// GTK application ID
 pub const application_id = switch (builtin.mode) {
-    .Debug, .ReleaseSafe => "com.mitchellh.ghostty-debug",
-    .ReleaseFast, .ReleaseSmall => "com.mitchellh.ghostty",
+    .Debug, .ReleaseSafe => "com.jterm.app.debug",
+    .ReleaseFast, .ReleaseSmall => "com.jterm.app",
 };
 
 /// GTK object path
 pub const object_path = switch (builtin.mode) {
-    .Debug, .ReleaseSafe => "/com/mitchellh/ghostty_debug",
-    .ReleaseFast, .ReleaseSmall => "/com/mitchellh/ghostty",
+    .Debug, .ReleaseSafe => "/com/jterm/app/debug",
+    .ReleaseFast, .ReleaseSmall => "/com/jterm/app",
 };
 
 /// The GObject Application instance
@@ -48,6 +49,13 @@ pub fn init(
     const app: *Application = try .new(self, core_app);
     errdefer app.unref();
     self.* = .{ .app = app };
+
+    const config_obj = app.getConfig();
+    defer config_obj.unref();
+    core_app.setRemoteControlEnabled(config_obj.get().@"allow-remote-control");
+    try core_app.setRemoteControlPassword(config_obj.get().@"remote-control-password");
+
+    try core_app.startRemoteControl(self);
     return;
 }
 
@@ -56,10 +64,16 @@ pub fn run(self: *App) !void {
 }
 
 pub fn terminate(self: *App) void {
+    self.app.core().stopRemoteControl();
+
     // We force deinitialize the app. We don't unref because other things
     // tend to have a reference at this point, so this just forces the
     // disposal now.
     self.app.deinit();
+}
+
+pub fn keyboardLayout(_: *const App) input.KeyboardLayout {
+    return .unknown;
 }
 
 /// Called by CoreApp to wake up the event loop.

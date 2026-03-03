@@ -738,6 +738,8 @@ pub const Application = extern struct {
             .scrollbar => Action.scrollbar(target, value),
 
             .set_title => Action.setTitle(target, value),
+            .set_window_title => return Action.setWindowTitle(target, value),
+            .set_tab_title => return Action.setTabTitle(target, value),
 
             .show_child_exited => return Action.showChildExited(target, value),
 
@@ -772,6 +774,7 @@ pub const Application = extern struct {
             .renderer_health,
             .color_change,
             .reset_window_size,
+            .os_window_control,
             .check_for_updates,
             .undo,
             .redo,
@@ -2432,6 +2435,90 @@ const Action = struct {
         switch (target) {
             .app => log.warn("set_title to app is unexpected", .{}),
             .surface => |surface| surface.rt_surface.gobj().setTitle(value.title),
+        }
+    }
+
+    pub fn setWindowTitle(
+        target: apprt.Target,
+        value: apprt.action.SetTitle,
+    ) bool {
+        switch (target) {
+            .app => {
+                log.warn("set_window_title to app is unexpected", .{});
+                return false;
+            },
+            .surface => |surface| {
+                const gsurface = surface.rt_surface.gobj();
+                const window = ext.getAncestor(
+                    Window,
+                    gsurface.as(gtk.Widget),
+                ) orelse {
+                    log.warn("surface is not in a window, ignoring set_window_title", .{});
+                    return false;
+                };
+
+                window.as(gtk.Window).setTitle(value.title);
+                return true;
+            },
+        }
+    }
+
+    pub fn setTabTitle(
+        target: apprt.Target,
+        value: apprt.action.SetTitle,
+    ) bool {
+        switch (target) {
+            .app => {
+                log.warn("set_tab_title to app is unexpected", .{});
+                return false;
+            },
+            .surface => |surface| {
+                const gsurface = surface.rt_surface.gobj();
+                const tab = ext.getAncestor(
+                    Tab,
+                    gsurface.as(gtk.Widget),
+                ) orelse {
+                    log.warn("surface is not in a tab, ignoring set_tab_title", .{});
+                    return false;
+                };
+
+                const window = ext.getAncestor(
+                    Window,
+                    gsurface.as(gtk.Widget),
+                );
+
+                const alloc = Application.default().allocator();
+                const previous_title_owned: ?[:0]u8 = title: {
+                    const w = window orelse break :title null;
+
+                    var title_val = gobject.ext.Value.new(?[:0]const u8);
+                    defer title_val.unset();
+                    gobject.Object.getProperty(
+                        w.as(gobject.Object),
+                        "title",
+                        &title_val,
+                    );
+                    const current = gobject.ext.Value.get(
+                        &title_val,
+                        ?[:0]const u8,
+                    ) orelse break :title null;
+
+                    break :title alloc.dupeZ(u8, current) catch null;
+                };
+                defer if (previous_title_owned) |v| alloc.free(v);
+
+                tab.setTitleOverride(if (value.title.len == 0) null else value.title);
+
+                // Keep window and tab titles independent: restoring the
+                // previous window title prevents selected-tab retitling.
+                if (window) |w| {
+                    if (previous_title_owned) |previous| {
+                        w.as(gtk.Window).setTitle(previous);
+                    }
+                }
+
+                return true;
+            },
         }
     }
 

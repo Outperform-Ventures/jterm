@@ -150,10 +150,6 @@ template $GhosttyWindow: Adw.ApplicationWindow {
       Box {
         orientation: vertical;
 
-        $GhosttyDebugWarning {
-          visible: bind template.debug;
-        }
-
         Adw.ToastOverlay toast_overlay {
           Adw.TabView tab_view {
             notify::n-pages => $notify_n_pages();

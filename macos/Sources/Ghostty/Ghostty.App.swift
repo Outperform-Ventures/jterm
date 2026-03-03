@@ -459,6 +459,169 @@ extension Ghostty {
             return Unmanaged<SurfaceView>.fromOpaque(surface_ud).takeUnretainedValue()
         }
 
+        static private func targetWindow(from target: ghostty_target_s) -> NSWindow? {
+            switch (target.tag) {
+            case GHOSTTY_TARGET_APP:
+                return NSApp.mainWindow ?? NSApp.keyWindow
+
+            case GHOSTTY_TARGET_SURFACE:
+                guard let surface = target.target.surface else { return nil }
+                guard let surfaceView = self.surfaceView(from: surface) else { return nil }
+                return surfaceView.window
+
+            default:
+                assertionFailure()
+                return nil
+            }
+        }
+
+        static private func monitorScreen(for window: NSWindow, monitor: Int32) -> NSScreen? {
+            let screens = orderedMonitorScreens()
+            guard !screens.isEmpty else { return nil }
+
+            if monitor <= 0 {
+                return window.screen ?? NSScreen.main ?? screens.first
+            }
+
+            let index = Int(monitor - 1)
+            guard index >= 0, index < screens.count else { return nil }
+            return screens[index]
+        }
+
+        static private func orderedMonitorScreens() -> [NSScreen] {
+            var screens = NSScreen.screens
+            screens.sort { lhs, rhs in
+                let lx = lhs.frame.minX
+                let rx = rhs.frame.minX
+                let xDelta = abs(lx - rx)
+                if xDelta > 1.0 {
+                    return lx < rx
+                }
+
+                let ly = lhs.frame.minY
+                let ry = rhs.frame.minY
+                let yDelta = abs(ly - ry)
+                if yDelta > 1.0 {
+                    // For stacked displays at the same horizontal position,
+                    // assign lower monitor numbers to the top display.
+                    return ly > ry
+                }
+
+                let lhsID = lhs.displayID ?? 0
+                let rhsID = rhs.displayID ?? 0
+                return lhsID < rhsID
+            }
+
+            return screens
+        }
+
+        static private func clampedFrame(_ frame: NSRect, in visibleFrame: NSRect) -> NSRect {
+            var clamped = frame
+            clamped.size.width = min(max(clamped.size.width, 1.0), visibleFrame.size.width)
+            clamped.size.height = min(max(clamped.size.height, 1.0), visibleFrame.size.height)
+            clamped.origin.x = max(
+                visibleFrame.minX,
+                min(clamped.origin.x, visibleFrame.maxX - clamped.size.width)
+            )
+            clamped.origin.y = max(
+                visibleFrame.minY,
+                min(clamped.origin.y, visibleFrame.maxY - clamped.size.height)
+            )
+            return clamped.integral
+        }
+
+        static private func movedFrame(
+            _ frame: NSRect,
+            from sourceVisibleFrame: NSRect,
+            to destinationVisibleFrame: NSRect
+        ) -> NSRect {
+            let sourceWidth = max(sourceVisibleFrame.width, 1.0)
+            let sourceHeight = max(sourceVisibleFrame.height, 1.0)
+
+            let relativeX = (frame.midX - sourceVisibleFrame.minX) / sourceWidth
+            let relativeY = (frame.midY - sourceVisibleFrame.minY) / sourceHeight
+
+            var moved = frame
+            moved.origin.x = destinationVisibleFrame.minX + (relativeX * destinationVisibleFrame.width) - (frame.width / 2.0)
+            moved.origin.y = destinationVisibleFrame.minY + (relativeY * destinationVisibleFrame.height) - (frame.height / 2.0)
+
+            return clampedFrame(moved, in: destinationVisibleFrame)
+        }
+
+        static private func snapFrame(
+            operation: ghostty_action_os_window_control_operation_e,
+            visibleFrame: NSRect
+        ) -> NSRect? {
+            let leftWidth = max(1.0, floor(visibleFrame.width / 2.0))
+            let rightWidth = max(1.0, visibleFrame.width - leftWidth)
+            let bottomHeight = max(1.0, floor(visibleFrame.height / 2.0))
+            let topHeight = max(1.0, visibleFrame.height - bottomHeight)
+
+            switch (operation) {
+            case GHOSTTY_OS_WINDOW_CONTROL_SNAP_LEFT:
+                return NSRect(
+                    x: visibleFrame.minX,
+                    y: visibleFrame.minY,
+                    width: leftWidth,
+                    height: visibleFrame.height
+                )
+
+            case GHOSTTY_OS_WINDOW_CONTROL_SNAP_RIGHT:
+                return NSRect(
+                    x: visibleFrame.minX + leftWidth,
+                    y: visibleFrame.minY,
+                    width: rightWidth,
+                    height: visibleFrame.height
+                )
+
+            case GHOSTTY_OS_WINDOW_CONTROL_SNAP_TOP_LEFT:
+                return NSRect(
+                    x: visibleFrame.minX,
+                    y: visibleFrame.minY + bottomHeight,
+                    width: leftWidth,
+                    height: topHeight
+                )
+
+            case GHOSTTY_OS_WINDOW_CONTROL_SNAP_TOP_RIGHT:
+                return NSRect(
+                    x: visibleFrame.minX + leftWidth,
+                    y: visibleFrame.minY + bottomHeight,
+                    width: rightWidth,
+                    height: topHeight
+                )
+
+            case GHOSTTY_OS_WINDOW_CONTROL_SNAP_BOTTOM_LEFT:
+                return NSRect(
+                    x: visibleFrame.minX,
+                    y: visibleFrame.minY,
+                    width: leftWidth,
+                    height: bottomHeight
+                )
+
+            case GHOSTTY_OS_WINDOW_CONTROL_SNAP_BOTTOM_RIGHT:
+                return NSRect(
+                    x: visibleFrame.minX + leftWidth,
+                    y: visibleFrame.minY,
+                    width: rightWidth,
+                    height: bottomHeight
+                )
+
+            default:
+                return nil
+            }
+        }
+
+        static private func applyWindowFrame(_ window: NSWindow, frame: NSRect) {
+            if window.isMiniaturized {
+                window.deminiaturize(nil)
+            }
+            if !window.isVisible {
+                window.orderFront(nil)
+            }
+            window.setFrame(frame, display: true, animate: false)
+            window.makeKeyAndOrderFront(nil)
+        }
+
         // MARK: Actions (macOS)
 
         static func action(_ app: ghostty_app_t, target: ghostty_target_s, action: ghostty_action_s) -> Bool {
@@ -527,6 +690,12 @@ extension Ghostty {
 
             case GHOSTTY_ACTION_SET_TITLE:
                 setTitle(app, target: target, v: action.action.set_title)
+
+            case GHOSTTY_ACTION_SET_WINDOW_TITLE:
+                setWindowTitle(app, target: target, v: action.action.set_window_title)
+
+            case GHOSTTY_ACTION_SET_TAB_TITLE:
+                setTabTitle(app, target: target, v: action.action.set_tab_title)
 
             case GHOSTTY_ACTION_PROMPT_TITLE:
                 return promptTitle(app, target: target, v: action.action.prompt_title)
@@ -635,6 +804,9 @@ extension Ghostty {
 
             case GHOSTTY_ACTION_PRESENT_TERMINAL:
                 return presentTerminal(app, target: target)
+
+            case GHOSTTY_ACTION_OS_WINDOW_CONTROL:
+                return osWindowControl(app, target: target, v: action.action.os_window_control)
 
             case GHOSTTY_ACTION_TOGGLE_TAB_OVERVIEW:
                 fallthrough
@@ -1508,6 +1680,185 @@ extension Ghostty {
             }
         }
 
+        private static func setWindowTitle(
+            _ app: ghostty_app_t,
+            target: ghostty_target_s,
+            v: ghostty_action_set_title_s
+        ) {
+            guard let rawTitle = String(cString: v.title!, encoding: .utf8) else { return }
+            let title: String? = rawTitle.isEmpty ? nil : rawTitle
+
+            let applyTitleToGroup: (NSWindow) -> Void = { window in
+                if let controller = window.windowController as? BaseTerminalController {
+                    controller.setWindowTitleOverride(title)
+                } else if let title {
+                    window.title = title
+                } else {
+                    window.title = "⚡"
+                }
+            }
+
+            switch (target.tag) {
+            case GHOSTTY_TARGET_APP:
+                guard let window = NSApp.mainWindow ?? NSApp.keyWindow else { return }
+                applyTitleToGroup(window)
+
+            case GHOSTTY_TARGET_SURFACE:
+                guard let surface = target.target.surface else { return }
+                guard let surfaceView = self.surfaceView(from: surface) else { return }
+                guard let window = surfaceView.window else { return }
+                applyTitleToGroup(window)
+
+            default:
+                assertionFailure()
+            }
+        }
+
+        private static func setTabTitle(
+            _ app: ghostty_app_t,
+            target: ghostty_target_s,
+            v: ghostty_action_set_title_s
+        ) {
+            let newTitle = String(cString: v.title!, encoding: .utf8) ?? ""
+            let tabTitle: String? = newTitle.isEmpty ? nil : newTitle
+
+            let applyTitle: (NSWindow) -> Void = { window in
+                guard let terminalWindow = window as? TerminalWindow else { return }
+                terminalWindow.tabTitleOverride = tabTitle
+            }
+
+            switch (target.tag) {
+            case GHOSTTY_TARGET_APP:
+                guard let window = NSApp.mainWindow ?? NSApp.keyWindow else { return }
+                applyTitle(window)
+
+            case GHOSTTY_TARGET_SURFACE:
+                guard let surface = target.target.surface else { return }
+                guard let surfaceView = self.surfaceView(from: surface) else { return }
+                guard let window = surfaceView.window else { return }
+                applyTitle(window)
+
+            default:
+                assertionFailure()
+            }
+        }
+
+        private static func osWindowControl(
+            _ app: ghostty_app_t,
+            target: ghostty_target_s,
+            v: ghostty_action_os_window_control_s
+        ) -> Bool {
+            if !Thread.isMainThread {
+                var handled = false
+                DispatchQueue.main.sync {
+                    handled = osWindowControl(app, target: target, v: v)
+                }
+                return handled
+            }
+
+            switch (target.tag) {
+            case GHOSTTY_TARGET_APP:
+                guard let window = targetWindow(from: target) else { return false }
+                return applyOsWindowControl(
+                    on: window,
+                    operation: v.operation,
+                    monitor: v.monitor
+                )
+
+            case GHOSTTY_TARGET_SURFACE:
+                guard let surface = target.target.surface else { return false }
+
+                if let surfaceView = self.surfaceView(from: surface),
+                   let window = surfaceView.window
+                {
+                    return applyOsWindowControl(
+                        on: window,
+                        operation: v.operation,
+                        monitor: v.monitor
+                    )
+                }
+
+                // During launch, the surface can exist before AppKit finishes
+                // attaching an NSWindow. Retry once asynchronously.
+                DispatchQueue.main.async {
+                    guard let surfaceView = self.surfaceView(from: surface),
+                          let window = surfaceView.window
+                    else { return }
+
+                    _ = applyOsWindowControl(
+                        on: window,
+                        operation: v.operation,
+                        monitor: v.monitor
+                    )
+                }
+                return true
+
+            default:
+                assertionFailure()
+                return false
+            }
+        }
+
+        private static func applyOsWindowControl(
+            on window: NSWindow,
+            operation: ghostty_action_os_window_control_operation_e,
+            monitor: Int32
+        ) -> Bool {
+            switch (operation) {
+            case GHOSTTY_OS_WINDOW_CONTROL_MOVE_MONITOR:
+                guard !window.styleMask.contains(.fullScreen) else { return false }
+                guard let targetScreen = monitorScreen(for: window, monitor: monitor) else { return false }
+
+                let sourceVisibleFrame = window.screen?.visibleFrame ?? targetScreen.visibleFrame
+                let moved = movedFrame(
+                    window.frame,
+                    from: sourceVisibleFrame,
+                    to: targetScreen.visibleFrame
+                )
+                applyWindowFrame(window, frame: moved)
+                return true
+
+            case GHOSTTY_OS_WINDOW_CONTROL_MAXIMIZE:
+                guard !window.styleMask.contains(.fullScreen) else { return false }
+                guard let targetScreen = monitorScreen(for: window, monitor: monitor) else { return false }
+                applyWindowFrame(window, frame: targetScreen.visibleFrame.integral)
+                return true
+
+            case GHOSTTY_OS_WINDOW_CONTROL_MINIMIZE:
+                window.miniaturize(nil)
+                return true
+
+            case GHOSTTY_OS_WINDOW_CONTROL_HIDE:
+                window.orderOut(nil)
+                return true
+
+            case GHOSTTY_OS_WINDOW_CONTROL_SNAP_LEFT,
+                 GHOSTTY_OS_WINDOW_CONTROL_SNAP_RIGHT,
+                 GHOSTTY_OS_WINDOW_CONTROL_SNAP_TOP_LEFT,
+                 GHOSTTY_OS_WINDOW_CONTROL_SNAP_TOP_RIGHT,
+                 GHOSTTY_OS_WINDOW_CONTROL_SNAP_BOTTOM_LEFT,
+                 GHOSTTY_OS_WINDOW_CONTROL_SNAP_BOTTOM_RIGHT:
+                guard !window.styleMask.contains(.fullScreen) else { return false }
+                guard let targetScreen = monitorScreen(for: window, monitor: monitor) else { return false }
+                guard let snap = snapFrame(
+                    operation: operation,
+                    visibleFrame: targetScreen.visibleFrame
+                ) else {
+                    return false
+                }
+
+                applyWindowFrame(
+                    window,
+                    frame: clampedFrame(snap, in: targetScreen.visibleFrame)
+                )
+                return true
+
+            default:
+                Ghostty.logger.warning("unknown os window control operation op=\(operation.rawValue)")
+                return false
+            }
+        }
+
         private static func copyTitleToClipboard(
             _ app: ghostty_app_t,
             target: ghostty_target_s) -> Bool {
@@ -1542,7 +1893,13 @@ extension Ghostty {
                 case GHOSTTY_TARGET_SURFACE:
                     guard let surface = target.target.surface else { return false }
                     guard let surfaceView = self.surfaceView(from: surface) else { return false }
-                    surfaceView.promptTitle()
+                    if let window = surfaceView.window,
+                       let controller = window.windowController as? BaseTerminalController {
+                        controller.promptWindowTitle()
+                    } else {
+                        // Fallback for edge cases where we cannot resolve a controller.
+                        surfaceView.promptTitle()
+                    }
                     return true
 
                 default:

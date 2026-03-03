@@ -384,7 +384,7 @@ const DerivedConfig = struct {
             .cursor_click_to_move = config.@"cursor-click-to-move",
             .desktop_notifications = config.@"desktop-notifications",
             .font = try font.SharedGridSet.DerivedConfig.init(alloc, config),
-            .mouse_interval = config.@"click-repeat-interval" * 1_000_000, // 500ms
+            .mouse_interval = @as(u64, config.@"click-repeat-interval") * std.time.ns_per_ms, // 500ms
             .mouse_hide_while_typing = config.@"mouse-hide-while-typing",
             .mouse_reporting = config.@"mouse-reporting",
             .mouse_scroll_multiplier = config.@"mouse-scroll-multiplier",
@@ -2021,6 +2021,126 @@ pub fn selectionString(self: *Surface, alloc: Allocator) !?[:0]const u8 {
     });
 }
 
+pub const PromptInput = struct {
+    /// The x position of the start of input in surface coordinates
+    /// with origin at top-left.
+    x: f64,
+
+    /// The y position of the start row of input in surface coordinates
+    /// with origin at top-left.
+    y: f64,
+
+    /// The editable width remaining on the row from x.
+    width: f64,
+
+    /// The row height.
+    height: f64,
+
+    /// UTF-8 contents of the current prompt input region.
+    text: [:0]const u8,
+
+    pub fn deinit(self: PromptInput, alloc: Allocator) void {
+        alloc.free(self.text);
+    }
+};
+
+/// Returns the editable prompt input state for the active screen, if any.
+///
+/// This returns null if we are not currently in a prompt input state
+/// (`OSC 133` input semantics are required for this to work).
+pub fn promptInput(self: *const Surface, alloc: Allocator) !?PromptInput {
+    self.renderer_state.mutex.lock();
+    defer self.renderer_state.mutex.unlock();
+
+    const screen: *terminal.Screen = self.renderer_state.terminal.screens.active;
+    const cursor = screen.cursor;
+    const cursor_pin = cursor.page_pin.*;
+
+    // We only provide prompt input state while the cursor is in input mode.
+    if (cursor.semantic_content != .input and
+        cursor.page_cell.semantic_content != .input) return null;
+
+    const isInputCell = struct {
+        fn f(pin: terminal.Pin) bool {
+            return pin.rowAndCell().cell.semantic_content == .input;
+        }
+    }.f;
+
+    // Anchor is any concrete input cell near our cursor.
+    var anchor: ?terminal.Pin = null;
+    if (isInputCell(cursor_pin)) {
+        anchor = cursor_pin;
+    } else if (cursor_pin.leftWrap(1)) |prev| {
+        if (isInputCell(prev)) anchor = prev;
+    }
+
+    const start_pin: terminal.Pin = start_pin: {
+        if (anchor) |pin| {
+            var start = pin;
+            while (start.leftWrap(1)) |prev| {
+                if (!isInputCell(prev)) break;
+                start = prev;
+            }
+            break :start_pin start;
+        }
+
+        // Empty prompt input: no input cells yet, anchor at cursor.
+        break :start_pin cursor_pin;
+    };
+
+    const text: [:0]const u8 = text: {
+        if (anchor) |pin| {
+            var end = pin;
+            while (end.rightWrap(1)) |next| {
+                if (!isInputCell(next)) break;
+                end = next;
+            }
+
+            const sel = terminal.Selection.init(start_pin, end, false);
+            break :text try screen.selectionString(alloc, .{
+                .sel = sel,
+                .trim = false,
+            });
+        }
+
+        break :text try alloc.dupeZ(u8, "");
+    };
+    errdefer alloc.free(text);
+
+    const point = screen.pages.pointFromPin(.viewport, start_pin) orelse return null;
+    const coord = point.coord();
+    const start_col = std.math.cast(usize, coord.x) orelse return null;
+    const cols = screen.pages.cols;
+    if (start_col >= cols) return null;
+
+    // Surface dimensions are scaled, so convert back to host scale.
+    const content_scale = self.rt_surface.getContentScale() catch .{ .x = 1, .y = 1 };
+    const x_offset: usize = start_col * self.size.cell.width + self.size.padding.left;
+    const y_offset: usize = coord.y * self.size.cell.height + self.size.padding.top;
+    const cols_remaining: usize = cols - start_col;
+    const width_px: usize = cols_remaining * self.size.cell.width;
+
+    var x: f64 = @floatFromInt(x_offset);
+    x /= content_scale.x;
+
+    var y: f64 = @floatFromInt(y_offset);
+    y /= content_scale.y;
+
+    var width: f64 = @floatFromInt(width_px);
+    width /= content_scale.x;
+
+    var height: f64 = @floatFromInt(self.size.cell.height);
+    height /= content_scale.y;
+
+    return .{
+        .x = x,
+        .y = y,
+        .width = width,
+        .height = height,
+        .text = text,
+    };
+}
+
 /// Returns the pwd of the terminal, if any. This is always copied because
 /// the pwd can change at any point from termio. If we are calling from the IO
 /// thread you should just check the terminal directly.
@@ -3233,6 +3353,55 @@ pub fn textCallback(self: *Surface, text: []const u8) !void {
     try self.completeClipboardPaste(text, true);
 }
 
+/// Sends raw bytes directly to the PTY input stream.
+///
+/// Unlike `textCallback`, this bypasses paste encoding and bracketed paste
+/// framing. This is used by remote-control input injection paths that need
+/// byte-exact behavior (for example synthetic key sequences).
+pub fn remoteInputCallback(self: *Surface, data: []const u8) !void {
+    if (data.len == 0) return;
+
+    // Crash metadata in case we crash in here
+    crash.sentry.thread_state = self.crashThreadState();
+    defer crash.sentry.thread_state = null;
+
+    self.queueIo(try termio.Message.writeReq(
+        self.alloc,
+        data,
+    ), .unlocked);
+
+    self.renderer_state.mutex.lock();
+    defer self.renderer_state.mutex.unlock();
+    self.scrollToBottom() catch |err| {
+        log.warn("error scrolling to bottom err={}", .{err});
+    };
+}
+
+/// Sends a synthetic key event through the same encoder used for real
+/// keyboard input, but bypasses local keybindings.
+pub fn remoteKeyInputCallback(self: *Surface, event: input.KeyEvent) !void {
+    if (event.action == .release) return;
+
+    // Crash metadata in case we crash in here
+    crash.sentry.thread_state = self.crashThreadState();
+    defer crash.sentry.thread_state = null;
+
+    if (try self.encodeKey(event, null)) |write_req| {
+        errdefer write_req.deinit();
+        self.queueIo(switch (write_req) {
+            .small => |v| .{ .write_small = v },
+            .stable => |v| .{ .write_stable = v },
+            .alloc => |v| .{ .write_alloc = v },
+        }, .unlocked);
+    }
+
+    self.renderer_state.mutex.lock();
+    defer self.renderer_state.mutex.unlock();
+    self.scrollToBottom() catch |err| {
+        log.warn("error scrolling to bottom err={}", .{err});
+    };
+}
+
 /// Callback for when the surface is fully visible or not, regardless
 /// of focus state. This is used to pause rendering when the surface
 /// is not visible, and also re-render when it becomes visible again.
@@ -3244,6 +3413,21 @@ pub fn occlusionCallback(self: *Surface, visible: bool) !void {
     _ = self.renderer_thread.mailbox.push(.{
         .visible = visible,
     }, .{ .forever = {} });
+    try self.queueRender();
+}
+
+pub fn cursorVisibleCallback(self: *Surface, visible: bool) !void {
+    // Crash metadata in case we crash in here
+    crash.sentry.thread_state = self.crashThreadState();
+    defer crash.sentry.thread_state = null;
+
+    self.renderer_state.mutex.lock();
+    defer self.renderer_state.mutex.unlock();
+
+    const t: *terminal.Terminal = self.renderer_state.terminal;
+    if (t.modes.get(.cursor_visible) == visible) return;
+    t.modes.set(.cursor_visible, visible);
+
     try self.queueRender();
 }
 
