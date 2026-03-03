@@ -991,27 +991,26 @@ fn remoteNewWindow(
     }
 
     const expected_surface_id = self.next_surface_id;
+    const has_launch_directives = parsed_launch_ != null;
+    if (parsed_launch_) |parsed_launch| {
+        try self.queuePendingRemoteLaunch(expected_surface_id, parsed_launch);
+    }
+    errdefer if (has_launch_directives) self.discardPendingRemoteLaunch(expected_surface_id);
 
     if (self.surfaces.items.len == 0) {
         try self.newWindow(rt_app, .{ .parent = null });
-        if (parsed_launch_) |parsed_launch| {
-            const created_surface = self.rtSurfaceByRemoteId(expected_surface_id) orelse return error.ActionFailed;
-            try self.applyLaunchDirectives(rt_app, created_surface, parsed_launch, alloc);
-        }
-        return remote.protocol.encodeOk(alloc, .{
-            .created = @as(u32, 1),
-            .id = expected_surface_id,
-        });
+    } else {
+        var targets = try self.selectRemoteTargets(alloc, request, .single);
+        defer alloc.free(targets);
+
+        const parent = if (targets.len > 0) targets[0].core() else null;
+        try self.newWindow(rt_app, .{ .parent = parent });
     }
 
-    var targets = try self.selectRemoteTargets(alloc, request, .single);
-    defer alloc.free(targets);
-
-    const parent = if (targets.len > 0) targets[0].core() else null;
-    try self.newWindow(rt_app, .{ .parent = parent });
-    if (parsed_launch_) |parsed_launch| {
-        const created_surface = self.rtSurfaceByRemoteId(expected_surface_id) orelse return error.ActionFailed;
-        try self.applyLaunchDirectives(rt_app, created_surface, parsed_launch, alloc);
+    if (has_launch_directives) {
+        if (self.rtSurfaceByRemoteId(expected_surface_id)) |created_surface| {
+            try self.applyPendingRemoteLaunch(created_surface, expected_surface_id);
+        }
     }
 
     return remote.protocol.encodeOk(alloc, .{
@@ -1895,16 +1894,9 @@ fn remoteSetBackgroundOpacity(
     const targets = try self.selectRemoteTargets(alloc, request, .many);
     defer alloc.free(targets);
 
-    var updated: u32 = 0;
-    for (targets) |target| {
-        const meta = self.surface_meta.getPtr(target.core()) orelse continue;
-        meta.background_opacity = value;
-        updated += 1;
-    }
-
-    return remote.protocol.encodeOk(alloc, .{
-        .updated = updated,
-    });
+    // Kitty requires dynamic background-opacity capability for this command.
+    // jterm does not implement runtime background-opacity mutation yet.
+    return error.ActionFailed;
 }
 
 fn remoteSetBackgroundImage(

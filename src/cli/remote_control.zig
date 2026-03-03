@@ -318,9 +318,6 @@ fn parseInvocation(
         if (should_parse_global and try parseGlobalOption(argv, &i, &options, arg, false)) {
             continue;
         }
-        if (should_parse_global and try parseCommandOption(argv, &i, &options, arg, false)) {
-            continue;
-        }
 
         const should_parse_command_options = command_name != null and !command_args_started;
         if (should_parse_command_options and try parseCommandOption(argv, &i, &options, arg, false)) {
@@ -960,7 +957,7 @@ test "parseInvocation supports global options after command" {
     try testing.expectEqual(@as(usize, 0), invocation.command_args.len);
 }
 
-test "parseInvocation supports command options before command" {
+test "parseInvocation rejects command options before command" {
     const testing = std.testing;
 
     const argv = [_][]const u8{
@@ -971,12 +968,7 @@ test "parseInvocation supports command options before command" {
         "ls",
     };
 
-    var invocation = try parseInvocation(testing.allocator, argv[0..]);
-    defer invocation.deinit(testing.allocator);
-
-    try testing.expect(invocation.options.response);
-    try testing.expectEqualStrings("recent:0", invocation.options.match.?);
-    try testing.expectEqualStrings("ls", invocation.command_name);
+    try testing.expectError(error.UnknownOption, parseInvocation(testing.allocator, argv[0..]));
 }
 
 test "parseInvocation keeps launch options as command args" {
@@ -1139,7 +1131,7 @@ test "parseInvocation parses every global option form" {
     }
 }
 
-test "parseInvocation parses every command option form before and after command" {
+test "parseInvocation parses every command option form after command" {
     const testing = std.testing;
 
     const Case = struct {
@@ -1161,18 +1153,6 @@ test "parseInvocation parses every command option form before and after command"
     };
 
     for (cases) |case| {
-        var before = try parseInvocationFromParts(
-            testing.allocator,
-            case.tokens,
-            "select-window",
-            &.{},
-        );
-        defer before.deinit(testing.allocator);
-
-        try testing.expectEqualStrings("select-window", before.command_name);
-        try testing.expectEqual(@as(usize, 0), before.command_args.len);
-        try expectOptionsEqual(case.expected, before.options);
-
         var after = try parseInvocationFromParts(
             testing.allocator,
             &.{},
@@ -1241,7 +1221,7 @@ test "parseInvocation forwards all documented option tokens once argv mode start
     }
 }
 
-test "parseInvocation supports all commands with all shared options before command" {
+test "parseInvocation supports all commands with global options before command" {
     const testing = std.testing;
 
     const pre_command = [_][]const u8{
@@ -1250,28 +1230,14 @@ test "parseInvocation supports all commands with all shared options before comma
         "--password-file=/tmp/jterm-pass.txt",
         "--password-env=JTERM_PASS",
         "--use-password=always",
-        "--no-response",
-        "--response",
-        "--all",
-        "--ignore-no-match",
-        "--match=id:9",
-        "--match-tab=title:demo",
-        "--response-timeout=7",
     };
 
     const expected: Options = .{
         .to = "unix:/tmp/jterm-custom.sock",
-        .match = "id:9",
-        .match_tab = "title:demo",
-        .all = true,
-        .ignore_no_match = true,
         .password = "top-secret",
         .password_file = "/tmp/jterm-pass.txt",
         .password_env = "JTERM_PASS",
         .use_password = .always,
-        .@"no-response" = true,
-        .response = true,
-        .response_timeout = 7,
     };
 
     for (remote.command.all) |cmd| {
@@ -1343,17 +1309,17 @@ test "parseInvocation reports missing values for every value-taking option" {
         .{ .argv = &.{ "jterm", "@", "--password-file" }, .expected = error.MissingValue },
         .{ .argv = &.{ "jterm", "@", "--password-env" }, .expected = error.MissingValue },
         .{ .argv = &.{ "jterm", "@", "--use-password" }, .expected = error.MissingValue },
-        .{ .argv = &.{ "jterm", "@", "--match" }, .expected = error.MissingValue },
-        .{ .argv = &.{ "jterm", "@", "--match-tab" }, .expected = error.MissingValue },
-        .{ .argv = &.{ "jterm", "@", "--response-timeout" }, .expected = error.MissingValue },
+        .{ .argv = &.{ "jterm", "@", "--match" }, .expected = error.UnknownOption },
+        .{ .argv = &.{ "jterm", "@", "--match-tab" }, .expected = error.UnknownOption },
+        .{ .argv = &.{ "jterm", "@", "--response-timeout" }, .expected = error.UnknownOption },
         .{ .argv = &.{ "jterm", "@", "--to=" }, .expected = error.MissingValue },
         .{ .argv = &.{ "jterm", "@", "--password=" }, .expected = error.MissingValue },
         .{ .argv = &.{ "jterm", "@", "--password-file=" }, .expected = error.MissingValue },
         .{ .argv = &.{ "jterm", "@", "--password-env=" }, .expected = error.MissingValue },
         .{ .argv = &.{ "jterm", "@", "--use-password=" }, .expected = error.InvalidValue },
-        .{ .argv = &.{ "jterm", "@", "--match=" }, .expected = error.MissingValue },
-        .{ .argv = &.{ "jterm", "@", "--match-tab=" }, .expected = error.MissingValue },
-        .{ .argv = &.{ "jterm", "@", "--response-timeout=" }, .expected = error.MissingValue },
+        .{ .argv = &.{ "jterm", "@", "--match=" }, .expected = error.UnknownOption },
+        .{ .argv = &.{ "jterm", "@", "--match-tab=" }, .expected = error.UnknownOption },
+        .{ .argv = &.{ "jterm", "@", "--response-timeout=" }, .expected = error.UnknownOption },
     };
 
     for (cases) |case| {
@@ -1364,15 +1330,20 @@ test "parseInvocation reports missing values for every value-taking option" {
 test "parseInvocation rejects invalid response-timeout values in all forms" {
     const testing = std.testing;
 
-    const cases = [_][]const []const u8{
-        &.{ "jterm", "@", "--response-timeout=abc", "ls" },
-        &.{ "jterm", "@", "--response-timeout", "abc", "ls" },
-        &.{ "jterm", "@", "ls", "--response-timeout=abc" },
-        &.{ "jterm", "@", "ls", "--response-timeout", "abc" },
+    const Case = struct {
+        argv: []const []const u8,
+        expected: anyerror,
     };
 
-    for (cases) |argv| {
-        try testing.expectError(error.InvalidValue, parseInvocation(testing.allocator, argv));
+    const cases = [_]Case{
+        .{ .argv = &.{ "jterm", "@", "--response-timeout=abc", "ls" }, .expected = error.UnknownOption },
+        .{ .argv = &.{ "jterm", "@", "--response-timeout", "abc", "ls" }, .expected = error.UnknownOption },
+        .{ .argv = &.{ "jterm", "@", "ls", "--response-timeout=abc" }, .expected = error.InvalidValue },
+        .{ .argv = &.{ "jterm", "@", "ls", "--response-timeout", "abc" }, .expected = error.InvalidValue },
+    };
+
+    for (cases) |case| {
+        try testing.expectError(case.expected, parseInvocation(testing.allocator, case.argv));
     }
 }
 
