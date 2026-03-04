@@ -251,9 +251,6 @@ extension Ghostty {
         private final class ComposeTextView: NSTextView {
             var onCommit: (() -> Void)?
             var onCancel: (() -> Void)?
-            var onTab: (() -> Void)?
-            var caretColor: NSColor = .white
-            var caretWidth: CGFloat = 1
 
             override func keyDown(with event: NSEvent) {
                 switch event.keyCode {
@@ -263,9 +260,6 @@ extension Ghostty {
                 case 53: // Escape
                     onCancel?()
                     return
-                case 48: // Tab
-                    onTab?()
-                    return
                 default:
                     break
                 }
@@ -274,21 +268,11 @@ extension Ghostty {
             }
 
             override func draw(_ dirtyRect: NSRect) {
-                // Keep text/caret invisible via attributes, but allow AppKit to draw
-                // selection highlight so selected ranges are visible to the user.
-                super.draw(dirtyRect)
+                // Intentionally no-op: this editor is an invisible interaction layer.
             }
 
             override func drawInsertionPoint(in rect: NSRect, color: NSColor, turnedOn flag: Bool) {
-                guard flag else { return }
-                var caret = rect
-                caret.origin.x = floor(caret.origin.x) + 0.5
-                caret.size.width = max(1, caretWidth)
-                if caret.size.height <= 0 {
-                    caret.size.height = max(1, bounds.height)
-                }
-                caretColor.setFill()
-                caret.fill()
+                // Keep the AppKit compose caret hidden so only the terminal cursor is visible.
             }
         }
 
@@ -299,7 +283,6 @@ extension Ghostty {
         private var composeSyncedText: String = ""
         private var composeSyncedCursor: Int = 0
         private var composeSuppressSync: Bool = false
-        private var composeSelectionAnchor: Int? = nil
         private var composeForegroundColor: NSColor = .labelColor
         private var composeBackgroundColor: NSColor = .black
         private var composeAutoActivateTimer: Timer? = nil
@@ -339,7 +322,6 @@ extension Ghostty {
             composeEnding = false
             composeSyncedText = ""
             composeSyncedCursor = 0
-            composeSelectionAnchor = nil
             composeSuppressSync = false
             setTerminalCursorHidden(false)
             if let editor = composeEditor {
@@ -405,17 +387,14 @@ extension Ghostty {
         private func setTerminalCursorHidden(_ hidden: Bool) {
             guard composeTerminalCursorHidden != hidden else { return }
             composeTerminalCursorHidden = hidden
-            guard let surface else { return }
-            ghostty_surface_set_cursor_visible(surface, !hidden)
-            composeTrace("terminal cursor hidden=\(hidden)")
+            // Disabled for stability. Sending control sequences via sendText can render as literals.
         }
 
         /// Event monitor (see individual events for why)
         private var eventMonitor: Any? = nil
 
-        // During compose editing, keep first-responder ownership on the compose editor.
-        // This prevents responder churn on click/drag interactions.
-        override var acceptsFirstResponder: Bool { composeOriginalText == nil }
+        // We need to support being a first responder so that we can get input events
+        override var acceptsFirstResponder: Bool { return true }
         override func acceptsFirstMouse(for event: NSEvent?) -> Bool { return true }
 
         init(_ app: ghostty_app_t, baseConfig: SurfaceConfiguration? = nil, uuid: UUID? = nil) {
@@ -482,10 +461,10 @@ extension Ghostty {
                 return String(cString: text.text)
             }
 
-            // Set a timer to show the default fallback title after 500ms if no title is set
+            // Set a timer to show the ghost emoji after 500ms if no title is set
             titleFallbackTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: false) { [weak self] _ in
                 if let self = self, self.title.isEmpty {
-                    self.title = "⚡"
+                    self.title = "👻"
                 }
             }
 
@@ -554,12 +533,6 @@ extension Ghostty {
                 matching: [
                     // We need keyUp because command+key events don't trigger keyUp.
                     .keyUp,
-                    .leftMouseDown,
-                    // Track compose drag selection even if AppKit routes mouse events
-                    // through subviews/responder changes.
-                    .leftMouseDragged,
-                    .leftMouseUp,
-                    .mouseMoved,
                 ]
             ) { [weak self] event in self?.localEventHandler(event) }
 
@@ -627,15 +600,7 @@ extension Ghostty {
             guard self.focused != focused else { return }
 
             if !focused, composeOriginalText != nil {
-                let windowIsKey = window?.isKeyWindow ?? false
-                let appIsActive = NSApp.isActive
-                composeTrace(
-                    "focusDidChange false compose_active=true window_key=\(windowIsKey) app_active=\(appIsActive)"
-                )
-                if !windowIsKey || !appIsActive {
-                    composeTrace("finish trigger source=focusDidChange")
-                    finishCompose(.blur)
-                }
+                finishCompose(.blur)
             }
 
             self.focused = focused
@@ -800,7 +765,7 @@ extension Ghostty {
                     // Empty means that user wants the title to be set automatically
                     // We also need to reload the config for the "title" property to be
                     // used again by this tab.
-                    let prevTitle = titleFromTerminal ?? "⚡"
+                    let prevTitle = titleFromTerminal ?? "👻"
                     titleFromTerminal = nil
                     setTitle(prevTitle)
                 } else {
@@ -849,55 +814,10 @@ extension Ghostty {
             return switch event.type {
             case .keyUp:
                 localEventKeyUp(event)
-            case .leftMouseDown:
-                localEventLeftMouseDown(event)
-            case .leftMouseDragged:
-                localEventLeftMouseDragged(event)
-            case .leftMouseUp:
-                localEventLeftMouseUp(event)
-            case .mouseMoved:
-                localEventMouseMoved(event)
 
             default:
                 event
             }
-        }
-
-        private func localEventLeftMouseDown(_ event: NSEvent) -> NSEvent? {
-            guard let window, event.windowNumber == window.windowNumber else { return event }
-            let point = convert(event.locationInWindow, from: nil)
-            composeTrace(
-                "local down x=\(point.x) y=\(point.y) clickCount=\(event.clickCount) compose_active=\(composeOriginalText != nil)"
-            )
-            return event
-        }
-
-        private func localEventLeftMouseDragged(_ event: NSEvent) -> NSEvent? {
-            guard composeOriginalText != nil else { return event }
-            guard let window, event.windowNumber == window.windowNumber else { return event }
-            let point = convert(event.locationInWindow, from: nil)
-            let anchor = composeSelectionAnchor.map(String.init) ?? "nil"
-            composeTrace("local drag x=\(point.x) y=\(point.y) anchor=\(anchor)")
-            return event
-        }
-
-        private func localEventLeftMouseUp(_ event: NSEvent) -> NSEvent? {
-            guard composeOriginalText != nil else { return event }
-            guard let window, event.windowNumber == window.windowNumber else { return event }
-            let point = convert(event.locationInWindow, from: nil)
-            let anchor = composeSelectionAnchor.map(String.init) ?? "nil"
-            composeTrace("local up x=\(point.x) y=\(point.y) anchor=\(anchor)")
-            return event
-        }
-
-        private func localEventMouseMoved(_ event: NSEvent) -> NSEvent? {
-            guard composeOriginalText != nil else { return event }
-            guard let window, event.windowNumber == window.windowNumber else { return event }
-            let point = convert(event.locationInWindow, from: nil)
-            let dragging = isLeftMouseButtonDown()
-            let anchor = composeSelectionAnchor.map(String.init) ?? "nil"
-            composeTrace("local moved x=\(point.x) y=\(point.y) dragging=\(dragging) anchor=\(anchor)")
-            return event
         }
 
         private func localEventKeyUp(_ event: NSEvent) -> NSEvent? {
@@ -934,34 +854,7 @@ extension Ghostty {
             "➜ ",
             "→ ",
         ]
-        private static let composePromptLineStartMarkers: [String] = [
-            "❯",
-            "›",
-            ">",
-            "$",
-            "%",
-            "#",
-            "λ",
-            "➜",
-            "→",
-        ]
-        // Cursor-row detection can be off by one terminal row in some TUIs
-        // (notably Claude Code) due to cursor geometry rounding. Keep this
-        // tight (1 row) and rely on composeSnapshotMatchesClickY for final gating.
-        private static let composeRowMatchTolerance: Int = 1
-        private static let composeLooseRowTolerance: Int = 3
-
-        private func composeSnapshotMatchesClickY(
-            _ snapshot: PromptInputSnapshot,
-            clickPoint: NSPoint,
-            extraRowTolerance: Int = 0
-        ) -> Bool {
-            let frame = promptInputFrame(snapshot)
-            let toleranceY = max(2, cellSize.height * 0.2)
-            let rowToleranceY = CGFloat(max(0, extraRowTolerance)) * cellSize.height
-            let yDistance = abs(clickPoint.y - frame.midY)
-            return yDistance <= (frame.height * 0.5 + toleranceY + rowToleranceY)
-        }
+        private static let composeRowMatchTolerance: Int = 4
 
         private func semanticPromptInputSnapshot() -> PromptInputSnapshot? {
             guard let surface else { return nil }
@@ -1061,129 +954,6 @@ extension Ghostty {
             return (best, found)
         }
 
-        private func lineStartPromptInputColumn(line: String) -> Int? {
-            guard !line.isEmpty else { return nil }
-
-            var idx = line.startIndex
-            while idx < line.endIndex {
-                let ch = line[idx]
-                if ch == " " || ch == "\t" {
-                    idx = line.index(after: idx)
-                    continue
-                }
-                break
-            }
-            let prefixLen = line.distance(from: line.startIndex, to: idx)
-            let tail = String(line[idx...])
-
-            for marker in Self.composePromptLineStartMarkers {
-                guard tail.hasPrefix(marker) else { continue }
-                var start = prefixLen + marker.count
-                if start < line.count {
-                    let markerEnd = line.index(line.startIndex, offsetBy: start)
-                    if markerEnd < line.endIndex && line[markerEnd] == " " {
-                        start += 1
-                    }
-                }
-                return start
-            }
-
-            return nil
-        }
-
-        private func genericLinePromptStartColumn(line: String) -> Int? {
-            guard !line.isEmpty else { return nil }
-
-            var idx = line.startIndex
-            while idx < line.endIndex {
-                let ch = line[idx]
-                if ch == " " || ch == "\t" {
-                    idx = line.index(after: idx)
-                    continue
-                }
-                break
-            }
-            guard idx < line.endIndex else { return nil }
-            let prefixLen = line.distance(from: line.startIndex, to: idx)
-
-            // Generic TUI prompt detector:
-            // If the first visible character is punctuation/symbol and is followed
-            // by whitespace, treat it as a prompt marker and start after it.
-            let first = line[idx]
-            let nextIdx = line.index(after: idx)
-            guard nextIdx < line.endIndex else { return nil }
-            let next = line[nextIdx]
-            guard next == " " || next == "\t" else { return nil }
-            guard let scalar = first.unicodeScalars.first else { return nil }
-            if CharacterSet.alphanumerics.contains(scalar) {
-                return nil
-            }
-
-            var start = prefixLen + 1
-            if next == " " {
-                start += 1
-            }
-            return start
-        }
-
-        private func markerAnywherePromptInputColumn(line: String) -> Int? {
-            guard !line.isEmpty else { return nil }
-            let heuristic = heuristicInputStartColumn(line: line, cursorColumn: line.count)
-            guard heuristic.markerFound else { return nil }
-            return heuristic.column
-        }
-
-        private func looseLinePromptStartColumn(
-            line: String,
-            clickColumn: Int
-        ) -> Int? {
-            guard !line.isEmpty else { return nil }
-            let boundedClick = min(max(0, clickColumn), line.count)
-
-            var idx = line.startIndex
-            while idx < line.endIndex {
-                let ch = line[idx]
-                if ch == " " || ch == "\t" {
-                    idx = line.index(after: idx)
-                    continue
-                }
-                break
-            }
-
-            // Entire row is whitespace: treat prompt as empty at click column.
-            guard idx < line.endIndex else { return boundedClick }
-
-            let firstNonWhitespace = line.distance(from: line.startIndex, to: idx)
-            guard boundedClick >= firstNonWhitespace else { return nil }
-            return firstNonWhitespace
-        }
-
-        private func composeLogLinePreview(_ line: String, limit: Int = 80) -> String {
-            guard !line.isEmpty else { return "<empty>" }
-            var out = ""
-            out.reserveCapacity(min(line.count, limit))
-
-            for scalar in line.unicodeScalars {
-                if out.count >= limit {
-                    out.append("…")
-                    break
-                }
-                switch scalar.value {
-                case 0x09:
-                    out.append("\\t")
-                case 0x0A:
-                    out.append("\\n")
-                case 0x0D:
-                    out.append("\\r")
-                case 0x00...0x1F, 0x7F:
-                    out.append(String(format: "\\u{%02X}", scalar.value))
-                default:
-                    out.unicodeScalars.append(scalar)
-                }
-            }
-            return out
-        }
-
         private func cursorClickPointInView() -> NSPoint? {
             guard let surface else { return nil }
 
@@ -1234,12 +1004,11 @@ extension Ghostty {
             let clickTop = max(0, surfaceContentHeight - clickPoint.y)
             let clickRow = Int(floor(clickTop / cellH))
 
-            // Allow a few rows of slack in full-screen TUIs where click Y and cursor
-            // Y can diverge by multiple cell rows due to viewport/overlay geometry.
+            // Only activate on the current cursor row.
             let rowDistance = abs(clickRow - cursorRow)
-            if rowDistance > Self.composeLooseRowTolerance {
+            if rowDistance > Self.composeRowMatchTolerance {
                 composeTrace(
-                    "fallback row miss click_row=\(clickRow) cursor_row=\(cursorRow) dist=\(rowDistance) tol=\(Self.composeLooseRowTolerance)"
+                    "fallback row miss click_row=\(clickRow) cursor_row=\(cursorRow) dist=\(rowDistance) tol=\(Self.composeRowMatchTolerance)"
                 )
                 return nil
             }
@@ -1272,9 +1041,6 @@ extension Ghostty {
             let cursorCellLeft = CGFloat(cursorX) - (cellW * 0.5)
             let dxCols = max(0, cursorColumn - boundedStart)
             let x = max(0, cursorCellLeft - (CGFloat(dxCols) * cellW))
-            composeTrace(
-                "fallback hit click_x=\(clickPoint.x) click_y=\(clickPoint.y) click_row=\(clickRow) cursor_row=\(cursorRow) dist=\(rowDistance) start_col=\(boundedStart) cursor_col=\(cursorColumn) text_len=\(text.count)"
-            )
 
             return .init(
                 x: x,
@@ -1308,17 +1074,14 @@ extension Ghostty {
             let clickTop = max(0, surfaceContentHeight - clickPoint.y)
             let clickRow = Int(floor(clickTop / cellH))
             let rowDistance = abs(clickRow - cursorRow)
-            if rowDistance > Self.composeLooseRowTolerance {
+            if rowDistance > Self.composeRowMatchTolerance {
                 composeTrace(
-                    "cursor-only row miss click_row=\(clickRow) cursor_row=\(cursorRow) dist=\(rowDistance) tol=\(Self.composeLooseRowTolerance)"
+                    "cursor-only row miss click_row=\(clickRow) cursor_row=\(cursorRow) dist=\(rowDistance) tol=\(Self.composeRowMatchTolerance)"
                 )
                 return nil
             }
 
             let x = max(0, CGFloat(cursorX) - (cellW * 0.5))
-            composeTrace(
-                "cursor-only hit click_x=\(clickPoint.x) click_y=\(clickPoint.y) click_row=\(clickRow) cursor_row=\(cursorRow) dist=\(rowDistance)"
-            )
             return .init(
                 x: x,
                 yTop: cursorTop,
@@ -1326,139 +1089,6 @@ extension Ghostty {
                 height: cellH,
                 text: ""
             )
-        }
-
-        private func clickRowPromptInputSnapshot(clickPoint: NSPoint) -> PromptInputSnapshot? {
-            let cellW = max(1, cellSize.width)
-            let cellH = max(1, cellSize.height)
-
-            guard let visible = visibleContentsSnapshot() else {
-                return nil
-            }
-            let rows = visible
-                .split(separator: "\n", omittingEmptySubsequences: false)
-                .map(String.init)
-            guard !rows.isEmpty else { return nil }
-
-            let clickTop = max(0, surfaceContentHeight - clickPoint.y)
-            var clickRow = Int(floor(clickTop / cellH))
-            clickRow = min(max(0, clickRow), rows.count - 1)
-            let rawClickColumn = max(0, Int(floor(clickPoint.x / cellW)))
-            let cursorRowAndColumn: (row: Int, column: Int)? = {
-                guard let cursorPoint = cursorClickPointInView() else { return nil }
-                let cursorTop = max(0, surfaceContentHeight - cursorPoint.y)
-                let row = Int(floor(cursorTop / cellH))
-                let column = max(0, Int(floor(cursorPoint.x / cellW)))
-                return (
-                    row: min(max(0, row), rows.count - 1),
-                    column: column
-                )
-            }()
-            let cursorRow = cursorRowAndColumn?.row
-            let cursorColumn = cursorRowAndColumn?.column
-
-            var candidateRows: [Int] = [clickRow]
-            let searchRadius = 4
-            if searchRadius > 0 {
-                for delta in 1...searchRadius {
-                    let up = clickRow - delta
-                    let down = clickRow + delta
-                    if up >= 0 { candidateRows.append(up) }
-                    if down < rows.count { candidateRows.append(down) }
-                }
-            }
-            var rowDiagnostics: [String] = []
-            rowDiagnostics.reserveCapacity(6)
-
-            for rowIndex in candidateRows {
-                let row = rows[rowIndex]
-                let clickColumn = min(rawClickColumn, row.count)
-
-                var startColumn = lineStartPromptInputColumn(line: row)
-                var source = "line-start"
-                if startColumn == nil {
-                    let heuristic = heuristicInputStartColumn(
-                        line: row,
-                        cursorColumn: clickColumn
-                    )
-                    if heuristic.markerFound {
-                        startColumn = heuristic.column
-                        source = "heuristic-click"
-                    }
-                }
-                if startColumn == nil {
-                    startColumn = genericLinePromptStartColumn(line: row)
-                    if startColumn != nil {
-                        source = "generic-start"
-                    }
-                }
-                if startColumn == nil {
-                    startColumn = markerAnywherePromptInputColumn(line: row)
-                    if startColumn != nil {
-                        source = "heuristic-anywhere"
-                    }
-                }
-                if startColumn == nil,
-                   let cursorRow,
-                   abs(rowIndex - cursorRow) <= Self.composeLooseRowTolerance
-                {
-                    startColumn = looseLinePromptStartColumn(
-                        line: row,
-                        clickColumn: clickColumn
-                    )
-                    if startColumn != nil {
-                        source = "cursor-row-loose"
-                    }
-                }
-                guard let markerColumn = startColumn else {
-                    if rowDiagnostics.count < 6 {
-                        rowDiagnostics.append(
-                            "r\(rowIndex):c\(clickColumn):\"\(composeLogLinePreview(row))\""
-                        )
-                    }
-                    continue
-                }
-
-                let boundedStart = min(markerColumn, row.count)
-                let startIndex = row.index(row.startIndex, offsetBy: boundedStart)
-                let text = trimRightInlineWhitespace(String(row[startIndex...]))
-                let effectiveStart: Int = {
-                    // Empty input lines are common at prompts and TUIs. In this case,
-                    // marker-based parsing can be off by a few cells; anchor exactly
-                    // to the terminal cursor column when we're on the cursor row.
-                    if text.isEmpty,
-                       let cursorRow,
-                       let cursorColumn,
-                       rowIndex == cursorRow
-                    {
-                        return min(max(0, cursorColumn), row.count)
-                    }
-                    return boundedStart
-                }()
-                let x = max(0, CGFloat(effectiveStart) * cellW)
-                let yTop = CGFloat(rowIndex) * cellH
-                composeTrace(
-                    "click-row hit click_x=\(clickPoint.x) click_y=\(clickPoint.y) click_row=\(clickRow) resolved_row=\(rowIndex) cursor_row=\(cursorRow.map(String.init) ?? "nil") cursor_col=\(cursorColumn.map(String.init) ?? "nil") source=\(source) start_col=\(boundedStart) effective_start=\(effectiveStart) click_col=\(clickColumn) text_len=\(text.count)"
-                )
-
-                return .init(
-                    x: x,
-                    yTop: yTop,
-                    width: max(cellW, surfaceContentWidth - x),
-                    height: cellH,
-                    text: text
-                )
-            }
-
-            composeTrace(
-                "click-row no marker click_x=\(clickPoint.x) click_y=\(clickPoint.y) click_row=\(clickRow) cursor_row=\(cursorRow.map(String.init) ?? "nil") click_col=\(rawClickColumn) rows=\(rowDiagnostics.joined(separator: " | "))"
-            )
-            return nil
-        }
-
-        private func cursorRowPromptInputSnapshot() -> PromptInputSnapshot? {
-            guard let cursorPoint = cursorClickPointInView() else { return nil }
-            return clickRowPromptInputSnapshot(clickPoint: cursorPoint)
         }
 
         private func promptInputSnapshot(clickPoint: NSPoint) -> PromptInputSnapshot? {
@@ -1481,47 +1111,7 @@ extension Ghostty {
                 )
             }
 
-            if let snapshot = clickRowPromptInputSnapshot(clickPoint: clickPoint) {
-                if !composeSnapshotMatchesClickY(snapshot, clickPoint: clickPoint) {
-                    let frame = promptInputFrame(snapshot)
-                    composeTrace(
-                        "click-row y miss click_x=\(clickPoint.x) click_y=\(clickPoint.y) frame_x=\(frame.minX) frame_y=\(frame.minY) frame_w=\(frame.width) frame_h=\(frame.height)"
-                    )
-                    return nil
-                }
-                AppDelegate.logger.debug(
-                    "compose snapshot source=click-row x=\(snapshot.x) y=\(snapshot.yTop) w=\(snapshot.width) h=\(snapshot.height) len=\(snapshot.text.count)"
-                )
-                return snapshot
-            }
-
-            if let snapshot = cursorRowPromptInputSnapshot() {
-                let frame = promptInputFrame(snapshot)
-                let toleranceY = max(cellSize.height * 4.0, frame.height * 0.5 + max(2, cellSize.height * 0.25))
-                let yDistance = abs(clickPoint.y - frame.midY)
-                if yDistance <= toleranceY {
-                    AppDelegate.logger.debug(
-                        "compose snapshot source=cursor-row x=\(snapshot.x) y=\(snapshot.yTop) w=\(snapshot.width) h=\(snapshot.height) len=\(snapshot.text.count)"
-                    )
-                    return snapshot
-                }
-                composeTrace(
-                    "cursor-row y miss click_x=\(clickPoint.x) click_y=\(clickPoint.y) frame_x=\(frame.minX) frame_y=\(frame.minY) frame_w=\(frame.width) frame_h=\(frame.height) tol=\(toleranceY)"
-                )
-            }
-
             if let snapshot = fallbackPromptInputSnapshot(clickPoint: clickPoint) {
-                if !composeSnapshotMatchesClickY(
-                    snapshot,
-                    clickPoint: clickPoint,
-                    extraRowTolerance: Self.composeLooseRowTolerance
-                ) {
-                    let frame = promptInputFrame(snapshot)
-                    composeTrace(
-                        "fallback y miss click_x=\(clickPoint.x) click_y=\(clickPoint.y) frame_x=\(frame.minX) frame_y=\(frame.minY) frame_w=\(frame.width) frame_h=\(frame.height)"
-                    )
-                    return nil
-                }
                 AppDelegate.logger.debug(
                     "compose snapshot source=fallback x=\(snapshot.x) y=\(snapshot.yTop) w=\(snapshot.width) h=\(snapshot.height) len=\(snapshot.text.count)"
                 )
@@ -1529,17 +1119,6 @@ extension Ghostty {
             }
 
             if let snapshot = cursorOnlyPromptInputSnapshot(clickPoint: clickPoint) {
-                if !composeSnapshotMatchesClickY(
-                    snapshot,
-                    clickPoint: clickPoint,
-                    extraRowTolerance: Self.composeLooseRowTolerance
-                ) {
-                    let frame = promptInputFrame(snapshot)
-                    composeTrace(
-                        "cursor-only y miss click_x=\(clickPoint.x) click_y=\(clickPoint.y) frame_x=\(frame.minX) frame_y=\(frame.minY) frame_w=\(frame.width) frame_h=\(frame.height)"
-                    )
-                    return nil
-                }
                 AppDelegate.logger.debug(
                     "compose snapshot source=cursor-only x=\(snapshot.x) y=\(snapshot.yTop) w=\(snapshot.width) h=\(snapshot.height)"
                 )
@@ -1560,13 +1139,6 @@ extension Ghostty {
             return NSRect(x: snapshot.x, y: y, width: width, height: height)
         }
 
-        private func composeHitFrame(for editor: NSTextView) -> NSRect {
-            let base = editor.frame
-            let slopX = max(cellSize.width * 1.5, 12)
-            let slopY = max(cellSize.height * 0.6, 12)
-            return base.insetBy(dx: -slopX, dy: -slopY)
-        }
-
         private func ensureComposeEditor() -> ComposeTextView {
             if let composeEditor {
                 return composeEditor
@@ -1581,9 +1153,6 @@ extension Ghostty {
             }
             editor.onCancel = { [weak self] in
                 self?.finishCompose(.cancel)
-            }
-            editor.onTab = { [weak self] in
-                self?.handleComposeTab()
             }
             editor.wantsLayer = true
             editor.layer?.zPosition = 10_000
@@ -1646,8 +1215,6 @@ extension Ghostty {
             composeForegroundColor = fg
             editor.textColor = .clear
             editor.insertionPointColor = .clear
-            editor.caretColor = fg
-            editor.caretWidth = 1
             editor.drawsBackground = false
             editor.backgroundColor = .clear
             if let layer = editor.layer {
@@ -1700,10 +1267,6 @@ extension Ghostty {
             updateComposeSelectionAppearance(editor)
         }
 
-        private func isLeftMouseButtonDown() -> Bool {
-            (NSEvent.pressedMouseButtons & 1) != 0
-        }
-
         private func composeInsertionIndex(
             for editor: NSTextView,
             clickPointInSurface point: NSPoint
@@ -1719,116 +1282,18 @@ extension Ghostty {
             }
 
             layout.ensureLayout(for: container)
-            let origin = editor.textContainerOrigin
-            let pointInContainer = NSPoint(
-                x: max(0, local.x - origin.x),
-                y: max(0, local.y - origin.y)
-            )
-            let clampedY = min(max(0, pointInContainer.y), max(0, container.size.height - 1))
+            let clampedY = min(max(0, local.y), max(0, editor.bounds.height - 1))
             var fraction: CGFloat = 0
-            var index = layout.characterIndex(
-                for: NSPoint(x: pointInContainer.x, y: clampedY),
+            let glyph = layout.glyphIndex(
+                for: NSPoint(x: max(0, local.x), y: clampedY),
                 in: container,
-                fractionOfDistanceBetweenInsertionPoints: &fraction
+                fractionOfDistanceThroughGlyph: &fraction
             )
+            var index = layout.characterIndexForGlyph(at: glyph)
             if fraction > 0.5 {
                 index += 1
             }
             return min(max(0, index), maxIndex)
-        }
-
-        private func updateComposeSelectionForDrag(
-            editor: NSTextView,
-            anchor: Int,
-            pointInSurface point: NSPoint
-        ) -> Int {
-            let idx = composeInsertionIndex(for: editor, clickPointInSurface: point)
-            let lower = min(anchor, idx)
-            let upper = max(anchor, idx)
-            composeSuppressSync = true
-            editor.setSelectedRange(NSRange(location: lower, length: upper - lower))
-            composeSuppressSync = false
-            updateComposeSelectionAppearance(editor)
-            editor.needsDisplay = true
-            editor.displayIfNeeded()
-            return idx
-        }
-
-        private func shouldInsertComposeTrailingSpace(
-            editor: NSTextView,
-            clickPointInSurface point: NSPoint,
-            insertionIndex: Int,
-            strictHit: Bool
-        ) -> Bool {
-            guard strictHit else { return false }
-            let maxIndex = editor.string.utf16.count
-            guard insertionIndex >= maxIndex else { return false }
-            guard !editor.string.isEmpty else { return false }
-            guard !editor.string.hasSuffix(" ") else { return false }
-
-            let local = editor.convert(point, from: self)
-            let origin = editor.textContainerOrigin
-            let localX = max(0, local.x - origin.x)
-            let cellW = max(1, cellSize.width)
-            let clickedColumn = Int(floor(localX / cellW))
-
-            // "Click + paste" behavior: only add a trailing space when the click is
-            // at least one full cell beyond the current end of text.
-            return clickedColumn > maxIndex
-        }
-
-        private func insertComposeTrailingSpace(editor: NSTextView) {
-            let oldText = composeSyncedText
-            let oldCursor = composeSyncedCursor
-            let newText = editor.string + " "
-            let newCursor = newText.utf16.count
-
-            composeSuppressSync = true
-            editor.string = newText
-            normalizeComposeEditorTextAttributes(editor)
-            editor.setSelectedRange(NSRange(location: newCursor, length: 0))
-            composeSuppressSync = false
-
-            syncTerminalLine(
-                from: oldText,
-                cursor: oldCursor,
-                to: newText,
-                cursor: newCursor
-            )
-            composeSyncedText = newText
-            composeSyncedCursor = newCursor
-            composeTrace("compose inserted trailing space new_len=\(newText.count) cursor=\(newCursor)")
-        }
-
-        private func isComposeWordCodeUnit(_ unit: UInt16) -> Bool {
-            guard let scalar = UnicodeScalar(unit) else { return false }
-            return CharacterSet.alphanumerics.contains(scalar) || scalar == "_"
-        }
-
-        private func composeWordSelectionRange(text: String, around index: Int) -> NSRange {
-            let units = Array(text.utf16)
-            guard !units.isEmpty else { return NSRange(location: 0, length: 0) }
-
-            var idx = min(max(0, index), units.count - 1)
-            if !isComposeWordCodeUnit(units[idx]) {
-                if idx > 0 && isComposeWordCodeUnit(units[idx - 1]) {
-                    idx -= 1
-                } else {
-                    return NSRange(location: min(max(0, index), units.count), length: 0)
-                }
-            }
-
-            var start = idx
-            while start > 0 && isComposeWordCodeUnit(units[start - 1]) {
-                start -= 1
-            }
-
-            var end = idx + 1
-            while end < units.count && isComposeWordCodeUnit(units[end]) {
-                end += 1
-            }
-
-            return NSRange(location: start, length: end - start)
         }
 
         private func syncTerminalCursor(from oldCursor: Int, to newCursor: Int) {
@@ -1872,10 +1337,7 @@ extension Ghostty {
                 surfaceModel?.sendKeyEvent(.init(key: .backspace))
             }
             if !newText.isEmpty {
-                // Keep compose mirroring consistent with regular text input paths.
-                // `sendText` ensures visible rendering in TUIs that don't reflect
-                // raw PTY injection in their local input widgets.
-                surfaceModel?.sendText(newText)
+                surfaceModel?.sendRawInput(newText)
             }
 
             // Reposition cursor within new content.
@@ -1926,7 +1388,6 @@ extension Ghostty {
             composeSyncedText = snapshot.text
             composeSyncedCursor = snapshot.text.utf16.count
             setTerminalCursorHidden(true)
-            composeStabilizeUntil = Date.timeIntervalSinceReferenceDate + 0.45
 
             AppDelegate.logger.debug(
                 "compose activate x=\(snapshot.x) y=\(snapshot.yTop) w=\(snapshot.width) h=\(snapshot.height) text_len=\(snapshot.text.count)"
@@ -1934,6 +1395,14 @@ extension Ghostty {
 
             let idx = composeInsertionIndex(for: editor, clickPointInSurface: clickPoint)
             editor.setSelectedRange(NSRange(location: idx, length: 0))
+            DispatchQueue.main.async { [weak self, weak editor] in
+                guard let self, let editor else { return }
+                guard self.composeOriginalText != nil else { return }
+                let current = editor.selectedRange()
+                if current.length != 0 {
+                    editor.setSelectedRange(NSRange(location: current.location, length: 0))
+                }
+            }
             composeSuppressSync = false
 
             // Keep shell cursor aligned with clicked insertion position.
@@ -1955,7 +1424,6 @@ extension Ghostty {
             let cursor = min(max(0, editor.selectedRange().location), draft.utf16.count)
             editor.isHidden = true
             composeOriginalText = nil
-            composeSelectionAnchor = nil
             composeResponderHandoff = true
             window?.makeFirstResponder(self)
             composeResponderHandoff = false
@@ -1992,98 +1460,6 @@ extension Ghostty {
             setTerminalCursorHidden(false)
             composeStabilizeUntil = 0
             composeTrace("finish reason=\(reason)")
-        }
-
-        private func composeSnapshotForCursorRow() -> PromptInputSnapshot? {
-            guard let cursorPoint = cursorClickPointInView() else { return nil }
-            return semanticPromptInputSnapshot()
-                ?? fallbackPromptInputSnapshot(clickPoint: cursorPoint)
-                ?? cursorOnlyPromptInputSnapshot(clickPoint: cursorPoint)
-        }
-
-        private func composeCursorIndexFromTerminal(snapshot: PromptInputSnapshot) -> Int {
-            guard let cursorPoint = cursorClickPointInView() else {
-                return snapshot.text.utf16.count
-            }
-
-            let frame = promptInputFrame(snapshot)
-            let cellW = max(1, cellSize.width)
-            let relativeX = cursorPoint.x - frame.minX
-            let idx = Int(round(relativeX / cellW))
-            return min(max(0, idx), snapshot.text.utf16.count)
-        }
-
-        private func refreshComposeFromTerminalAfterTab(attempt: Int = 0) {
-            guard composeOriginalText != nil else { return }
-            guard let editor = composeEditor, !editor.isHidden else { return }
-
-            if let snapshot = composeSnapshotForCursorRow() {
-                composeSuppressSync = true
-                editor.frame = promptInputFrame(snapshot)
-                if editor.string != snapshot.text {
-                    editor.string = snapshot.text
-                    normalizeComposeEditorTextAttributes(editor)
-                }
-                let cursor = composeCursorIndexFromTerminal(snapshot: snapshot)
-                editor.setSelectedRange(NSRange(location: cursor, length: 0))
-                composeSuppressSync = false
-                composeSelectionAnchor = nil
-                updateComposeSelectionAppearance(editor)
-                editor.needsDisplay = true
-                editor.displayIfNeeded()
-
-                composeSyncedText = snapshot.text
-                composeSyncedCursor = cursor
-                composeTrace(
-                    "tab refresh success attempt=\(attempt) text_len=\(snapshot.text.count) cursor=\(cursor)"
-                )
-                return
-            }
-
-            if attempt < 6 {
-                let next = attempt + 1
-                composeTrace("tab refresh retry attempt=\(next)")
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) { [weak self] in
-                    self?.refreshComposeFromTerminalAfterTab(attempt: next)
-                }
-            } else {
-                composeTrace("tab refresh gave up")
-            }
-        }
-
-        private func handleComposeTab() {
-            guard composeOriginalText != nil else { return }
-            guard let editor = composeEditor, !editor.isHidden else { return }
-
-            var cursor = min(max(0, editor.selectedRange().location), editor.string.utf16.count)
-            if editor.selectedRange().length > 0 {
-                cursor = min(editor.selectedRange().location + editor.selectedRange().length, editor.string.utf16.count)
-                composeSuppressSync = true
-                editor.setSelectedRange(NSRange(location: cursor, length: 0))
-                composeSuppressSync = false
-            }
-
-            let draft = editor.string
-            if draft != composeSyncedText || cursor != composeSyncedCursor {
-                syncTerminalLine(
-                    from: composeSyncedText,
-                    cursor: composeSyncedCursor,
-                    to: draft,
-                    cursor: cursor
-                )
-                composeSyncedText = draft
-                composeSyncedCursor = cursor
-            }
-
-            composeTrace("tab request draft_len=\(draft.count) cursor=\(cursor)")
-            surfaceModel?.sendKeyEvent(.init(key: .tab, action: .press))
-            surfaceModel?.sendKeyEvent(.init(key: .tab, action: .release))
-
-            // Let shell completion update the prompt, then mirror terminal state back
-            // into the compose editor.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.015) { [weak self] in
-                self?.refreshComposeFromTerminalAfterTab(attempt: 0)
-            }
         }
 
         private func handleComposeActivationClick(_ event: NSEvent) -> Bool {
@@ -2202,14 +1578,12 @@ extension Ghostty {
             guard let window = self.window else { return }
             guard let object = notification.object as? NSWindow, window == object else { return }
             if composeOriginalText != nil {
-                composeTrace("finish trigger source=windowDidResignKey")
                 finishCompose(.blur)
             }
         }
 
         @objc private func appDidResignActive(_ notification: SwiftUI.Notification) {
             if composeOriginalText != nil {
-                composeTrace("finish trigger source=appDidResignActive")
                 finishCompose(.blur)
             }
         }
@@ -2228,7 +1602,7 @@ extension Ghostty {
 
             // We sometimes call this manually (see SplitView) as a way to force us to
             // yield our focus state.
-            let suppressBlur = composeResponderHandoff || composeOriginalText != nil
+            let suppressBlur = composeResponderHandoff
             if result, !suppressBlur {
                 focusDidChange(false)
             }
@@ -2302,87 +1676,15 @@ extension Ghostty {
             let point = convert(event.locationInWindow, from: nil)
             let responderName = window?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
             composeTrace(
-                "mouseDown x=\(point.x) y=\(point.y) focused=\(focused) compose_active=\(composeOriginalText != nil) responder=\(responderName) clickCount=\(event.clickCount) buttons=\(NSEvent.pressedMouseButtons)"
+                "mouseDown x=\(point.x) y=\(point.y) focused=\(focused) compose_active=\(composeOriginalText != nil) responder=\(responderName)"
             )
 
             if composeOriginalText != nil {
-                if let editor = composeEditor, !editor.isHidden {
-                    let strictHit = editor.frame.contains(point)
-                    let tolerantHit = composeHitFrame(for: editor).contains(point)
-                    composeTrace(
-                        "mouseDown compose hit strict=\(strictHit) tolerant=\(tolerantHit) frame_x=\(editor.frame.minX) frame_y=\(editor.frame.minY) frame_w=\(editor.frame.width) frame_h=\(editor.frame.height)"
-                    )
-                    guard strictHit || tolerantHit else {
-                        composeTrace("finish trigger source=mouseDown-outside-compose")
-                        finishCompose(.blur)
-                        // Continue normal terminal handling below after compose closes.
-                        _ = window?.makeFirstResponder(self)
-                        composeTrace("mouseDown after makeFirstResponder compose_active=\(composeOriginalText != nil)")
-                        if handleComposeActivationClick(event) {
-                            composeTrace("mouseDown compose activated")
-                            if let editor = composeEditor, !editor.isHidden {
-                                if window?.firstResponder !== editor {
-                                    _ = window?.makeFirstResponder(editor)
-                                }
-                                let idx = composeInsertionIndex(for: editor, clickPointInSurface: point)
-                                composeSuppressSync = true
-                                editor.setSelectedRange(NSRange(location: idx, length: 0))
-                                composeSelectionAnchor = idx
-                                composeSuppressSync = false
-                                updateComposeSelectionAppearance(editor)
-                                editor.needsDisplay = true
-                                editor.displayIfNeeded()
-                                composeTrace("mouseDown compose initial-anchor=\(idx)")
-                            }
-                            return
-                        }
-                        composeTrace("mouseDown forwarding to terminal")
-                        guard let surface = self.surface else { return }
-                        let mods = Ghostty.ghosttyMods(event.modifierFlags)
-                        ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, mods)
-                        return
-                    }
-
-                    if window?.firstResponder !== editor {
-                        _ = window?.makeFirstResponder(editor)
-                    }
-                    var idx = composeInsertionIndex(for: editor, clickPointInSurface: point)
-                    if event.clickCount >= 2 {
-                        composeSuppressSync = true
-                        let word = composeWordSelectionRange(text: editor.string, around: idx)
-                        editor.setSelectedRange(word)
-                        composeSelectionAnchor = nil
-                        let caret = word.location + word.length
-                        if caret != composeSyncedCursor {
-                            syncTerminalCursor(from: composeSyncedCursor, to: caret)
-                            composeSyncedCursor = caret
-                        }
-                        composeTrace(
-                            "mouseDown compose word-select idx=\(idx) sel_loc=\(word.location) sel_len=\(word.length) clickCount=\(event.clickCount)"
-                        )
-                        composeSuppressSync = false
-                    } else {
-                        if shouldInsertComposeTrailingSpace(
-                            editor: editor,
-                            clickPointInSurface: point,
-                            insertionIndex: idx,
-                            strictHit: strictHit
-                        ) {
-                            insertComposeTrailingSpace(editor: editor)
-                            idx = editor.string.utf16.count
-                        }
-                        composeSuppressSync = true
-                        editor.setSelectedRange(NSRange(location: idx, length: 0))
-                        composeSelectionAnchor = idx
-                        composeSuppressSync = false
-                    }
-                    updateComposeSelectionAppearance(editor)
-                    editor.needsDisplay = true
-                    editor.displayIfNeeded()
-                    composeTrace("mouseDown compose anchor=\(idx) clickCount=\(event.clickCount)")
+                if let editor = composeEditor, !editor.isHidden, editor.frame.contains(point) {
+                    window?.makeFirstResponder(editor)
+                    editor.mouseDown(with: event)
                     return
                 }
-                composeTrace("finish trigger source=mouseDown-outside-compose")
                 finishCompose(.blur)
             }
 
@@ -2390,46 +1692,6 @@ extension Ghostty {
             composeTrace("mouseDown after makeFirstResponder compose_active=\(composeOriginalText != nil)")
             if handleComposeActivationClick(event) {
                 composeTrace("mouseDown compose activated")
-                if let editor = composeEditor, !editor.isHidden {
-                    if window?.firstResponder !== editor {
-                        _ = window?.makeFirstResponder(editor)
-                    }
-                    var idx = composeInsertionIndex(for: editor, clickPointInSurface: point)
-                    let strictHit = editor.frame.contains(point)
-                    if event.clickCount >= 2 {
-                        composeSuppressSync = true
-                        let word = composeWordSelectionRange(text: editor.string, around: idx)
-                        editor.setSelectedRange(word)
-                        composeSelectionAnchor = nil
-                        let caret = word.location + word.length
-                        if caret != composeSyncedCursor {
-                            syncTerminalCursor(from: composeSyncedCursor, to: caret)
-                            composeSyncedCursor = caret
-                        }
-                        composeTrace(
-                            "mouseDown compose initial word-select idx=\(idx) sel_loc=\(word.location) sel_len=\(word.length) clickCount=\(event.clickCount)"
-                        )
-                        composeSuppressSync = false
-                    } else {
-                        if shouldInsertComposeTrailingSpace(
-                            editor: editor,
-                            clickPointInSurface: point,
-                            insertionIndex: idx,
-                            strictHit: strictHit
-                        ) {
-                            insertComposeTrailingSpace(editor: editor)
-                            idx = editor.string.utf16.count
-                        }
-                        composeSuppressSync = true
-                        editor.setSelectedRange(NSRange(location: idx, length: 0))
-                        composeSelectionAnchor = idx
-                        composeSuppressSync = false
-                    }
-                    updateComposeSelectionAppearance(editor)
-                    editor.needsDisplay = true
-                    editor.displayIfNeeded()
-                    composeTrace("mouseDown compose initial-anchor=\(idx)")
-                }
                 return
             }
             composeTrace("mouseDown forwarding to terminal")
@@ -2441,21 +1703,8 @@ extension Ghostty {
 
         override func mouseUp(with event: NSEvent) {
             let point = convert(event.locationInWindow, from: nil)
-            composeTrace("mouseUp x=\(point.x) y=\(point.y) compose_active=\(composeOriginalText != nil) buttons=\(NSEvent.pressedMouseButtons)")
+            composeTrace("mouseUp x=\(point.x) y=\(point.y) compose_active=\(composeOriginalText != nil)")
             if composeOriginalText != nil {
-                if let editor = composeEditor, !editor.isHidden, let anchor = composeSelectionAnchor {
-                    let idx = updateComposeSelectionForDrag(
-                        editor: editor,
-                        anchor: anchor,
-                        pointInSurface: point
-                    )
-                    if idx != composeSyncedCursor {
-                        syncTerminalCursor(from: composeSyncedCursor, to: idx)
-                        composeSyncedCursor = idx
-                    }
-                    composeTrace("mouseUp compose idx=\(idx) anchor=\(anchor) sel_loc=\(editor.selectedRange().location) sel_len=\(editor.selectedRange().length)")
-                }
-                composeSelectionAnchor = nil
                 return
             }
 
@@ -2488,7 +1737,6 @@ extension Ghostty {
 
         override func rightMouseDown(with event: NSEvent) {
             if composeOriginalText != nil {
-                composeTrace("finish trigger source=rightMouseDown")
                 finishCompose(.blur)
             }
 
@@ -2592,36 +1840,15 @@ extension Ghostty {
             if composeOriginalText != nil,
                let editor = composeEditor,
                !editor.isHidden,
-               composeHitFrame(for: editor).contains(point)
+               editor.frame.contains(point)
             {
-                // Keep compose click/drag handling deterministic in SurfaceView.
-                return self
+                return editor
             }
             return super.hitTest(point)
         }
 
         override func mouseDragged(with event: NSEvent) {
-            if composeOriginalText != nil {
-                if let editor = composeEditor,
-                   !editor.isHidden,
-                   let anchor = composeSelectionAnchor
-                {
-                    let point = convert(event.locationInWindow, from: nil)
-                    let idx = updateComposeSelectionForDrag(
-                        editor: editor,
-                        anchor: anchor,
-                        pointInSurface: point
-                    )
-                    if idx != composeSyncedCursor {
-                        syncTerminalCursor(from: composeSyncedCursor, to: idx)
-                        composeSyncedCursor = idx
-                    }
-                    composeTrace(
-                        "mouseDragged x=\(point.x) y=\(point.y) idx=\(idx) anchor=\(anchor) sel_loc=\(editor.selectedRange().location) sel_len=\(editor.selectedRange().length)"
-                    )
-                }
-                return
-            }
+            if composeOriginalText != nil { return }
             self.mouseMoved(with: event)
         }
 
@@ -2867,49 +2094,6 @@ extension Ghostty {
             // because there are other event listeners for that (i.e. AppDelegate's
             // local event handler).
             if (!focused) {
-                return false
-            }
-
-            // While native compose editing is active, let AppKit text editing
-            // key equivalents take precedence (Cmd+C/X/V/A, etc.).
-            if composeOriginalText != nil,
-               let editor = composeEditor,
-               !editor.isHidden
-            {
-                if window?.firstResponder !== editor {
-                    _ = window?.makeFirstResponder(editor)
-                }
-
-                if editor.performKeyEquivalent(with: event) {
-                    composeTrace(
-                        "performKeyEquivalent compose handled chars=\(event.charactersIgnoringModifiers ?? "") mods=\(event.modifierFlags.rawValue)"
-                    )
-                    return true
-                }
-
-                // Some key equivalents may not be claimed by performKeyEquivalent
-                // depending on responder-chain state; handle common edit keys directly.
-                if event.modifierFlags.contains(.command),
-                   let chars = event.charactersIgnoringModifiers?.lowercased()
-                {
-                    switch chars {
-                    case "a":
-                        editor.selectAll(nil)
-                        return true
-                    case "c":
-                        editor.copy(nil)
-                        return true
-                    case "x":
-                        editor.cut(nil)
-                        return true
-                    case "v":
-                        editor.paste(nil)
-                        return true
-                    default:
-                        break
-                    }
-                }
-
                 return false
             }
             
@@ -3198,17 +2382,6 @@ extension Ghostty {
         // MARK: Menu Handlers
 
         @IBAction func copy(_ sender: Any?) {
-            if composeOriginalText != nil,
-               let editor = composeEditor,
-               !editor.isHidden
-            {
-                if window?.firstResponder !== editor {
-                    _ = window?.makeFirstResponder(editor)
-                }
-                editor.copy(sender)
-                return
-            }
-
             guard let surface = self.surface else { return }
             let action = "copy_to_clipboard"
             if (!ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8)))) {
@@ -3216,33 +2389,7 @@ extension Ghostty {
             }
         }
 
-        @IBAction func cut(_ sender: Any?) {
-            if composeOriginalText != nil,
-               let editor = composeEditor,
-               !editor.isHidden
-            {
-                if window?.firstResponder !== editor {
-                    _ = window?.makeFirstResponder(editor)
-                }
-                editor.cut(sender)
-                return
-            }
-
-            // No-op for terminal content outside compose mode.
-        }
-
         @IBAction func paste(_ sender: Any?) {
-            if composeOriginalText != nil,
-               let editor = composeEditor,
-               !editor.isHidden
-            {
-                if window?.firstResponder !== editor {
-                    _ = window?.makeFirstResponder(editor)
-                }
-                editor.paste(sender)
-                return
-            }
-
             guard let surface = self.surface else { return }
             let action = "paste_from_clipboard"
             if (!ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8)))) {
@@ -3268,17 +2415,6 @@ extension Ghostty {
         }
 
         @IBAction override func selectAll(_ sender: Any?) {
-            if composeOriginalText != nil,
-               let editor = composeEditor,
-               !editor.isHidden
-            {
-                if window?.firstResponder !== editor {
-                    _ = window?.makeFirstResponder(editor)
-                }
-                editor.selectAll(sender)
-                return
-            }
-
             guard let surface = self.surface else { return }
             let action = "select_all"
             if (!ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8)))) {
@@ -3387,11 +2523,7 @@ extension Ghostty {
         }
 
         @IBAction func changeTitle(_ sender: Any) {
-            if let window, let controller = window.windowController as? BaseTerminalController {
-                controller.promptWindowTitle()
-            } else {
-                promptTitle()
-            }
+            promptTitle()
         }
 
         /// Show a user notification and associate it with this surface
@@ -3874,7 +3006,7 @@ extension Ghostty.SurfaceView: NSTextViewDelegate {
         }
     }
 
-        func textDidChange(_ notification: Notification) {
+    func textDidChange(_ notification: Notification) {
         guard !composeEnding else { return }
         guard !composeSuppressSync else { return }
         guard let textView = notification.object as? NSTextView else { return }
@@ -3912,7 +3044,6 @@ extension Ghostty.SurfaceView: NSTextViewDelegate {
         composeTrace(
             "textDidChange draft_len=\(draft.count) cursor=\(cursor) marked_loc=\(marked.location) marked_len=\(marked.length) term_sel=\(termSelection)"
         )
-        setTerminalCursorHidden(true)
         syncTerminalLine(
             from: composeSyncedText,
             cursor: composeSyncedCursor,
@@ -3933,16 +3064,9 @@ extension Ghostty.SurfaceView: NSTextViewDelegate {
         let selection = textView.selectedRange()
         let cursor = min(max(0, selection.location), composeSyncedText.utf16.count)
         composeTrace("selection location=\(selection.location) length=\(selection.length) synced_cursor=\(composeSyncedCursor)")
-        setTerminalCursorHidden(true)
         composeSuppressSync = true
         updateComposeSelectionAppearance(textView)
         composeSuppressSync = false
-
-        // Keep selection paint responsive while dragging.
-        textView.needsDisplay = true
-        textView.displayIfNeeded()
-        if isLeftMouseButtonDown() { return }
-
         guard selection.length == 0 else { return }
         if cursor != composeSyncedCursor {
             syncTerminalCursor(from: composeSyncedCursor, to: cursor)
@@ -3955,22 +3079,17 @@ extension Ghostty.SurfaceView: NSTextViewDelegate {
         guard let textView = notification.object as? NSTextView else { return }
         guard textView === composeEditor else { return }
         guard composeOriginalText != nil else { return }
-
-        let windowIsKey = window?.isKeyWindow ?? false
-        let appIsActive = NSApp.isActive
-        let inStabilize = Date.timeIntervalSinceReferenceDate < composeStabilizeUntil
-        composeTrace(
-            "textDidEndEditing compose_active=true window_key=\(windowIsKey) app_active=\(appIsActive) stabilize=\(inStabilize)"
-        )
-
-        // NSTextView editing-end notifications can fire during internal responder
-        // transitions while compose should remain active.
-        if appIsActive && windowIsKey {
-            composeTrace("textDidEndEditing ignored active-window")
+        if Date.timeIntervalSinceReferenceDate < composeStabilizeUntil {
+            composeTrace("textDidEndEditing ignored during stabilize")
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                guard self.composeOriginalText != nil else { return }
+                guard let editor = self.composeEditor, !editor.isHidden else { return }
+                _ = self.window?.makeFirstResponder(editor)
+            }
             return
         }
 
-        composeTrace("finish trigger source=textDidEndEditing")
         finishCompose(.blur)
     }
 }
