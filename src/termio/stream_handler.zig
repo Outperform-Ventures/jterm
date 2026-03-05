@@ -11,7 +11,6 @@ const renderer = @import("../renderer.zig");
 const termio = @import("../termio.zig");
 const terminal = @import("../terminal/main.zig");
 const terminfo = @import("../terminfo/main.zig");
-const posix = std.posix;
 
 const log = std.log.scoped(.io_handler);
 
@@ -82,14 +81,164 @@ pub const StreamHandler = struct {
     /// this to determine if we need to default the window title.
     seen_title: bool = false,
 
+    /// Optional parser-level debug logging for VT ingress/actions.
+    vt_debug: ?VTDebugLog = null,
+
     pub const Stream = terminal.Stream(StreamHandler);
 
     /// True if we have tmux control mode built in.
     pub const tmux_enabled = terminal.options.tmux_control_mode;
 
+    pub const VTDebugLog = struct {
+        file: std.fs.File,
+        seq: u64 = 0,
+        write_failed: bool = false,
+
+        pub fn initFromEnv(alloc: Allocator) !?VTDebugLog {
+            if (try internal_os.getenv(alloc, "JTERM_VT_DEBUG_LOG")) |value| {
+                defer value.deinit(alloc);
+                if (value.value.len == 0) return null;
+                return try init(value.value);
+            }
+
+            if (try internal_os.getenv(alloc, "JTERM_VT_DEBUG")) |value| {
+                defer value.deinit(alloc);
+                if (!enabledByEnv(value.value)) return null;
+                return try init("/tmp/jterm-vt-events.log");
+            }
+
+            return null;
+        }
+
+        fn init(path: []const u8) !VTDebugLog {
+            const file = try std.fs.cwd().createFile(path, .{
+                .read = false,
+                .truncate = true,
+            });
+            var result: VTDebugLog = .{ .file = file };
+            result.write(
+                "# jterm vt debug ts_ms={}\n",
+                .{std.time.milliTimestamp()},
+            );
+            return result;
+        }
+
+        pub fn deinit(self: *VTDebugLog) void {
+            self.file.close();
+            self.* = undefined;
+        }
+
+        fn enabledByEnv(value: []const u8) bool {
+            if (value.len == 0) return false;
+            return !std.mem.eql(u8, value, "0") and
+                !std.ascii.eqlIgnoreCase(value, "false") and
+                !std.ascii.eqlIgnoreCase(value, "off") and
+                !std.ascii.eqlIgnoreCase(value, "no");
+        }
+
+        fn nextSeq(self: *VTDebugLog) u64 {
+            const current = self.seq;
+            self.seq +%= 1;
+            return current;
+        }
+
+        fn write(self: *VTDebugLog, comptime fmt: []const u8, args: anytype) void {
+            if (self.write_failed) return;
+            var line_buf: [4096]u8 = undefined;
+            const line = std.fmt.bufPrint(&line_buf, fmt, args) catch |err| {
+                self.write_failed = true;
+                log.warn("failed to format VT debug log line err={}", .{err});
+                return;
+            };
+
+            self.file.writeAll(line) catch |err| {
+                self.write_failed = true;
+                log.warn("failed to write VT debug log err={}", .{err});
+            };
+        }
+
+        fn hexLower(input: []const u8, output: []u8) []const u8 {
+            const alphabet = "0123456789abcdef";
+            var i: usize = 0;
+            for (input) |byte| {
+                output[i] = alphabet[byte >> 4];
+                output[i + 1] = alphabet[byte & 0x0F];
+                i += 2;
+            }
+            return output[0..i];
+        }
+
+        pub fn logInput(
+            self: *VTDebugLog,
+            row: usize,
+            col: usize,
+            bytes: []const u8,
+        ) void {
+            const preview_len: usize = @min(bytes.len, @as(usize, 64));
+            var hex_buf: [128]u8 = undefined;
+            const hex = hexLower(
+                bytes[0..preview_len],
+                hex_buf[0 .. preview_len * 2],
+            );
+            self.write(
+                "[{d}] IN cursor={d},{d} bytes={d} hex={s}{s}\n",
+                .{
+                    self.nextSeq(),
+                    row,
+                    col,
+                    bytes.len,
+                    hex,
+                    if (preview_len < bytes.len) "..." else "",
+                },
+            );
+        }
+
+        pub fn logRawAction(
+            self: *VTDebugLog,
+            row: usize,
+            col: usize,
+            action: terminal.Parser.Action,
+        ) void {
+            self.write(
+                "[{d}] RAW cursor={d},{d} action={f}\n",
+                .{
+                    self.nextSeq(),
+                    row,
+                    col,
+                    action,
+                },
+            );
+        }
+
+        pub fn logVtAction(
+            self: *VTDebugLog,
+            comptime action: terminal.StreamAction.Tag,
+            before_row: usize,
+            before_col: usize,
+            after_row: usize,
+            after_col: usize,
+        ) void {
+            self.write(
+                "[{d}] VT action={s} before={d},{d} after={d},{d}\n",
+                .{
+                    self.nextSeq(),
+                    @tagName(action),
+                    before_row,
+                    before_col,
+                    after_row,
+                    after_col,
+                },
+            );
+        }
+    };
+
     pub fn deinit(self: *StreamHandler) void {
         self.apc.deinit();
         self.dcs.deinit();
+        if (self.vt_debug) |*vt_debug| {
+            vt_debug.deinit();
+            self.vt_debug = null;
+        }
         if (comptime tmux_enabled) tmux: {
             const viewer = self.tmux_viewer orelse break :tmux;
             viewer.deinit();
@@ -140,6 +289,27 @@ pub const StreamHandler = struct {
         self.termio_messaged = true;
     }
 
+    inline fn cursorRow(self: *const StreamHandler) usize {
+        return @as(usize, self.terminal.screens.active.cursor.y) + 1;
+    }
+
+    inline fn cursorCol(self: *const StreamHandler) usize {
+        return @as(usize, self.terminal.screens.active.cursor.x) + 1;
+    }
+
+    pub fn logInputBytes(self: *StreamHandler, bytes: []const u8) void {
+        if (self.vt_debug) |*vt_debug| {
+            vt_debug.logInput(self.cursorRow(), self.cursorCol(), bytes);
+        }
+    }
+
+    pub fn vtRaw(self: *StreamHandler, action: terminal.Parser.Action) !bool {
+        if (self.vt_debug) |*vt_debug| {
+            vt_debug.logRawAction(self.cursorRow(), self.cursorCol(), action);
+        }
+        return false;
+    }
+
     /// Send a renderer message and unlock the renderer state mutex
     /// if necessary to ensure we don't deadlock.
     ///
@@ -177,6 +347,25 @@ pub const StreamHandler = struct {
         comptime action: Stream.Action.Tag,
         value: Stream.Action.Value(action),
     ) !void {
+        const vt_debug_enabled = self.vt_debug != null;
+        var before_row: usize = 0;
+        var before_col: usize = 0;
+        if (vt_debug_enabled) {
+            before_row = self.cursorRow();
+            before_col = self.cursorCol();
+        }
+        defer if (vt_debug_enabled) {
+            if (self.vt_debug) |*vt_debug| {
+                vt_debug.logVtAction(
+                    action,
+                    before_row,
+                    before_col,
+                    self.cursorRow(),
+                    self.cursorCol(),
+                );
+            }
+        };
+
         // The branch hints here are based on real world data
         // which indicates that the most common actions are:
         //

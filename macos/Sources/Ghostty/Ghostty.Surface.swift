@@ -60,6 +60,18 @@ extension Ghostty {
             }
         }
 
+        /// Override terminal cursor visibility at the surface level.
+        @MainActor
+        func setCursorVisible(_ visible: Bool) {
+            ghostty_surface_set_cursor_visible(surface, visible)
+        }
+
+        /// Force-hide terminal cursor rendering regardless of terminal mode.
+        @MainActor
+        func setCursorHiddenOverride(_ hidden: Bool) {
+            ghostty_surface_set_cursor_hidden_override(surface, hidden)
+        }
+
         /// Send a key event to the terminal.
         ///
         /// This sends the full key event including modifiers, action type, and text to the terminal.

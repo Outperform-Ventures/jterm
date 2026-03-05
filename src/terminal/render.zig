@@ -311,7 +311,7 @@ pub const RenderState = struct {
         self.cursor.style = s.cursor.style;
         self.cursor.visual_style = s.cursor.cursor_style;
         self.cursor.password_input = t.flags.password_input;
-        self.cursor.visible = t.modes.get(.cursor_visible);
+        self.cursor.visible = t.modes.get(.cursor_visible) and !t.cursor_hidden_override;
         self.cursor.blinking = t.modes.get(.cursor_blinking);
 
         // Always reset the cursor viewport position. In the future we can

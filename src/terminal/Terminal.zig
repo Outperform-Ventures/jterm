@@ -75,6 +75,9 @@ previous_char: ?u21 = null,
 /// The modes that this terminal currently has active.
 modes: modespkg.ModeState = .{},
 
+/// Host-side override to suppress cursor rendering regardless of terminal mode.
+cursor_hidden_override: bool = false,
+
 /// The most recently set mouse shape for the terminal.
 mouse_shape: mouse_shape_pkg.MouseShape = .text,
 

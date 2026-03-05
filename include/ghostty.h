@@ -396,6 +396,14 @@ typedef struct {
   uintptr_t text_len;
 } ghostty_prompt_input_s;
 
+typedef struct {
+  bool cursor_at_prompt;
+  bool alternate_screen;
+  bool mouse_reporting;
+  uint32_t cursor_row;
+  uint32_t cursor_col;
+} ghostty_input_context_s;
+
 typedef enum {
   GHOSTTY_POINT_ACTIVE,
   GHOSTTY_POINT_VIEWPORT,
@@ -1105,6 +1113,7 @@ void ghostty_surface_set_content_scale(ghostty_surface_t, double, double);
 void ghostty_surface_set_focus(ghostty_surface_t, bool);
 void ghostty_surface_set_occlusion(ghostty_surface_t, bool);
 void ghostty_surface_set_cursor_visible(ghostty_surface_t, bool);
+void ghostty_surface_set_cursor_hidden_override(ghostty_surface_t, bool);
 void ghostty_surface_set_size(ghostty_surface_t, uint32_t, uint32_t);
 ghostty_surface_size_s ghostty_surface_size(ghostty_surface_t);
 void ghostty_surface_set_color_scheme(ghostty_surface_t,
@@ -1154,6 +1163,7 @@ bool ghostty_surface_read_text(ghostty_surface_t,
 void ghostty_surface_free_text(ghostty_surface_t, ghostty_text_s*);
 bool ghostty_surface_read_prompt_input(ghostty_surface_t, ghostty_prompt_input_s*);
 void ghostty_surface_free_prompt_input(ghostty_surface_t, ghostty_prompt_input_s*);
+bool ghostty_surface_read_input_context(ghostty_surface_t, ghostty_input_context_s*);
 
 #ifdef __APPLE__
 void ghostty_surface_set_display_id(ghostty_surface_t, uint32_t);

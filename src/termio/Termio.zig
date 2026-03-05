@@ -285,6 +285,12 @@ pub fn init(self: *Termio, alloc: Allocator, opts: termio.Options) !void {
     var backend = opts.backend;
     backend.initTerminal(&term);
 
+    var vt_debug = StreamHandler.VTDebugLog.initFromEnv(alloc) catch |err| vt_debug: {
+        log.warn("failed to initialize VT debug logging err={}", .{err});
+        break :vt_debug null;
+    };
+    errdefer if (vt_debug) |*value| value.deinit();
+
     // Create our stream handler. This points to memory in self so it
     // isn't safe to use until self.* is set.
     const handler: StreamHandler = .{
@@ -301,6 +307,7 @@ pub fn init(self: *Termio, alloc: Allocator, opts: termio.Options) !void {
         .enquiry_response = opts.config.enquiry_response,
         .default_cursor_style = opts.config.cursor_style,
         .default_cursor_blink = opts.config.cursor_blink,
+        .vt_debug = vt_debug,
     };
 
     const thread_enter_state = try ThreadEnterState.create(
@@ -711,6 +718,8 @@ fn processOutputLocked(self: *Termio, buf: []const u8) void {
     } else |err| {
         log.warn("failed to get current time err={}", .{err});
     }
+
+    self.terminal_stream.handler.logInputBytes(buf);
 
     // If we have an inspector, we enter SLOW MODE because we need to
     // process a byte at a time alternating between the inspector handler

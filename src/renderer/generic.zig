@@ -2121,7 +2121,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 0,
             };
 
-            // Update custom cursor uniforms, if we have a cursor.
+            // Update custom cursor uniforms.
             if (self.cells.getCursorGlyph()) |cursor| {
                 const cursor_width: f32 = @floatFromInt(cursor.glyph_size[0]);
                 const cursor_height: f32 = @floatFromInt(cursor.glyph_size[1]);
@@ -2188,6 +2188,21 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     uniforms.previous_cursor_color = uniforms.current_cursor_color;
                     uniforms.current_cursor = new_cursor;
                     uniforms.current_cursor_color = cursor_color;
+                    uniforms.cursor_change_time = uniforms.time;
+                }
+            } else {
+                // If there's no cursor glyph for this frame, explicitly clear
+                // cursor uniforms so custom shaders cannot keep rendering a stale
+                // prior cursor position.
+                const cleared_cursor: [4]f32 = .{ 0, 0, 0, 0 };
+                const cleared_color: [4]f32 = .{ 0, 0, 0, 0 };
+                if (!std.meta.eql(uniforms.current_cursor, cleared_cursor) or
+                    !std.meta.eql(uniforms.current_cursor_color, cleared_color))
+                {
+                    uniforms.previous_cursor = uniforms.current_cursor;
+                    uniforms.previous_cursor_color = uniforms.current_cursor_color;
+                    uniforms.current_cursor = cleared_cursor;
+                    uniforms.current_cursor_color = cleared_color;
                     uniforms.cursor_change_time = uniforms.time;
                 }
             }

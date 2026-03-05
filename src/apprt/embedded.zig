@@ -1329,6 +1329,15 @@ pub const CAPI = struct {
         }
     };
 
+    // ghostty_input_context_s
+    const InputContext = extern struct {
+        cursor_at_prompt: bool,
+        alternate_screen: bool,
+        mouse_reporting: bool,
+        cursor_row: u32,
+        cursor_col: u32,
+    };
+
     // ghostty_point_s
     const Point = extern struct {
         tag: Tag,
@@ -1690,6 +1699,27 @@ pub const CAPI = struct {
         return true;
     }
 
+    /// Read lightweight terminal input context for app-level input overlays.
+    export fn ghostty_surface_read_input_context(
+        surface: *Surface,
+        result: *InputContext,
+    ) bool {
+        const core_surface = &surface.core_surface;
+        core_surface.renderer_state.mutex.lock();
+        defer core_surface.renderer_state.mutex.unlock();
+
+        const t = core_surface.renderer_state.terminal;
+        const cursor = t.screens.active.cursor;
+        result.* = .{
+            .cursor_at_prompt = t.cursorIsAtPrompt(),
+            .alternate_screen = t.screens.active_key == .alternate,
+            .mouse_reporting = t.flags.mouse_event != .none,
+            .cursor_row = @intCast(cursor.y),
+            .cursor_col = @intCast(cursor.x),
+        };
+        return true;
+    }
+
     fn readTextLocked(
         surface: *Surface,
         core_sel: terminal.Selection,
@@ -1800,6 +1830,13 @@ pub const CAPI = struct {
     export fn ghostty_surface_set_cursor_visible(surface: *Surface, visible: bool) void {
         surface.core_surface.cursorVisibleCallback(visible) catch |err| {
             log.warn("error updating cursor visibility err={}", .{err});
+        };
+    }
+
+    /// Force host-side cursor suppression regardless of terminal mode.
+    export fn ghostty_surface_set_cursor_hidden_override(surface: *Surface, hidden: bool) void {
+        surface.core_surface.cursorHiddenOverrideCallback(hidden) catch |err| {
+            log.warn("error updating cursor hidden override err={}", .{err});
         };
     }
 

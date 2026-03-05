@@ -3431,6 +3431,21 @@ pub fn cursorVisibleCallback(self: *Surface, visible: bool) !void {
     try self.queueRender();
 }
 
+pub fn cursorHiddenOverrideCallback(self: *Surface, hidden: bool) !void {
+    // Crash metadata in case we crash in here
+    crash.sentry.thread_state = self.crashThreadState();
+    defer crash.sentry.thread_state = null;
+
+    self.renderer_state.mutex.lock();
+    defer self.renderer_state.mutex.unlock();
+
+    const t: *terminal.Terminal = self.renderer_state.terminal;
+    if (t.cursor_hidden_override == hidden) return;
+    t.cursor_hidden_override = hidden;
+
+    try self.queueRender();
+}
+
 pub fn focusCallback(self: *Surface, focused: bool) !void {
     // Crash metadata in case we crash in here
     crash.sentry.thread_state = self.crashThreadState();
