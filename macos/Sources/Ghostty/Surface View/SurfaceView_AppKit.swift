@@ -299,6 +299,18 @@ extension Ghostty {
             }
 
             override func draw(_ dirtyRect: NSRect) {
+                // Match terminal-like glyph crispness by avoiding subpixel glyph
+                // positioning/quantization in the overlay text rasterization path.
+                if let ctx = NSGraphicsContext.current?.cgContext {
+                    ctx.saveGState()
+                    ctx.setAllowsFontSubpixelPositioning(false)
+                    ctx.setShouldSubpixelPositionFonts(false)
+                    ctx.setAllowsFontSubpixelQuantization(false)
+                    ctx.setShouldSubpixelQuantizeFonts(false)
+                    super.draw(dirtyRect)
+                    ctx.restoreGState()
+                    return
+                }
                 super.draw(dirtyRect)
             }
 
@@ -461,6 +473,15 @@ extension Ghostty {
                 // Keep editing fully native and sync only on commit/blur.
                 return false
             case .none:
+                return false
+            }
+        }
+
+        private func composeShouldPersistAcrossBlur() -> Bool {
+            switch composeActivationContext {
+            case .claudeTui:
+                return true
+            case .shellPrompt, .none:
                 return false
             }
         }
@@ -633,6 +654,12 @@ extension Ghostty {
             guard !composeEnding else { return }
             guard Date.timeIntervalSinceReferenceDate >= composeStabilizeUntil else { return }
 
+            // Cursor visibility can be reset by terminal state changes; keep it
+            // force-hidden while native compose is active.
+            if composeOriginalText != nil {
+                setTerminalCursorHidden(true, force: true)
+            }
+
             if searchState != nil {
                 if composeOriginalText != nil {
                     composeTrace("tracker finish reason=search-active")
@@ -715,8 +742,8 @@ extension Ghostty {
             stopComposeAutoActivateTimer()
         }
 
-        private func setTerminalCursorHidden(_ hidden: Bool) {
-            guard composeTerminalCursorHidden != hidden else { return }
+        private func setTerminalCursorHidden(_ hidden: Bool, force: Bool = false) {
+            guard force || composeTerminalCursorHidden != hidden else { return }
             composeTerminalCursorHidden = hidden
             guard composeSyncToTerminalEnabled else {
                 composeTrace("terminal cursor hidden skipped mode=\(composeDebugMode.rawValue) hidden=\(hidden)")
@@ -728,7 +755,11 @@ extension Ghostty {
             } else {
                 surfaceModel.setCursorHiddenOverride(false)
             }
-            composeTrace("terminal cursor hidden=\(hidden)")
+            if force {
+                composeTrace("terminal cursor hidden=\(hidden) force=true")
+            } else {
+                composeTrace("terminal cursor hidden=\(hidden)")
+            }
         }
 
         private func clearTerminalPreedit() {
@@ -825,7 +856,15 @@ extension Ghostty {
             let caretHeight = min(max(1, floor(lineHeight)), max(1, floor(editor.frame.height)))
             let caretWidth = max(1, min(2, Int(floor(cellSize.width * 0.2))))
             let caretX = max(editor.frame.minX, min(editor.frame.maxX - CGFloat(caretWidth), viewRect.minX))
-            let caretY = max(editor.frame.minY, min(editor.frame.maxY - caretHeight, viewRect.minY))
+            // AppKit can report y=0 for empty insertion rects; anchor caret using
+            // the same inset math as compose text so empty and non-empty rows align.
+            let insetY = composeTextInsetY(
+                context: composeActivationContext,
+                frameHeight: editor.frame.height,
+                lineHeight: lineHeight
+            )
+            let insetAnchoredY = floor(editor.frame.minY + insetY)
+            let caretY = max(editor.frame.minY, min(editor.frame.maxY - caretHeight, insetAnchoredY))
 
             let caret = ensureComposeCaretView()
             caret.color = composeForegroundColor
@@ -1083,8 +1122,12 @@ extension Ghostty {
                     "focusDidChange false compose_active=true window_key=\(windowIsKey) app_active=\(appIsActive)"
                 )
                 if !windowIsKey || !appIsActive {
-                    composeTrace("finish trigger source=focusDidChange")
-                    finishCompose(.blur)
+                    if composeShouldPersistAcrossBlur() {
+                        composeTrace("focusDidChange preserve compose on blur")
+                    } else {
+                        composeTrace("finish trigger source=focusDidChange")
+                        finishCompose(.blur)
+                    }
                 }
             }
 
@@ -1093,7 +1136,11 @@ extension Ghostty {
             if !focused {
                 stopComposeAutoActivateTimer()
                 stopComposeTrackerTimer()
-                setTerminalCursorHidden(false)
+                if !(composeOriginalText != nil && composeShouldPersistAcrossBlur()) {
+                    setTerminalCursorHidden(false)
+                }
+                composeCaretView?.isHidden = true
+                stopComposeCaretBlink()
             }
 
             // Update our secure input state if we are a password input
@@ -1115,6 +1162,13 @@ extension Ghostty {
                             withIdentifiers: Array(notificationIdentifiers))
                     self.notificationIdentifiers = []
                 }
+                if composeOriginalText != nil, composeShouldPersistAcrossBlur() {
+                    setTerminalCursorHidden(true)
+                    if let editor = composeEditor, !editor.isHidden {
+                        _ = window?.makeFirstResponder(editor)
+                        refreshComposeCaret(resetBlink: true)
+                    }
+                }
                 startComposeTrackerTimer(reason: "focus-gained")
             }
         }
@@ -1130,7 +1184,10 @@ extension Ghostty {
                         context: composeActivationContext
                     )
                     editor.frame = frame
-                    composeMaskView?.frame = frame
+                    composeMaskView?.frame = composeMaskFrame(
+                        for: frame,
+                        context: composeActivationContext
+                    )
                 } else if let cursorPoint = cursorClickPointInView(),
                           let snapshot = cursorOnlyPromptInputSnapshot(clickPoint: cursorPoint)
                 {
@@ -1139,7 +1196,10 @@ extension Ghostty {
                         context: composeActivationContext
                     )
                     editor.frame = frame
-                    composeMaskView?.frame = frame
+                    composeMaskView?.frame = composeMaskFrame(
+                        for: frame,
+                        context: composeActivationContext
+                    )
                 }
                 refreshComposeCaret(resetBlink: false)
             }
@@ -1884,9 +1944,17 @@ extension Ghostty {
             let base = promptInputFrame(snapshot)
             guard context == .claudeTui else { return base }
 
-            // Keep Claude's prompt marker cell visible by overlaying only the
-            // editable text row itself (no left-gutter extension).
-            return base
+            // Bias Claude compose row downward so text/caret are visually centered
+            // in the bordered input box while preserving room for descenders.
+            let downShift = max(3, floor(cellSize.height * 0.18))
+            let minY = max(0, base.minY - downShift)
+            let maxY = min(surfaceContentHeight, base.maxY)
+            return NSRect(
+                x: base.minX,
+                y: minY,
+                width: base.width,
+                height: max(1, maxY - minY)
+            )
         }
 
         private func composeMaskFrame(
@@ -1896,12 +1964,14 @@ extension Ghostty {
             guard context == .claudeTui else { return editorFrame }
 
             let bleedX = max(1, floor(cellSize.width * 0.15))
-            let bleedY = max(2, floor(cellSize.height * 0.2))
+            let bleedDown = max(2, floor(cellSize.height * 0.1))
             // Preserve the prompt marker by avoiding leftward mask bleed in Claude mode.
             let minX = max(0, editorFrame.minX)
-            let minY = max(0, editorFrame.minY - bleedY)
+            // Extend only downward to suppress any terminal cursor remnants that sit
+            // below Claude's baseline while keeping the top divider untouched.
+            let minY = max(0, editorFrame.minY - bleedDown)
             let maxX = min(surfaceContentWidth, editorFrame.maxX + bleedX)
-            let maxY = min(surfaceContentHeight, editorFrame.maxY + bleedY)
+            let maxY = min(surfaceContentHeight, editorFrame.maxY)
             return NSRect(
                 x: minX,
                 y: minY,
@@ -1916,6 +1986,42 @@ extension Ghostty {
                 // Keep a native-looking gap between Claude's prompt marker (❯)
                 // and the editable insertion point.
                 return max(1, cellSize.width)
+            case .shellPrompt, .none:
+                return 0
+            }
+        }
+
+        private func composeTextInsetY(
+            context: ComposeActivationContext?,
+            frameHeight: CGFloat,
+            lineHeight: CGFloat
+        ) -> CGFloat {
+            let maxInset = max(0, floor(frameHeight - lineHeight))
+            let centered = max(0, floor((frameHeight - lineHeight) * 0.5))
+            switch context {
+            case .claudeTui:
+                // Slight downward bias matches Claude's visual baseline better.
+                let nudged = centered + 3
+                // Keep at least 1 px of room to avoid descender clipping.
+                let safeMaxInset = max(0, maxInset - 1)
+                return min(safeMaxInset, nudged)
+            case .shellPrompt, .none:
+                return centered
+            }
+        }
+
+        private func composeAdjustedFont(_ font: NSFont, context: ComposeActivationContext?) -> NSFont {
+            guard context == .claudeTui else { return font }
+            // Claude overlay text can read a touch heavier than the underlying
+            // TUI rasterization. Trim size aggressively to match perceived weight.
+            return font.withSize(max(1, font.pointSize - 0.7))
+        }
+
+        private func composeLetterSpacing(context: ComposeActivationContext?) -> CGFloat {
+            switch context {
+            case .claudeTui:
+                // Slightly loosen tracking to match Claude's terminal glyph spacing.
+                return 0.2
             case .shellPrompt, .none:
                 return 0
             }
@@ -2017,6 +2123,9 @@ extension Ghostty {
             } else if cellSize.height > 0 {
                 editor.font = .monospacedSystemFont(ofSize: max(12, cellSize.height * 0.8), weight: .regular)
             }
+            if let font = editor.font {
+                editor.font = composeAdjustedFont(font, context: composeActivationContext)
+            }
 
             let bg: NSColor = {
                 if let dynamic = backgroundColor {
@@ -2052,6 +2161,7 @@ extension Ghostty {
                 .foregroundColor: composeOverlayTextEnabled ? composeForegroundColor : NSColor.clear,
                 .backgroundColor: NSColor.clear,
                 .underlineStyle: 0,
+                .kern: composeLetterSpacing(context: composeActivationContext),
             ]
             if let font = editor.font {
                 typing[.font] = font
@@ -2062,6 +2172,7 @@ extension Ghostty {
                 .foregroundColor: composeOverlayTextEnabled ? composeForegroundColor : NSColor.clear,
                 .backgroundColor: NSColor.clear,
                 .underlineStyle: 0,
+                .kern: composeLetterSpacing(context: composeActivationContext),
             ]
             editor.alphaValue = composeOverlayTextEnabled ? 1.0 : 0.01
         }
@@ -2081,6 +2192,7 @@ extension Ghostty {
                 .foregroundColor: composeForegroundColor,
                 .backgroundColor: NSColor.clear,
                 .underlineStyle: 0,
+                .kern: composeLetterSpacing(context: composeActivationContext),
             ]
             if let font = editor.font {
                 attrs[.font] = font
@@ -2397,7 +2509,11 @@ extension Ghostty {
             // Vertically center text in the terminal cell row.
             if let font = editor.font {
                 let lineHeight = editor.layoutManager?.defaultLineHeight(for: font) ?? font.pointSize
-                let insetY = max(0, floor((frame.height - lineHeight) * 0.5))
+                let insetY = composeTextInsetY(
+                    context: context,
+                    frameHeight: frame.height,
+                    lineHeight: lineHeight
+                )
                 editor.textContainerInset = NSSize(
                     width: composeTextInsetX(context: context),
                     height: insetY
@@ -2807,15 +2923,23 @@ extension Ghostty {
             guard let window = self.window else { return }
             guard let object = notification.object as? NSWindow, window == object else { return }
             if composeOriginalText != nil {
-                composeTrace("finish trigger source=windowDidResignKey")
-                finishCompose(.blur)
+                if composeShouldPersistAcrossBlur() {
+                    composeTrace("windowDidResignKey preserve compose on blur")
+                } else {
+                    composeTrace("finish trigger source=windowDidResignKey")
+                    finishCompose(.blur)
+                }
             }
         }
 
         @objc private func appDidResignActive(_ notification: SwiftUI.Notification) {
             if composeOriginalText != nil {
-                composeTrace("finish trigger source=appDidResignActive")
-                finishCompose(.blur)
+                if composeShouldPersistAcrossBlur() {
+                    composeTrace("appDidResignActive preserve compose on blur")
+                } else {
+                    composeTrace("finish trigger source=appDidResignActive")
+                    finishCompose(.blur)
+                }
             }
         }
 
@@ -2909,6 +3033,7 @@ extension Ghostty {
                 composeTrace("mouseDown ignored non-finite point compose_active=\(composeOriginalText != nil)")
                 return
             }
+            let hadComposeActive = composeOriginalText != nil
             let responderName = window?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
             composeTrace(
                 "mouseDown x=\(point.x) y=\(point.y) focused=\(focused) compose_active=\(composeOriginalText != nil) responder=\(responderName) clickCount=\(event.clickCount) buttons=\(NSEvent.pressedMouseButtons)"
@@ -2930,10 +3055,10 @@ extension Ghostty {
                             composeTrace("mouseDown compose activated")
                             return
                         }
-                        composeTrace("mouseDown forwarding to terminal")
-                        guard let surface = self.surface else { return }
-                        let mods = Ghostty.ghosttyMods(event.modifierFlags)
-                        ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, mods)
+                        // Do not forward the same click that just blurred compose.
+                        // Forwarding this down event can start unintended terminal
+                        // drag-selection when users are leaving the compose row.
+                        composeTrace("mouseDown swallowed post-compose-blur")
                         return
                     }
 
@@ -2951,6 +3076,12 @@ extension Ghostty {
             composeTrace("mouseDown after makeFirstResponder compose_active=\(composeOriginalText != nil)")
             if handleComposeActivationClick(event) {
                 composeTrace("mouseDown compose activated")
+                return
+            }
+            if hadComposeActive {
+                // Compose was active at click start and is now closed; swallow this
+                // first click to avoid leaking it into terminal selection logic.
+                composeTrace("mouseDown swallowed post-compose-blur")
                 return
             }
             composeTrace("mouseDown forwarding to terminal")
@@ -4500,6 +4631,11 @@ extension Ghostty.SurfaceView: NSTextViewDelegate {
         // transitions while compose should remain active.
         if appIsActive && windowIsKey {
             composeTrace("textDidEndEditing ignored active-window")
+            return
+        }
+
+        if composeShouldPersistAcrossBlur() {
+            composeTrace("textDidEndEditing ignored preserve-on-blur")
             return
         }
 
