@@ -3388,3 +3388,75 @@ test "stream: SGR with 17+ parameters for underline color" {
     try s.nextSlice("\x1b[4:3;38;2;51;51;51;48;2;170;170;170;58;2;255;97;136;0m");
     try testing.expect(s.handler.called);
 }
+
+test "stream: claude VT replay fuzz safety" {
+    const H = struct {
+        pub fn vt(
+            self: *@This(),
+            comptime action: Action.Tag,
+            value: Action.Value(action),
+        ) !void {
+            _ = self;
+            _ = value;
+        }
+    };
+
+    // Sampled from Claude Code startup/input rendering patterns:
+    // cursor style toggles, line clears, SGR, and prompt redraw chunks.
+    const chunks = [_][]const u8{
+        "\x1b[?25l",
+        "\x1b[2K\r",
+        "\x1b[38;5;15mClaude Code v2.1.69\x1b[0m\r\n",
+        "\x1b[38;5;8mOpus 4.6 · Claude Max\x1b[0m\r\n",
+        "\x1b[2m/Users/jkuechly/code/misc\x1b[0m\r\n",
+        "\x1b[38;5;8m────────────────────────────────────────\x1b[0m\r\n",
+        "\x1b[38;5;15m❯ \x1b[0m",
+        "\x1b[?25h",
+        "\x1b[?2004h",
+        "\r\x1b[K",
+    };
+
+    // Ordered replay should always be safe.
+    var ordered: Stream(H) = .init(.{});
+    for (chunks) |chunk| {
+        try ordered.nextSlice(chunk);
+    }
+
+    // Fuzz: shuffle chunk ordering and randomize chunk splitting to stress parser
+    // sequencing assumptions. We only assert safety (no crashes/panics/errors).
+    var seed: u64 = 0x9D4E_BA11_D00D_CAFE;
+    var order: [chunks.len]usize = undefined;
+    for (&order, 0..) |*slot, idx| slot.* = idx;
+
+    var run: usize = 0;
+    while (run < 64) : (run += 1) {
+        var i: usize = order.len;
+        while (i > 1) {
+            i -= 1;
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            const j = @as(usize, @intCast(seed % @as(u64, @intCast(i + 1))));
+            std.mem.swap(usize, &order[i], &order[j]);
+        }
+
+        var shuffled: Stream(H) = .init(.{});
+        for (order) |idx| {
+            try shuffled.nextSlice(chunks[idx]);
+        }
+
+        var split: Stream(H) = .init(.{});
+        for (chunks) |chunk| {
+            var offset: usize = 0;
+            while (offset < chunk.len) {
+                seed ^= seed << 13;
+                seed ^= seed >> 7;
+                seed ^= seed << 17;
+                const stride = 1 + @as(usize, @intCast(seed % 8));
+                const end = @min(chunk.len, offset + stride);
+                try split.nextSlice(chunk[offset..end]);
+                offset = end;
+            }
+        }
+    }
+}
