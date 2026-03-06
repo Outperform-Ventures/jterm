@@ -706,8 +706,8 @@ foreground: Color = .{ .r = 0xFF, .g = 0xFF, .b = 0xFF },
 /// Since version 1.2.0, this can also be set to `cell-foreground` to match
 /// the cell foreground color, or `cell-background` to match the cell
 /// background color.
-@"selection-foreground": ?TerminalColor = null,
-@"selection-background": ?TerminalColor = null,
+@"selection-foreground": ?TerminalColor = .{ .color = .{ .r = 0, .g = 0, .b = 0 } },
+@"selection-background": ?TerminalColor = .{ .color = .{ .r = 199, .g = 222, .b = 250 } },
 
 /// Whether to clear selected text when typing. This defaults to `true`.
 /// This is typical behavior for most terminal emulators as well as

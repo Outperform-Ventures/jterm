@@ -2010,6 +2010,14 @@ pub fn hasSelection(self: *const Surface) bool {
     return self.io.terminal.screens.active.selection != null;
 }
 
+/// Clears the terminal selection, if any, and queues a redraw.
+pub fn clearSelection(self: *Surface) !void {
+    self.renderer_state.mutex.lock();
+    defer self.renderer_state.mutex.unlock();
+    self.io.terminal.screens.active.clearSelection();
+    try self.queueRender();
+}
+
 /// Returns the selected text. This is allocated.
 pub fn selectionString(self: *Surface, alloc: Allocator) !?[:0]const u8 {
     self.renderer_state.mutex.lock();

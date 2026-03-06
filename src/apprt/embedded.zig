@@ -1638,6 +1638,15 @@ pub const CAPI = struct {
         return surface.core_surface.hasSelection();
     }
 
+    /// Clears the user selection, if any.
+    export fn ghostty_surface_clear_selection(surface: *Surface) bool {
+        surface.core_surface.clearSelection() catch |err| {
+            log.warn("failed to clear selection err={}", .{err});
+            return false;
+        };
+        return true;
+    }
+
     /// Same as ghostty_surface_read_text but reads from the user selection,
     /// if any.
     export fn ghostty_surface_read_selection(
