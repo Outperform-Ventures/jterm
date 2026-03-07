@@ -557,7 +557,13 @@ extension Ghostty {
 
         private func shouldSyncClaudeMultilineDraft(_ draft: String) -> Bool {
             guard composeActivationContext == .claudeTui else { return false }
-            return draft.contains("\n") || composeTerminalText.contains("\n")
+            guard let editor = composeEditor, !editor.isHidden else {
+                return draft.contains("\n") || composeClaudeStructuralNewlineCount > 0
+            }
+            return composeDesiredClaudeStructuralNewlineCount(
+                editor: editor,
+                draft: draft
+            ) > 0 || composeClaudeStructuralNewlineCount > 0
         }
 
         private func composeTrackerShouldIgnoreTerminalTextSnapshot() -> Bool {
@@ -636,35 +642,93 @@ extension Ghostty {
                 abs(lhs.height - rhs.height) > Self.composeTrackerFrameDeltaEpsilon
         }
 
-        private func trackerSnapshotForClaudeInput() -> PromptInputSnapshot? {
+        private func resolveClaudePromptSnapshot(source: String) -> PromptInputSnapshot? {
             guard let inputContext = readInputContext() else { return nil }
             guard !inputContext.cursor_at_prompt else { return nil }
-            guard let cursorPoint = composeTrackerProbePointInView() ?? cursorClickPointInView() else { return nil }
-            let snapshot = fallbackPromptInputSnapshot(
-                clickPoint: cursorPoint,
+
+            let primaryPoint = cursorClickPointInView()
+            if let primaryPoint {
+                let primary = fallbackPromptInputSnapshot(
+                    clickPoint: primaryPoint,
+                    markers: Self.composeClaudePromptMarkers,
+                    requirePromptMarker: true
+                )
+                let expanded = expandClaudeSnapshotToCursorRows(primary)
+                if let expanded {
+                    cacheClaudeSnapshot(expanded, source: source)
+                    return expanded
+                }
+            }
+
+            guard let fallbackPoint = composeTrackerFallbackProbePointInView() else { return nil }
+            if let primaryPoint {
+                let dx = abs(primaryPoint.x - fallbackPoint.x)
+                let dy = abs(primaryPoint.y - fallbackPoint.y)
+                if dx < Self.composeTrackerFrameDeltaEpsilon &&
+                    dy < Self.composeTrackerFrameDeltaEpsilon
+                {
+                    return nil
+                }
+                composeTrace(
+                    "claude probe retry source=\(source) primary_x=\(primaryPoint.x) primary_y=\(primaryPoint.y) fallback_x=\(fallbackPoint.x) fallback_y=\(fallbackPoint.y)"
+                )
+            } else {
+                composeTrace(
+                    "claude probe retry source=\(source) primary=nil fallback_x=\(fallbackPoint.x) fallback_y=\(fallbackPoint.y)"
+                )
+            }
+
+            let fallback = fallbackPromptInputSnapshot(
+                clickPoint: fallbackPoint,
                 markers: Self.composeClaudePromptMarkers,
                 requirePromptMarker: true
             )
-            let expanded = expandClaudeSnapshotToCursorRows(snapshot)
+            let expanded = expandClaudeSnapshotToCursorRows(fallback)
             if let expanded {
-                cacheClaudeSnapshot(expanded, source: "trackerSnapshotForClaudeInput")
+                cacheClaudeSnapshot(expanded, source: "\(source)-fallback")
             }
             return expanded
         }
 
+        private func trackerSnapshotForClaudeInput() -> PromptInputSnapshot? {
+            resolveClaudePromptSnapshot(source: "trackerSnapshotForClaudeInput")
+        }
+
         private func composeTrackerProbePointInView() -> NSPoint? {
             guard composeActivationContext == .claudeTui else { return nil }
+            // Reacquire Claude compose from terminal state first. Using the
+            // overlay's current frame as the primary probe point creates a
+            // circular dependency during viewport scroll: the prompt moves, the
+            // overlay stays stale, and the tracker keeps probing the stale
+            // overlay location.
+            if let cursorPoint = cursorClickPointInView() {
+                return cursorPoint
+            }
+            return composeTrackerFallbackProbePointInView()
+        }
+
+        private func composeTrackerFallbackProbePointInView() -> NSPoint? {
+            guard composeActivationContext == .claudeTui else { return nil }
+
+            let cellW = max(1, cellSize.width)
+            let cellH = max(1, cellSize.height)
+
+            if let snapshot = composeLastResolvedClaudeSnapshot {
+                let frame = promptInputFrame(snapshot)
+                return NSPoint(
+                    x: min(surfaceContentWidth - 1, frame.minX + (cellW * 0.5)),
+                    y: min(surfaceContentHeight - 1, frame.midY)
+                )
+            }
+
             guard composeUsesLocalMultilineDraft() ||
                 composeTerminalText.contains("\n") ||
                 composeSyncedText.contains("\n")
             else { return nil }
             guard let editor = composeEditor, !editor.isHidden else { return nil }
-
-            let cellW = max(1, cellSize.width)
-            let cellH = max(1, cellSize.height)
             return NSPoint(
                 x: min(surfaceContentWidth - 1, editor.frame.minX + (cellW * 0.5)),
-                y: min(surfaceContentHeight - 1, max(0, editor.frame.maxY - (cellH * 0.5)))
+                y: min(surfaceContentHeight - 1, editor.frame.midY)
             )
         }
 
@@ -994,7 +1058,12 @@ extension Ghostty {
                 caretX += max(1, cellSize.width)
             }
             caretX = max(editor.frame.minX, min(editor.frame.maxX - CGFloat(caretWidth), caretX))
-            let usesMultilineCaretAnchor = composeActivationContext == .claudeTui && editor.string.contains("\n")
+            let usesMultilineCaretAnchor = composeActivationContext == .claudeTui &&
+                composeEditorUsesVisualMultiline(
+                    editor: editor,
+                    frameWidth: editor.frame.width,
+                    context: composeActivationContext
+                )
             let caretY: CGFloat
             if usesMultilineCaretAnchor,
                viewRect.minY.isFinite,
@@ -2186,10 +2255,63 @@ extension Ghostty {
             }
         }
 
+        private func composeEditorLineMetrics(
+            editor: NSTextView,
+            frameWidth: CGFloat,
+            context: ComposeActivationContext?
+        ) -> (lineHeight: CGFloat, usedHeight: CGFloat, visualLineCount: Int) {
+            let fallbackLineHeight = max(1, cellSize.height)
+            let lineHeight = editor.font.map {
+                editor.layoutManager?.defaultLineHeight(for: $0) ?? fallbackLineHeight
+            } ?? fallbackLineHeight
+
+            guard let layout = editor.layoutManager,
+                  let container = editor.textContainer
+            else {
+                return (lineHeight, lineHeight, 1)
+            }
+
+            container.lineBreakMode = .byCharWrapping
+            container.maximumNumberOfLines = 0
+            container.containerSize = NSSize(
+                width: max(1, frameWidth - composeTextInsetX(context: context)),
+                height: .greatestFiniteMagnitude
+            )
+            layout.ensureLayout(for: container)
+
+            let usedHeight = ceil(layout.usedRect(for: container).height)
+            let normalizedHeight = max(lineHeight, usedHeight)
+            let visualLineCount = max(
+                1,
+                Int(ceil((normalizedHeight - 0.5) / max(1, lineHeight)))
+            )
+            return (lineHeight, normalizedHeight, visualLineCount)
+        }
+
+        private func composeEditorUsesVisualMultiline(
+            editor: NSTextView,
+            frameWidth: CGFloat,
+            context: ComposeActivationContext?
+        ) -> Bool {
+            if editor.string.contains("\n") {
+                return true
+            }
+            guard context == .claudeTui else { return false }
+            return composeEditorLineMetrics(
+                editor: editor,
+                frameWidth: frameWidth,
+                context: context
+            ).visualLineCount > 1
+        }
+
         private func composeUsesLocalMultilineDraft() -> Bool {
             guard composeActivationContext == .claudeTui else { return false }
             guard let editor = composeEditor, !editor.isHidden else { return false }
-            return editor.string.contains("\n")
+            return composeEditorUsesVisualMultiline(
+                editor: editor,
+                frameWidth: max(1, editor.frame.width),
+                context: composeActivationContext
+            )
         }
 
         private func composeMultilineTopInset(context: ComposeActivationContext?) -> CGFloat {
@@ -2222,25 +2344,18 @@ extension Ghostty {
         ) -> NSRect {
             guard context == .claudeTui else { return baseFrame }
 
-            let lineHeight = editor.font.map {
-                editor.layoutManager?.defaultLineHeight(for: $0) ?? max(1, cellSize.height)
-            } ?? max(1, cellSize.height)
-            let insetX = composeTextInsetX(context: context)
-            let isMultiline = editor.string.contains("\n")
-
-            guard let layout = editor.layoutManager,
-                  let container = editor.textContainer
-            else { return baseFrame }
-
-            container.lineBreakMode = .byCharWrapping
-            container.maximumNumberOfLines = 0
-            container.containerSize = NSSize(
-                width: max(1, baseFrame.width - insetX),
-                height: .greatestFiniteMagnitude
+            let metrics = composeEditorLineMetrics(
+                editor: editor,
+                frameWidth: baseFrame.width,
+                context: context
             )
-            layout.ensureLayout(for: container)
-
-            let usedHeight = ceil(layout.usedRect(for: container).height)
+            let lineHeight = metrics.lineHeight
+            let usedHeight = metrics.usedHeight
+            let isMultiline = composeEditorUsesVisualMultiline(
+                editor: editor,
+                frameWidth: baseFrame.width,
+                context: context
+            )
             let desiredHeight: CGFloat
             if isMultiline {
                 let topInset = composeMultilineTopInset(context: context)
@@ -2283,16 +2398,21 @@ extension Ghostty {
                 editor: editor,
                 context: context
             )
+            let usesVisualMultiline = composeEditorUsesVisualMultiline(
+                editor: editor,
+                frameWidth: frame.width,
+                context: context
+            )
             editor.frame = frame
             composeMaskView?.frame = composeMaskFrame(for: frame, context: context)
             composeMaskView?.showsBottomDivider = context == .claudeTui &&
-                editor.string.contains("\n")
+                usesVisualMultiline
             composeMaskView?.needsLayout = true
 
             if let font = editor.font {
                 let lineHeight = editor.layoutManager?.defaultLineHeight(for: font) ?? font.pointSize
                 let insetY: CGFloat
-                if context == .claudeTui, editor.string.contains("\n") {
+                if context == .claudeTui, usesVisualMultiline {
                     insetY = composeMultilineTopInset(context: context)
                 } else {
                     insetY = composeTextInsetY(
@@ -2490,7 +2610,11 @@ extension Ghostty {
                 .withAlphaComponent(0.35)
                 .cgColor
             mask.showsBottomDivider = composeActivationContext == .claudeTui &&
-                editor.string.contains("\n")
+                composeEditorUsesVisualMultiline(
+                    editor: editor,
+                    frameWidth: max(1, editor.frame.width),
+                    context: composeActivationContext
+                )
             let caret = ensureComposeCaretView()
             caret.color = composeForegroundColor
 
@@ -3099,6 +3223,66 @@ extension Ghostty {
             }
         }
 
+        private func composeDesiredClaudeStructuralNewlineCount(
+            editor: NSTextView,
+            draft: String
+        ) -> Int {
+            let explicitNewlines = composeNewlineCount(in: draft)
+            let visualLineCount = composeEditorLineMetrics(
+                editor: editor,
+                frameWidth: max(1, editor.frame.width),
+                context: .claudeTui
+            ).visualLineCount
+            return max(explicitNewlines, max(0, visualLineCount - 1))
+        }
+
+        private func composeCommitTextForClaude(
+            editor: NSTextView,
+            draft: String
+        ) -> String {
+            let explicitNewlines = composeNewlineCount(in: draft)
+            guard explicitNewlines == 0 else { return draft }
+
+            let metrics = composeEditorLineMetrics(
+                editor: editor,
+                frameWidth: max(1, editor.frame.width),
+                context: .claudeTui
+            )
+            guard metrics.visualLineCount > 1,
+                  let layout = editor.layoutManager,
+                  let container = editor.textContainer
+            else { return draft }
+
+            let text = draft as NSString
+            let glyphRange = layout.glyphRange(for: container)
+            guard glyphRange.length > 0 else { return draft }
+
+            var fragments: [String] = []
+            var glyphIndex = glyphRange.location
+            let glyphLimit = glyphRange.location + glyphRange.length
+            while glyphIndex < glyphLimit {
+                var lineGlyphRange = NSRange(location: 0, length: 0)
+                _ = layout.lineFragmentRect(
+                    forGlyphAt: glyphIndex,
+                    effectiveRange: &lineGlyphRange,
+                    withoutAdditionalLayout: true
+                )
+                guard lineGlyphRange.length > 0 else { break }
+                let charRange = layout.characterRange(forGlyphRange: lineGlyphRange, actualGlyphRange: nil)
+                let fragment = text.substring(with: charRange)
+                    .trimmingCharacters(in: CharacterSet.newlines)
+                fragments.append(fragment)
+                glyphIndex = lineGlyphRange.location + lineGlyphRange.length
+            }
+
+            guard fragments.count > 1 else { return draft }
+            let commitText = fragments.joined(separator: "\n")
+            composeTrace(
+                "compose visual-wrap commit lines=\(fragments.count) draft_len=\(draft.count) commit_len=\(commitText.count)"
+            )
+            return commitText
+        }
+
         private func syncClaudeStructuralNewlines(to desiredCount: Int) {
             guard composeActivationContext == .claudeTui else { return }
             guard composeSyncToTerminalEnabled else {
@@ -3549,7 +3733,16 @@ extension Ghostty {
             switch reason {
             case .commit:
                 AppDelegate.logger.debug("compose finish reason=commit draft_len=\(draft.count) original_len=\(original.count)")
-                let multilineDraft = draft.contains("\n")
+                let claudeCommitText = draft
+                let multilineDraft: Bool = {
+                    guard activationContext == .claudeTui else {
+                        return draft.contains("\n")
+                    }
+                    return composeDesiredClaudeStructuralNewlineCount(
+                        editor: editor,
+                        draft: draft
+                    ) > 0
+                }()
                 if multilineDraft, activationContext == .claudeTui {
                     composeCommitPending = true
                     composeCaretView?.isHidden = true
@@ -3559,10 +3752,10 @@ extension Ghostty {
                     window?.makeFirstResponder(self)
                     composeResponderHandoff = false
                     composeStabilizeUntil = Date.timeIntervalSinceReferenceDate + 1.0
-                    prepareClaudeMultilineDraftForCommit(text: draft) { [weak self] in
+                    prepareClaudeMultilineDraftForCommit(text: claudeCommitText) { [weak self] in
                         guard let self else { return }
-                        self.composeTerminalText = draft
-                        self.composeTerminalCursor = draft.utf16.count
+                        self.composeTerminalText = claudeCommitText
+                        self.composeTerminalCursor = claudeCommitText.utf16.count
                         self.sendComposeCommitKey(
                             context: activationContext,
                             multilineDraft: true
@@ -3639,16 +3832,7 @@ extension Ghostty {
             case .shellPrompt:
                 return semanticPromptInputSnapshot()
             case .claudeTui:
-                let snapshot = fallbackPromptInputSnapshot(
-                    clickPoint: cursorPoint,
-                    markers: Self.composeClaudePromptMarkers,
-                    requirePromptMarker: true
-                )
-                let expanded = expandClaudeSnapshotToCursorRows(snapshot)
-                if let expanded {
-                    cacheClaudeSnapshot(expanded, source: "composeSnapshotForCursorRow")
-                }
-                return expanded
+                return resolveClaudePromptSnapshot(source: "composeSnapshotForCursorRow")
             case .none:
                 return semanticPromptInputSnapshot()
                     ?? fallbackPromptInputSnapshot(
@@ -3888,7 +4072,12 @@ extension Ghostty {
 
             // Let Claude grow its own multiline input chrome, but keep the
             // actual draft text local until final commit.
-            syncClaudeStructuralNewlines(to: composeNewlineCount(in: draft))
+            syncClaudeStructuralNewlines(
+                to: composeDesiredClaudeStructuralNewlineCount(
+                    editor: editor,
+                    draft: draft
+                )
+            )
             composeSyncedText = draft
             composeSyncedCursor = cursor
             composeLocalDraftDirty = true
@@ -4532,6 +4721,12 @@ extension Ghostty {
                 mods: .init(precision: precision, momentum: .init(event.momentumPhase))
             )
             surfaceModel.sendMouseScroll(scrollEvent)
+            if composeOriginalText != nil, composeActivationContext == .claudeTui {
+                composeTrackerLastFrame = .null
+                DispatchQueue.main.async { [weak self] in
+                    self?.tickComposeTracker(reason: "scroll")
+                }
+            }
         }
 
         override func pressureChange(with event: NSEvent) {
@@ -5862,10 +6057,16 @@ extension Ghostty.SurfaceView: NSTextViewDelegate {
             )
             composeTerminalText = draft
             composeTerminalCursor = cursor
-        } else if shouldSyncClaudeMultilineDraft(draft) {
-            syncClaudeStructuralNewlines(to: composeNewlineCount(in: draft))
+        } else if composeActivationContext == .claudeTui {
+            let desiredStructuralNewlines = composeDesiredClaudeStructuralNewlineCount(
+                editor: textView,
+                draft: draft
+            )
+            syncClaudeStructuralNewlines(to: desiredStructuralNewlines)
             composeLocalDraftDirty = true
-            composeTrace("compose multiline local-only draft_len=\(draft.count) cursor=\(cursor)")
+            composeTrace(
+                "compose multiline local-only draft_len=\(draft.count) cursor=\(cursor) structural_desired=\(desiredStructuralNewlines)"
+            )
         } else {
             composeLocalDraftDirty = true
         }
