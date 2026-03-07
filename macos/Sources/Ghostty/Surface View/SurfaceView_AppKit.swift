@@ -3123,8 +3123,14 @@ extension Ghostty {
             composeTrace("compose structural-newlines synced current=\(current) desired=\(clamped)")
         }
 
-        private func collapseClaudeMultilineScaffoldForCommit(targetLength: Int) {
-            guard composeSyncToTerminalEnabled else { return }
+        private func collapseClaudeMultilineScaffoldForCommit(
+            targetLength: Int,
+            completion: @escaping () -> Void
+        ) {
+            guard composeSyncToTerminalEnabled else {
+                completion()
+                return
+            }
 
             let structuralCount = composeClaudeStructuralNewlineCount
             let cachedSnapshot = composeLastResolvedClaudeSnapshot
@@ -3157,20 +3163,68 @@ extension Ghostty {
                 }
             }
 
-            if structuralCount > 0 {
-                for _ in 0..<structuralCount {
-                    surfaceModel?.sendKeyEvent(.init(key: .backspace))
+            guard structuralCount > 0 else {
+                if let snapshot = composeSnapshotForCursorRow() ?? cachedSnapshot {
+                    traceComposeScreenRegion(source: "multiline-clear-after", snapshot: snapshot)
                 }
-                composeClaudeStructuralNewlineCount = 0
+                completion()
+                return
             }
 
-            if let snapshot = composeSnapshotForCursorRow() ?? cachedSnapshot {
-                traceComposeScreenRegion(source: "multiline-clear-after", snapshot: snapshot)
+            collapseClaudeMultilineScaffoldStep(
+                remaining: structuralCount,
+                cachedSnapshot: cachedSnapshot,
+                completion: completion
+            )
+        }
+
+        private func collapseClaudeMultilineScaffoldStep(
+            remaining: Int,
+            cachedSnapshot: PromptInputSnapshot?,
+            completion: @escaping () -> Void
+        ) {
+            guard remaining > 0 else {
+                composeClaudeStructuralNewlineCount = 0
+                if let snapshot = composeSnapshotForCursorRow() ?? cachedSnapshot {
+                    traceComposeScreenRegion(source: "multiline-clear-after", snapshot: snapshot)
+                }
+                completion()
+                return
+            }
+
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.02) { [weak self] in
+                guard let self else { return }
+
+                let liveContext = self.readInputContext()
+                let liveCursorRow = liveContext.map { Int($0.cursor_row) }
+                let liveCursorCol = max(0, liveContext.map { Int($0.cursor_col) } ?? 0)
+                self.composeTrace(
+                    "compose multiline scaffold collapse step remaining=\(remaining) cursor_row=\(liveCursorRow.map(String.init) ?? "nil") cursor_col=\(liveCursorCol)"
+                )
+
+                if liveCursorCol > 0 {
+                    for _ in 0..<liveCursorCol {
+                        self.surfaceModel?.sendKeyEvent(.init(key: .arrowLeft))
+                    }
+                }
+
+                self.surfaceModel?.sendKeyEvent(.init(key: .backspace))
+                self.collapseClaudeMultilineScaffoldStep(
+                    remaining: remaining - 1,
+                    cachedSnapshot: cachedSnapshot,
+                    completion: completion
+                )
             }
         }
 
-        private func prepareClaudeMultilineDraftForCommit(text: String) {
-            guard composeSyncToTerminalEnabled else { return }
+        private func prepareClaudeMultilineDraftForCommit(
+            text: String,
+            completion: @escaping () -> Void
+        ) {
+            guard composeSyncToTerminalEnabled else {
+                completion()
+                return
+            }
             composeTrace(
                 "compose multiline commit prepare draft_len=\(text.count) structural_newlines=\(composeClaudeStructuralNewlineCount)"
             )
@@ -3178,18 +3232,28 @@ extension Ghostty {
                 traceComposeScreenRegion(source: "multiline-commit-before", snapshot: snapshot)
             }
 
-            collapseClaudeMultilineScaffoldForCommit(targetLength: text.utf16.count)
+            collapseClaudeMultilineScaffoldForCommit(targetLength: text.utf16.count) { [weak self] in
+                guard let self else { return }
 
-            // Claude already knows how to tokenize a multiline block pasted at commit time.
-            // Keep the local overlay alive until the follow-up Enter fires so that transient
-            // paste-token UI never leaks through to the user.
-            if !text.isEmpty {
-                surfaceModel?.sendText(text)
-            }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.02) {
+                    // Claude already knows how to tokenize a multiline block pasted at commit time.
+                    // Keep the local overlay alive until the follow-up Enter fires so that transient
+                    // paste-token UI never leaks through to the user.
+                    //
+                    // Known limitation: because final multiline submit is a single block paste after
+                    // scaffold collapse, Claude renders the first committed line after the prompt
+                    // gutter but later lines flush-left within the pasted block. Native Claude keeps
+                    // all committed lines aligned inside its live multiline scaffold.
+                    if !text.isEmpty {
+                        self.surfaceModel?.sendText(text)
+                    }
 
-            composeTrace("compose multiline commit pasted-block draft_len=\(text.count)")
-            if let snapshot = composeSnapshotForCursorRow() ?? composeLastResolvedClaudeSnapshot {
-                traceComposeScreenRegion(source: "multiline-commit-after", snapshot: snapshot)
+                    self.composeTrace("compose multiline commit pasted-block draft_len=\(text.count)")
+                    if let snapshot = self.composeSnapshotForCursorRow() ?? self.composeLastResolvedClaudeSnapshot {
+                        self.traceComposeScreenRegion(source: "multiline-commit-after", snapshot: snapshot)
+                    }
+                    completion()
+                }
             }
         }
 
@@ -3258,23 +3322,27 @@ extension Ghostty {
 
         private func replaceClaudeComposeDraft(text: String, cursor: Int) {
             guard composeSyncToTerminalEnabled else { return }
-            collapseClaudeMultilineScaffoldForCommit(targetLength: text.utf16.count)
-            if !text.isEmpty {
-                // Use Ghostty's text/paste path so multiline drafts land as a single
-                // bracketed paste in Claude instead of piecemeal raw-input replay.
-                surfaceModel?.sendText(text)
-            }
+            collapseClaudeMultilineScaffoldForCommit(targetLength: text.utf16.count) { [weak self] in
+                guard let self else { return }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.02) {
+                    if !text.isEmpty {
+                        // Use Ghostty's text/paste path so multiline drafts land as a single
+                        // bracketed paste in Claude instead of piecemeal raw-input replay.
+                        self.surfaceModel?.sendText(text)
+                    }
 
-            let clamped = min(max(0, cursor), text.utf16.count)
-            let distanceFromEnd = max(0, text.utf16.count - clamped)
-            if distanceFromEnd > 0 {
-                for _ in 0..<distanceFromEnd {
-                    surfaceModel?.sendKeyEvent(.init(key: .arrowLeft))
+                    let clamped = min(max(0, cursor), text.utf16.count)
+                    let distanceFromEnd = max(0, text.utf16.count - clamped)
+                    if distanceFromEnd > 0 {
+                        for _ in 0..<distanceFromEnd {
+                            self.surfaceModel?.sendKeyEvent(.init(key: .arrowLeft))
+                        }
+                    }
+                    self.composeTrace(
+                        "compose multiline replace paste draft_len=\(text.count) cursor=\(clamped) distance_from_end=\(distanceFromEnd)"
+                    )
                 }
             }
-            composeTrace(
-                "compose multiline replace paste draft_len=\(text.count) cursor=\(clamped) distance_from_end=\(distanceFromEnd)"
-            )
         }
 
         private func replaceTerminalLineForCompose(text: String, cursor: Int) {
@@ -3483,9 +3551,6 @@ extension Ghostty {
                 AppDelegate.logger.debug("compose finish reason=commit draft_len=\(draft.count) original_len=\(original.count)")
                 let multilineDraft = draft.contains("\n")
                 if multilineDraft, activationContext == .claudeTui {
-                    prepareClaudeMultilineDraftForCommit(text: draft)
-                    composeTerminalText = draft
-                    composeTerminalCursor = draft.utf16.count
                     composeCommitPending = true
                     composeCaretView?.isHidden = true
                     stopComposeCaretBlink()
@@ -3494,13 +3559,18 @@ extension Ghostty {
                     window?.makeFirstResponder(self)
                     composeResponderHandoff = false
                     composeStabilizeUntil = Date.timeIntervalSinceReferenceDate + 1.0
-                    sendComposeCommitKey(
-                        context: activationContext,
-                        multilineDraft: true
-                    ) { [weak self] in
+                    prepareClaudeMultilineDraftForCommit(text: draft) { [weak self] in
                         guard let self else { return }
-                        self.cleanupComposeSession(resetStabilize: false, pauseTracker: true)
-                        self.composeTrace("finish reason=commit cleanup=deferred")
+                        self.composeTerminalText = draft
+                        self.composeTerminalCursor = draft.utf16.count
+                        self.sendComposeCommitKey(
+                            context: activationContext,
+                            multilineDraft: true
+                        ) { [weak self] in
+                            guard let self else { return }
+                            self.cleanupComposeSession(resetStabilize: false, pauseTracker: true)
+                            self.composeTrace("finish reason=commit cleanup=deferred")
+                        }
                     }
                     return
                 }
