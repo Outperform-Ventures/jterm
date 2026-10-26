@@ -29,7 +29,7 @@ jobs:
           tar -xJf "$RUNNER_TEMP/zig.tar.xz" -C "$RUNNER_TEMP"
           echo "$RUNNER_TEMP/zig-x86_64-linux-0.15.2" >> "$GITHUB_PATH"
       - name: Test terminal core
-        run: zig build test-lib-vt -Demit-docs=false
+        run: zig build test -Dapp-runtime=none -Demit-docs=false --summary all
       - name: Validate remote-control fixtures
         run: |
           python3 scripts/remote-parity/validate_vectors.py

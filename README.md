@@ -62,10 +62,10 @@ Remote control can read terminal contents, launch processes, and send input. Ena
 zig build test
 ```
 
-On macOS, the full test command also runs native Xcode tests and may require test-runner authorization. Terminal-core tests can be run separately:
+On macOS, the full test command also runs native Xcode tests and may require test-runner authorization. On macOS, a test-name filter runs matching Zig tests without launching the native test runner. For example, to run stream-parser tests:
 
 ```sh
-zig build test-lib-vt
+zig build test -Dtest-filter=stream
 ```
 
 The repository CI checks the terminal core on Linux. This does not validate the native macOS interface or every remote-control integration.

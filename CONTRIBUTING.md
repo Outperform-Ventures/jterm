@@ -14,7 +14,7 @@ Include your operating system, Zig version, jTerm revision, reproduction steps, 
 4. Format changed Zig files with `zig fmt` and follow the surrounding Swift style.
 5. Open a pull request explaining the change and validation performed.
 
-Run `zig build test` for the full suite, including native tests on macOS. `zig build test-lib-vt` runs terminal-core tests separately. Native application changes need native validation; core-test success alone is insufficient.
+Run `zig build test` for the full suite, including native tests on macOS. Use `zig build test -Dtest-filter=<name>` to run matching Zig tests separately. Native application changes need native validation; core-test success alone is insufficient.
 
 Use isolated configuration and sockets for remote-control tests. Do not run tests against an unrelated active terminal session. Review generated logs before sharing them.
 
