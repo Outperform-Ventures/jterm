@@ -2501,7 +2501,8 @@ keybind: Keybinds = .{},
 ///
 /// When this is `true`, jterm starts a socket listener at startup and accepts
 /// commands from `jterm @ ...`. By default, jterm listens on
-/// `unix:/tmp/jterm.sock`.
+/// `unix:/tmp/jterm-dev.sock` for debug/dev builds and
+/// `unix:/tmp/jterm-stable.sock` for release/stable builds.
 ///
 /// You can override the socket target with the `JTERM_LISTEN_ON` environment
 /// variable, for example:
@@ -3969,6 +3970,8 @@ fn writeConfigTemplate(path: []const u8) !void {
 /// The legacy `config` file (without extension) is first loaded,
 /// then `config.ghostty`.
 pub fn loadDefaultFiles(self: *Config, alloc: Allocator) !void {
+    try file_load.ensureLegacyConfigMigrated(alloc);
+
     // Load XDG first
     const legacy_xdg_path = try file_load.legacyDefaultXdgPath(alloc);
     defer alloc.free(legacy_xdg_path);

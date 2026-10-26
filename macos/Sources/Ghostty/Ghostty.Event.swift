@@ -1,7 +1,7 @@
 import Cocoa
 import GhosttyKit
 
-extension Ghostty {
+extension JTerm {
     /// A comparable event.
     struct ComparableKeyEvent: Equatable {
         let keyCode: UInt16

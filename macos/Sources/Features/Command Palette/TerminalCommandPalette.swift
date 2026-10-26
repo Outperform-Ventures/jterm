@@ -3,14 +3,14 @@ import GhosttyKit
 
 struct TerminalCommandPaletteView: View {
     /// The surface that this command palette represents.
-    let surfaceView: Ghostty.SurfaceView
+    let surfaceView: JTerm.SurfaceView
 
     /// Set this to true to show the view, this will be set to false if any actions
     /// result in the view disappearing.
     @Binding var isPresented: Bool
 
     /// The configuration so we can lookup keyboard shortcuts.
-    @ObservedObject var ghosttyConfig: Ghostty.Config
+    @ObservedObject var ghosttyConfig: JTerm.Config
     
     /// The update view model for showing update commands.
     var updateViewModel: UpdateViewModel?
@@ -92,7 +92,7 @@ struct TerminalCommandPaletteView: View {
         // convey it'll go all the way through.
         let title: String
         if case .updateAvailable = updateViewModel.state {
-            title = "Update Ghostty and Restart"
+            title = "Update jTerm and Restart"
         } else {
             title = updateViewModel.text
         }
@@ -160,7 +160,7 @@ struct TerminalCommandPaletteView: View {
                     sortKey: AnySortKey(ObjectIdentifier(surface))
                 ) {
                     NotificationCenter.default.post(
-                        name: Ghostty.Notification.ghosttyPresentTerminal,
+                        name: JTerm.Notification.ghosttyPresentTerminal,
                         object: surface
                     )
                 }

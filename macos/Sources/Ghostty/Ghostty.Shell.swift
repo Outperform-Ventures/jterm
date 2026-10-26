@@ -1,4 +1,4 @@
-extension Ghostty {
+extension JTerm {
     enum Shell {
         // Characters to escape in the shell.
         private static let escapeCharacters = "\\ ()[]{}<>\"'`!#$&;|*?\t"

@@ -1,11 +1,11 @@
 import SwiftUI
 import GhosttyKit
 
-extension Ghostty {
+extension JTerm {
     struct Action {}
 }
 
-extension Ghostty.Action {
+extension JTerm.Action {
     struct ColorChange {
         let kind: Kind
         let color: Color
@@ -165,7 +165,7 @@ extension Ghostty.Action {
 }
 
 // Putting the initializer in an extension preserves the automatic one.
-extension Ghostty.Action.ProgressReport {
+extension JTerm.Action.ProgressReport {
     init(c: ghostty_action_progress_report_s) {
         self.state = State(c.state)
         self.progress = c.progress >= 0 ? UInt8(c.progress) : nil

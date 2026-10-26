@@ -2,10 +2,10 @@ import SwiftUI
 import UserNotifications
 import GhosttyKit
 
-extension Ghostty {
+extension JTerm {
     /// Render a terminal for the active app in the environment.
     struct Terminal: View {
-        @EnvironmentObject private var ghostty: Ghostty.App
+        @EnvironmentObject private var ghostty: JTerm.App
 
         var body: some View {
             if let app = self.ghostty.app {
@@ -55,7 +55,7 @@ extension Ghostty {
         @ObservedObject private var secureInput = SecureInput.shared
         #endif
 
-        @EnvironmentObject private var ghostty: Ghostty.App
+        @EnvironmentObject private var ghostty: JTerm.App
 
         var body: some View {
             let center = NotificationCenter.default
@@ -192,7 +192,7 @@ extension Ghostty {
                         searchState: searchState,
                         onClose: {
 #if canImport(AppKit)
-                            Ghostty.moveFocus(to: surfaceView)
+                            JTerm.moveFocus(to: surfaceView)
 #endif
                             surfaceView.searchState = nil
                         }
@@ -293,8 +293,8 @@ extension Ghostty {
     struct SurfaceResizeOverlay: View {
         let geoSize: CGSize
         let size: ghostty_surface_size_s
-        let overlay: Ghostty.Config.ResizeOverlay
-        let position: Ghostty.Config.ResizeOverlayPosition
+        let overlay: JTerm.Config.ResizeOverlay
+        let position: JTerm.Config.ResizeOverlayPosition
         let duration: UInt
         let focusInstant: ContinuousClock.Instant?
 
@@ -439,7 +439,7 @@ extension Ghostty {
                         if searchState.needle.isEmpty {
                             onClose()
                         } else {
-                            Ghostty.moveFocus(to: surfaceView)
+                            JTerm.moveFocus(to: surfaceView)
                         }
                     }
 #endif
@@ -597,7 +597,7 @@ extension Ghostty {
         }
     }
 
-    /// A surface is terminology in Ghostty for a terminal surface, or a place where a terminal is actually drawn
+    /// A surface is terminology in JTerm for a terminal surface, or a place where a terminal is actually drawn
     /// and interacted with. The word "surface" is used because a surface may represent a window, a tab,
     /// a split, a small preview pane, etc. It is ANYTHING that has a terminal drawn to it.
     struct SurfaceRepresentable: OSViewRepresentable {
@@ -637,7 +637,7 @@ extension Ghostty {
     }
 
     /// The configuration for a surface. For any configuration not set, defaults will be chosen from
-    /// libghostty, usually from the Ghostty configuration.
+    /// libghostty, usually from the JTerm configuration.
     struct SurfaceConfiguration {
         /// Explicit font size to use in points
         var fontSize: Float32? = nil
@@ -1199,19 +1199,19 @@ extension Ghostty {
 
 // MARK: Surface Environment Keys
 
-private struct GhosttySurfaceViewKey: EnvironmentKey {
-    static let defaultValue: Ghostty.SurfaceView? = nil
+private struct JTermSurfaceViewKey: EnvironmentKey {
+    static let defaultValue: JTerm.SurfaceView? = nil
 }
 
 extension EnvironmentValues {
-    var ghosttySurfaceView: Ghostty.SurfaceView? {
-        get { self[GhosttySurfaceViewKey.self] }
-        set { self[GhosttySurfaceViewKey.self] = newValue }
+    var ghosttySurfaceView: JTerm.SurfaceView? {
+        get { self[JTermSurfaceViewKey.self] }
+        set { self[JTermSurfaceViewKey.self] = newValue }
     }
 }
 
 extension View {
-    func ghosttySurfaceView(_ surfaceView: Ghostty.SurfaceView?) -> some View {
+    func ghosttySurfaceView(_ surfaceView: JTerm.SurfaceView?) -> some View {
         environment(\.ghosttySurfaceView, surfaceView)
     }
 }
@@ -1219,13 +1219,13 @@ extension View {
 // MARK: Surface Focus Keys
 
 extension FocusedValues {
-    var ghosttySurfaceView: Ghostty.SurfaceView? {
+    var ghosttySurfaceView: JTerm.SurfaceView? {
         get { self[FocusedGhosttySurface.self] }
         set { self[FocusedGhosttySurface.self] = newValue }
     }
 
     struct FocusedGhosttySurface: FocusedValueKey {
-        typealias Value = Ghostty.SurfaceView
+        typealias Value = JTerm.SurfaceView
     }
 
     var ghosttySurfacePwd: String? {
@@ -1249,13 +1249,13 @@ extension FocusedValues {
 
 // MARK: Search State
 
-extension Ghostty.SurfaceView {
+extension JTerm.SurfaceView {
     class SearchState: ObservableObject {
         @Published var needle: String = ""
         @Published var selected: UInt? = nil
         @Published var total: UInt? = nil
 
-        init(from startSearch: Ghostty.Action.StartSearch) {
+        init(from startSearch: JTerm.Action.StartSearch) {
             self.needle = startSearch.needle ?? ""
         }
     }

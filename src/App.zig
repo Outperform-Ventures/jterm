@@ -17,6 +17,7 @@ const renderer = @import("renderer.zig");
 const font = @import("font/main.zig");
 const remote = @import("remote/main.zig");
 const terminal = @import("terminal/main.zig");
+const build_config = @import("build_config.zig");
 const X25519 = std.crypto.dh.X25519;
 
 const log = std.log.scoped(.app);
@@ -439,7 +440,7 @@ pub fn startRemoteControl(self: *App, rt_app: *apprt.App) !void {
         const target = if (std.posix.getenv("JTERM_LISTEN_ON")) |v|
             std.mem.sliceTo(v, 0)
         else
-            "unix:/tmp/jterm.sock";
+            build_config.default_remote_control_target;
 
         const path = try remote.transport.unixPathFromTarget(target);
         break :socket_path try std.heap.page_allocator.dupe(u8, path);
@@ -628,6 +629,7 @@ fn drainMailbox(self: *App, rt_app: *apprt.App) !void {
             .surface_message => |msg| try self.surfaceMessage(msg.surface, msg.message),
             .redraw_surface => |surface| try self.redrawSurface(rt_app, surface),
             .remote_request => |req| self.handleRemoteRequest(rt_app, req),
+            .delayed_remote_input => |msg| self.handleDelayedRemoteInput(msg),
 
             // If we're quitting, then we set the quit flag and stop
             // draining the mailbox immediately. This lets us defer
@@ -663,10 +665,19 @@ const RemoteSelectMode = enum {
     many,
 };
 
+const delayed_remote_launch_input_ns = 150 * std.time.ns_per_ms;
+
 const RemoteTextExtent = enum {
     selection,
     screen,
     all,
+};
+
+const DelayedRemoteLaunchInput = struct {
+    alloc: Allocator,
+    mailbox: Mailbox,
+    surface_id: u64,
+    text: []u8,
 };
 
 fn handleRemoteRequest(
@@ -1049,7 +1060,7 @@ fn applyLaunchDirectives(
     const launch_text = try remote.launch.buildLaunchText(alloc, parsed_launch);
     defer if (launch_text) |text| alloc.free(text);
     if (launch_text) |text| {
-        rt_surface.core().remoteInputCallback(text) catch return error.ActionFailed;
+        try self.scheduleRemoteLaunchInput(meta.id, text);
     }
 }
 
@@ -1205,11 +1216,53 @@ fn applyPendingRemoteLaunch(
         };
 
         if (pending.send_text) |text| {
-            rt_surface.core().remoteInputCallback(text) catch |err| {
-                log.warn("failed to send launch command text err={}", .{err});
+            self.scheduleRemoteLaunchInput(surface_id, text) catch |err| {
+                log.warn("failed to schedule launch command text err={}", .{err});
             };
         }
     }
+}
+
+fn scheduleRemoteLaunchInput(
+    self: *App,
+    surface_id: u64,
+    text: []const u8,
+) Allocator.Error!void {
+    const mailbox = self.remote_mailbox orelse return;
+    const owned = try self.alloc.dupe(u8, text);
+    errdefer self.alloc.free(owned);
+
+    const thread = std.Thread.spawn(.{}, delayedRemoteLaunchInputThread, .{DelayedRemoteLaunchInput{
+        .alloc = self.alloc,
+        .mailbox = mailbox,
+        .surface_id = surface_id,
+        .text = owned,
+    }}) catch return error.OutOfMemory;
+    thread.detach();
+}
+
+fn delayedRemoteLaunchInputThread(ctx: DelayedRemoteLaunchInput) void {
+    std.Thread.sleep(delayed_remote_launch_input_ns);
+    if (ctx.mailbox.push(.{
+        .delayed_remote_input = .{
+            .surface_id = ctx.surface_id,
+            .text = ctx.text,
+        },
+    }, .{ .forever = {} }) == 0) {
+        ctx.alloc.free(ctx.text);
+    }
+}
+
+fn handleDelayedRemoteInput(
+    self: *App,
+    msg: Message.DelayedRemoteInput,
+) void {
+    defer self.alloc.free(msg.text);
+
+    const rt_surface = self.rtSurfaceByRemoteId(msg.surface_id) orelse return;
+    rt_surface.core().remoteInputCallback(msg.text) catch |err| {
+        log.warn("failed to deliver delayed remote input err={}", .{err});
+    };
 }
 
 fn remoteCloseWindow(
@@ -2165,7 +2218,9 @@ fn remoteGetText(
     var clear_selection = false;
     var extent: RemoteTextExtent = .selection;
 
-    for (request.argv) |arg| {
+    var i: usize = 0;
+    while (i < request.argv.len) : (i += 1) {
+        const arg = request.argv[i];
         if (std.mem.eql(u8, arg, "--ansi")) {
             ansi = true;
             continue;
@@ -2176,6 +2231,24 @@ fn remoteGetText(
         }
         if (std.mem.startsWith(u8, arg, "--extent=")) {
             const value = arg["--extent=".len..];
+            if (std.mem.eql(u8, value, "screen")) {
+                extent = .screen;
+                continue;
+            }
+            if (std.mem.eql(u8, value, "all")) {
+                extent = .all;
+                continue;
+            }
+            if (std.mem.eql(u8, value, "selection")) {
+                extent = .selection;
+                continue;
+            }
+            return error.InvalidArguments;
+        }
+        if (std.mem.eql(u8, arg, "--extent")) {
+            i += 1;
+            if (i >= request.argv.len) return error.InvalidArguments;
+            const value = request.argv[i];
             if (std.mem.eql(u8, value, "screen")) {
                 extent = .screen;
                 continue;
@@ -3197,6 +3270,14 @@ pub const Message = union(enum) {
 
     /// A remote-control request to execute.
     remote_request: *remote.server.PendingRequest,
+
+    /// Delayed byte-exact remote input for newly created launch targets.
+    delayed_remote_input: DelayedRemoteInput,
+
+    const DelayedRemoteInput = struct {
+        surface_id: u64,
+        text: []u8,
+    };
 
     const NewWindow = struct {
         /// The parent surface

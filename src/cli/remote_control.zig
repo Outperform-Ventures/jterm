@@ -1,13 +1,21 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+const build_config = @import("../build_config.zig");
 const configpkg = @import("../config.zig");
 const remote = @import("../remote/main.zig");
+const schema = @import("remote_control_schema.zig");
 
 pub const Options = struct {
     const UsePassword = enum {
         if_available,
         always,
         never,
+    };
+
+    const SubmitMode = enum {
+        none,
+        enter,
+        assistant,
     };
 
     /// Remote control target endpoint.
@@ -35,6 +43,9 @@ pub const Options = struct {
 
     /// Command-level response timeout hint (seconds).
     response_timeout: ?u32 = null,
+
+    /// Optional submit behavior for send-text.
+    submit: SubmitMode = .none,
 };
 
 const ParseError = error{
@@ -57,6 +68,21 @@ const Invocation = struct {
         if (self._owned_command_args) |v| alloc.free(v);
         self.* = undefined;
     }
+};
+
+const CommandHelp = struct {
+    usage: []const u8,
+    lines: []const []const u8,
+};
+
+const HelpRequest = struct {
+    explicit: bool,
+    target: ?[]const u8,
+};
+
+const LaunchCompatStepResult = union(enum) {
+    ok: []u8,
+    exit_code: u8,
 };
 
 /// Run kitty-compatible remote control commands.
@@ -100,6 +126,12 @@ fn runArgv(
     argv: []const []const u8,
     stderr: *std.Io.Writer,
 ) !u8 {
+    const explicit_help = detectExplicitHelpRequest(argv);
+    if (explicit_help.explicit) {
+        try printDetectedHelp(explicit_help.target);
+        return 0;
+    }
+
     if (findMarker(argv) != null and hasHelpFlag(argv)) {
         try printHelpForInvocation(argv);
         return 0;
@@ -108,31 +140,56 @@ fn runArgv(
     var invocation = parseInvocation(alloc, argv) catch |err| switch (err) {
         error.HelpRequested => {
             try printHelpForInvocation(argv);
-            return 0;
+            return @intFromEnum(schema.ExitCode.success);
         },
         error.MarkerNotFound => {
             try stderr.print("No remote-control marker found. Use `jterm @ <command>`.\n", .{});
-            return 1;
+            return @intFromEnum(schema.ExitCode.usage);
         },
         error.MissingCommand => {
             try stderr.print("No remote-control command was provided.\n", .{});
-            return 1;
+            return @intFromEnum(schema.ExitCode.usage);
         },
         error.MissingValue => {
             try stderr.print("A required option value is missing.\n", .{});
-            return 1;
+            return @intFromEnum(schema.ExitCode.usage);
         },
         error.UnknownOption => {
             try stderr.print("Unknown remote-control option.\n", .{});
-            return 1;
+            return @intFromEnum(schema.ExitCode.usage);
         },
         error.InvalidValue => {
             try stderr.print("Invalid remote-control option value.\n", .{});
-            return 1;
+            return @intFromEnum(schema.ExitCode.usage);
         },
         error.OutOfMemory => return error.OutOfMemory,
     };
     defer invocation.deinit(alloc);
+
+    validateInvocation(stderr, invocation) catch |err| switch (err) {
+        error.MissingValue => {
+            try stderr.print("Error: a required command option value is missing.\n", .{});
+            return @intFromEnum(schema.ExitCode.usage);
+        },
+        error.UnknownOption => {
+            try stderr.print("Error: unsupported command option for `{s}`.\n", .{invocation.command_name});
+            return @intFromEnum(schema.ExitCode.usage);
+        },
+        error.InvalidValue => {
+            try stderr.print("Error: invalid value for `{s}`.\n", .{invocation.command_name});
+            return @intFromEnum(schema.ExitCode.usage);
+        },
+        error.MissingArgument => {
+            try stderr.print("Error: missing required argument for `{s}`.\n", .{invocation.command_name});
+            return @intFromEnum(schema.ExitCode.usage);
+        },
+        error.TooManyArguments => {
+            try stderr.print("Error: too many arguments for `{s}`.\n", .{invocation.command_name});
+            return @intFromEnum(schema.ExitCode.usage);
+        },
+    };
+
+    try canonicalizeInvocation(alloc, &invocation);
 
     var password_owned: ?[]u8 = null;
     defer if (password_owned) |v| alloc.free(v);
@@ -161,6 +218,10 @@ fn runArgv(
         return 1;
     }
 
+    if (launchCompatEnabled() and std.mem.eql(u8, invocation.command_name, "launch")) {
+        return runLaunchCompat(alloc, argv[0], invocation, password, stderr);
+    }
+
     const no_response = computeNoResponse(
         invocation.options,
         invocation.command_name,
@@ -171,7 +232,7 @@ fn runArgv(
         if (std.posix.getenv("JTERM_LISTEN_ON")) |v|
             std.mem.sliceTo(v, 0)
         else
-            "unix:/tmp/jterm.sock";
+            build_config.default_remote_control_target;
 
     const use_password_transport = invocation.options.use_password != .never and
         password != null and
@@ -220,28 +281,38 @@ fn runArgv(
         break :payload encrypted_request.?;
     };
 
-    const response = remote.transport.request(
-        alloc,
-        target,
-        request_payload,
-    ) catch |err| switch (err) {
-        error.InvalidTarget => {
-            try stderr.print("`--to` must use unix socket format `unix:/path`.\n", .{});
-            return 1;
-        },
-        error.EmptyResponse => {
-            if (no_response) return 0;
-            try stderr.print("Remote-control server returned an empty response.\n", .{});
-            return 1;
-        },
-        error.ResponseTooLarge => {
-            try stderr.print("Remote-control response exceeded maximum allowed size.\n", .{});
-            return 1;
-        },
-        else => {
-            try stderr.print("Remote-control transport failure: {}\n", .{err});
-            return 1;
-        },
+    const response = response: {
+        const result = remote.transport.request(
+            alloc,
+            target,
+            request_payload,
+        ) catch |err| switch (err) {
+            error.InvalidTarget => {
+                try stderr.print("`--to` must use unix socket format `unix:/path`.\n", .{});
+                return 1;
+            },
+            error.EmptyResponse => {
+                if (no_response) {
+                    if (std.mem.eql(u8, invocation.command_name, "send-text") and
+                        submitToken(invocation.options.submit) != null)
+                    {
+                        break :response try alloc.dupe(u8, "");
+                    }
+                    return @intFromEnum(schema.ExitCode.success);
+                }
+                try stderr.print("Remote-control server returned an empty response.\n", .{});
+                return @intFromEnum(schema.ExitCode.transport);
+            },
+            error.ResponseTooLarge => {
+                try stderr.print("Remote-control response exceeded maximum allowed size.\n", .{});
+                return @intFromEnum(schema.ExitCode.transport);
+            },
+            else => {
+                try stderr.print("Remote-control transport failure: {}\n", .{err});
+                return @intFromEnum(schema.ExitCode.transport);
+            },
+        };
+        break :response result;
     };
     defer alloc.free(response);
 
@@ -261,9 +332,24 @@ fn runArgv(
                     else
                         "remote-control command failed";
                     try stderr.print("Error: {s}\n", .{err_message});
-                    return 1;
+                    return classifyRemoteFailure(err_message);
                 }
             }
+        }
+    }
+
+    if (std.mem.eql(u8, invocation.command_name, "send-text")) {
+        if (submitToken(invocation.options.submit)) |token| {
+            std.Thread.sleep(250 * std.time.ns_per_ms);
+            try sendRemoteCommand(
+                alloc,
+                stderr,
+                target,
+                invocation.options,
+                password,
+                "send-key",
+                &.{token},
+            );
         }
     }
 
@@ -283,7 +369,212 @@ fn runArgv(
         try stdout.flush();
     }
 
-    return 0;
+    return @intFromEnum(schema.ExitCode.success);
+}
+
+fn runLaunchCompat(
+    alloc: Allocator,
+    executable: []const u8,
+    invocation: Invocation,
+    password: ?[]const u8,
+    stderr: *std.Io.Writer,
+) !u8 {
+    var parsed = remote.launch.parseArgs(alloc, invocation.command_args) catch |err| switch (err) {
+        error.MissingValue => {
+            try stderr.print("A required option value is missing.\n", .{});
+            return @intFromEnum(schema.ExitCode.usage);
+        },
+        error.InvalidValue, error.InvalidEnv, error.UnsupportedOption => {
+            try stderr.print("Invalid remote-control option value.\n", .{});
+            return @intFromEnum(schema.ExitCode.usage);
+        },
+        error.OutOfMemory => return error.OutOfMemory,
+    };
+    defer parsed.deinit(alloc);
+
+    const id_result = try runLaunchCompatStep(
+        alloc,
+        executable,
+        invocation.options,
+        password,
+        "new-window",
+        &.{},
+        stderr,
+    );
+    const id_text = switch (id_result) {
+        .ok => |stdout| stdout,
+        .exit_code => |code| return code,
+    };
+    defer alloc.free(id_text);
+
+    const id = std.fmt.parseUnsigned(u64, std.mem.trim(u8, id_text, " \r\n\t"), 10) catch {
+        try stderr.print("Failed to parse the created window id.\n", .{});
+        return @intFromEnum(schema.ExitCode.remote_failure);
+    };
+
+    const match_arg = try std.fmt.allocPrint(alloc, "id:{d}", .{id});
+    defer alloc.free(match_arg);
+
+    if (parsed.title) |title| {
+        const title_args = [_][]const u8{ "--match", match_arg, title };
+        switch (try runLaunchCompatStep(
+            alloc,
+            executable,
+            invocation.options,
+            password,
+            "set-window-title",
+            title_args[0..],
+            stderr,
+        )) {
+            .ok => |stdout| alloc.free(stdout),
+            .exit_code => |code| return code,
+        }
+    }
+
+    const launch_text = try remote.launch.buildLaunchText(alloc, parsed);
+    defer if (launch_text) |text| alloc.free(text);
+    if (launch_text) |text| {
+        const submit_text = std.mem.trimRight(u8, text, "\r");
+        const text_args = [_][]const u8{ "--match", match_arg, submit_text };
+        switch (try runLaunchCompatStep(
+            alloc,
+            executable,
+            invocation.options,
+            password,
+            "send-line",
+            text_args[0..],
+            stderr,
+        )) {
+            .ok => |stdout| alloc.free(stdout),
+            .exit_code => |code| return code,
+        }
+    }
+
+    var stdout_buffer: [64]u8 = undefined;
+    var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
+    const stdout = &stdout_writer.interface;
+    try stdout.print("{d}\n", .{id});
+    try stdout.flush();
+    return @intFromEnum(schema.ExitCode.success);
+}
+
+fn runLaunchCompatStep(
+    alloc: Allocator,
+    executable: []const u8,
+    options: Options,
+    password: ?[]const u8,
+    command_name: []const u8,
+    command_args: []const []const u8,
+    stderr: *std.Io.Writer,
+) !LaunchCompatStepResult {
+    var args: std.ArrayList([]const u8) = .empty;
+    defer args.deinit(alloc);
+
+    try args.append(alloc, executable);
+    try args.append(alloc, "@");
+    try appendSharedLaunchOptions(alloc, &args, options, password);
+    try args.append(alloc, command_name);
+    try args.appendSlice(alloc, command_args);
+
+    var env_map = try std.process.getEnvMap(alloc);
+    defer env_map.deinit();
+    try env_map.put("JTERM_RC_NO_LAUNCH_COMPAT", "1");
+
+    const result = try std.process.Child.run(.{
+        .allocator = alloc,
+        .argv = args.items,
+        .env_map = &env_map,
+    });
+    errdefer alloc.free(result.stdout);
+    defer alloc.free(result.stderr);
+
+    switch (result.term) {
+        .Exited => |code| {
+            if (code == 0) return .{ .ok = result.stdout };
+            if (result.stderr.len > 0) {
+                try stderr.writeAll(result.stderr);
+                if (result.stderr[result.stderr.len - 1] != '\n') try stderr.writeAll("\n");
+            }
+            alloc.free(result.stdout);
+            return .{ .exit_code = @intCast(code) };
+        },
+        else => {
+            if (result.stderr.len > 0) {
+                try stderr.writeAll(result.stderr);
+                if (result.stderr[result.stderr.len - 1] != '\n') try stderr.writeAll("\n");
+            } else {
+                try stderr.print("Remote-control subprocess terminated unexpectedly.\n", .{});
+            }
+            alloc.free(result.stdout);
+            return .{ .exit_code = @intFromEnum(schema.ExitCode.transport) };
+        },
+    }
+}
+
+fn appendSharedLaunchOptions(
+    alloc: Allocator,
+    args: *std.ArrayList([]const u8),
+    options: Options,
+    password: ?[]const u8,
+) !void {
+    if (options.to) |value| {
+        try args.append(alloc, "--to");
+        try args.append(alloc, value);
+    }
+    if (password) |value| {
+        try args.append(alloc, "--password");
+        try args.append(alloc, value);
+    }
+    if (options.password_file) |value| {
+        try args.append(alloc, "--password-file");
+        try args.append(alloc, value);
+    }
+    if (options.password_env) |value| {
+        try args.append(alloc, "--password-env");
+        try args.append(alloc, value);
+    }
+
+    switch (options.use_password) {
+        .if_available => {},
+        .always => try args.append(alloc, "--use-password=always"),
+        .never => try args.append(alloc, "--use-password=never"),
+    }
+}
+
+fn detectExplicitHelpRequest(argv: []const []const u8) HelpRequest {
+    const marker = findMarker(argv) orelse return .{ .explicit = false, .target = null };
+
+    var options: Options = .{};
+    var i: usize = marker + 1;
+    while (i < argv.len) : (i += 1) {
+        const arg = argv[i];
+        if (parseGlobalOption(argv, &i, &options, arg, false) catch false) continue;
+        if (std.mem.startsWith(u8, arg, "--")) return .{ .explicit = false, .target = null };
+        if (std.mem.eql(u8, arg, "help")) {
+            const next = i + 1;
+            return .{
+                .explicit = true,
+                .target = if (next < argv.len) argv[next] else null,
+            };
+        }
+        return .{ .explicit = false, .target = null };
+    }
+
+    return .{ .explicit = false, .target = null };
+}
+
+fn printDetectedHelp(command_name: ?[]const u8) !void {
+    var stdout_buffer: [8192]u8 = undefined;
+    var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
+    const stdout = &stdout_writer.interface;
+
+    if (command_name) |cmd| {
+        try printCommandHelp(stdout, cmd);
+    } else {
+        try printGlobalHelp(stdout);
+    }
+
+    try stdout.flush();
 }
 
 fn parseInvocation(
@@ -349,6 +640,56 @@ fn parseInvocation(
         .command_name = command,
         .command_args = args,
         ._owned_command_args = if (!has_command_args) null else args,
+    };
+}
+
+fn canonicalizeInvocation(
+    alloc: Allocator,
+    invocation: *Invocation,
+) !void {
+    if (std.mem.eql(u8, invocation.command_name, "send-line")) {
+        invocation.command_name = "send-text";
+        if (invocation.options.submit == .none) {
+            invocation.options.submit = .enter;
+        }
+        return;
+    }
+
+    if (launchCompatEnabled() and std.mem.eql(u8, invocation.command_name, "new-window")) {
+        const rewritten = try canonicalizeNewWindowArgs(alloc, invocation.command_args);
+        if (invocation._owned_command_args) |v| alloc.free(v);
+        invocation.command_name = "launch";
+        invocation.command_args = rewritten;
+        invocation._owned_command_args = rewritten;
+    }
+}
+
+fn launchCompatEnabled() bool {
+    return std.posix.getenv("JTERM_RC_NO_LAUNCH_COMPAT") == null;
+}
+
+fn canonicalizeNewWindowArgs(
+    alloc: Allocator,
+    args: []const []const u8,
+) ![]const []const u8 {
+    var rewritten: std.ArrayList([]const u8) = .empty;
+    defer rewritten.deinit(alloc);
+
+    try rewritten.appendSlice(alloc, &.{ "--type", "os-window" });
+    try rewritten.appendSlice(alloc, args);
+    return try rewritten.toOwnedSlice(alloc);
+}
+
+fn validateInvocation(
+    stderr: *std.Io.Writer,
+    invocation: Invocation,
+) schema.ValidationError!void {
+    schema.validateCommandArgs(invocation.command_name, invocation.command_args) catch |err| {
+        if (schema.renderCommandHelp(std.heap.page_allocator, invocation.command_name) catch null) |help| {
+            defer std.heap.page_allocator.free(help);
+            stderr.print("{s}\n", .{help}) catch {};
+        }
+        return err;
     };
 }
 
@@ -446,6 +787,11 @@ fn parseCommandOption(
         return true;
     }
 
+    if (std.mem.startsWith(u8, arg, "--submit=")) {
+        options.submit = try parseSubmitMode(arg["--submit=".len..]);
+        return true;
+    }
+
     if (std.mem.startsWith(u8, arg, "--match-tab=")) {
         options.match_tab = try requireValue(arg["--match-tab=".len..]);
         return true;
@@ -453,7 +799,8 @@ fn parseCommandOption(
 
     if (std.mem.eql(u8, arg, "--match") or
         std.mem.eql(u8, arg, "--match-tab") or
-        std.mem.eql(u8, arg, "--response-timeout"))
+        std.mem.eql(u8, arg, "--response-timeout") or
+        std.mem.eql(u8, arg, "--submit"))
     {
         const next = i.* + 1;
         if (next >= argv.len) return error.MissingValue;
@@ -464,6 +811,7 @@ fn parseCommandOption(
         if (std.mem.eql(u8, arg, "--response-timeout")) {
             options.response_timeout = std.fmt.parseUnsigned(u32, value, 10) catch return error.InvalidValue;
         }
+        if (std.mem.eql(u8, arg, "--submit")) options.submit = try parseSubmitMode(value);
         return true;
     }
 
@@ -481,6 +829,742 @@ fn parseUsePassword(value: []const u8) ParseError!Options.UsePassword {
     if (std.mem.eql(u8, value, "always")) return .always;
     if (std.mem.eql(u8, value, "never")) return .never;
     return error.InvalidValue;
+}
+
+fn parseSubmitMode(value: []const u8) ParseError!Options.SubmitMode {
+    return std.meta.stringToEnum(Options.SubmitMode, value) orelse error.InvalidValue;
+}
+
+fn submitToken(mode: Options.SubmitMode) ?[]const u8 {
+    return switch (mode) {
+        .none => null,
+        .enter, .assistant => "enter",
+    };
+}
+
+fn commandHelp(command_name: []const u8) ?CommandHelp {
+    if (std.mem.eql(u8, command_name, "action")) {
+        return .{
+            .usage = "Usage: jterm @ action [options] <action-name>",
+            .lines = &.{
+                "Run a binding action on the target surface or app.",
+                "",
+                "Options:",
+                "  --match <expr>",
+                "  --self",
+                "  --no-response",
+                "",
+                "Example:",
+                "  jterm @ action --match \"id:12\" clear_screen",
+            },
+        };
+    }
+
+    if (std.mem.eql(u8, command_name, "close-tab")) {
+        return .{
+            .usage = "Usage: jterm @ close-tab [options] [this|other|right]",
+            .lines = &.{
+                "Close tab(s) on the matched target.",
+                "",
+                "Options:",
+                "  --match <expr>",
+                "  --ignore-no-match",
+                "  --no-response",
+                "  --self",
+            },
+        };
+    }
+
+    if (std.mem.eql(u8, command_name, "send-line")) {
+        return .{
+            .usage = "Usage: jterm @ send-line [routing options] <text>",
+            .lines = &.{
+                "Submit one line of text by sending text and then Enter.",
+                "",
+                "Recommended for shell commands and assistant TUIs such as Claude Code.",
+                "",
+                "Routing options:",
+                "  --match <expr>",
+                "  --match-tab <expr>",
+                "  --all",
+                "  --exclude-active",
+            },
+        };
+    }
+
+    if (std.mem.eql(u8, command_name, "send-text")) {
+        return .{
+            .usage = "Usage: jterm @ send-text [routing options] [text options] <text>",
+            .lines = &.{
+                "Send text without synthesizing Enter unless --submit is set.",
+                "",
+                "Routing options:",
+                "  --match <expr>",
+                "  --match-tab <expr>",
+                "  --all",
+                "  --exclude-active",
+                "",
+                "Text options:",
+                "  --stdin",
+                "  --from-file <path>",
+                "  --bracketed-paste disable|enable",
+                "  --submit none|enter|assistant",
+            },
+        };
+    }
+
+    if (std.mem.eql(u8, command_name, "send-key")) {
+        return .{
+            .usage = "Usage: jterm @ send-key [routing options] <key> [key ...]",
+            .lines = &.{
+                "Send one or more literal key presses such as enter, escape, or ctrl+c.",
+                "",
+                "Routing options:",
+                "  --match <expr>",
+                "  --match-tab <expr>",
+                "  --all",
+                "  --exclude-active",
+            },
+        };
+    }
+
+    if (std.mem.eql(u8, command_name, "launch")) {
+        return .{
+            .usage = "Usage: jterm @ launch [launch options] [command ...]",
+            .lines = &.{
+                "Canonical way to open a new terminal window and optionally run setup text or a command.",
+                "",
+                "Launch options:",
+                "  --type os-window|window",
+                "  --title <text>",
+                "  --cwd <path>",
+                "  --env KEY=VALUE",
+                "  --os-window-state normal|maximized|minimized|hidden",
+                "",
+                "Examples:",
+                "  jterm @ launch --type os-window --title \"Claude Chat\"",
+                "  jterm @ launch --type os-window --title \"Claude Chat\" --cwd ~/code/misc",
+                "  jterm @ launch --type os-window --cwd ~/code/misc -- claude",
+            },
+        };
+    }
+
+    if (std.mem.eql(u8, command_name, "new-window")) {
+        return .{
+            .usage = "Usage: jterm @ new-window [window options]",
+            .lines = &.{
+                "Convenience alias for `launch --type os-window`.",
+                "",
+                "Window options:",
+                "  --title <text>",
+                "  --cwd <path>",
+                "  --env KEY=VALUE",
+                "  --os-window-state normal|maximized|minimized|hidden",
+                "",
+                "Example:",
+                "  jterm @ new-window --title \"Claude Chat\" --cwd ~/code/misc",
+            },
+        };
+    }
+
+    if (std.mem.eql(u8, command_name, "new-tab")) {
+        return .{
+            .usage = "Usage: jterm @ new-tab",
+            .lines = &.{
+                "Create a new tab in the focused window.",
+            },
+        };
+    }
+
+    if (std.mem.eql(u8, command_name, "create-marker")) {
+        return .{
+            .usage = "Usage: jterm @ create-marker --match <expr> <marker>",
+            .lines = &.{
+                "Create a marker such as `prompt` on the target window.",
+            },
+        };
+    }
+
+    if (std.mem.eql(u8, command_name, "remove-marker")) {
+        return .{
+            .usage = "Usage: jterm @ remove-marker --match <expr> <marker>",
+            .lines = &.{
+                "Remove a marker such as `prompt` from the target window.",
+            },
+        };
+    }
+
+    if (std.mem.eql(u8, command_name, "detach-tab")) {
+        return .{
+            .usage = "Usage: jterm @ detach-tab [options]",
+            .lines = &.{
+                "Detach the matched tab into its own OS window.",
+                "",
+                "Options:",
+                "  --match <expr>",
+                "  --target-tab <expr>",
+                "  --self",
+            },
+        };
+    }
+
+    if (std.mem.eql(u8, command_name, "detach-window")) {
+        return .{
+            .usage = "Usage: jterm @ detach-window [options]",
+            .lines = &.{
+                "Detach the matched split/window from its current tab.",
+                "",
+                "Options:",
+                "  --match <expr>",
+                "  --target-tab <expr>",
+                "  --self",
+                "  --stay-in-tab",
+            },
+        };
+    }
+
+    if (std.mem.eql(u8, command_name, "disable-ligatures")) {
+        return .{
+            .usage = "Usage: jterm @ disable-ligatures [options] <always|never|cursor>",
+            .lines = &.{
+                "Toggle ligature rendering policy on matching windows.",
+                "",
+                "Options:",
+                "  --all",
+                "  --match <expr>",
+                "  --match-tab <expr>",
+            },
+        };
+    }
+
+    if (std.mem.eql(u8, command_name, "env")) {
+        return .{
+            .usage = "Usage: jterm @ env --match <expr> KEY=VALUE [KEY=VALUE ...]",
+            .lines = &.{
+                "Set or update environment metadata tags used for later matching.",
+            },
+        };
+    }
+
+    if (std.mem.eql(u8, command_name, "focus-tab")) {
+        return .{
+            .usage = "Usage: jterm @ focus-tab --match <expr>",
+            .lines = &.{
+                "Focus the first matching tab.",
+            },
+        };
+    }
+
+    if (std.mem.eql(u8, command_name, "ls")) {
+        return .{
+            .usage = "Usage: jterm @ ls",
+            .lines = &.{
+                "List live windows and tabs as JSON.",
+                "",
+                "Options:",
+                "  --match <expr>",
+                "  --match-tab <expr>",
+                "  --all-env-vars",
+                "  --self",
+                "  --output-format json",
+            },
+        };
+    }
+
+    if (std.mem.eql(u8, command_name, "get-text")) {
+        return .{
+            .usage = "Usage: jterm @ get-text [options]",
+            .lines = &.{
+                "Read text from a target window.",
+                "",
+                "Options:",
+                "  --match <expr>",
+                "  --extent screen|all|selection|first_cmd_output_on_screen|last_cmd_output|last_visited_cmd_output|last_non_empty_output",
+                "  --ansi",
+                "  --add-cursor",
+                "  --add-wrap-markers",
+                "  --clear-selection",
+                "  --self",
+            },
+        };
+    }
+
+    if (std.mem.eql(u8, command_name, "get-colors")) {
+        return .{
+            .usage = "Usage: jterm @ get-colors [options]",
+            .lines = &.{
+                "Print colors for the matching window.",
+                "",
+                "Options:",
+                "  --match <expr>",
+                "  --configured",
+            },
+        };
+    }
+
+    if (std.mem.eql(u8, command_name, "goto-layout")) {
+        return .{
+            .usage = "Usage: jterm @ goto-layout --match <expr> <layout>",
+            .lines = &.{
+                "Change the target window layout, for example `stack` or `splits`.",
+            },
+        };
+    }
+
+    if (std.mem.eql(u8, command_name, "kitten")) {
+        return .{
+            .usage = "Usage: jterm @ kitten --match <expr> <kitten-name> [args...]",
+            .lines = &.{
+                "Run a kitten-style helper command on the target window.",
+            },
+        };
+    }
+
+    if (std.mem.eql(u8, command_name, "last-used-layout")) {
+        return .{
+            .usage = "Usage: jterm @ last-used-layout [options]",
+            .lines = &.{
+                "Restore the previous layout on matching windows.",
+                "",
+                "Options:",
+                "  --all",
+                "  --match <expr>",
+                "  --no-response",
+            },
+        };
+    }
+
+    if (std.mem.eql(u8, command_name, "scroll-window")) {
+        return .{
+            .usage = "Usage: jterm @ scroll-window [options] <amount|start|end>",
+            .lines = &.{
+                "Scroll a window by line count or jump to start/end.",
+                "",
+                "Options:",
+                "  --match <expr>",
+                "  --no-response",
+            },
+        };
+    }
+
+    if (std.mem.eql(u8, command_name, "select-window")) {
+        return .{
+            .usage = "Usage: jterm @ select-window [options]",
+            .lines = &.{
+                "Interactive focus flow. If only one target matches, it focuses immediately.",
+                "",
+                "Options:",
+                "  --match <expr>",
+                "  --response-timeout <seconds>",
+                "  --self",
+                "  --title <text>",
+                "  --exclude-active",
+                "  --reactivate-prev-tab",
+            },
+        };
+    }
+
+    if (std.mem.eql(u8, command_name, "focus-window")) {
+        return .{
+            .usage = "Usage: jterm @ focus-window --match <expr>",
+            .lines = &.{
+                "Focus the first matching window.",
+            },
+        };
+    }
+
+    if (std.mem.eql(u8, command_name, "close-window")) {
+        return .{
+            .usage = "Usage: jterm @ close-window --match <expr>",
+            .lines = &.{
+                "Close matching windows.",
+                "",
+                "Options:",
+                "  --match <expr>",
+                "  --ignore-no-match",
+                "  --no-response",
+            },
+        };
+    }
+
+    if (std.mem.eql(u8, command_name, "move-os-window")) {
+        return .{
+            .usage = "Usage: jterm @ move-os-window --match <expr> --monitor <n|mN|current>",
+            .lines = &.{
+                "Move the matched OS window to a monitor.",
+                "",
+                "Monitor values:",
+                "  4",
+                "  m4",
+                "  current | active | this",
+                "",
+                "Examples:",
+                "  jterm @ move-os-window --match \"id:5\" --monitor 4",
+                "  jterm @ move-os-window --match \"id:5\" --monitor m2",
+            },
+        };
+    }
+
+    if (std.mem.eql(u8, command_name, "maximize-os-window")) {
+        return .{
+            .usage = "Usage: jterm @ maximize-os-window --match <expr> [--monitor <n|mN|current>]",
+            .lines = &.{
+                "Maximize the OS window, optionally on a specific monitor.",
+            },
+        };
+    }
+
+    if (std.mem.eql(u8, command_name, "minimize-os-window")) {
+        return .{
+            .usage = "Usage: jterm @ minimize-os-window --match <expr> [--monitor <n|mN|current>]",
+            .lines = &.{
+                "Minimize the matched OS window.",
+            },
+        };
+    }
+
+    if (std.mem.eql(u8, command_name, "hide-os-window")) {
+        return .{
+            .usage = "Usage: jterm @ hide-os-window --match <expr> [--monitor <n|mN|current>]",
+            .lines = &.{
+                "Hide the matched OS window.",
+            },
+        };
+    }
+
+    if (std.mem.eql(u8, command_name, "snap-os-window")) {
+        return .{
+            .usage = "Usage: jterm @ snap-os-window --match <expr> <left|right|quadrant1|quadrant2|quadrant3|quadrant4> [--monitor <n|mN|current>]",
+            .lines = &.{
+                "Snap the OS window to a side or quadrant on a monitor.",
+                "",
+                "Quadrant aliases:",
+                "  q1|top-left   q2|top-right",
+                "  q3|bottom-left q4|bottom-right",
+            },
+        };
+    }
+
+    if (std.mem.eql(u8, command_name, "resize-os-window")) {
+        return .{
+            .usage = "Usage: jterm @ resize-os-window --match <expr> <WIDTHxHEIGHT | --width N --height N>",
+            .lines = &.{
+                "Resize the host OS window using cell dimensions.",
+                "",
+                "Examples:",
+                "  jterm @ resize-os-window --match \"id:5\" 120x40",
+                "  jterm @ resize-os-window --match \"id:5\" --width 120 --height 40",
+            },
+        };
+    }
+
+    if (std.mem.eql(u8, command_name, "resize-window")) {
+        return .{
+            .usage = "Usage: jterm @ resize-window --match <expr> <wider|narrower|taller|shorter|reset> [amount]",
+            .lines = &.{
+                "Resize a split/terminal pane inside the window.",
+            },
+        };
+    }
+
+    if (std.mem.eql(u8, command_name, "run")) {
+        return .{
+            .usage = "Usage: jterm @ run [options] <command> [args...]",
+            .lines = &.{
+                "Run a command and return its stdout.",
+                "",
+                "Options:",
+                "  --env KEY=VALUE",
+                "  --allow-remote-control",
+                "  --remote-control-password <password>",
+            },
+        };
+    }
+
+    if (std.mem.eql(u8, command_name, "set-window-title")) {
+        return .{
+            .usage = "Usage: jterm @ set-window-title [options] <title>",
+            .lines = &.{
+                "Set the title of the matching window.",
+                "",
+                "Options:",
+                "  --match <expr>",
+                "  --temporary",
+            },
+        };
+    }
+
+    if (std.mem.eql(u8, command_name, "set-tab-title")) {
+        return .{
+            .usage = "Usage: jterm @ set-tab-title [options] <title>",
+            .lines = &.{
+                "Set the title of the matching tab.",
+                "",
+                "Options:",
+                "  --match <expr>",
+            },
+        };
+    }
+
+    if (std.mem.eql(u8, command_name, "set-background-image")) {
+        return .{
+            .usage = "Usage: jterm @ set-background-image [options] <path>",
+            .lines = &.{
+                "Set a background image on matching windows.",
+                "",
+                "Options:",
+                "  --all",
+                "  --configured",
+                "  --layout configured|tiled|centered|scaled",
+                "  --match <expr>",
+                "  --no-response",
+            },
+        };
+    }
+
+    if (std.mem.eql(u8, command_name, "set-background-opacity")) {
+        return .{
+            .usage = "Usage: jterm @ set-background-opacity [options] <opacity>",
+            .lines = &.{
+                "Set or toggle background opacity.",
+                "",
+                "Options:",
+                "  --all",
+                "  --toggle",
+                "  --match <expr>",
+                "  --match-tab <expr>",
+            },
+        };
+    }
+
+    if (std.mem.eql(u8, command_name, "set-colors")) {
+        return .{
+            .usage = "Usage: jterm @ set-colors [options] KEY=VALUE [KEY=VALUE ...]",
+            .lines = &.{
+                "Apply color overrides such as `foreground=#ffffff`.",
+                "",
+                "Options:",
+                "  --all",
+                "  --configured",
+                "  --reset",
+                "  --match <expr>",
+                "  --match-tab <expr>",
+            },
+        };
+    }
+
+    if (std.mem.eql(u8, command_name, "set-enabled-layouts")) {
+        return .{
+            .usage = "Usage: jterm @ set-enabled-layouts [options] <layout1,layout2,...>",
+            .lines = &.{
+                "Set the enabled layouts list on matching windows.",
+                "",
+                "Options:",
+                "  --match <expr>",
+                "  --configured",
+            },
+        };
+    }
+
+    if (std.mem.eql(u8, command_name, "set-font-size")) {
+        return .{
+            .usage = "Usage: jterm @ set-font-size [options] <points>",
+            .lines = &.{
+                "Set the font size override.",
+                "",
+                "Options:",
+                "  --all",
+            },
+        };
+    }
+
+    if (std.mem.eql(u8, command_name, "set-spacing")) {
+        return .{
+            .usage = "Usage: jterm @ set-spacing [options] <key=value> [key=value ...]",
+            .lines = &.{
+                "Set spacing/padding overrides such as `padding=10`.",
+                "",
+                "Options:",
+                "  --all",
+                "  --configured",
+                "  --match <expr>",
+                "  --match-tab <expr>",
+            },
+        };
+    }
+
+    if (std.mem.eql(u8, command_name, "set-tab-color")) {
+        return .{
+            .usage = "Usage: jterm @ set-tab-color [options] <color-or-key=value> [more...]",
+            .lines = &.{
+                "Set tab colors on the matched tab.",
+                "",
+                "Options:",
+                "  --match <expr>",
+                "  --self",
+            },
+        };
+    }
+
+    if (std.mem.eql(u8, command_name, "set-user-vars")) {
+        return .{
+            .usage = "Usage: jterm @ set-user-vars --match <expr> KEY=VALUE [KEY=VALUE ...]",
+            .lines = &.{
+                "Set user variables for later matching or metadata.",
+            },
+        };
+    }
+
+    if (std.mem.eql(u8, command_name, "set-window-logo")) {
+        return .{
+            .usage = "Usage: jterm @ set-window-logo [options] <path>",
+            .lines = &.{
+                "Set a window logo image.",
+                "",
+                "Options:",
+                "  --match <expr>",
+                "  --self",
+                "  --position <corner>",
+                "  --alpha <0..1>",
+                "  --no-response",
+            },
+        };
+    }
+
+    if (std.mem.eql(u8, command_name, "signal-child")) {
+        return .{
+            .usage = "Usage: jterm @ signal-child --match <expr> <signal>",
+            .lines = &.{
+                "Send a signal such as `SIGTERM` to the child process of the target window.",
+                "",
+                "Options:",
+                "  --match <expr>",
+                "  --no-response",
+            },
+        };
+    }
+
+    if (std.mem.eql(u8, command_name, "load-config")) {
+        return .{
+            .usage = "Usage: jterm @ load-config",
+            .lines = &.{
+                "Reload the active jTerm config file.",
+                "",
+                "Options:",
+                "  --ignore-overrides",
+                "  --override <key=value>",
+                "  --no-response",
+            },
+        };
+    }
+
+    return null;
+}
+
+fn commandSummary(command_name: []const u8) ?[]const u8 {
+    const spec = schema.specForName(command_name) orelse return null;
+    return spec.summary;
+}
+
+fn sendRemoteCommand(
+    alloc: Allocator,
+    stderr: *std.Io.Writer,
+    target: []const u8,
+    options: Options,
+    password: ?[]const u8,
+    command_name: []const u8,
+    command_args: []const []const u8,
+) !void {
+    const no_response = computeNoResponse(options, command_name, defaultNoResponse(alloc));
+    const use_password_transport = options.use_password != .never and
+        password != null and
+        password.?.len > 0;
+    const timestamp_ns: ?i64 = if (use_password_transport) @intCast(std.time.nanoTimestamp()) else null;
+
+    const request = try remote.protocol.encodeRequest(
+        alloc,
+        .{
+            .cmd = command_name,
+            .argv = command_args,
+            .match = options.match,
+            .match_tab = options.match_tab,
+            .all = options.all,
+            .ignore_no_match = options.ignore_no_match,
+            .no_response = no_response,
+            .password = password,
+            .timestamp = timestamp_ns,
+            .response_timeout = options.response_timeout,
+        },
+    );
+    defer alloc.free(request);
+
+    var encrypted_request: ?[]u8 = null;
+    defer if (encrypted_request) |payload| alloc.free(payload);
+    const request_payload = payload: {
+        if (!use_password_transport) break :payload request;
+
+        const encoded_key = if (std.posix.getenv("KITTY_PUBLIC_KEY")) |v|
+            std.mem.sliceTo(v, 0)
+        else if (std.posix.getenv("JTERM_PUBLIC_KEY")) |v|
+            std.mem.sliceTo(v, 0)
+        else {
+            try stderr.print("Remote-control password mode requires KITTY_PUBLIC_KEY.\n", .{});
+            return error.InvalidValue;
+        };
+
+        const parsed_key = remote.protocol.decodeKittyPublicKey(alloc, encoded_key) catch {
+            try stderr.print("Invalid KITTY_PUBLIC_KEY value.\n", .{});
+            return error.InvalidValue;
+        };
+        encrypted_request = remote.protocol.encryptRequestForServer(alloc, request, parsed_key.public_key) catch {
+            try stderr.print("Failed to encrypt password-authenticated request.\n", .{});
+            return error.InvalidValue;
+        };
+        break :payload encrypted_request.?;
+    };
+
+    const response = remote.transport.request(alloc, target, request_payload) catch |err| switch (err) {
+        error.InvalidTarget => {
+            try stderr.print("`--to` must use unix socket format `unix:/path`.\n", .{});
+            return error.InvalidValue;
+        },
+        error.EmptyResponse => {
+            if (no_response) return;
+            try stderr.print("Remote-control server returned an empty response.\n", .{});
+            return error.InvalidValue;
+        },
+        error.ResponseTooLarge => {
+            try stderr.print("Remote-control response exceeded maximum allowed size.\n", .{});
+            return error.InvalidValue;
+        },
+        else => {
+            try stderr.print("Remote-control transport failure: {}\n", .{err});
+            return error.InvalidValue;
+        },
+    };
+    defer alloc.free(response);
+
+    var parsed_response = std.json.parseFromSlice(std.json.Value, alloc, response, .{}) catch null;
+    defer if (parsed_response) |*parsed| parsed.deinit();
+
+    if (parsed_response) |*parsed| {
+        if (parsed.value == .object) {
+            const obj = parsed.value.object;
+            if (obj.get("ok")) |ok_value| {
+                if (ok_value == .bool and !ok_value.bool) {
+                    const err_message = if (obj.get("error")) |err_value|
+                        switch (err_value) {
+                            .string => err_value.string,
+                            else => "remote-control command failed",
+                        }
+                    else
+                        "remote-control command failed";
+                    try stderr.print("Error: {s}\n", .{err_message});
+                    return error.InvalidValue;
+                }
+            }
+        }
+    }
 }
 
 fn readPasswordFile(
@@ -507,15 +1591,7 @@ fn defaultNoResponse(alloc: Allocator) bool {
 }
 
 fn commandForcesResponse(command_name: []const u8) bool {
-    if (std.mem.eql(u8, command_name, "ls")) return true;
-    if (std.mem.eql(u8, command_name, "new-window")) return true;
-    if (std.mem.eql(u8, command_name, "new-tab")) return true;
-    if (std.mem.eql(u8, command_name, "launch")) return true;
-    if (std.mem.eql(u8, command_name, "run")) return true;
-    if (std.mem.eql(u8, command_name, "get-colors")) return true;
-    if (std.mem.eql(u8, command_name, "get-text")) return true;
-    if (std.mem.eql(u8, command_name, "select-window")) return true;
-    return false;
+    return schema.commandForcesResponse(command_name);
 }
 
 fn computeNoResponse(
@@ -538,83 +1614,71 @@ fn printCommandOutput(
     if (value != .object) return;
     const obj = value.object;
     const data = obj.get("data") orelse return;
-
-    if (std.mem.eql(u8, command_name, "ls")) {
-        const out = try std.json.Stringify.valueAlloc(alloc, data, .{});
-        defer alloc.free(out);
-        try stdout.print("{s}\n", .{out});
-        return;
-    }
-
-    if (std.mem.eql(u8, command_name, "new-window") or
-        std.mem.eql(u8, command_name, "new-tab") or
-        std.mem.eql(u8, command_name, "launch"))
-    {
-        if (data == .object) {
-            const data_obj = data.object;
-            if (data_obj.get("id")) |id_value| {
-                switch (id_value) {
-                    .integer => try stdout.print("{d}\n", .{id_value.integer}),
-                    .float => try stdout.print("{d}\n", .{@as(i64, @intFromFloat(id_value.float))}),
-                    else => {},
+    switch (schema.outputKindForCommand(command_name)) {
+        .none => {},
+        .json => {
+            const out = try std.json.Stringify.valueAlloc(alloc, data, .{});
+            defer alloc.free(out);
+            try stdout.print("{s}\n", .{out});
+        },
+        .id => {
+            if (data == .object) {
+                const data_obj = data.object;
+                if (data_obj.get("id")) |id_value| {
+                    switch (id_value) {
+                        .integer => try stdout.print("{d}\n", .{id_value.integer}),
+                        .float => try stdout.print("{d}\n", .{@as(i64, @intFromFloat(id_value.float))}),
+                        else => {},
+                    }
                 }
             }
-        }
-        return;
-    }
-
-    if (std.mem.eql(u8, command_name, "run")) {
-        if (data == .object) {
-            const data_obj = data.object;
-            if (data_obj.get("stdout")) |stdout_value| {
-                if (stdout_value == .string and stdout_value.string.len > 0) {
-                    try stdout.writeAll(stdout_value.string);
+        },
+        .run_stdout => {
+            if (data == .object) {
+                const data_obj = data.object;
+                if (data_obj.get("stdout")) |stdout_value| {
+                    if (stdout_value == .string and stdout_value.string.len > 0) {
+                        try stdout.writeAll(stdout_value.string);
+                    }
                 }
             }
-        }
-        return;
-    }
-
-    if (std.mem.eql(u8, command_name, "select-window")) {
-        if (data == .object) {
-            const data_obj = data.object;
-            if (data_obj.get("focused")) |focused| {
-                if (focused == .bool and focused.bool) {
-                    try stdout.writeAll("1\n");
+        },
+        .focused_flag => {
+            if (data == .object) {
+                const data_obj = data.object;
+                if (data_obj.get("focused")) |focused| {
+                    if (focused == .bool and focused.bool) {
+                        try stdout.writeAll("1\n");
+                    }
                 }
             }
-        }
-        return;
-    }
-
-    if (std.mem.eql(u8, command_name, "get-text")) {
-        if (data == .object) {
-            const data_obj = data.object;
-            if (data_obj.get("text")) |text_value| {
-                if (text_value == .string and text_value.string.len > 0) {
-                    try stdout.writeAll(text_value.string);
+        },
+        .text => {
+            if (data == .object) {
+                const data_obj = data.object;
+                if (data_obj.get("text")) |text_value| {
+                    if (text_value == .string and text_value.string.len > 0) {
+                        try stdout.writeAll(text_value.string);
+                    }
                 }
             }
-        }
-        return;
-    }
-
-    if (std.mem.eql(u8, command_name, "get-colors")) {
-        if (data == .object) {
-            const data_obj = data.object;
-            if (data_obj.get("colors")) |colors_value| {
-                switch (colors_value) {
-                    .string => |s| if (s.len > 0) try stdout.print("{s}\n", .{s}),
-                    .array => |arr| {
-                        for (arr.items) |item| {
-                            if (item == .string) try stdout.print("{s}\n", .{item.string});
-                        }
-                    },
-                    else => {},
+        },
+        .colors => {
+            if (data == .object) {
+                const data_obj = data.object;
+                if (data_obj.get("colors")) |colors_value| {
+                    switch (colors_value) {
+                        .string => |s| if (s.len > 0) try stdout.print("{s}\n", .{s}),
+                        .array => |arr| {
+                            for (arr.items) |item| {
+                                if (item == .string) try stdout.print("{s}\n", .{item.string});
+                            }
+                        },
+                        else => {},
+                    }
                 }
             }
-        }
-        return;
+        },
     }
 }
 
@@ -673,130 +1737,41 @@ fn detectCommandForHelp(args: []const []const u8) ?[]const u8 {
 }
 
 fn printGlobalHelp(stdout: *std.Io.Writer) !void {
-    try stdout.writeAll(
-        \\Usage: jterm @ [global options] [sub-command] [sub-command options] [sub-command args]
-        \\
-        \\Control jterm by sending it commands. Set allow-remote-control=true
-        \\for this to work.
-        \\
-        \\Commands:
-        \\
-    );
-
-    inline for (remote.command.all) |cmd| {
-        try stdout.print("  {s}\n", .{remote.command.name(cmd)});
-    }
-
-    try stdout.writeAll(
-        \\
-        \\Global options:
-        \\  --to
-        \\  --password
-        \\  --password-file [=rc-pass]
-        \\  --password-env [=KITTY_RC_PASSWORD]
-        \\  --use-password [=if-available]
-        \\  --help, -h [=no]
-        \\
-        \\Get help for an individual command by running:
-        \\  jterm @ <command> --help
-        \\
-    );
+    const text = try schema.renderGlobalHelp(std.heap.page_allocator);
+    defer std.heap.page_allocator.free(text);
+    try stdout.writeAll(text);
 }
 
 fn printCommandHelp(stdout: *std.Io.Writer, command_name: []const u8) !void {
-    try stdout.print("Usage: jterm @ {s} [options]\n\n", .{command_name});
-    try stdout.writeAll("Options:\n");
-
-    for (all_help_option_tokens) |token| {
-        try stdout.print("  {s}\n", .{token});
+    if (try schema.renderCommandHelp(std.heap.page_allocator, command_name)) |text| {
+        defer std.heap.page_allocator.free(text);
+        try stdout.writeAll(text);
+        return;
     }
+
+    try stdout.print("Usage: jterm @ {s} [options]\n\n", .{command_name});
+    try stdout.writeAll("Use `jterm @ help` docs or the skill reference for this command.\n");
 }
 
-const all_help_option_tokens = [_][]const u8{
-    "--action",
-    "--add-cursor",
-    "--add-to-session",
-    "--add-wrap-markers",
-    "--all",
-    "--all-env-vars",
-    "--allow-remote-control",
-    "--alpha",
-    "--ansi",
-    "--axis",
-    "--bias",
-    "--bracketed-paste",
-    "--clear-selection",
-    "--color",
-    "--configured",
-    "--copy-cmdline",
-    "--copy-colors",
-    "--copy-env",
-    "--cwd",
-    "--dont-take-focus",
-    "--env",
-    "--exclude-active",
-    "--extent",
-    "--from-file",
-    "--height",
-    "--help",
-    "--hold",
-    "--hold-after-ssh",
-    "--ignore-no-match",
-    "--ignore-overrides",
-    "--increment",
-    "--incremental",
-    "--keep-focus",
-    "--layout",
-    "--location",
-    "--logo",
-    "--logo-alpha",
-    "--logo-position",
-    "--marker",
-    "--match",
-    "--match-tab",
-    "--monitor",
-    "--new-tab",
-    "--next-to",
-    "--no-response",
-    "--os-panel",
-    "--os-window-class",
-    "--os-window-name",
-    "--os-window-state",
-    "--os-window-title",
-    "--output-format",
-    "--override",
-    "--password",
-    "--password-env",
-    "--password-file",
-    "--position",
-    "--reactivate-prev-tab",
-    "--remote-control-password",
-    "--reset",
-    "--response-timeout",
-    "--self",
-    "--source-window",
-    "--spacing",
-    "--stay-in-tab",
-    "--stdin",
-    "--stdin-add-formatting",
-    "--stdin-add-line-wrap-markers",
-    "--stdin-source",
-    "--tab-title",
-    "--target-tab",
-    "--temporary",
-    "--title",
-    "--to",
-    "--toggle",
-    "--type",
-    "--unit",
-    "--use-password",
-    "--var",
-    "--wait-for-child-to-exit",
-    "--watcher",
-    "--width",
-    "--window-title",
-    "--window-type",
-};
+fn classifyRemoteFailure(message: []const u8) u8 {
+    if (std.mem.indexOf(u8, message, "no match") != null or
+        std.mem.indexOf(u8, message, "No match") != null or
+        std.mem.indexOf(u8, message, "not found") != null)
+    {
+        return @intFromEnum(schema.ExitCode.target);
+    }
+    if (std.mem.indexOf(u8, message, "unsupported") != null or
+        std.mem.indexOf(u8, message, "not supported") != null)
+    {
+        return @intFromEnum(schema.ExitCode.unsupported);
+    }
+    if (std.mem.indexOf(u8, message, "authorization") != null or
+        std.mem.indexOf(u8, message, "password") != null)
+    {
+        return @intFromEnum(schema.ExitCode.transport);
+    }
+    return @intFromEnum(schema.ExitCode.remote_failure);
+}
 
 test "parseInvocation parses @ form with command" {
     const testing = std.testing;
@@ -865,6 +1840,36 @@ test "parseInvocation parses match-tab and ignore-no-match options" {
     defer invocation.deinit(testing.allocator);
     try testing.expectEqualStrings("title:demo", invocation.options.match_tab.?);
     try testing.expect(invocation.options.ignore_no_match);
+}
+
+test "parseInvocation parses send-text submit mode" {
+    const testing = std.testing;
+
+    const argv = [_][]const u8{
+        "jterm",
+        "@",
+        "send-text",
+        "--submit=assistant",
+        "hello",
+    };
+
+    var invocation = try parseInvocation(testing.allocator, argv[0..]);
+    defer invocation.deinit(testing.allocator);
+    try testing.expectEqual(Options.SubmitMode.assistant, invocation.options.submit);
+}
+
+test "detectExplicitHelpRequest finds command help target" {
+    const testing = std.testing;
+
+    const request = detectExplicitHelpRequest(&.{
+        "jterm",
+        "@",
+        "help",
+        "move-os-window",
+    });
+
+    try testing.expect(request.explicit);
+    try testing.expectEqualStrings("move-os-window", request.target.?);
 }
 
 test "parseInvocation consumes response-timeout command option" {
@@ -939,6 +1944,16 @@ test "parseInvocation errors when command is missing" {
     try testing.expectError(error.MissingCommand, parseInvocation(testing.allocator, argv[0..]));
 }
 
+test "default remote-control target is build specific" {
+    const testing = std.testing;
+
+    if (@import("builtin").mode == .Debug) {
+        try testing.expectEqualStrings("unix:/tmp/jterm-dev.sock", build_config.default_remote_control_target);
+    } else {
+        try testing.expectEqualStrings("unix:/tmp/jterm-stable.sock", build_config.default_remote_control_target);
+    }
+}
+
 test "parseInvocation supports global options after command" {
     const testing = std.testing;
 
@@ -989,6 +2004,51 @@ test "parseInvocation keeps launch options as command args" {
     try testing.expectEqual(@as(usize, 2), invocation.command_args.len);
     try testing.expectEqualStrings("--type=os-window", invocation.command_args[0]);
     try testing.expectEqualStrings("--title=symph: demo", invocation.command_args[1]);
+}
+
+test "canonicalizeInvocation rewrites new-window as launch" {
+    const testing = std.testing;
+
+    const argv = [_][]const u8{
+        "jterm",
+        "@",
+        "new-window",
+        "--title",
+        "Claude Chat",
+        "--cwd",
+        "~/code/misc",
+    };
+
+    var invocation = try parseInvocation(testing.allocator, argv[0..]);
+    defer invocation.deinit(testing.allocator);
+    try canonicalizeInvocation(testing.allocator, &invocation);
+
+    try testing.expectEqualStrings("launch", invocation.command_name);
+    try testing.expectEqual(@as(usize, 6), invocation.command_args.len);
+    try testing.expectEqualStrings("--type", invocation.command_args[0]);
+    try testing.expectEqualStrings("os-window", invocation.command_args[1]);
+    try testing.expectEqualStrings("--title", invocation.command_args[2]);
+    try testing.expectEqualStrings("Claude Chat", invocation.command_args[3]);
+    try testing.expectEqualStrings("--cwd", invocation.command_args[4]);
+    try testing.expectEqualStrings("~/code/misc", invocation.command_args[5]);
+}
+
+test "canonicalizeInvocation rewrites send-line as send-text submit enter" {
+    const testing = std.testing;
+
+    const argv = [_][]const u8{
+        "jterm",
+        "@",
+        "send-line",
+        "hello",
+    };
+
+    var invocation = try parseInvocation(testing.allocator, argv[0..]);
+    defer invocation.deinit(testing.allocator);
+    try canonicalizeInvocation(testing.allocator, &invocation);
+
+    try testing.expectEqualStrings("send-text", invocation.command_name);
+    try testing.expectEqual(Options.SubmitMode.enter, invocation.options.submit);
 }
 
 test "parseInvocation does not consume global options after command args start" {
@@ -1053,6 +2113,7 @@ fn expectOptionsEqual(expected: Options, actual: Options) !void {
     try testing.expectEqual(@field(expected, "no-response"), @field(actual, "no-response"));
     try testing.expectEqual(expected.response, actual.response);
     try testing.expectEqual(expected.response_timeout, actual.response_timeout);
+    try testing.expectEqual(expected.submit, actual.submit);
 }
 
 fn parseInvocationFromParts(
@@ -1197,26 +2258,6 @@ test "parseInvocation keeps global options after command as command args" {
         for (tokens, 0..) |token, i| {
             try testing.expectEqualStrings(token, invocation.command_args[i]);
         }
-        try expectOptionsEqual(.{}, invocation.options);
-    }
-}
-
-test "parseInvocation forwards all documented option tokens once argv mode starts" {
-    const testing = std.testing;
-
-    for (all_help_option_tokens) |token| {
-        var invocation = try parseInvocationFromParts(
-            testing.allocator,
-            &.{},
-            "launch",
-            &.{ "bash", token },
-        );
-        defer invocation.deinit(testing.allocator);
-
-        try testing.expectEqualStrings("launch", invocation.command_name);
-        try testing.expectEqual(@as(usize, 2), invocation.command_args.len);
-        try testing.expectEqualStrings("bash", invocation.command_args[0]);
-        try testing.expectEqualStrings(token, invocation.command_args[1]);
         try expectOptionsEqual(.{}, invocation.options);
     }
 }
@@ -1369,14 +2410,18 @@ test "computeNoResponse honors command response requirements and explicit overri
     try testing.expectEqual(false, computeNoResponse(.{ .@"no-response" = true, .response = true }, "send-text", true));
 }
 
-test "all_help_option_tokens are unique" {
+test "printCommandHelp for send-text is command specific" {
     const testing = std.testing;
 
-    for (all_help_option_tokens, 0..) |token, i| {
-        for (all_help_option_tokens[i + 1 ..]) |other| {
-            try testing.expect(!std.mem.eql(u8, token, other));
-        }
-    }
+    var out: std.Io.Writer.Allocating = .init(testing.allocator);
+    defer out.deinit();
+
+    try printCommandHelp(&out.writer, "send-text");
+    const text = try out.toOwnedSlice();
+    defer testing.allocator.free(text);
+
+    try testing.expect(std.mem.indexOf(u8, text, "--submit none|enter|assistant") != null);
+    try testing.expect(std.mem.indexOf(u8, text, "--cwd") == null);
 }
 
 test "printGlobalHelp lists every command name" {
@@ -1390,25 +2435,75 @@ test "printGlobalHelp lists every command name" {
     defer testing.allocator.free(text);
 
     for (remote.command.all) |cmd| {
-        const needle = try std.fmt.allocPrint(testing.allocator, "  {s}\n", .{remote.command.name(cmd)});
+        const needle = try std.fmt.allocPrint(testing.allocator, "{s}", .{remote.command.name(cmd)});
         defer testing.allocator.free(needle);
         try testing.expect(std.mem.indexOf(u8, text, needle) != null);
     }
 }
 
-test "printCommandHelp lists every documented option token" {
+test "every remote command has schema-backed help" {
+    const testing = std.testing;
+
+    for (remote.command.all) |cmd| {
+        const name = remote.command.name(cmd);
+        try testing.expect(commandHelp(name) != null);
+        try testing.expect(commandSummary(name) != null);
+    }
+}
+
+test "printCommandHelp never falls back for remote commands" {
+    const testing = std.testing;
+
+    for (remote.command.all) |cmd| {
+        var out: std.Io.Writer.Allocating = .init(testing.allocator);
+        defer out.deinit();
+
+        try printCommandHelp(&out.writer, remote.command.name(cmd));
+        const text = try out.toOwnedSlice();
+        defer testing.allocator.free(text);
+
+        try testing.expect(std.mem.indexOf(u8, text, "Use `jterm @ help` docs or the skill reference for this command.") == null);
+    }
+}
+
+test "printCommandHelp for new-window shows intuitive sugar" {
     const testing = std.testing;
 
     var out: std.Io.Writer.Allocating = .init(testing.allocator);
     defer out.deinit();
 
-    try printCommandHelp(&out.writer, "send-text");
+    try printCommandHelp(&out.writer, "new-window");
     const text = try out.toOwnedSlice();
     defer testing.allocator.free(text);
 
-    for (all_help_option_tokens) |token| {
-        const needle = try std.fmt.allocPrint(testing.allocator, "  {s}\n", .{token});
-        defer testing.allocator.free(needle);
-        try testing.expect(std.mem.indexOf(u8, text, needle) != null);
-    }
+    try testing.expect(std.mem.indexOf(u8, text, "Supported sugar over `launch --type os-window`.") != null);
+    try testing.expect(std.mem.indexOf(u8, text, "--title") != null);
+    try testing.expect(std.mem.indexOf(u8, text, "--cwd") != null);
+}
+
+test "printCommandHelp for move-os-window mentions monitor targeting" {
+    const testing = std.testing;
+
+    var out: std.Io.Writer.Allocating = .init(testing.allocator);
+    defer out.deinit();
+
+    try printCommandHelp(&out.writer, "move-os-window");
+    const text = try out.toOwnedSlice();
+    defer testing.allocator.free(text);
+
+    try testing.expect(std.mem.indexOf(u8, text, "--monitor <n|mN|current>") != null);
+    try testing.expect(std.mem.indexOf(u8, text, "jterm @ move-os-window --match \"id:5\" --monitor 4") != null);
+}
+
+test "printGlobalHelp includes send-line" {
+    const testing = std.testing;
+
+    var out: std.Io.Writer.Allocating = .init(testing.allocator);
+    defer out.deinit();
+
+    try printGlobalHelp(&out.writer);
+    const text = try out.toOwnedSlice();
+    defer testing.allocator.free(text);
+
+    try testing.expect(std.mem.indexOf(u8, text, "send-line") != null);
 }

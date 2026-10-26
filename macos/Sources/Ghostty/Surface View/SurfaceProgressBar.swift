@@ -4,7 +4,7 @@ import SwiftUI
 /// standard ProgressView is broken on macOS 26 and this is simple anyways and gives us a ton of
 /// control.
 struct SurfaceProgressBar: View {
-    let report: Ghostty.Action.ProgressReport
+    let report: JTerm.Action.ProgressReport
     
     private var color: Color {
         switch report.state {

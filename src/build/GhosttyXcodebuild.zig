@@ -33,6 +33,13 @@ pub fn init(
         .ReleaseFast,
         => "ReleaseLocal",
     };
+    const app_name = switch (config.optimize) {
+        .Debug => "jTerm Dev.app",
+        .ReleaseSafe,
+        .ReleaseSmall,
+        .ReleaseFast,
+        => "jTerm.app",
+    };
 
     const xc_arch: ?[]const u8 = switch (deps.xcframework.target) {
         // Universal is our default target, so we don't have to
@@ -49,7 +56,7 @@ pub fn init(
     };
 
     const env = try std.process.getEnvMap(b.allocator);
-    const app_path = b.fmt("macos/build/{s}/jTerm.app", .{xc_config});
+    const app_path = b.fmt("macos/build/{s}/{s}", .{ xc_config, app_name });
 
     // Our step to build the Ghostty macOS app.
     const build = build: {

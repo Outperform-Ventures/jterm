@@ -337,7 +337,7 @@ class NonNativeFullscreen: FullscreenBase, FullscreenStyle {
             // didn't account for the notch. I reported this as a radar and it
             // was fixed at some point. I don't know when that was so I can't
             // put an #available check, but it was in a bug fix release so I think
-            // if a bug is reported to Ghostty we can just advise the user to
+            // if a bug is reported to JTerm we can just advise the user to
             // update.
         } else if (properties.paddedNotch) {
             // We are hiding the menu, we may need to avoid the notch.

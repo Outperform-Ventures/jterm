@@ -4,7 +4,7 @@ This is the cli specific code. It contains cli actions and tui definitions and
 argument parsing.
 
 This README is meant as developer documentation and not as user documentation.
-For user documentation, see the main README or [ghostty.org](https://ghostty.org/docs).
+For user documentation, see the main README and the docs in the repository root.
 
 ## Updating documentation
 

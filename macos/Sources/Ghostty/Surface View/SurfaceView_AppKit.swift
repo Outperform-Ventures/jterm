@@ -5,7 +5,7 @@ import CoreText
 import UserNotifications
 import GhosttyKit
 
-extension Ghostty {
+extension JTerm {
     /// The NSView implementation for a terminal surface.
     class SurfaceView: OSView, ObservableObject, Codable, Identifiable {
         typealias ID = UUID
@@ -116,7 +116,7 @@ extension Ghostty {
         // Whether the pointer should be visible or not
         @Published private(set) var pointerStyle: CursorStyle = .horizontalText
 
-        /// The configuration derived from the Ghostty config so we don't need to rely on references.
+        /// The configuration derived from the JTerm config so we don't need to rely on references.
         @Published private(set) var derivedConfig: DerivedConfig
 
         /// The background color within the color palette of the surface. This is only set if it is
@@ -145,7 +145,7 @@ extension Ghostty {
         }
 
         // Set whether the surface is currently on a password input or not. This is
-        // detected with the set_password_input_cb on the Ghostty state.
+        // detected with the set_password_input_cb on the JTerm state.
         var passwordInput: Bool = false {
             didSet {
                 // We need to update our state within the SecureInput manager.
@@ -174,10 +174,10 @@ extension Ghostty {
 
         // Returns the inspector instance for this surface, or nil if the
         // surface has been closed or no inspector is active.
-        var inspector: Ghostty.Inspector? {
+        var inspector: JTerm.Inspector? {
             guard let surface = self.surface else { return nil }
             guard let cInspector = ghostty_surface_inspector(surface) else { return nil }
-            return Ghostty.Inspector(cInspector: cInspector)
+            return JTerm.Inspector(cInspector: cInspector)
         }
 
         // True if the inspector should be visible
@@ -194,7 +194,7 @@ extension Ghostty {
         ///
         /// Note: eventually, all surface access will be through this, but presently its in a transition
         /// state so we're mixing this with direct surface access.
-        private(set) var surfaceModel: Ghostty.Surface?
+        private(set) var surfaceModel: JTerm.Surface?
 
         /// Returns the underlying C value for the surface. See "note" on surfaceModel.
         var surface: ghostty_surface_t? {
@@ -202,7 +202,7 @@ extension Ghostty {
         }
         /// Current scrollbar state, cached here for persistence across rebuilds
         /// of the SwiftUI view hierarchy, for example when changing splits
-        var scrollbar: Ghostty.Action.Scrollbar?
+        var scrollbar: JTerm.Action.Scrollbar?
 
         // Notification identifiers associated with this surface
         var notificationIdentifiers: Set<String> = []
@@ -907,13 +907,10 @@ extension Ghostty {
             guard searchState == nil else { return }
             composeAutoActivateAttempts += 1
             let snapshot: PromptInputSnapshot?
-            if let semantic = semanticPromptInputSnapshot() {
-                snapshot = semantic
-            } else if let cursorPoint = cursorClickPointInView() {
-                snapshot = fallbackPromptInputSnapshot(
+            if let cursorPoint = cursorClickPointInView() {
+                snapshot = resolveShellPromptSnapshot(
                     clickPoint: cursorPoint,
-                    markers: Self.composeShellPromptMarkers,
-                    requirePromptMarker: true
+                    source: "auto-activate"
                 )
             } else {
                 snapshot = nil
@@ -1195,22 +1192,22 @@ extension Ghostty {
             center.addObserver(
                 self,
                 selector: #selector(onUpdateRendererHealth),
-                name: Ghostty.Notification.didUpdateRendererHealth,
+                name: JTerm.Notification.didUpdateRendererHealth,
                 object: self)
             center.addObserver(
                 self,
                 selector: #selector(ghosttyDidContinueKeySequence),
-                name: Ghostty.Notification.didContinueKeySequence,
+                name: JTerm.Notification.didContinueKeySequence,
                 object: self)
             center.addObserver(
                 self,
                 selector: #selector(ghosttyDidEndKeySequence),
-                name: Ghostty.Notification.didEndKeySequence,
+                name: JTerm.Notification.didEndKeySequence,
                 object: self)
             center.addObserver(
                 self,
                 selector: #selector(ghosttyDidChangeKeyTable),
-                name: Ghostty.Notification.didChangeKeyTable,
+                name: JTerm.Notification.didChangeKeyTable,
                 object: self)
             center.addObserver(
                 self,
@@ -1270,10 +1267,10 @@ extension Ghostty {
                 ghostty_surface_new(app, &surface_cfg_c)
             }
             guard let surface = surface else {
-                self.error = Ghostty.Error.apiFailed
+                self.error = JTerm.Error.apiFailed
                 return
             }
-            self.surfaceModel = Ghostty.Surface(cSurface: surface)
+            self.surfaceModel = JTerm.Surface(cSurface: surface)
 
             // Setup our tracking area so we get mouse moved events
             updateTrackingAreas()
@@ -1399,7 +1396,13 @@ extension Ghostty {
                let editor = composeEditor,
                !editor.isHidden
             {
-                if let snapshot = semanticPromptInputSnapshot() {
+                if let cursorPoint = cursorClickPointInView(),
+                   let snapshot = resolveShellPromptSnapshot(
+                    clickPoint: cursorPoint,
+                    source: "sizeDidChange",
+                    allowWhenCursorNotAtPrompt: true
+                   )
+                {
                     let frame = composeEditorFrame(
                         for: snapshot,
                         context: composeActivationContext
@@ -1425,7 +1428,7 @@ extension Ghostty {
                 refreshComposeCaret(resetBlink: false)
             }
 
-            // Ghostty wants to know the actual framebuffer size... It is very important
+            // JTerm wants to know the actual framebuffer size... It is very important
             // here that we use "size" and NOT the view frame. If we're in the middle of
             // an animation (i.e. a fullscreen animation), the frame will not yet be updated.
             // The size represents our final size we're going for.
@@ -1815,6 +1818,63 @@ extension Ghostty {
             )
         }
 
+        private func resolveShellPromptSnapshot(
+            clickPoint: NSPoint,
+            source: String,
+            allowWhenCursorNotAtPrompt: Bool = false
+        ) -> PromptInputSnapshot? {
+            let semantic = semanticPromptInputSnapshot()
+            let fallback = fallbackPromptInputSnapshot(
+                clickPoint: clickPoint,
+                markers: Self.composeShellPromptMarkers,
+                requirePromptMarker: true
+            )
+
+            guard let semantic else {
+                if let fallback {
+                    composeTrace(
+                        "shell snapshot source=\(source) mode=fallback-only len=\(fallback.text.count)"
+                    )
+                }
+                return fallback
+            }
+
+            guard let fallback else {
+                composeTrace(
+                    "shell snapshot source=\(source) mode=semantic-only len=\(semantic.text.count)"
+                )
+                return semantic
+            }
+
+            let semanticMatchesClick = composeSnapshotMatchesClickY(semantic, clickPoint: clickPoint)
+            let fallbackMatchesClick = composeSnapshotMatchesClickY(fallback, clickPoint: clickPoint)
+            if !semanticMatchesClick, fallbackMatchesClick {
+                composeTrace(
+                    "shell snapshot source=\(source) mode=fallback-y-recovery semantic_len=\(semantic.text.count) fallback_len=\(fallback.text.count)"
+                )
+                return fallback
+            }
+
+            let semanticCursor = composeCursorIndexFromTerminal(snapshot: semantic)
+            let fallbackCursor = composeCursorIndexFromTerminal(snapshot: fallback)
+            let semanticPinnedToEnd = semanticCursor >= semantic.text.utf16.count
+            let fallbackSignificantlyLonger = fallback.text.utf16.count >= semantic.text.utf16.count + 2
+            if fallbackMatchesClick &&
+                fallbackSignificantlyLonger &&
+                (allowWhenCursorNotAtPrompt || semanticPinnedToEnd)
+            {
+                composeTrace(
+                    "shell snapshot source=\(source) mode=fallback-truncation-recovery semantic_len=\(semantic.text.count) fallback_len=\(fallback.text.count) semantic_cursor=\(semanticCursor) fallback_cursor=\(fallbackCursor)"
+                )
+                return fallback
+            }
+
+            composeTrace(
+                "shell snapshot source=\(source) mode=semantic-preferred semantic_len=\(semantic.text.count) fallback_len=\(fallback.text.count) semantic_cursor=\(semanticCursor) fallback_cursor=\(fallbackCursor)"
+            )
+            return semantic
+        }
+
         private func visibleContentsSnapshot() -> String? {
             guard let surface else { return nil }
 
@@ -2078,11 +2138,16 @@ extension Ghostty {
             let boundedStart = min(heuristic.charColumn, row.count)
             let startIndex = row.index(row.startIndex, offsetBy: boundedStart)
             let text = trimRightInlineWhitespace(String(row[startIndex...]))
-            let x = max(0, CGFloat(heuristic.displayColumn) * cellW)
+            let textDisplayWidth = terminalDisplayColumns(text)
+            let anchoredDisplayStart = max(
+                heuristic.displayColumn,
+                cursorColumnForRow - textDisplayWidth
+            )
+            let x = max(0, CGFloat(anchoredDisplayStart) * cellW)
             let targetTop = CGFloat(targetRow) * cellH
             let rowDistance = abs(boundedClickRow - boundedCursorRow)
             composeTrace(
-                "fallback hit click_x=\(clickPoint.x) click_y=\(clickPoint.y) click_row=\(boundedClickRow) cursor_row=\(boundedCursorRow) row_dist=\(rowDistance) target_row=\(targetRow) start_col=\(boundedStart) cursor_col=\(cursorColumnForRow) text_len=\(text.count)"
+                "fallback hit click_x=\(clickPoint.x) click_y=\(clickPoint.y) click_row=\(boundedClickRow) cursor_row=\(boundedCursorRow) row_dist=\(rowDistance) target_row=\(targetRow) start_col=\(boundedStart) effective_start=\(anchoredDisplayStart) cursor_col=\(cursorColumnForRow) text_len=\(text.count)"
             )
 
             return .init(
@@ -2146,7 +2211,10 @@ extension Ghostty {
             }
 
             if inputContext.cursor_at_prompt {
-                guard let snapshot = semanticPromptInputSnapshot() else {
+                guard let snapshot = resolveShellPromptSnapshot(
+                    clickPoint: clickPoint,
+                    source: "promptInputSnapshot-shell"
+                ) else {
                     composeTrace("snapshot gated reason=shell-no-semantic")
                     return nil
                 }
@@ -2159,6 +2227,21 @@ extension Ghostty {
                 }
                 AppDelegate.logger.debug(
                     "compose snapshot source=shell-semantic x=\(snapshot.x) y=\(snapshot.yTop) w=\(snapshot.width) h=\(snapshot.height) len=\(snapshot.text.count)"
+                )
+                return (.shellPrompt, snapshot)
+            }
+
+            if !inputContext.alternate_screen,
+               !inputContext.mouse_reporting,
+               let snapshot = resolveShellPromptSnapshot(
+                clickPoint: clickPoint,
+                source: "promptInputSnapshot-shell-recovery",
+                allowWhenCursorNotAtPrompt: true
+               ),
+               composeSnapshotMatchesClickY(snapshot, clickPoint: clickPoint)
+            {
+                AppDelegate.logger.debug(
+                    "compose snapshot source=shell-recovery x=\(snapshot.x) y=\(snapshot.yTop) w=\(snapshot.width) h=\(snapshot.height) len=\(snapshot.text.count)"
                 )
                 return (.shellPrompt, snapshot)
             }
@@ -2380,6 +2463,27 @@ extension Ghostty {
             )
         }
 
+        private func composeShouldRevealUnderlyingPrompt(editor: NSTextView) -> Bool {
+            composeActivationContext == .shellPrompt && editor.string.isEmpty
+        }
+
+        private func updateComposeBackgroundVisibility(_ editor: NSTextView) {
+            let revealPrompt = composeShouldRevealUnderlyingPrompt(editor: editor)
+            let showsBackground = composeMaskEnabled && !revealPrompt
+            editor.drawsBackground = showsBackground
+            editor.backgroundColor = showsBackground ? composeBackgroundColor : .clear
+            editor.layer?.backgroundColor = showsBackground
+                ? composeBackgroundColor.cgColor
+                : NSColor.clear.cgColor
+
+            if let mask = composeMaskView {
+                mask.isHidden = !composeMaskEnabled || revealPrompt
+                mask.fillColor = showsBackground
+                    ? composeBackgroundColor.cgColor
+                    : NSColor.clear.cgColor
+            }
+        }
+
         private func applyComposeEditorLayout(
             editor: NSTextView,
             snapshot: PromptInputSnapshot?,
@@ -2408,6 +2512,7 @@ extension Ghostty {
             composeMaskView?.showsBottomDivider = context == .claudeTui &&
                 usesVisualMultiline
             composeMaskView?.needsLayout = true
+            updateComposeBackgroundVisibility(editor)
 
             if let font = editor.font {
                 let lineHeight = editor.layoutManager?.defaultLineHeight(for: font) ?? font.pointSize
@@ -2617,6 +2722,7 @@ extension Ghostty {
                 )
             let caret = ensureComposeCaretView()
             caret.color = composeForegroundColor
+            updateComposeBackgroundVisibility(editor)
 
             var typing: [NSAttributedString.Key: Any] = [
                 .foregroundColor: composeOverlayTextEnabled ? composeForegroundColor : NSColor.clear,
@@ -3510,7 +3616,7 @@ extension Ghostty {
                 guard let self else { return }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.02) {
                     if !text.isEmpty {
-                        // Use Ghostty's text/paste path so multiline drafts land as a single
+                        // Use JTerm's text/paste path so multiline drafts land as a single
                         // bracketed paste in Claude instead of piecemeal raw-input replay.
                         self.surfaceModel?.sendText(text)
                     }
@@ -3830,16 +3936,19 @@ extension Ghostty {
             guard let cursorPoint = composeTrackerProbePointInView() ?? cursorClickPointInView() else { return nil }
             switch composeActivationContext {
             case .shellPrompt:
-                return semanticPromptInputSnapshot()
+                return resolveShellPromptSnapshot(
+                    clickPoint: cursorPoint,
+                    source: "composeSnapshotForCursorRow-shell",
+                    allowWhenCursorNotAtPrompt: true
+                )
             case .claudeTui:
                 return resolveClaudePromptSnapshot(source: "composeSnapshotForCursorRow")
             case .none:
-                return semanticPromptInputSnapshot()
-                    ?? fallbackPromptInputSnapshot(
-                        clickPoint: cursorPoint,
-                        markers: Self.composeShellPromptMarkers,
-                        requirePromptMarker: true
-                    )
+                return resolveShellPromptSnapshot(
+                    clickPoint: cursorPoint,
+                    source: "composeSnapshotForCursorRow-none",
+                    allowWhenCursorNotAtPrompt: true
+                )
             }
         }
 
@@ -4197,7 +4306,7 @@ extension Ghostty {
         }
 
         @objc private func ghosttyDidContinueKeySequence(notification: SwiftUI.Notification) {
-            guard let keyAny = notification.userInfo?[Ghostty.Notification.KeySequenceKey] else { return }
+            guard let keyAny = notification.userInfo?[JTerm.Notification.KeySequenceKey] else { return }
             guard let key = keyAny as? KeyboardShortcut else { return }
             DispatchQueue.main.async { [weak self] in
                 self?.keySequence.append(key)
@@ -4211,7 +4320,7 @@ extension Ghostty {
         }
 
         @objc private func ghosttyDidChangeKeyTable(notification: SwiftUI.Notification) {
-            guard let action = notification.userInfo?[Ghostty.Notification.KeyTableKey] as? Ghostty.Action.KeyTable else { return }
+            guard let action = notification.userInfo?[JTerm.Notification.KeyTableKey] as? JTerm.Action.KeyTable else { return }
 
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
@@ -4229,8 +4338,8 @@ extension Ghostty {
         @objc private func ghosttyConfigDidChange(_ notification: SwiftUI.Notification) {
             // Get our managed configuration object out
             guard let config = notification.userInfo?[
-                SwiftUI.Notification.Name.GhosttyConfigChangeKey
-            ] as? Ghostty.Config else { return }
+                SwiftUI.Notification.Name.JTermConfigChangeKey
+            ] as? JTerm.Config else { return }
 
             // Update our derived config
             DispatchQueue.main.async { [weak self] in
@@ -4240,8 +4349,8 @@ extension Ghostty {
 
         @objc private func ghosttyColorDidChange(_ notification: SwiftUI.Notification) {
             guard let change = notification.userInfo?[
-                SwiftUI.Notification.Name.GhosttyColorChangeKey
-            ] as? Ghostty.Action.ColorChange else { return }
+                SwiftUI.Notification.Name.JTermColorChangeKey
+            ] as? JTerm.Action.ColorChange else { return }
 
             switch (change.kind) {
             case .background:
@@ -4418,7 +4527,7 @@ extension Ghostty {
                             suspendComposeForTerminalSelection()
                             self.mouseMoved(with: event)
                             guard let surface = self.surface else { return }
-                            let mods = Ghostty.ghosttyMods(event.modifierFlags)
+                            let mods = JTerm.ghosttyMods(event.modifierFlags)
                             ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, mods)
                             return
                         }
@@ -4489,7 +4598,7 @@ extension Ghostty {
 
             guard let surface = self.surface else { return }
             self.mouseMoved(with: event)
-            let mods = Ghostty.ghosttyMods(event.modifierFlags)
+            let mods = JTerm.ghosttyMods(event.modifierFlags)
             ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, mods)
         }
 
@@ -4499,7 +4608,7 @@ extension Ghostty {
             if composeOriginalText != nil {
                 if composeTerminalSelectionMode {
                     guard let surface = self.surface else { return }
-                    let mods = Ghostty.ghosttyMods(event.modifierFlags)
+                    let mods = JTerm.ghosttyMods(event.modifierFlags)
                     ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, mods)
                     ghostty_surface_mouse_pressure(surface, 0, 0)
                     return
@@ -4513,7 +4622,7 @@ extension Ghostty {
 
             // If we have an active surface, report the event
             guard let surface = self.surface else { return }
-            let mods = Ghostty.ghosttyMods(event.modifierFlags)
+            let mods = JTerm.ghosttyMods(event.modifierFlags)
             ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, mods)
 
             // Release pressure
@@ -4522,15 +4631,15 @@ extension Ghostty {
 
         override func otherMouseDown(with event: NSEvent) {
             guard let surface = self.surface else { return }
-            let mods = Ghostty.ghosttyMods(event.modifierFlags)
-            let button = Ghostty.Input.MouseButton(fromNSEventButtonNumber: event.buttonNumber)
+            let mods = JTerm.ghosttyMods(event.modifierFlags)
+            let button = JTerm.Input.MouseButton(fromNSEventButtonNumber: event.buttonNumber)
             ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, button.cMouseButton, mods)
         }
 
         override func otherMouseUp(with event: NSEvent) {
             guard let surface = self.surface else { return }
-            let mods = Ghostty.ghosttyMods(event.modifierFlags)
-            let button = Ghostty.Input.MouseButton(fromNSEventButtonNumber: event.buttonNumber)
+            let mods = JTerm.ghosttyMods(event.modifierFlags)
+            let button = JTerm.Input.MouseButton(fromNSEventButtonNumber: event.buttonNumber)
             ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, button.cMouseButton, mods)
         }
 
@@ -4543,7 +4652,7 @@ extension Ghostty {
 
             guard let surface = self.surface else { return super.rightMouseDown(with: event) }
 
-            let mods = Ghostty.ghosttyMods(event.modifierFlags)
+            let mods = JTerm.ghosttyMods(event.modifierFlags)
             if (ghostty_surface_mouse_button(
                 surface,
                 GHOSTTY_MOUSE_PRESS,
@@ -4561,7 +4670,7 @@ extension Ghostty {
         override func rightMouseUp(with event: NSEvent) {
             guard let surface = self.surface else { return super.rightMouseUp(with: event) }
 
-            let mods = Ghostty.ghosttyMods(event.modifierFlags)
+            let mods = JTerm.ghosttyMods(event.modifierFlags)
             if (ghostty_surface_mouse_button(
                 surface,
                 GHOSTTY_MOUSE_RELEASE,
@@ -4586,7 +4695,7 @@ extension Ghostty {
             // lots of mouse logic (i.e. whether to send mouse reports) depend
             // on the position being in the viewport if it is.
             let pos = self.convert(event.locationInWindow, from: nil)
-            let mouseEvent = Ghostty.Input.MousePosEvent(
+            let mouseEvent = JTerm.Input.MousePosEvent(
                 x: pos.x,
                 y: frame.height - pos.y,
                 mods: .init(nsFlags: event.modifierFlags)
@@ -4605,7 +4714,7 @@ extension Ghostty {
             }
 
             // Negative values indicate cursor has left the viewport
-            let mouseEvent = Ghostty.Input.MousePosEvent(
+            let mouseEvent = JTerm.Input.MousePosEvent(
                 x: -1,
                 y: -1,
                 mods: .init(nsFlags: event.modifierFlags)
@@ -4642,7 +4751,7 @@ extension Ghostty {
 
             // Convert window position to view position. Note (0, 0) is bottom left.
             let pos = self.convert(event.locationInWindow, from: nil)
-            let mouseEvent = Ghostty.Input.MousePosEvent(
+            let mouseEvent = JTerm.Input.MousePosEvent(
                 x: pos.x,
                 y: frame.height - pos.y,
                 mods: .init(nsFlags: event.modifierFlags)
@@ -4657,7 +4766,7 @@ extension Ghostty {
                     !self.focused &&
                     controller.focusFollowsMouse)
             {
-                Ghostty.moveFocus(to: self)
+                JTerm.moveFocus(to: self)
             }
         }
 
@@ -4715,7 +4824,7 @@ extension Ghostty {
                 // TODO(mitchellh): do we have to scale the x/y here by window scale factor?
             }
 
-            let scrollEvent = Ghostty.Input.MouseScrollEvent(
+            let scrollEvent = JTerm.Input.MouseScrollEvent(
                 x: x,
                 y: y,
                 mods: .init(precision: precision, momentum: .init(event.momentumPhase))
@@ -4732,7 +4841,7 @@ extension Ghostty {
         override func pressureChange(with event: NSEvent) {
             guard let surface = self.surface else { return }
 
-            // Notify Ghostty first. We do this because this will let Ghostty handle
+            // Notify JTerm first. We do this because this will let JTerm handle
             // state setup that we'll need for later pressure handling (such as
             // QuickLook)
             ghostty_surface_mouse_pressure(surface, UInt32(event.stage), Double(event.pressure))
@@ -4775,10 +4884,10 @@ extension Ghostty {
             bell = false
 
             // We need to translate the mods (maybe) to handle configs such as option-as-alt
-            let translationModsGhostty = Ghostty.eventModifierFlags(
+            let translationModsGhostty = JTerm.eventModifierFlags(
                 mods: ghostty_surface_key_translation_mods(
                     surface,
-                    Ghostty.ghosttyMods(event.modifierFlags)
+                    JTerm.ghosttyMods(event.modifierFlags)
                 )
             )
 
@@ -5128,7 +5237,7 @@ extension Ghostty {
 
             // The keyAction function will do this AGAIN below which sucks to repeat
             // but this is super cheap and flagsChanged isn't that common.
-            let mods = Ghostty.ghosttyMods(event.modifierFlags)
+            let mods = JTerm.ghosttyMods(event.modifierFlags)
 
             // If the key that pressed this is active, its a press, else release.
             var action = GHOSTTY_ACTION_RELEASE
@@ -5172,7 +5281,7 @@ extension Ghostty {
             key_ev.composing = composing
 
             // For text, we only encode UTF8 if we don't have a single control
-            // character. Control characters are encoded by Ghostty itself.
+            // character. Control characters are encoded by JTerm itself.
             // Without this, `ctrl+enter` does the wrong thing.
             if let text, text.count > 0,
                let codepoint = text.utf8.first, codepoint >= 0x20 {
@@ -5208,7 +5317,7 @@ extension Ghostty {
                 font.release()
             }
 
-            // Ghostty coordinate system is top-left, convert to bottom-left for AppKit
+            // JTerm coordinate system is top-left, convert to bottom-left for AppKit
             let pt = NSMakePoint(text.tl_px_x, frame.size.height - text.tl_px_y)
             let str = NSAttributedString.init(string: String(cString: text.text), attributes: attributes)
             self.showDefinition(for: str, at: pt);
@@ -5512,7 +5621,7 @@ extension Ghostty {
             content.subtitle = self.title
             content.body = body
             content.sound = UNNotificationSound.default
-            content.categoryIdentifier = Ghostty.userNotificationCategory
+            content.categoryIdentifier = JTerm.userNotificationCategory
             content.userInfo = ["surface": self.id.uuidString]
 
             let uuid = UUID().uuidString
@@ -5554,18 +5663,18 @@ extension Ghostty {
             guard self.notificationIdentifiers.remove(id) != nil else { return }
             if focus {
                 self.window?.makeKeyAndOrderFront(self)
-                Ghostty.moveFocus(to: self)
+                JTerm.moveFocus(to: self)
             }
         }
 
         struct DerivedConfig {
             let backgroundColor: Color
             let backgroundOpacity: Double
-            let backgroundBlur: Ghostty.Config.BackgroundBlur
+            let backgroundBlur: JTerm.Config.BackgroundBlur
             let macosWindowShadow: Bool
             let windowTitleFontFamily: String?
             let windowAppearance: NSAppearance?
-            let scrollbar: Ghostty.Config.Scrollbar
+            let scrollbar: JTerm.Config.Scrollbar
 
             init() {
                 self.backgroundColor = Color(NSColor.windowBackgroundColor)
@@ -5577,7 +5686,7 @@ extension Ghostty {
                 self.scrollbar = .system
             }
 
-            init(_ config: Ghostty.Config) {
+            init(_ config: JTerm.Config) {
                 self.backgroundColor = config.backgroundColor
                 self.backgroundOpacity = config.backgroundOpacity
                 self.backgroundBlur = config.backgroundBlur
@@ -5598,7 +5707,7 @@ extension Ghostty {
         }
 
         required convenience init(from decoder: Decoder) throws {
-            // Decoding uses the global Ghostty app
+            // Decoding uses the global JTerm app
             guard let del = NSApplication.shared.delegate,
                   let appDel = del as? AppDelegate,
                   let app = appDel.ghostty.app else {
@@ -5607,7 +5716,7 @@ extension Ghostty {
 
             let container = try decoder.container(keyedBy: CodingKeys.self)
             let uuid = UUID(uuidString: try container.decode(String.self, forKey: .uuid))
-            var config = Ghostty.SurfaceConfiguration()
+            var config = JTerm.SurfaceConfiguration()
             config.workingDirectory = try container.decode(String?.self, forKey: .pwd)
             let savedTitle = try container.decodeIfPresent(String.self, forKey: .title)
             let isUserSetTitle = try container.decodeIfPresent(Bool.self, forKey: .isUserSetTitle) ?? false
@@ -5636,7 +5745,7 @@ extension Ghostty {
 
 // MARK: - NSTextInputClient
 
-extension Ghostty.SurfaceView: NSTextInputClient {
+extension JTerm.SurfaceView: NSTextInputClient {
     func hasMarkedText() -> Bool {
         return markedText.length > 0
     }
@@ -5649,7 +5758,7 @@ extension Ghostty.SurfaceView: NSTextInputClient {
     func selectedRange() -> NSRange {
         guard let surface = self.surface else { return NSRange() }
 
-        // Get our range from the Ghostty API. There is a race condition between getting the
+        // Get our range from the JTerm API. There is a race condition between getting the
         // range and actually using it since our selection may change but there isn't a good
         // way I can think of to solve this for AppKit.
         var text = ghostty_text_s()
@@ -5701,7 +5810,7 @@ extension Ghostty.SurfaceView: NSTextInputClient {
     }
 
     func attributedSubstring(forProposedRange range: NSRange, actualRange: NSRangePointer?) -> NSAttributedString? {
-        // Ghostty.logger.warning("pressure substring range=\(range) selectedRange=\(self.selectedRange())")
+        // JTerm.logger.warning("pressure substring range=\(range) selectedRange=\(self.selectedRange())")
         guard let surface = self.surface else { return nil }
 
         // If the range is empty then we don't need to return anything
@@ -5743,7 +5852,7 @@ extension Ghostty.SurfaceView: NSTextInputClient {
             return NSMakeRect(frame.origin.x, frame.origin.y, 0, 0)
         }
 
-        // Ghostty will tell us where it thinks an IME keyboard should render.
+        // JTerm will tell us where it thinks an IME keyboard should render.
         var x: Double = 0
         var y: Double = 0
         var width: Double = cellSize.width
@@ -5777,7 +5886,7 @@ extension Ghostty.SurfaceView: NSTextInputClient {
             width = 0
             x += cellSize.width * Double(range.location + range.length)
         }
-        // Ghostty coordinates are in top-left (0, 0) so we have to convert to
+        // JTerm coordinates are in top-left (0, 0) so we have to convert to
         // bottom-left since that is what UIKit expects
         // when there's is no characters selected,
         // width should be 0 so that dictation indicator
@@ -5878,7 +5987,7 @@ extension Ghostty.SurfaceView: NSTextInputClient {
 // MARK: Services
 
 // https://developer.apple.com/library/archive/documentation/Cocoa/Conceptual/SysServices/Articles/using.html
-extension Ghostty.SurfaceView: NSServicesMenuRequestor {
+extension JTerm.SurfaceView: NSServicesMenuRequestor {
     override func validRequestor(
         forSendType sendType: NSPasteboard.PasteboardType?,
         returnType: NSPasteboard.PasteboardType?
@@ -5954,7 +6063,7 @@ extension Ghostty.SurfaceView: NSServicesMenuRequestor {
 
 // MARK: NSMenuItemValidation
 
-extension Ghostty.SurfaceView: NSMenuItemValidation {
+extension JTerm.SurfaceView: NSMenuItemValidation {
     func validateMenuItem(_ item: NSMenuItem) -> Bool {
         switch item.action {
         case #selector(pasteSelection):
@@ -5977,7 +6086,7 @@ extension Ghostty.SurfaceView: NSMenuItemValidation {
 
 // MARK: - Native Compose Editor
 
-extension Ghostty.SurfaceView: NSTextViewDelegate {
+extension JTerm.SurfaceView: NSTextViewDelegate {
     func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
         guard textView === composeEditor else { return false }
 
@@ -6163,7 +6272,7 @@ extension Ghostty.SurfaceView: NSTextViewDelegate {
 
 // MARK: NSDraggingDestination
 
-extension Ghostty.SurfaceView {
+extension JTerm.SurfaceView {
     static let dropTypes: Set<NSPasteboard.PasteboardType> = [
         .string,
         .fileURL,
@@ -6190,13 +6299,13 @@ extension Ghostty.SurfaceView {
         let content: String?
         if let url = pb.string(forType: .URL) {
             // URLs first, they get escaped as-is.
-            content = Ghostty.Shell.escape(url)
+            content = JTerm.Shell.escape(url)
         } else if let urls = pb.readObjects(forClasses: [NSURL.self]) as? [URL],
            urls.count > 0 {
             // File URLs next. They get escaped individually and then joined by a
             // space if there are multiple.
             content = urls
-                .map { Ghostty.Shell.escape($0.path) }
+                .map { JTerm.Shell.escape($0.path) }
                 .joined(separator: " ")
         } else if let str = pb.string(forType: .string) {
             // Strings are not escaped because they may be copy/pasting a
@@ -6222,7 +6331,7 @@ extension Ghostty.SurfaceView {
 
 // MARK: Accessibility
 
-extension Ghostty.SurfaceView {
+extension JTerm.SurfaceView {
     /// Indicates that this view should be exposed to accessibility tools like VoiceOver.
     /// By returning true, we make the terminal surface accessible to screen readers
     /// and other assistive technologies.
@@ -6300,7 +6409,7 @@ extension Ghostty.SurfaceView {
     /// Returns an attributed string for the given range.
     ///
     /// Note: right now this only applies font information. One day it'd be nice to extend
-    /// this to copy styling information as well but we need to augment Ghostty core to
+    /// this to copy styling information as well but we need to augment JTerm core to
     /// expose that.
     ///
     /// This provides styling information to assistive technologies.

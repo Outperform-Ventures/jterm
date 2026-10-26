@@ -50,6 +50,8 @@ pub fn openPath(alloc_gpa: Allocator) ![:0]const u8 {
 /// The allocator must be an arena allocator. No memory is freed by this
 /// function and the resulting path is not all the memory that is allocated.
 fn configPath(alloc_arena: Allocator) ![]const u8 {
+    try file_load.ensureLegacyConfigMigrated(alloc_arena);
+
     const paths: []const []const u8 = try configPathCandidates(alloc_arena);
     assert(paths.len > 0);
 

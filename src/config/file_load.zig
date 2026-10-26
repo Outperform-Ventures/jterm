@@ -6,21 +6,59 @@ const internal_os = @import("../os/main.zig");
 
 const log = std.log.scoped(.config);
 
+/// Copy a legacy jTerm config out of Ghostty-owned directories if the new
+/// jTerm-owned path doesn't exist yet. This is a one-time migration helper and
+/// should be a no-op once the new file is present.
+pub fn ensureLegacyConfigMigrated(alloc: Allocator) !void {
+    const target_path = try preferredTargetPath(alloc);
+    defer alloc.free(target_path);
+
+    if (open(target_path)) |f| {
+        f.close();
+        return;
+    } else |_| {}
+
+    const source_candidates = try legacyGhosttySourceCandidates(alloc);
+    defer {
+        for (source_candidates) |path| alloc.free(path);
+        alloc.free(source_candidates);
+    }
+
+    for (source_candidates) |source_path| {
+        const source = open(source_path) catch continue;
+        defer source.close();
+
+        const bytes = try source.readToEndAlloc(alloc, 1024 * 1024);
+        defer alloc.free(bytes);
+        if (bytes.len == 0) continue;
+
+        if (std.fs.path.dirname(target_path)) |target_dir| {
+            try std.fs.cwd().makePath(target_dir);
+        }
+
+        var target = try std.fs.createFileAbsolute(target_path, .{ .truncate = true });
+        defer target.close();
+        try target.writeAll(bytes);
+        log.info("migrated legacy config from `{s}` to `{s}`", .{ source_path, target_path });
+        return;
+    }
+}
+
 /// Default path for the XDG home configuration file. Returned value
 /// must be freed by the caller.
 pub fn defaultXdgPath(alloc: Allocator) ![]const u8 {
     return try internal_os.xdg.config(
         alloc,
-        .{ .subdir = "ghostty/config.ghostty" },
+        .{ .subdir = "jterm/config" },
     );
 }
 
-/// Ghostty <1.3.0 default path for the XDG home configuration file.
+/// Legacy jTerm XDG home configuration filename.
 /// Returned value must be freed by the caller.
 pub fn legacyDefaultXdgPath(alloc: Allocator) ![]const u8 {
     return try internal_os.xdg.config(
         alloc,
-        .{ .subdir = "ghostty/config" },
+        .{ .subdir = "jterm/config.ghostty" },
     );
 }
 
@@ -52,13 +90,13 @@ pub fn preferredXdgPath(alloc: Allocator) ![]const u8 {
 /// Default path for the macOS Application Support configuration file.
 /// Returned value must be freed by the caller.
 pub fn defaultAppSupportPath(alloc: Allocator) ![]const u8 {
-    return try internal_os.macos.appSupportDir(alloc, "config.ghostty");
+    return try internal_os.macos.appSupportDir(alloc, "config");
 }
 
-/// Ghostty <1.3.0 default path for the macOS Application Support
-/// configuration file. Returned value must be freed by the caller.
+/// Legacy jTerm macOS Application Support configuration filename.
+/// Returned value must be freed by the caller.
 pub fn legacyDefaultAppSupportPath(alloc: Allocator) ![]const u8 {
-    return try internal_os.macos.appSupportDir(alloc, "config");
+    return try internal_os.macos.appSupportDir(alloc, "config.ghostty");
 }
 
 /// Preferred default path for the macOS Application Support configuration file.
@@ -94,6 +132,7 @@ pub fn preferredAppSupportPath(alloc: Allocator) ![]const u8 {
 ///
 /// The returned value must be freed by the caller.
 pub fn preferredDefaultFilePath(alloc: Allocator) ![]const u8 {
+    try ensureLegacyConfigMigrated(alloc);
     switch (builtin.os.tag) {
         .macos => {
             // macOS prefers the Application Support directory
@@ -118,6 +157,43 @@ pub fn preferredDefaultFilePath(alloc: Allocator) ![]const u8 {
         // All other platforms use XDG only
         else => return try preferredXdgPath(alloc),
     }
+}
+
+fn preferredTargetPath(alloc: Allocator) ![]const u8 {
+    return switch (builtin.os.tag) {
+        .macos => defaultAppSupportPath(alloc),
+        else => defaultXdgPath(alloc),
+    };
+}
+
+fn legacyGhosttySourceCandidates(alloc: Allocator) ![][]const u8 {
+    var paths: std.ArrayList([]const u8) = .empty;
+    errdefer {
+        for (paths.items) |path| alloc.free(path);
+        paths.deinit(alloc);
+    }
+
+    if (comptime builtin.os.tag == .macos) {
+        try paths.append(alloc, try legacyGhosttyAppSupportPath(alloc, "config"));
+        try paths.append(alloc, try legacyGhosttyAppSupportPath(alloc, "config.ghostty"));
+    }
+
+    try paths.append(alloc, try internal_os.xdg.config(alloc, .{ .subdir = "ghostty/config" }));
+    try paths.append(alloc, try internal_os.xdg.config(alloc, .{ .subdir = "ghostty/config.ghostty" }));
+
+    return try paths.toOwnedSlice(alloc);
+}
+
+fn legacyGhosttyAppSupportPath(alloc: Allocator, file_name: []const u8) ![]const u8 {
+    const home = try std.process.getEnvVarOwned(alloc, "HOME");
+    defer alloc.free(home);
+    return try std.fs.path.join(alloc, &.{
+        home,
+        "Library",
+        "Application Support",
+        "com.mitchellh.ghostty",
+        file_name,
+    });
 }
 
 const OpenFileError = error{

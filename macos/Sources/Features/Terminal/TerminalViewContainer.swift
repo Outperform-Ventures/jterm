@@ -11,7 +11,7 @@ class TerminalViewContainer<ViewModel: TerminalViewModel>: NSView {
     private var glassTopConstraint: NSLayoutConstraint?
     private var derivedConfig: DerivedConfig
 
-    init(ghostty: Ghostty.App, viewModel: ViewModel, delegate: (any TerminalViewDelegate)? = nil) {
+    init(ghostty: JTerm.App, viewModel: ViewModel, delegate: (any TerminalViewDelegate)? = nil) {
         self.derivedConfig = DerivedConfig(config: ghostty.config)
         self.terminalView = NSHostingView(rootView: TerminalView(
             ghostty: ghostty,
@@ -65,8 +65,8 @@ class TerminalViewContainer<ViewModel: TerminalViewModel>: NSView {
 
     @objc private func ghosttyConfigDidChange(_ notification: Notification) {
         guard let config = notification.userInfo?[
-            Notification.Name.GhosttyConfigChangeKey
-        ] as? Ghostty.Config else { return }
+            Notification.Name.JTermConfigChangeKey
+        ] as? JTerm.Config else { return }
         let newValue = DerivedConfig(config: config)
         guard newValue != derivedConfig else { return }
         derivedConfig = newValue
@@ -148,10 +148,10 @@ private extension TerminalViewContainer {
 
     struct DerivedConfig: Equatable {
         var backgroundOpacity: Double = 0
-        var backgroundBlur: Ghostty.Config.BackgroundBlur
+        var backgroundBlur: JTerm.Config.BackgroundBlur
         var backgroundColor: Color = .clear
 
-        init(config: Ghostty.Config) {
+        init(config: JTerm.Config) {
             self.backgroundBlur = config.backgroundBlur
             self.backgroundOpacity = config.backgroundOpacity
             self.backgroundColor = config.backgroundColor

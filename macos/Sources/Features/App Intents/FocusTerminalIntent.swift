@@ -20,11 +20,11 @@ struct FocusTerminalIntent: AppIntent {
     @MainActor
     func perform() async throws -> some IntentResult {
         guard await requestIntentPermission() else {
-            throw GhosttyIntentError.permissionDenied
+            throw JTermIntentError.permissionDenied
         }
 
         guard let surfaceView = terminal.surfaceView else {
-            throw GhosttyIntentError.surfaceNotFound
+            throw JTermIntentError.surfaceNotFound
         }
 
         guard let controller = surfaceView.window?.windowController as? BaseTerminalController else {

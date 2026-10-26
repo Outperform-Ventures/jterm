@@ -67,7 +67,7 @@ const ThemeListElement = struct {
 };
 
 /// The `list-themes` command is used to preview or list all the available
-/// themes for Ghostty.
+/// themes for jTerm.
 ///
 /// If this command is run from a TTY, a TUI preview of the themes will be
 /// shown. While in the preview, `F1` will bring up a help screen and `ESC` will
@@ -834,20 +834,20 @@ const Preview = struct {
                 child.fill(.{ .style = self.ui_standard() });
 
                 const save_instructions = [_][]const u8{
-                    "To apply this theme, add the following line to your Ghostty configuration:",
+                    "To apply this theme, add the following line to your jTerm configuration:",
                     "",
                     try std.fmt.allocPrint(alloc, "theme = {s}", .{theme.theme}),
                     "",
                     "Save the configuration file and then reload it to apply the new theme.",
                     "",
                     "Or press 'w' to write an auto theme file to your system's preferred default config path.",
-                    "Then add the following line to your Ghostty configuration and reload:",
+                    "Then add the following line to your jTerm configuration and reload:",
                     "",
                     "config-file = ?auto/theme.ghostty",
                     "",
-                    "For more details on configuration and themes, visit the Ghostty documentation:",
+                    "For more details on configuration and themes, run:",
                     "",
-                    "https://ghostty.org/docs/config/reference",
+                    "jterm +show-config --default --docs",
                 };
 
                 for (save_instructions, 0..) |instruction, captured_i| {

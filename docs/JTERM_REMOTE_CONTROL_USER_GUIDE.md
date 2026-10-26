@@ -3,6 +3,13 @@
 Last updated: 2026-02-22
 Target baseline: kitty remote-control spec lock `0.45.0` + jTerm extensions
 
+Generated command references:
+
+- [JTERM_REMOTE_CONTROL_COMMAND_REFERENCE.md](/Users/jkuechly/code/jterm/docs/JTERM_REMOTE_CONTROL_COMMAND_REFERENCE.md)
+- [JTERM_REMOTE_CONTROL_CLI_MANPAGE.md](/Users/jkuechly/code/jterm/docs/JTERM_REMOTE_CONTROL_CLI_MANPAGE.md)
+
+The generated reference and manpage docs are the source of truth for command syntax, options, output behavior, and exit codes. This guide remains the narrative overview and workflow guide.
+
 ## What jTerm Remote Control Is
 
 jTerm remote control lets you script and control a running jTerm app from the command line.
@@ -38,7 +45,9 @@ At a high level:
 Transport details:
 
 - Local Unix sockets only (`unix:/path`)
-- Default socket: `unix:/tmp/jterm.sock`
+- Default socket:
+  - debug/dev builds: `unix:/tmp/jterm-dev.sock`
+  - release/stable builds: `unix:/tmp/jterm-stable.sock`
 - Socket file permissions are restricted to owner mode where possible.
 
 ## Requirements
@@ -84,7 +93,7 @@ If everything is configured, this prints JSON describing current jTerm windows/t
 
 On macOS, jTerm uses the bundle id `com.jterm.app`. The app-support config file is under:
 
-- `~/Library/Application Support/com.jterm.app/config.ghostty`
+- `~/Library/Application Support/com.jterm.app/config`
 
 Legacy/XDG paths may also be detected when present.
 
@@ -137,7 +146,8 @@ Targeting helpers (accepted across commands):
 
 Default target is:
 
-- `unix:/tmp/jterm.sock`
+- `unix:/tmp/jterm-dev.sock` for debug/dev builds
+- `unix:/tmp/jterm-stable.sock` for release/stable builds
 
 Override target for app and CLI with environment variable:
 
@@ -687,7 +697,7 @@ jterm @ ls
 Or specify explicit target:
 
 ```bash
-jterm @ --to=unix:/tmp/jterm.sock ls
+jterm @ --to=unix:/tmp/jterm-stable.sock ls
 ```
 
 ### `Remote-control transport failure: error.ConnectionRefused`

@@ -1,15 +1,15 @@
 # FILES
 
-_\$XDG_CONFIG_HOME/ghostty/config.ghostty_
+_\$XDG_CONFIG_HOME/jterm/config_
 
 : Location of the default configuration file.
 
-_\$HOME/Library/Application Support/com.mitchellh.ghostty/config.ghostty_
+_\$HOME/Library/Application Support/com.jterm.app/config_
 
 : **On macOS**, location of the default configuration file. This location takes
 precedence over the XDG environment locations.
 
-_\$LOCALAPPDATA/ghostty/config.ghostty_
+_\$LOCALAPPDATA/jterm/config_
 
 : **On Windows**, if _\$XDG_CONFIG_HOME_ is not set, _\$LOCALAPPDATA_ will be searched
 for configuration files.
@@ -22,13 +22,13 @@ for configuration files.
 
 **GHOSTTY_RESOURCES_DIR**
 
-: Where the Ghostty resources can be found.
+: Where the jTerm resources can be found.
 
 **XDG_CONFIG_HOME**
 
 : Default location for configuration files.
 
-**$HOME/Library/Application Support/com.mitchellh.ghostty**
+**$HOME/Library/Application Support/com.jterm.app**
 
 : **MACOS ONLY** default location for configuration files. This location takes
 precedence over the XDG environment locations.
@@ -40,7 +40,7 @@ precedence over the XDG environment locations.
 **GHOSTTY_LOG**
 
 : The `GHOSTTY_LOG` environment variable can be used to control which
-destinations receive logs. Ghostty currently defines two destinations:
+destinations receive logs. jTerm currently defines two destinations:
 
 : - `stderr` - logging to `stderr`.
 : - `macos` - logging to macOS's unified log (has no effect on non-macOS platforms).
@@ -52,13 +52,13 @@ destinations. Setting `GHOSTTY_LOG` to `false` will disable all destinations.
 
 # BUGS
 
-See GitHub issues: <https://github.com/ghostty-org/ghostty/issues>
+See the local project issue tracker for this fork.
 
 # AUTHOR
 
 Mitchell Hashimoto <m@mitchellh.com>
-Ghostty contributors <https://github.com/ghostty-org/ghostty/graphs/contributors>
+jTerm contributors
 
 # SEE ALSO
 
-**ghostty(5)**
+**jterm(5)**

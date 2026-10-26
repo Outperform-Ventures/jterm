@@ -4,7 +4,7 @@ import AppKit
 import UIKit
 #endif
 
-extension Ghostty.SurfaceView {
+extension JTerm.SurfaceView {
     #if canImport(AppKit)
     /// A snapshot image of the current surface view.
     var asImage: NSImage? {

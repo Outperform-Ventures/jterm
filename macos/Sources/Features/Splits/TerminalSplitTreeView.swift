@@ -9,16 +9,16 @@ enum TerminalSplitOperation {
     case drop(Drop)
     
     struct Resize {
-        let node: SplitTree<Ghostty.SurfaceView>.Node
+        let node: SplitTree<JTerm.SurfaceView>.Node
         let ratio: Double
     }
     
     struct Drop {
         /// The surface being dragged.
-        let payload: Ghostty.SurfaceView
+        let payload: JTerm.SurfaceView
         
         /// The surface it was dragged onto
-        let destination: Ghostty.SurfaceView
+        let destination: JTerm.SurfaceView
         
         /// The zone it was dropped to determine how to split the destination.
         let zone: TerminalSplitDropZone
@@ -26,7 +26,7 @@ enum TerminalSplitOperation {
 }
 
 struct TerminalSplitTreeView: View {
-    let tree: SplitTree<Ghostty.SurfaceView>
+    let tree: SplitTree<JTerm.SurfaceView>
     let action: (TerminalSplitOperation) -> Void
 
     var body: some View {
@@ -45,9 +45,9 @@ struct TerminalSplitTreeView: View {
 }
 
 fileprivate struct TerminalSplitSubtreeView: View {
-    @EnvironmentObject var ghostty: Ghostty.App
+    @EnvironmentObject var ghostty: JTerm.App
 
-    let node: SplitTree<Ghostty.SurfaceView>.Node
+    let node: SplitTree<JTerm.SurfaceView>.Node
     var isRoot: Bool = false
     let action: (TerminalSplitOperation) -> Void
 
@@ -87,7 +87,7 @@ fileprivate struct TerminalSplitSubtreeView: View {
 }
 
 fileprivate struct TerminalSplitLeaf: View {
-    let surfaceView: Ghostty.SurfaceView
+    let surfaceView: JTerm.SurfaceView
     let isSplit: Bool
     let action: (TerminalSplitOperation) -> Void
     
@@ -96,7 +96,7 @@ fileprivate struct TerminalSplitLeaf: View {
     
     var body: some View {
         GeometryReader { geometry in
-            Ghostty.InspectableSurface(
+            JTerm.InspectableSurface(
                 surfaceView: surfaceView,
                 isSplit: isSplit)
             .background {
@@ -119,7 +119,7 @@ fileprivate struct TerminalSplitLeaf: View {
                         .allowsHitTesting(false)
                 }
             }
-            .onPreferenceChange(Ghostty.DraggingSurfaceKey.self) { value in
+            .onPreferenceChange(JTerm.DraggingSurfaceKey.self) { value in
                 isSelfDragging = value == surfaceView.id
                 if isSelfDragging {
                     dropState = .idle
@@ -138,7 +138,7 @@ fileprivate struct TerminalSplitLeaf: View {
     private struct SplitDropDelegate: DropDelegate {
         @Binding var dropState: DropState
         let viewSize: CGSize
-        let destinationSurface: Ghostty.SurfaceView
+        let destinationSurface: JTerm.SurfaceView
         let action: (TerminalSplitOperation) -> Void
         
         func validateDrop(info: DropInfo) -> Bool {
@@ -171,7 +171,7 @@ fileprivate struct TerminalSplitLeaf: View {
             guard let provider = providers.first else { return false }
             
             // Capture action before the async closure
-            _ = provider.loadTransferable(type: Ghostty.SurfaceView.self) { [weak destinationSurface] result in
+            _ = provider.loadTransferable(type: JTerm.SurfaceView.self) { [weak destinationSurface] result in
                 switch result {
                 case .success(let sourceSurface):
                     DispatchQueue.main.async {

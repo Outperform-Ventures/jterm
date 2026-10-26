@@ -8,7 +8,7 @@ protocol TerminalRestorable: Codable {
 
     /// Returns a base configuration to use when restoring terminal surfaces.
     /// Override this to provide custom environment variables or other configuration.
-    var baseConfig: Ghostty.SurfaceConfiguration? { get }
+    var baseConfig: JTerm.SurfaceConfiguration? { get }
 }
 
 extension TerminalRestorable {
@@ -16,7 +16,7 @@ extension TerminalRestorable {
     static var versionKey: String { "version" }
 
     /// Default implementation returns nil (no custom base config).
-    var baseConfig: Ghostty.SurfaceConfiguration? { nil }
+    var baseConfig: JTerm.SurfaceConfiguration? { nil }
 
     init?(coder aDecoder: NSCoder) {
         // If the version doesn't match then we can't decode. In the future we can perform
@@ -44,7 +44,7 @@ class TerminalRestorableState: TerminalRestorable {
     class var version: Int { 7 }
 
     let focusedSurface: String?
-    let surfaceTree: SplitTree<Ghostty.SurfaceView>
+    let surfaceTree: SplitTree<JTerm.SurfaceView>
     let effectiveFullscreenMode: FullscreenMode?
     let tabColor: TerminalTabColor
     let titleOverride: String?
@@ -130,7 +130,7 @@ class TerminalWindowRestoration: NSObject, NSWindowRestoration {
         // Setup our restored state on the controller
         // Find the focused surface in surfaceTree
         if let focusedStr = state.focusedSurface {
-            var foundView: Ghostty.SurfaceView?
+            var foundView: JTerm.SurfaceView?
             for view in c.surfaceTree {
                 if view.id.uuidString == focusedStr {
                     foundView = view
@@ -157,7 +157,7 @@ class TerminalWindowRestoration: NSObject, NSWindowRestoration {
     /// This restores the focus state of the surfaceview within the given window. When restoring,
     /// the view isn't immediately attached to the window since we have to wait for SwiftUI to
     /// catch up. Therefore, we sit in an async loop waiting for the attachment to happen.
-    private static func restoreFocus(to: Ghostty.SurfaceView, inWindow: NSWindow, attempts: Int = 0) {
+    private static func restoreFocus(to: JTerm.SurfaceView, inWindow: NSWindow, attempts: Int = 0) {
         // For the first attempt, we schedule it immediately. Subsequent events wait a bit
         // so we don't just spin the CPU at 100%. Give up after some period of time.
         let after: DispatchTime

@@ -1,6 +1,6 @@
 import GhosttyKit
 
-extension Ghostty {
+extension JTerm {
     /// `ghostty_command_s`
     struct Command: Sendable {
         /// The title of the command.

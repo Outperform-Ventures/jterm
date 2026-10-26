@@ -1,8 +1,8 @@
 import GhosttyKit
 import Metal
 
-extension Ghostty {
-    /// Represents the inspector for a surface within Ghostty.
+extension JTerm {
+    /// Represents the inspector for a surface within JTerm.
     ///
     /// Wraps a `ghostty_inspector_t`
     final class Inspector: Sendable {

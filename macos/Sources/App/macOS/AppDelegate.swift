@@ -9,7 +9,7 @@ class AppDelegate: NSObject,
                     ObservableObject,
                     NSApplicationDelegate,
                     UNUserNotificationCenterDelegate,
-                    GhosttyAppDelegate
+                    JTermAppDelegate
 {
     // The application logger. We should probably move this at some point to a dedicated
     // class/struct but for now it lives here! 🤷‍♂️
@@ -18,7 +18,7 @@ class AppDelegate: NSObject,
         category: String(describing: AppDelegate.self)
     )
 
-    /// Various menu items so that we can programmatically sync the keyboard shortcut with the Ghostty config
+    /// Various menu items so that we can programmatically sync the keyboard shortcut with the JTerm config
     @IBOutlet private var menuAbout: NSMenuItem?
     @IBOutlet private var menuServices: NSMenu?
     @IBOutlet private var menuCheckForUpdates: NSMenuItem?
@@ -93,11 +93,11 @@ class AppDelegate: NSObject,
     /// seconds since the process was launched.
     private var applicationLaunchTime: TimeInterval = 0
 
-    /// This is the current configuration from the Ghostty configuration that we need.
+    /// This is the current configuration from the JTerm configuration that we need.
     private var derivedConfig: DerivedConfig = DerivedConfig()
 
     /// The ghostty global state. Only one per process.
-    let ghostty: Ghostty.App
+    let ghostty: JTerm.App
 
     /// The global undo manager for app-level state such as window restoration.
     lazy var undoManager = ExpiringUndoManager()
@@ -157,9 +157,9 @@ class AppDelegate: NSObject,
 
     override init() {
 #if DEBUG
-        ghostty = Ghostty.App(configPath: ProcessInfo.processInfo.environment["GHOSTTY_CONFIG_PATH"])
+        ghostty = JTerm.App(configPath: ProcessInfo.processInfo.environment["GHOSTTY_CONFIG_PATH"])
 #else
-        ghostty = Ghostty.App()
+        ghostty = JTerm.App()
 #endif
         super.init()
 
@@ -210,7 +210,7 @@ class AppDelegate: NSObject,
         // Register our service provider. This must happen after everything is initialized.
         NSApp.servicesProvider = ServiceProvider()
 
-        // This registers the Ghostty => Services menu to exist.
+        // This registers the JTerm => Services menu to exist.
         NSApp.servicesMenu = menuServices
 
         // Setup a local event monitor for app-level keyboard shortcuts. See
@@ -247,24 +247,24 @@ class AppDelegate: NSObject,
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(ghosttyNewWindow(_:)),
-            name: Ghostty.Notification.ghosttyNewWindow,
+            name: JTerm.Notification.ghosttyNewWindow,
             object: nil)
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(ghosttyNewTab(_:)),
-            name: Ghostty.Notification.ghosttyNewTab,
+            name: JTerm.Notification.ghosttyNewTab,
             object: nil)
 
         // Configure user notifications
         let actions = [
-            UNNotificationAction(identifier: Ghostty.userNotificationActionShow, title: "Show")
+            UNNotificationAction(identifier: JTerm.userNotificationActionShow, title: "Show")
         ]
 
         let center = UNUserNotificationCenter.current()
 
         center.setNotificationCategories([
             UNNotificationCategory(
-                identifier: Ghostty.userNotificationCategory,
+                identifier: JTerm.userNotificationCategory,
                 actions: actions,
                 intentIdentifiers: [],
                 options: [.customDismissAction]
@@ -295,7 +295,7 @@ class AppDelegate: NSObject,
         // Setup signal handlers
         setupSignals()
 
-        switch Ghostty.launchSource {
+        switch JTerm.launchSource {
         case .app:
             // Don't have to do anything.
             break
@@ -374,7 +374,7 @@ class AppDelegate: NSObject,
 
         // If the user is shutting down, restarting, or logging out, we don't confirm quit.
         why: if let event = NSAppleEventManager.shared().currentAppleEvent {
-            // If all Ghostty windows are in the background (i.e. you Cmd-Q from the Cmd-Tab
+            // If all JTerm windows are in the background (i.e. you Cmd-Q from the Cmd-Tab
             // view), then this is null. I don't know why (pun intended) but we have to
             // guard against it.
             guard let keyword = AEKeyword("why?") else { break why }
@@ -401,9 +401,9 @@ class AppDelegate: NSObject,
 
         // We have some visible window. Show an app-wide modal to confirm quitting.
         let alert = NSAlert()
-        alert.messageText = "Quit Ghostty?"
+        alert.messageText = "Quit JTerm?"
         alert.informativeText = "All terminal sessions will be terminated."
-        alert.addButton(withTitle: "Close Ghostty")
+        alert.addButton(withTitle: "Close JTerm")
         alert.addButton(withTitle: "Cancel")
         alert.alertStyle = .warning
         switch (alert.runModal()) {
@@ -446,7 +446,7 @@ class AppDelegate: NSObject,
     }
 
     func application(_ sender: NSApplication, openFile filename: String) -> Bool {
-        // Ghostty will validate as well but we can avoid creating an entirely new
+        // JTerm will validate as well but we can avoid creating an entirely new
         // surface by doing our own validation here. We can also show a useful error
         // this way.
         
@@ -458,7 +458,7 @@ class AppDelegate: NSObject,
         var requiresConfirm: Bool = false
         
         // Initialize the surface config which will be used to create the tab or window for the opened file.
-        var config = Ghostty.SurfaceConfiguration()
+        var config = JTerm.SurfaceConfiguration()
         
         if (isDirectory.boolValue) {
             // When opening a directory, check the configuration to decide
@@ -477,7 +477,7 @@ class AppDelegate: NSObject,
             // profile/rc files for the shell, which is super important on macOS
             // due to things like Homebrew. Instead, we set the command to
             // `<filename>; exit` which is what Terminal and iTerm2 do.
-            config.initialInput = "\(Ghostty.Shell.quote(filename)); exit\n"
+            config.initialInput = "\(JTerm.Shell.quote(filename)); exit\n"
             
             // For commands executed directly, we want to ensure we wait after exit
             // because in most cases scripts don't block on exit and we don't want
@@ -494,7 +494,7 @@ class AppDelegate: NSObject,
             // may want to show this as a sheet on the focused window (especially if we're
             // opening a tab). I'm not sure.
             let alert = NSAlert()
-            alert.messageText = "Allow Ghostty to execute \"\(filename)\"?"
+            alert.messageText = "Allow JTerm to execute \"\(filename)\"?"
             alert.addButton(withTitle: "Allow")
             alert.addButton(withTitle: "Cancel")
             alert.alertStyle = .warning
@@ -541,7 +541,7 @@ class AppDelegate: NSObject,
         let sigusr2 = DispatchSource.makeSignalSource(signal: SIGUSR2, queue: .main)
         sigusr2.setEventHandler { [weak self] in
             guard let self else { return }
-            Ghostty.logger.info("reloading configuration in response to SIGUSR2")
+            JTerm.logger.info("reloading configuration in response to SIGUSR2")
             self.ghostty.reloadConfig()
         }
 
@@ -597,8 +597,8 @@ class AppDelegate: NSObject,
         self.menuFindParent?.setImageIfDesired(systemSymbolName: "text.page.badge.magnifyingglass")
     }
 
-    /// Sync all of our menu item keyboard shortcuts with the Ghostty configuration.
-    private func syncMenuShortcuts(_ config: Ghostty.Config) {
+    /// Sync all of our menu item keyboard shortcuts with the JTerm configuration.
+    private func syncMenuShortcuts(_ config: JTerm.Config) {
         guard ghostty.readiness == .ready else { return }
 
         syncMenuShortcut(config, action: "check_for_updates", menuItem: self.menuCheckForUpdates)
@@ -657,7 +657,7 @@ class AppDelegate: NSObject,
         syncMenuShortcut(config, action: "toggle_secure_input", menuItem: self.menuSecureInput)
 
         // This menu item is NOT synced with the configuration because it disables macOS
-        // global fullscreen keyboard shortcut. The shortcut in the Ghostty config will continue
+        // global fullscreen keyboard shortcut. The shortcut in the JTerm config will continue
         // to work but it won't be reflected in the menu item.
         //
         // syncMenuShortcut(config, action: "toggle_fullscreen", menuItem: self.menuToggleFullScreen)
@@ -667,8 +667,8 @@ class AppDelegate: NSObject,
     }
 
     /// Syncs a single menu shortcut for the given action. The action string is the same
-    /// action string used for the Ghostty configuration.
-    private func syncMenuShortcut(_ config: Ghostty.Config, action: String, menuItem: NSMenuItem?) {
+    /// action string used for the JTerm configuration.
+    private func syncMenuShortcut(_ config: JTerm.Config, action: String, menuItem: NSMenuItem?) {
         guard let menu = menuItem else { return }
         guard let shortcut = config.keyboardShortcut(for: action) else {
             // No shortcut, clear the menu item
@@ -724,7 +724,7 @@ class AppDelegate: NSObject,
                 return ghostty_app_key(app, ghosttyEvent)
             }
 
-            // If the key was handled by Ghostty we stop the event chain. If
+            // If the key was handled by JTerm we stop the event chain. If
             // the key wasn't handled then we let it fall through and continue
             // processing. This is important because some bindings may have no
             // affect at this scope.
@@ -740,15 +740,15 @@ class AppDelegate: NSObject,
         }
 
         // If we reach this point then we try to process the key event
-        // through the Ghostty key mechanism.
+        // through the JTerm key mechanism.
 
-        // Ghostty must be loaded
+        // JTerm must be loaded
         guard let ghostty = self.ghostty.app else { return event }
 
         // Build our event input and call ghostty
         if (ghostty_app_key(ghostty, event.ghosttyKeyEvent(GHOSTTY_ACTION_PRESS))) {
             // The key was used so we want to stop it from going to our Mac app
-            Ghostty.logger.debug("local key event handled event=\(event)")
+            JTerm.logger.debug("local key event handled event=\(event)")
             return nil
         }
 
@@ -770,8 +770,8 @@ class AppDelegate: NSObject,
 
         // Get our managed configuration object out
         guard let config = notification.userInfo?[
-            Notification.Name.GhosttyConfigChangeKey
-        ] as? Ghostty.Config else { return }
+            Notification.Name.JTermConfigChangeKey
+        ] as? JTerm.Config else { return }
 
         ghosttyConfigDidChange(config: config)
     }
@@ -830,21 +830,21 @@ class AppDelegate: NSObject,
     }
 
     @objc private func ghosttyNewWindow(_ notification: Notification) {
-        let configAny = notification.userInfo?[Ghostty.Notification.NewSurfaceConfigKey]
-        let config = configAny as? Ghostty.SurfaceConfiguration
+        let configAny = notification.userInfo?[JTerm.Notification.NewSurfaceConfigKey]
+        let config = configAny as? JTerm.SurfaceConfiguration
         _ = TerminalController.newWindow(ghostty, withBaseConfig: config)
     }
 
     @objc private func ghosttyNewTab(_ notification: Notification) {
-        guard let surfaceView = notification.object as? Ghostty.SurfaceView else { return }
+        guard let surfaceView = notification.object as? JTerm.SurfaceView else { return }
         guard let window = surfaceView.window else { return }
 
         // We only want to listen to new tabs if the focused parent is
         // a regular terminal controller.
         guard window.windowController is TerminalController else { return }
 
-        let configAny = notification.userInfo?[Ghostty.Notification.NewSurfaceConfigKey]
-        let config = configAny as? Ghostty.SurfaceConfiguration
+        let configAny = notification.userInfo?[JTerm.Notification.NewSurfaceConfigKey]
+        let config = configAny as? JTerm.SurfaceConfiguration
 
         _ = TerminalController.newTab(ghostty, from: window, withBaseConfig: config)
     }
@@ -854,7 +854,7 @@ class AppDelegate: NSObject,
         NSApp.dockTile.display()
     }
 
-    private func ghosttyConfigDidChange(config: Ghostty.Config) {
+    private func ghosttyConfigDidChange(config: JTerm.Config) {
         // Update the config we need to store
         self.derivedConfig = DerivedConfig(config)
 
@@ -882,7 +882,7 @@ class AppDelegate: NSObject,
                 autoUpdate == .download
             /**
              To test `auto-update` easily, uncomment the line below and
-             delete `SUEnableAutomaticChecks` in Ghostty-Info.plist.
+             delete `SUEnableAutomaticChecks` in JTerm-Info.plist.
 
              Note: When `auto-update = download`, you may need to
              `Clean Build Folder` if a background install has already begun.
@@ -918,7 +918,7 @@ class AppDelegate: NSObject,
         }
 
         // We need to handle our global event tap depending on if there are global
-        // events that we care about in Ghostty.
+        // events that we care about in JTerm.
         if (ghostty_app_has_global_keybinds(ghostty.app!)) {
             if (timeSinceLaunch > 5) {
                 // If the process has been running for awhile we enable right away
@@ -941,14 +941,14 @@ class AppDelegate: NSObject,
     }
 
     /// Sync the appearance of our app with the theme specified in the config.
-    private func syncAppearance(config: Ghostty.Config) {
+    private func syncAppearance(config: JTerm.Config) {
         NSApplication.shared.appearance = .init(ghosttyConfig: config)
     }
 
     // Using AppIconActor to ensure this work
     // happens synchronously in the background
     @AppIconActor
-    private func updateAppIcon(from config: Ghostty.Config) async  {
+    private func updateAppIcon(from config: JTerm.Config) async  {
         var appIcon: NSImage?
         var appIconName: String? = config.macosIcon.rawValue
 
@@ -1079,9 +1079,9 @@ class AppDelegate: NSObject,
         withCompletionHandler(options)
     }
 
-    //MARK: - GhosttyAppDelegate
+    //MARK: - JTermAppDelegate
 
-    func findSurface(forUUID uuid: UUID) -> Ghostty.SurfaceView? {
+    func findSurface(forUUID uuid: UUID) -> JTerm.SurfaceView? {
         for c in TerminalController.all {
             for view in c.surfaceTree {
                 if view.id == uuid {
@@ -1106,7 +1106,7 @@ class AppDelegate: NSObject,
 
     //MARK: - Global State
 
-    func setSecureInput(_ mode: Ghostty.SetSecureInput) {
+    func setSecureInput(_ mode: JTerm.SetSecureInput) {
         let input = SecureInput.shared
         switch (mode) {
         case .on:
@@ -1125,7 +1125,7 @@ class AppDelegate: NSObject,
     //MARK: - IB Actions
 
     @IBAction func openConfig(_ sender: Any?) {
-        Ghostty.App.openConfig()
+        JTerm.App.openConfig()
     }
 
     @IBAction func reloadConfig(_ sender: Any?) {
@@ -1158,8 +1158,15 @@ class AppDelegate: NSObject,
     }
 
     @IBAction func showHelp(_ sender: Any) {
-        guard let url = URL(string: "https://ghostty.org/docs") else { return }
-        NSWorkspace.shared.open(url)
+        if let docsURL = bundledOrCheckoutDocumentationURL() {
+            NSWorkspace.shared.open(docsURL)
+            return
+        }
+
+        let alert = NSAlert()
+        alert.messageText = "Documentation Not Found"
+        alert.informativeText = "This jTerm build could not locate bundled or checkout documentation."
+        alert.runModal()
     }
 
     @IBAction func toggleSecureInput(_ sender: Any) {
@@ -1170,12 +1177,12 @@ class AppDelegate: NSObject,
         quickController.toggle()
     }
 
-    /// Toggles visibility of all Ghosty Terminal windows. When hidden, activates Ghostty as the frontmost application
+    /// Toggles visibility of all Ghosty Terminal windows. When hidden, activates JTerm as the frontmost application
     @IBAction func toggleVisibility(_ sender: Any) {
         // If we have focus, then we hide all windows.
         if NSApp.isActive {
             // Toggle visibility doesn't do anything if the focused window is native
-            // fullscreen. This is only relevant if Ghostty is active.
+            // fullscreen. This is only relevant if JTerm is active.
             guard let keyWindow = NSApp.keyWindow,
                   !keyWindow.styleMask.contains(.fullScreen) else { return }
 
@@ -1191,6 +1198,34 @@ class AppDelegate: NSObject,
         // ones that we hid.
         hiddenState?.restore()
         hiddenState = nil
+    }
+
+    private func bundledOrCheckoutDocumentationURL() -> URL? {
+        let fileManager = FileManager.default
+        let candidateNames = [
+            "docs/JTERM_REMOTE_CONTROL_USER_GUIDE.md",
+            "README.md",
+        ]
+
+        if let resourcePath = Bundle.main.resourcePath {
+            for name in candidateNames {
+                let url = URL(fileURLWithPath: resourcePath).appendingPathComponent(name)
+                if fileManager.fileExists(atPath: url.path) { return url }
+            }
+        }
+
+        var current = Bundle.main.bundleURL.deletingLastPathComponent()
+        for _ in 0..<8 {
+            for name in candidateNames {
+                let url = current.appendingPathComponent(name)
+                if fileManager.fileExists(atPath: url.path) { return url }
+            }
+            let parent = current.deletingLastPathComponent()
+            if parent.path == current.path { break }
+            current = parent
+        }
+
+        return nil
     }
 
     @IBAction func bringAllToFront(_ sender: Any) {
@@ -1220,7 +1255,7 @@ class AppDelegate: NSObject,
             self.quickTerminalPosition = .top
         }
 
-        init(_ config: Ghostty.Config) {
+        init(_ config: JTerm.Config) {
             self.initialWindow = config.initialWindow
             self.shouldQuitAfterLastWindowClosed = config.shouldQuitAfterLastWindowClosed
             self.quickTerminalPosition = config.quickTerminalPosition
@@ -1302,7 +1337,7 @@ extension AppDelegate {
                 let alert = NSAlert()
                 alert.messageText = "Failed to Set Default Terminal"
                 alert.informativeText = """
-                Ghostty could not be set as the default terminal application.
+                jTerm could not be set as the default terminal application.
 
                 Error: \(error.localizedDescription)
                 """

@@ -1,6 +1,6 @@
 import GhosttyKit
 
-/// Represents the Ghostty `quick-terminal-size` configuration. See the documentation for
+/// Represents the JTerm `quick-terminal-size` configuration. See the documentation for
 /// that for more details on exactly how it works. Some of those docs will be reproduced in various comments
 /// in this file but that is the best source of truth for it.
 ///

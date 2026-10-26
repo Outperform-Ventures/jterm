@@ -486,6 +486,17 @@ pub fn addOptions(self: *const Config, step: *std.Build.Step.Options) !void {
     step.addOption(ExeEntrypoint, "exe_entrypoint", self.exe_entrypoint);
     step.addOption(WasmTarget, "wasm_target", self.wasm_target);
     step.addOption(bool, "wasm_shared", self.wasm_shared);
+    step.addOption(
+        [:0]const u8,
+        "default_remote_control_target",
+        switch (self.optimize) {
+            .Debug => "unix:/tmp/jterm-dev.sock",
+            .ReleaseSafe,
+            .ReleaseSmall,
+            .ReleaseFast,
+            => "unix:/tmp/jterm-stable.sock",
+        },
+    );
 
     // Our version. We also add the string version so we don't need
     // to do any allocations at runtime. This has to be long enough to

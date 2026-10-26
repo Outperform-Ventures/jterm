@@ -14,6 +14,6 @@ struct ShellTests {
         ("file$'name'", "'file$'\"'\"'name'\"'\"''"),
     ])
     func quote(input: String, expected: String) {
-        #expect(Ghostty.Shell.quote(input) == expected)
+        #expect(JTerm.Shell.quote(input) == expected)
     }
 }

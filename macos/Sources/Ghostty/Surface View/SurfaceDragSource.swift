@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-extension Ghostty {
+extension JTerm {
     /// A preference key that propagates the ID of the SurfaceView currently being dragged,
     /// or nil if no surface is being dragged.
     struct DraggingSurfaceKey: PreferenceKey {

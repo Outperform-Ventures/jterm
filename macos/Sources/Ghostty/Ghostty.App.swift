@@ -2,24 +2,24 @@ import SwiftUI
 import UserNotifications
 import GhosttyKit
 
-protocol GhosttyAppDelegate: AnyObject {
+protocol JTermAppDelegate: AnyObject {
     #if os(macOS)
     /// Called when a callback needs access to a specific surface. This should return nil
     /// when the surface is no longer valid.
-    func findSurface(forUUID uuid: UUID) -> Ghostty.SurfaceView?
+    func findSurface(forUUID uuid: UUID) -> JTerm.SurfaceView?
     #endif
 }
 
-extension Ghostty {
+extension JTerm {
     // IMPORTANT: THIS IS NOT DONE.
-    // This is a refactor/redo of Ghostty.AppState so that it supports both macOS and iOS
+    // This is a refactor/redo of JTerm.AppState so that it supports both macOS and iOS
     class App: ObservableObject {
         enum Readiness: String {
             case loading, error, ready
         }
 
         /// Optional delegate
-        weak var delegate: GhosttyAppDelegate?
+        weak var delegate: JTermAppDelegate?
 
         /// The readiness value of the state.
         @Published var readiness: Readiness = .loading
@@ -119,7 +119,7 @@ extension Ghostty {
         }
 
         static func openConfig() {
-            let str = Ghostty.AllocatedString(ghostty_config_open_path()).string
+            let str = JTerm.AllocatedString(ghostty_config_open_path()).string
             guard !str.isEmpty else { return }
             #if os(macOS)
             let fileURL = URL(fileURLWithPath: str).absoluteString
@@ -148,7 +148,7 @@ extension Ghostty {
             // Hard or full updates have to reload the full configuration
             let newConfig = Config(at: configPath)
             guard newConfig.loaded else {
-                Ghostty.logger.warning("failed to reload configuration")
+                JTerm.logger.warning("failed to reload configuration")
                 return
             }
 
@@ -168,7 +168,7 @@ extension Ghostty {
             // config. We free it after the call.
             let newConfig = Config(at: configPath)
             guard newConfig.loaded else {
-                Ghostty.logger.warning("failed to reload configuration")
+                JTerm.logger.warning("failed to reload configuration")
                 return
             }
 
@@ -261,7 +261,7 @@ extension Ghostty {
         }
 
         #if os(iOS)
-        // MARK: Ghostty Callbacks (iOS)
+        // MARK: JTerm Callbacks (iOS)
 
         static func wakeup(_ userdata: UnsafeMutableRawPointer?) {}
         static func action(_ app: ghostty_app_t, target: ghostty_target_s, action: ghostty_action_s) -> Bool { return false }
@@ -293,7 +293,7 @@ extension Ghostty {
 
         // MARK: Notifications
 
-        // Called when the selected keyboard changes. We have to notify Ghostty so that
+        // Called when the selected keyboard changes. We have to notify JTerm so that
         // it can reload the keyboard mapping for input.
         @objc private func keyboardSelectionDidChange(notification: NSNotification) {
             guard let app = self.app else { return }
@@ -313,7 +313,7 @@ extension Ghostty {
         }
 
 
-        // MARK: Ghostty Callbacks (macOS)
+        // MARK: JTerm Callbacks (macOS)
 
         static func closeSurface(_ userdata: UnsafeMutableRawPointer?, processAlive: Bool) {
             let surface = self.surfaceUserdata(from: userdata)
@@ -346,7 +346,7 @@ extension Ghostty {
         ) {
             let surface = self.surfaceUserdata(from: userdata)
             guard let valueStr = String(cString: string!, encoding: .utf8) else { return }
-            guard let request = Ghostty.ClipboardRequest.from(request: request) else { return }
+            guard let request = JTerm.ClipboardRequest.from(request: request) else { return }
             NotificationCenter.default.post(
                 name: Notification.confirmClipboard,
                 object: surface,
@@ -382,7 +382,7 @@ extension Ghostty {
             
             // Convert the C array to Swift array
             let contentArray = (0..<len).compactMap { i in
-                Ghostty.ClipboardContent.from(content: content[i])
+                JTerm.ClipboardContent.from(content: content[i])
             }
             guard !contentArray.isEmpty else { return }
             
@@ -416,7 +416,7 @@ extension Ghostty {
                 object: surface,
                 userInfo: [
                     Notification.ConfirmClipboardStrKey: textPlainContent.data,
-                    Notification.ConfirmClipboardRequestKey: Ghostty.ClipboardRequest.osc_52_write(pasteboard),
+                    Notification.ConfirmClipboardRequestKey: JTerm.ClipboardRequest.osc_52_write(pasteboard),
                 ]
             )
         }
@@ -431,7 +431,7 @@ extension Ghostty {
             DispatchQueue.main.async { state.appTick() }
         }
 
-        /// Determine if a given notification should be presented to the user when Ghostty is running in the foreground.
+        /// Determine if a given notification should be presented to the user when JTerm is running in the foreground.
         func shouldPresentNotification(notification: UNNotification) -> Bool {
             let userInfo = notification.request.content.userInfo
             guard let uuidString = userInfo["surface"] as? String,
@@ -631,7 +631,7 @@ extension Ghostty {
                 break
 
             default:
-                Ghostty.logger.warning("unknown action target=\(target.tag.rawValue)")
+                JTerm.logger.warning("unknown action target=\(target.tag.rawValue)")
                 return false
             }
 
@@ -817,12 +817,12 @@ extension Ghostty {
             case GHOSTTY_ACTION_QUIT_TIMER:
                 fallthrough
             case GHOSTTY_ACTION_SHOW_CHILD_EXITED:
-                Ghostty.logger.info("known but unimplemented action action=\(action.tag.rawValue)")
+                JTerm.logger.info("known but unimplemented action action=\(action.tag.rawValue)")
                 return false
             case GHOSTTY_ACTION_COPY_TITLE_TO_CLIPBOARD:
                 return copyTitleToClipboard(app, target: target)
             default:
-                Ghostty.logger.warning("unknown action action=\(action.tag.rawValue)")
+                JTerm.logger.warning("unknown action action=\(action.tag.rawValue)")
                 return false
             }
 
@@ -857,7 +857,7 @@ extension Ghostty {
         private static func openURL(
             _ v: ghostty_action_open_url_s
         ) -> Bool {
-            let action = Ghostty.Action.OpenURL(c: v)
+            let action = JTerm.Action.OpenURL(c: v)
             
             // If the URL doesn't have a valid scheme we assume its a file path. The URL
             // initializer will gladly take invalid URLs (e.g. plain file paths) and turn
@@ -1004,7 +1004,7 @@ extension Ghostty {
             switch (target.tag) {
             case GHOSTTY_TARGET_APP:
                 // New split does nothing with an app target
-                Ghostty.logger.warning("new split does nothing with an app target")
+                JTerm.logger.warning("new split does nothing with an app target")
                 return
 
             case GHOSTTY_TARGET_SURFACE:
@@ -1053,7 +1053,7 @@ extension Ghostty {
         private static func closeTab(_ app: ghostty_app_t, target: ghostty_target_s, mode: ghostty_action_close_tab_mode_e) {
             switch (target.tag) {
             case GHOSTTY_TARGET_APP:
-                Ghostty.logger.warning("close tabs does nothing with an app target")
+                JTerm.logger.warning("close tabs does nothing with an app target")
                 return
 
             case GHOSTTY_TARGET_SURFACE:
@@ -1095,7 +1095,7 @@ extension Ghostty {
         private static func closeWindow(_ app: ghostty_app_t, target: ghostty_target_s) {
             switch (target.tag) {
             case GHOSTTY_TARGET_APP:
-                Ghostty.logger.warning("close window does nothing with an app target")
+                JTerm.logger.warning("close window does nothing with an app target")
                 return
 
             case GHOSTTY_TARGET_SURFACE:
@@ -1123,14 +1123,14 @@ extension Ghostty {
             mode raw: ghostty_action_fullscreen_e) {
             switch (target.tag) {
             case GHOSTTY_TARGET_APP:
-                Ghostty.logger.warning("toggle fullscreen does nothing with an app target")
+                JTerm.logger.warning("toggle fullscreen does nothing with an app target")
                 return
 
             case GHOSTTY_TARGET_SURFACE:
                 guard let surface = target.target.surface else { return }
                 guard let surfaceView = self.surfaceView(from: surface) else { return }
                 guard let mode = FullscreenMode.from(ghostty: raw) else {
-                    Ghostty.logger.warning("unknown fullscreen mode raw=\(raw.rawValue)")
+                    JTerm.logger.warning("unknown fullscreen mode raw=\(raw.rawValue)")
                     return
                 }
                 NotificationCenter.default.post(
@@ -1152,7 +1152,7 @@ extension Ghostty {
             target: ghostty_target_s) {
             switch (target.tag) {
             case GHOSTTY_TARGET_APP:
-                Ghostty.logger.warning("toggle command palette does nothing with an app target")
+                JTerm.logger.warning("toggle command palette does nothing with an app target")
                 return
 
             case GHOSTTY_TARGET_SURFACE:
@@ -1175,7 +1175,7 @@ extension Ghostty {
         ) {
             switch (target.tag) {
             case GHOSTTY_TARGET_APP:
-                Ghostty.logger.warning("toggle maximize does nothing with an app target")
+                JTerm.logger.warning("toggle maximize does nothing with an app target")
                 return
 
             case GHOSTTY_TARGET_SURFACE:
@@ -1208,7 +1208,7 @@ extension Ghostty {
                 // Technically we could still request app attention here but there
                 // are no known cases where the bell is rang with an app target so
                 // I think its better to warn.
-                Ghostty.logger.warning("ring bell does nothing with an app target")
+                JTerm.logger.warning("ring bell does nothing with an app target")
                 return
 
             case GHOSTTY_TARGET_SURFACE:
@@ -1230,7 +1230,7 @@ extension Ghostty {
             v: ghostty_action_readonly_e) {
             switch (target.tag) {
             case GHOSTTY_TARGET_APP:
-                Ghostty.logger.warning("set readonly does nothing with an app target")
+                JTerm.logger.warning("set readonly does nothing with an app target")
                 return
 
             case GHOSTTY_TARGET_SURFACE:
@@ -1255,7 +1255,7 @@ extension Ghostty {
             move: ghostty_action_move_tab_s) -> Bool {
                 switch (target.tag) {
                 case GHOSTTY_TARGET_APP:
-                    Ghostty.logger.warning("move tab does nothing with an app target")
+                    JTerm.logger.warning("move tab does nothing with an app target")
                     return false
 
                 case GHOSTTY_TARGET_SURFACE:
@@ -1269,7 +1269,7 @@ extension Ghostty {
                         name: .ghosttyMoveTab,
                         object: surfaceView,
                         userInfo: [
-                            SwiftUI.Notification.Name.GhosttyMoveTabKey: Action.MoveTab(c: move),
+                            SwiftUI.Notification.Name.JTermMoveTabKey: Action.MoveTab(c: move),
                         ]
                     )
 
@@ -1286,7 +1286,7 @@ extension Ghostty {
             tab: ghostty_action_goto_tab_e) -> Bool {
                 switch (target.tag) {
                 case GHOSTTY_TARGET_APP:
-                    Ghostty.logger.warning("goto tab does nothing with an app target")
+                    JTerm.logger.warning("goto tab does nothing with an app target")
                     return false
 
                 case GHOSTTY_TARGET_SURFACE:
@@ -1318,7 +1318,7 @@ extension Ghostty {
             direction: ghostty_action_goto_split_e) -> Bool {
                 switch (target.tag) {
                 case GHOSTTY_TARGET_APP:
-                    Ghostty.logger.warning("goto split does nothing with an app target")
+                    JTerm.logger.warning("goto split does nothing with an app target")
                     return false
 
                 case GHOSTTY_TARGET_SURFACE:
@@ -1338,7 +1338,7 @@ extension Ghostty {
                     // Check if a split actually exists in the target direction before
                     // returning true. This ensures performable keybinds only consume
                     // the key event when we actually perform navigation.
-                    let focusDirection: SplitTree<Ghostty.SurfaceView>.FocusDirection = splitDirection.toSplitTreeFocusDirection()
+                    let focusDirection: SplitTree<JTerm.SurfaceView>.FocusDirection = splitDirection.toSplitTreeFocusDirection()
                     guard controller.surfaceTree.focusTarget(for: focusDirection, from: targetNode) != nil else {
                         return false
                     }
@@ -1408,7 +1408,7 @@ extension Ghostty {
                     // Also focus the terminal surface within the window
                     if let controller = candidate.windowController as? BaseTerminalController,
                        let surface = controller.focusedSurface {
-                        Ghostty.moveFocus(to: surface)
+                        JTerm.moveFocus(to: surface)
                     }
                     return true
                 }
@@ -1424,7 +1424,7 @@ extension Ghostty {
             resize: ghostty_action_resize_split_s) -> Bool {
                 switch (target.tag) {
                 case GHOSTTY_TARGET_APP:
-                    Ghostty.logger.warning("resize split does nothing with an app target")
+                    JTerm.logger.warning("resize split does nothing with an app target")
                     return false
 
                 case GHOSTTY_TARGET_SURFACE:
@@ -1457,7 +1457,7 @@ extension Ghostty {
             target: ghostty_target_s) {
             switch (target.tag) {
             case GHOSTTY_TARGET_APP:
-                Ghostty.logger.warning("equalize splits does nothing with an app target")
+                JTerm.logger.warning("equalize splits does nothing with an app target")
                 return
 
             case GHOSTTY_TARGET_SURFACE:
@@ -1479,7 +1479,7 @@ extension Ghostty {
             target: ghostty_target_s) -> Bool {
             switch (target.tag) {
             case GHOSTTY_TARGET_APP:
-                Ghostty.logger.warning("toggle split zoom does nothing with an app target")
+                JTerm.logger.warning("toggle split zoom does nothing with an app target")
                 return false
 
             case GHOSTTY_TARGET_SURFACE:
@@ -1509,7 +1509,7 @@ extension Ghostty {
             mode: ghostty_action_inspector_e) {
             switch (target.tag) {
             case GHOSTTY_TARGET_APP:
-                Ghostty.logger.warning("toggle inspector does nothing with an app target")
+                JTerm.logger.warning("toggle inspector does nothing with an app target")
                 return
 
             case GHOSTTY_TARGET_SURFACE:
@@ -1533,7 +1533,7 @@ extension Ghostty {
             n: ghostty_action_desktop_notification_s) {
             switch (target.tag) {
             case GHOSTTY_TARGET_APP:
-                Ghostty.logger.warning("toggle split zoom does nothing with an app target")
+                JTerm.logger.warning("toggle split zoom does nothing with an app target")
                 return
 
             case GHOSTTY_TARGET_SURFACE:
@@ -1545,7 +1545,7 @@ extension Ghostty {
                 let center = UNUserNotificationCenter.current()
                 center.requestAuthorization(options: [.alert, .sound]) { _, error in
                     if let error = error {
-                        Ghostty.logger.error("Error while requesting notification authorization: \(error)")
+                        JTerm.logger.error("Error while requesting notification authorization: \(error)")
                     }
                 }
 
@@ -1569,7 +1569,7 @@ extension Ghostty {
 
             switch (target.tag) {
             case GHOSTTY_TARGET_APP:
-                Ghostty.logger.warning("toggle float window does nothing with an app target")
+                JTerm.logger.warning("toggle float window does nothing with an app target")
                 return
 
             case GHOSTTY_TARGET_SURFACE:
@@ -1603,7 +1603,7 @@ extension Ghostty {
         ) {
             switch (target.tag) {
             case GHOSTTY_TARGET_APP:
-                Ghostty.logger.warning("toggle background opacity does nothing with an app target")
+                JTerm.logger.warning("toggle background opacity does nothing with an app target")
                 return
 
             case GHOSTTY_TARGET_SURFACE:
@@ -1666,7 +1666,7 @@ extension Ghostty {
             v: ghostty_action_set_title_s) {
             switch (target.tag) {
             case GHOSTTY_TARGET_APP:
-                Ghostty.logger.warning("set title does nothing with an app target")
+                JTerm.logger.warning("set title does nothing with an app target")
                 return
 
             case GHOSTTY_TARGET_SURFACE:
@@ -1854,7 +1854,7 @@ extension Ghostty {
                 return true
 
             default:
-                Ghostty.logger.warning("unknown os window control operation op=\(operation.rawValue)")
+                JTerm.logger.warning("unknown os window control operation op=\(operation.rawValue)")
                 return false
             }
         }
@@ -1887,7 +1887,7 @@ extension Ghostty {
             case .surface:
                 switch (target.tag) {
                 case GHOSTTY_TARGET_APP:
-                    Ghostty.logger.warning("set title prompt does nothing with an app target")
+                    JTerm.logger.warning("set title prompt does nothing with an app target")
                     return false
 
                 case GHOSTTY_TARGET_SURFACE:
@@ -1938,7 +1938,7 @@ extension Ghostty {
             v: ghostty_action_pwd_s) {
             switch (target.tag) {
             case GHOSTTY_TARGET_APP:
-                Ghostty.logger.warning("pwd change does nothing with an app target")
+                JTerm.logger.warning("pwd change does nothing with an app target")
                 return
 
             case GHOSTTY_TARGET_SURFACE:
@@ -1958,7 +1958,7 @@ extension Ghostty {
             shape: ghostty_action_mouse_shape_e) {
             switch (target.tag) {
             case GHOSTTY_TARGET_APP:
-                Ghostty.logger.warning("set mouse shapes nothing with an app target")
+                JTerm.logger.warning("set mouse shapes nothing with an app target")
                 return
 
             case GHOSTTY_TARGET_SURFACE:
@@ -1978,7 +1978,7 @@ extension Ghostty {
             v: ghostty_action_mouse_visibility_e) {
             switch (target.tag) {
             case GHOSTTY_TARGET_APP:
-                Ghostty.logger.warning("set mouse shapes nothing with an app target")
+                JTerm.logger.warning("set mouse shapes nothing with an app target")
                 return
 
             case GHOSTTY_TARGET_SURFACE:
@@ -2007,7 +2007,7 @@ extension Ghostty {
             v: ghostty_action_mouse_over_link_s) {
             switch (target.tag) {
             case GHOSTTY_TARGET_APP:
-                Ghostty.logger.warning("mouse over link does nothing with an app target")
+                JTerm.logger.warning("mouse over link does nothing with an app target")
                 return
 
             case GHOSTTY_TARGET_SURFACE:
@@ -2033,7 +2033,7 @@ extension Ghostty {
             v: ghostty_action_initial_size_s) {
             switch (target.tag) {
             case GHOSTTY_TARGET_APP:
-                Ghostty.logger.warning("initial size does nothing with an app target")
+                JTerm.logger.warning("initial size does nothing with an app target")
                 return
 
             case GHOSTTY_TARGET_SURFACE:
@@ -2052,7 +2052,7 @@ extension Ghostty {
             target: ghostty_target_s) {
             switch (target.tag) {
             case GHOSTTY_TARGET_APP:
-                Ghostty.logger.warning("reset window size does nothing with an app target")
+                JTerm.logger.warning("reset window size does nothing with an app target")
                 return
 
             case GHOSTTY_TARGET_SURFACE:
@@ -2075,7 +2075,7 @@ extension Ghostty {
             v: ghostty_action_cell_size_s) {
             switch (target.tag) {
             case GHOSTTY_TARGET_APP:
-                Ghostty.logger.warning("mouse over link does nothing with an app target")
+                JTerm.logger.warning("mouse over link does nothing with an app target")
                 return
 
             case GHOSTTY_TARGET_SURFACE:
@@ -2097,7 +2097,7 @@ extension Ghostty {
             target: ghostty_target_s) {
             switch (target.tag) {
             case GHOSTTY_TARGET_APP:
-                Ghostty.logger.warning("mouse over link does nothing with an app target")
+                JTerm.logger.warning("mouse over link does nothing with an app target")
                 return
 
             case GHOSTTY_TARGET_SURFACE:
@@ -2119,7 +2119,7 @@ extension Ghostty {
             v: ghostty_action_renderer_health_e) {
             switch (target.tag) {
             case GHOSTTY_TARGET_APP:
-                Ghostty.logger.warning("mouse over link does nothing with an app target")
+                JTerm.logger.warning("mouse over link does nothing with an app target")
                 return
 
             case GHOSTTY_TARGET_SURFACE:
@@ -2144,7 +2144,7 @@ extension Ghostty {
             v: ghostty_action_key_sequence_s) {
             switch (target.tag) {
             case GHOSTTY_TARGET_APP:
-                Ghostty.logger.warning("key sequence does nothing with an app target")
+                JTerm.logger.warning("key sequence does nothing with an app target")
                 return
 
             case GHOSTTY_TARGET_SURFACE:
@@ -2176,13 +2176,13 @@ extension Ghostty {
             v: ghostty_action_key_table_s) {
             switch (target.tag) {
             case GHOSTTY_TARGET_APP:
-                Ghostty.logger.warning("key table does nothing with an app target")
+                JTerm.logger.warning("key table does nothing with an app target")
                 return
 
             case GHOSTTY_TARGET_SURFACE:
                 guard let surface = target.target.surface else { return }
                 guard let surfaceView = self.surfaceView(from: surface) else { return }
-                guard let action = Ghostty.Action.KeyTable(c: v) else { return }
+                guard let action = JTerm.Action.KeyTable(c: v) else { return }
 
                 NotificationCenter.default.post(
                     name: Notification.didChangeKeyTable,
@@ -2201,14 +2201,14 @@ extension Ghostty {
             v: ghostty_action_progress_report_s) {
             switch (target.tag) {
             case GHOSTTY_TARGET_APP:
-                Ghostty.logger.warning("progress report does nothing with an app target")
+                JTerm.logger.warning("progress report does nothing with an app target")
                 return
 
             case GHOSTTY_TARGET_SURFACE:
                 guard let surface = target.target.surface else { return }
                 guard let surfaceView = self.surfaceView(from: surface) else { return }
                 
-                let progressReport = Ghostty.Action.ProgressReport(c: v)
+                let progressReport = JTerm.Action.ProgressReport(c: v)
                 DispatchQueue.main.async {
                     if progressReport.state == .remove {
                         surfaceView.progressReport = nil
@@ -2228,14 +2228,14 @@ extension Ghostty {
             v: ghostty_action_scrollbar_s) {
             switch (target.tag) {
             case GHOSTTY_TARGET_APP:
-                Ghostty.logger.warning("scrollbar does nothing with an app target")
+                JTerm.logger.warning("scrollbar does nothing with an app target")
                 return
 
             case GHOSTTY_TARGET_SURFACE:
                 guard let surface = target.target.surface else { return }
                 guard let surfaceView = self.surfaceView(from: surface) else { return }
                 
-                let scrollbar = Ghostty.Action.Scrollbar(c: v)
+                let scrollbar = JTerm.Action.Scrollbar(c: v)
                 NotificationCenter.default.post(
                     name: .ghosttyDidUpdateScrollbar,
                     object: surfaceView,
@@ -2255,21 +2255,21 @@ extension Ghostty {
             v: ghostty_action_start_search_s) {
             switch (target.tag) {
             case GHOSTTY_TARGET_APP:
-                Ghostty.logger.warning("start_search does nothing with an app target")
+                JTerm.logger.warning("start_search does nothing with an app target")
                 return
 
             case GHOSTTY_TARGET_SURFACE:
                 guard let surface = target.target.surface else { return }
                 guard let surfaceView = self.surfaceView(from: surface) else { return }
 
-                let startSearch = Ghostty.Action.StartSearch(c: v)
+                let startSearch = JTerm.Action.StartSearch(c: v)
                 DispatchQueue.main.async {
                     if let searchState = surfaceView.searchState {
                         if let needle = startSearch.needle, !needle.isEmpty {
                             searchState.needle = needle
                         }
                     } else {
-                        surfaceView.searchState = Ghostty.SurfaceView.SearchState(from: startSearch)
+                        surfaceView.searchState = JTerm.SurfaceView.SearchState(from: startSearch)
                     }
                                         
                     NotificationCenter.default.post(name: .ghosttySearchFocus, object: surfaceView)
@@ -2285,7 +2285,7 @@ extension Ghostty {
             target: ghostty_target_s) {
             switch (target.tag) {
             case GHOSTTY_TARGET_APP:
-                Ghostty.logger.warning("end_search does nothing with an app target")
+                JTerm.logger.warning("end_search does nothing with an app target")
                 return
 
             case GHOSTTY_TARGET_SURFACE:
@@ -2307,7 +2307,7 @@ extension Ghostty {
             v: ghostty_action_search_total_s) {
             switch (target.tag) {
             case GHOSTTY_TARGET_APP:
-                Ghostty.logger.warning("search_total does nothing with an app target")
+                JTerm.logger.warning("search_total does nothing with an app target")
                 return
 
             case GHOSTTY_TARGET_SURFACE:
@@ -2330,7 +2330,7 @@ extension Ghostty {
             v: ghostty_action_search_selected_s) {
             switch (target.tag) {
             case GHOSTTY_TARGET_APP:
-                Ghostty.logger.warning("search_selected does nothing with an app target")
+                JTerm.logger.warning("search_selected does nothing with an app target")
                 return
 
             case GHOSTTY_TARGET_SURFACE:
@@ -2390,7 +2390,7 @@ extension Ghostty {
                         name: .ghosttyConfigDidChange,
                         object: nil,
                         userInfo: [
-                            SwiftUI.Notification.Name.GhosttyConfigChangeKey: config,
+                            SwiftUI.Notification.Name.JTermConfigChangeKey: config,
                         ]
                     )
 
@@ -2410,7 +2410,7 @@ extension Ghostty {
                         name: .ghosttyConfigDidChange,
                         object: surfaceView,
                         userInfo: [
-                            SwiftUI.Notification.Name.GhosttyConfigChangeKey: config,
+                            SwiftUI.Notification.Name.JTermConfigChangeKey: config,
                         ]
                     )
 
@@ -2425,7 +2425,7 @@ extension Ghostty {
             change: ghostty_action_color_change_s) {
                 switch (target.tag) {
                 case GHOSTTY_TARGET_APP:
-                    Ghostty.logger.warning("color change does nothing with an app target")
+                    JTerm.logger.warning("color change does nothing with an app target")
                     return
 
                 case GHOSTTY_TARGET_SURFACE:
@@ -2435,7 +2435,7 @@ extension Ghostty {
                         name: .ghosttyColorDidChange,
                         object: surfaceView,
                         userInfo: [
-                            SwiftUI.Notification.Name.GhosttyColorChangeKey: Action.ColorChange(c: change)
+                            SwiftUI.Notification.Name.JTermColorChangeKey: Action.ColorChange(c: change)
                         ]
                     )
 
@@ -2455,7 +2455,7 @@ extension Ghostty {
                   let surface = delegate?.findSurface(forUUID: uuid) else { return }
 
             switch (response.actionIdentifier) {
-            case UNNotificationDefaultActionIdentifier, Ghostty.userNotificationActionShow:
+            case UNNotificationDefaultActionIdentifier, JTerm.userNotificationActionShow:
                 // The user clicked on a notification
                 surface.handleUserNotification(notification: response.notification, focus: true)
             case UNNotificationDismissActionIdentifier:

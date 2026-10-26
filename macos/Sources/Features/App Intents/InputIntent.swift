@@ -32,11 +32,11 @@ struct InputTextIntent: AppIntent {
     @MainActor
     func perform() async throws -> some IntentResult {
         guard await requestIntentPermission() else {
-            throw GhosttyIntentError.permissionDenied
+            throw JTermIntentError.permissionDenied
         }
         
         guard let surface = terminal.surfaceModel else {
-            throw GhosttyIntentError.surfaceNotFound
+            throw JTermIntentError.surfaceNotFound
         }
 
         surface.sendText(text)
@@ -54,7 +54,7 @@ struct KeyEventIntent: AppIntent {
         description: "The key to send to the terminal.",
         default: .enter
     )
-    var key: Ghostty.Input.Key
+    var key: JTerm.Input.Key
 
     @Parameter(
         title: "Modifier(s)",
@@ -68,7 +68,7 @@ struct KeyEventIntent: AppIntent {
         description: "A key press or release.",
         default: .press
     )
-    var action: Ghostty.Input.Action
+    var action: JTerm.Input.Action
 
     @Parameter(
         title: "Terminal",
@@ -84,19 +84,19 @@ struct KeyEventIntent: AppIntent {
     @MainActor
     func perform() async throws -> some IntentResult {
         guard await requestIntentPermission() else {
-            throw GhosttyIntentError.permissionDenied
+            throw JTermIntentError.permissionDenied
         }
         
         guard let surface = terminal.surfaceModel else {
-            throw GhosttyIntentError.surfaceNotFound
+            throw JTermIntentError.surfaceNotFound
         }
 
-        // Convert KeyEventMods array to Ghostty.Input.Mods
-        let ghosttyMods = mods.reduce(Ghostty.Input.Mods()) { result, mod in
+        // Convert KeyEventMods array to JTerm.Input.Mods
+        let ghosttyMods = mods.reduce(JTerm.Input.Mods()) { result, mod in
             result.union(mod.ghosttyMod)
         }
         
-        let keyEvent = Ghostty.Input.KeyEvent(
+        let keyEvent = JTerm.Input.KeyEvent(
             key: key,
             action: action,
             mods: ghosttyMods
@@ -118,14 +118,14 @@ struct MouseButtonIntent: AppIntent {
         description: "The mouse button to press or release.",
         default: .left
     )
-    var button: Ghostty.Input.MouseButton
+    var button: JTerm.Input.MouseButton
 
     @Parameter(
         title: "Action",
         description: "Whether to press or release the button.",
         default: .press
     )
-    var action: Ghostty.Input.MouseState
+    var action: JTerm.Input.MouseState
 
     @Parameter(
         title: "Modifier(s)",
@@ -148,19 +148,19 @@ struct MouseButtonIntent: AppIntent {
     @MainActor
     func perform() async throws -> some IntentResult {
         guard await requestIntentPermission() else {
-            throw GhosttyIntentError.permissionDenied
+            throw JTermIntentError.permissionDenied
         }
         
         guard let surface = terminal.surfaceModel else {
-            throw GhosttyIntentError.surfaceNotFound
+            throw JTermIntentError.surfaceNotFound
         }
 
-        // Convert KeyEventMods array to Ghostty.Input.Mods
-        let ghosttyMods = mods.reduce(Ghostty.Input.Mods()) { result, mod in
+        // Convert KeyEventMods array to JTerm.Input.Mods
+        let ghosttyMods = mods.reduce(JTerm.Input.Mods()) { result, mod in
             result.union(mod.ghosttyMod)
         }
         
-        let mouseEvent = Ghostty.Input.MouseButtonEvent(
+        let mouseEvent = JTerm.Input.MouseButtonEvent(
             action: action,
             button: button,
             mods: ghosttyMods
@@ -211,19 +211,19 @@ struct MousePosIntent: AppIntent {
     @MainActor
     func perform() async throws -> some IntentResult {
         guard await requestIntentPermission() else {
-            throw GhosttyIntentError.permissionDenied
+            throw JTermIntentError.permissionDenied
         }
         
         guard let surface = terminal.surfaceModel else {
-            throw GhosttyIntentError.surfaceNotFound
+            throw JTermIntentError.surfaceNotFound
         }
 
-        // Convert KeyEventMods array to Ghostty.Input.Mods
-        let ghosttyMods = mods.reduce(Ghostty.Input.Mods()) { result, mod in
+        // Convert KeyEventMods array to JTerm.Input.Mods
+        let ghosttyMods = mods.reduce(JTerm.Input.Mods()) { result, mod in
             result.union(mod.ghosttyMod)
         }
         
-        let mousePosEvent = Ghostty.Input.MousePosEvent(
+        let mousePosEvent = JTerm.Input.MousePosEvent(
             x: x,
             y: y,
             mods: ghosttyMods
@@ -263,9 +263,9 @@ struct MouseScrollIntent: AppIntent {
     @Parameter(
         title: "Momentum Phase",
         description: "The momentum phase for inertial scrolling.",
-        default: Ghostty.Input.Momentum.none
+        default: JTerm.Input.Momentum.none
     )
-    var momentum: Ghostty.Input.Momentum
+    var momentum: JTerm.Input.Momentum
 
     @Parameter(
         title: "Terminal",
@@ -281,14 +281,14 @@ struct MouseScrollIntent: AppIntent {
     @MainActor
     func perform() async throws -> some IntentResult {
         guard await requestIntentPermission() else {
-            throw GhosttyIntentError.permissionDenied
+            throw JTermIntentError.permissionDenied
         }
         
         guard let surface = terminal.surfaceModel else {
-            throw GhosttyIntentError.surfaceNotFound
+            throw JTermIntentError.surfaceNotFound
         }
 
-        let scrollEvent = Ghostty.Input.MouseScrollEvent(
+        let scrollEvent = JTerm.Input.MouseScrollEvent(
             x: x,
             y: y,
             mods: .init(precision: precision, momentum: momentum)
@@ -316,7 +316,7 @@ enum KeyEventMods: String, AppEnum, CaseIterable {
         .command: "Command"
     ]
     
-    var ghosttyMod: Ghostty.Input.Mods {
+    var ghosttyMod: JTerm.Input.Mods {
         switch self {
         case .shift: .shift
         case .control: .ctrl

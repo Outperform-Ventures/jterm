@@ -2,10 +2,16 @@ import os
 import SwiftUI
 import GhosttyKit
 
-struct Ghostty {
+struct JTerm {
+    static let bundleIdentifier = Bundle.main.bundleIdentifier ?? "com.jterm.app"
+
+    static func namespaced(_ suffix: String) -> String {
+        "\(bundleIdentifier).\(suffix)"
+    }
+
     // The primary logger used by the GhosttyKit libraries.
     static let logger = Logger(
-        subsystem: Bundle.main.bundleIdentifier!,
+        subsystem: bundleIdentifier,
         category: "ghostty"
     )
 
@@ -13,10 +19,10 @@ struct Ghostty {
     struct Notification {}
 
     // The user notification category identifier
-    static let userNotificationCategory = "com.mitchellh.ghostty.userNotification"
+    static let userNotificationCategory = namespaced("userNotification")
 
     // The user notification "Show" action
-    static let userNotificationActionShow = "com.mitchellh.ghostty.userNotification.Show"
+    static let userNotificationActionShow = namespaced("userNotification.Show")
 }
 
 // MARK: C Extensions
@@ -30,7 +36,7 @@ extension ghostty_surface_t: @unchecked @retroactive Sendable {}
 
 // MARK: Build Info
 
-extension Ghostty {
+extension JTerm {
     struct Info {
         var mode: ghostty_build_mode_e
         var version: String
@@ -50,7 +56,7 @@ extension Ghostty {
 
 // MARK: General Helpers
 
-extension Ghostty {
+extension JTerm {
     enum LaunchSource: String {
         case cli
         case app
@@ -73,7 +79,7 @@ extension Ghostty {
 
 // MARK: Swift Types for C Types
 
-extension Ghostty {
+extension JTerm {
     class AllocatedString {
         private let cString: ghostty_string_s
 
@@ -93,7 +99,7 @@ extension Ghostty {
     }
 }
 
-extension Ghostty {
+extension JTerm {
     enum SetFloatWIndow {
         case on
         case off
@@ -142,7 +148,7 @@ extension Ghostty {
     enum SplitFocusDirection {
         case previous, next, up, down, left, right
 
-        /// Initialize from a Ghostty API enum.
+        /// Initialize from a JTerm API enum.
         static func from(direction: ghostty_action_goto_split_e) -> Self? {
             switch (direction) {
             case GHOSTTY_GOTO_SPLIT_PREVIOUS:
@@ -228,7 +234,7 @@ extension Ghostty {
 #if canImport(AppKit)
 // MARK: SplitFocusDirection Extensions
 
-extension Ghostty.SplitFocusDirection {
+extension JTerm.SplitFocusDirection {
     /// Convert to a SplitTree.FocusDirection for the given ViewType.
     func toSplitTreeFocusDirection<ViewType>() -> SplitTree<ViewType>.FocusDirection {
         switch self {
@@ -254,7 +260,7 @@ extension Ghostty.SplitFocusDirection {
 }
 #endif
 
-extension Ghostty {
+extension JTerm {
     /// The type of a clipboard request
     enum ClipboardRequest {
         /// A direct paste of clipboard contents
@@ -379,121 +385,121 @@ extension Ghostty {
 
 extension Notification.Name {
     /// Configuration change. If the object is nil then it is app-wide. Otherwise its surface-specific.
-    static let ghosttyConfigDidChange = Notification.Name("com.mitchellh.ghostty.configDidChange")
-    static let GhosttyConfigChangeKey = ghosttyConfigDidChange.rawValue
+    static let ghosttyConfigDidChange = Notification.Name(JTerm.namespaced("configDidChange"))
+    static let JTermConfigChangeKey = ghosttyConfigDidChange.rawValue
 
     /// Color change. Object is the surface changing.
-    static let ghosttyColorDidChange = Notification.Name("com.mitchellh.ghostty.ghosttyColorDidChange")
-    static let GhosttyColorChangeKey = ghosttyColorDidChange.rawValue
+    static let ghosttyColorDidChange = Notification.Name(JTerm.namespaced("ghosttyColorDidChange"))
+    static let JTermColorChangeKey = ghosttyColorDidChange.rawValue
 
     /// Goto tab. Has tab index in the userinfo.
-    static let ghosttyMoveTab = Notification.Name("com.mitchellh.ghostty.moveTab")
-    static let GhosttyMoveTabKey = ghosttyMoveTab.rawValue
+    static let ghosttyMoveTab = Notification.Name(JTerm.namespaced("moveTab"))
+    static let JTermMoveTabKey = ghosttyMoveTab.rawValue
 
     /// Close tab
-    static let ghosttyCloseTab = Notification.Name("com.mitchellh.ghostty.closeTab")
+    static let ghosttyCloseTab = Notification.Name(JTerm.namespaced("closeTab"))
 
     /// Close other tabs
-    static let ghosttyCloseOtherTabs = Notification.Name("com.mitchellh.ghostty.closeOtherTabs")
+    static let ghosttyCloseOtherTabs = Notification.Name(JTerm.namespaced("closeOtherTabs"))
 
     /// Close tabs to the right of the focused tab
-    static let ghosttyCloseTabsOnTheRight = Notification.Name("com.mitchellh.ghostty.closeTabsOnTheRight")
+    static let ghosttyCloseTabsOnTheRight = Notification.Name(JTerm.namespaced("closeTabsOnTheRight"))
 
     /// Close window
-    static let ghosttyCloseWindow = Notification.Name("com.mitchellh.ghostty.closeWindow")
+    static let ghosttyCloseWindow = Notification.Name(JTerm.namespaced("closeWindow"))
 
     /// Resize the window to a default size.
-    static let ghosttyResetWindowSize = Notification.Name("com.mitchellh.ghostty.resetWindowSize")
+    static let ghosttyResetWindowSize = Notification.Name(JTerm.namespaced("resetWindowSize"))
 
     /// Ring the bell
-    static let ghosttyBellDidRing = Notification.Name("com.mitchellh.ghostty.ghosttyBellDidRing")
+    static let ghosttyBellDidRing = Notification.Name(JTerm.namespaced("ghosttyBellDidRing"))
 
     /// Readonly mode changed
-    static let ghosttyDidChangeReadonly = Notification.Name("com.mitchellh.ghostty.didChangeReadonly")
+    static let ghosttyDidChangeReadonly = Notification.Name(JTerm.namespaced("didChangeReadonly"))
     static let ReadonlyKey = ghosttyDidChangeReadonly.rawValue + ".readonly"
-    static let ghosttyCommandPaletteDidToggle = Notification.Name("com.mitchellh.ghostty.commandPaletteDidToggle")
+    static let ghosttyCommandPaletteDidToggle = Notification.Name(JTerm.namespaced("commandPaletteDidToggle"))
 
     /// Toggle maximize of current window
-    static let ghosttyMaximizeDidToggle = Notification.Name("com.mitchellh.ghostty.maximizeDidToggle")
+    static let ghosttyMaximizeDidToggle = Notification.Name(JTerm.namespaced("maximizeDidToggle"))
 
     /// Notification sent when scrollbar updates
-    static let ghosttyDidUpdateScrollbar = Notification.Name("com.mitchellh.ghostty.didUpdateScrollbar")
+    static let ghosttyDidUpdateScrollbar = Notification.Name(JTerm.namespaced("didUpdateScrollbar"))
     static let ScrollbarKey = ghosttyDidUpdateScrollbar.rawValue + ".scrollbar"
 
     /// Focus the search field
-    static let ghosttySearchFocus = Notification.Name("com.mitchellh.ghostty.searchFocus")
+    static let ghosttySearchFocus = Notification.Name(JTerm.namespaced("searchFocus"))
 }
 
 // NOTE: I am moving all of these to Notification.Name extensions over time. This
 // namespace was the old namespace.
-extension Ghostty.Notification {
+extension JTerm.Notification {
     /// Used to pass a configuration along when creating a new tab/window/split.
-    static let NewSurfaceConfigKey = "com.mitchellh.ghostty.newSurfaceConfig"
+    static let NewSurfaceConfigKey = JTerm.namespaced("newSurfaceConfig")
 
     /// Posted when a new split is requested. The sending object will be the surface that had focus. The
     /// userdata has one key "direction" with the direction to split to.
-    static let ghosttyNewSplit = Notification.Name("com.mitchellh.ghostty.newSplit")
+    static let ghosttyNewSplit = Notification.Name(JTerm.namespaced("newSplit"))
 
     /// Close the calling surface.
-    static let ghosttyCloseSurface = Notification.Name("com.mitchellh.ghostty.closeSurface")
+    static let ghosttyCloseSurface = Notification.Name(JTerm.namespaced("closeSurface"))
 
     /// Focus previous/next split. Has a SplitFocusDirection in the userinfo.
-    static let ghosttyFocusSplit = Notification.Name("com.mitchellh.ghostty.focusSplit")
+    static let ghosttyFocusSplit = Notification.Name(JTerm.namespaced("focusSplit"))
     static let SplitDirectionKey = ghosttyFocusSplit.rawValue
 
     /// Goto tab. Has tab index in the userinfo.
-    static let ghosttyGotoTab = Notification.Name("com.mitchellh.ghostty.gotoTab")
+    static let ghosttyGotoTab = Notification.Name(JTerm.namespaced("gotoTab"))
     static let GotoTabKey = ghosttyGotoTab.rawValue
 
     /// New tab. Has base surface config requested in userinfo.
-    static let ghosttyNewTab = Notification.Name("com.mitchellh.ghostty.newTab")
+    static let ghosttyNewTab = Notification.Name(JTerm.namespaced("newTab"))
 
     /// New window. Has base surface config requested in userinfo.
-    static let ghosttyNewWindow = Notification.Name("com.mitchellh.ghostty.newWindow")
+    static let ghosttyNewWindow = Notification.Name(JTerm.namespaced("newWindow"))
 
     /// Present terminal. Bring the surface's window to focus without activating the app.
-    static let ghosttyPresentTerminal = Notification.Name("com.mitchellh.ghostty.presentTerminal")
+    static let ghosttyPresentTerminal = Notification.Name(JTerm.namespaced("presentTerminal"))
 
     /// Toggle fullscreen of current window
-    static let ghosttyToggleFullscreen = Notification.Name("com.mitchellh.ghostty.toggleFullscreen")
+    static let ghosttyToggleFullscreen = Notification.Name(JTerm.namespaced("toggleFullscreen"))
     static let FullscreenModeKey = ghosttyToggleFullscreen.rawValue
 
     /// Notification sent to toggle split maximize/unmaximize.
-    static let didToggleSplitZoom = Notification.Name("com.mitchellh.ghostty.didToggleSplitZoom")
+    static let didToggleSplitZoom = Notification.Name(JTerm.namespaced("didToggleSplitZoom"))
 
     /// Notification
-    static let didReceiveInitialWindowFrame = Notification.Name("com.mitchellh.ghostty.didReceiveInitialWindowFrame")
-    static let FrameKey = "com.mitchellh.ghostty.frame"
+    static let didReceiveInitialWindowFrame = Notification.Name(JTerm.namespaced("didReceiveInitialWindowFrame"))
+    static let FrameKey = JTerm.namespaced("frame")
 
     /// Notification to render the inspector for a surface
-    static let inspectorNeedsDisplay = Notification.Name("com.mitchellh.ghostty.inspectorNeedsDisplay")
+    static let inspectorNeedsDisplay = Notification.Name(JTerm.namespaced("inspectorNeedsDisplay"))
 
     /// Notification to show/hide the inspector
-    static let didControlInspector = Notification.Name("com.mitchellh.ghostty.didControlInspector")
+    static let didControlInspector = Notification.Name(JTerm.namespaced("didControlInspector"))
 
-    static let confirmClipboard = Notification.Name("com.mitchellh.ghostty.confirmClipboard")
+    static let confirmClipboard = Notification.Name(JTerm.namespaced("confirmClipboard"))
     static let ConfirmClipboardStrKey = confirmClipboard.rawValue + ".str"
     static let ConfirmClipboardStateKey = confirmClipboard.rawValue + ".state"
     static let ConfirmClipboardRequestKey = confirmClipboard.rawValue + ".request"
 
     /// Notification sent to the active split view to resize the split.
-    static let didResizeSplit = Notification.Name("com.mitchellh.ghostty.didResizeSplit")
+    static let didResizeSplit = Notification.Name(JTerm.namespaced("didResizeSplit"))
     static let ResizeSplitDirectionKey = didResizeSplit.rawValue + ".direction"
     static let ResizeSplitAmountKey = didResizeSplit.rawValue + ".amount"
 
     /// Notification sent to the split root to equalize split sizes
-    static let didEqualizeSplits = Notification.Name("com.mitchellh.ghostty.didEqualizeSplits")
+    static let didEqualizeSplits = Notification.Name(JTerm.namespaced("didEqualizeSplits"))
 
     /// Notification that renderer health changed
-    static let didUpdateRendererHealth = Notification.Name("com.mitchellh.ghostty.didUpdateRendererHealth")
+    static let didUpdateRendererHealth = Notification.Name(JTerm.namespaced("didUpdateRendererHealth"))
 
     /// Notifications related to key sequences
-    static let didContinueKeySequence = Notification.Name("com.mitchellh.ghostty.didContinueKeySequence")
-    static let didEndKeySequence = Notification.Name("com.mitchellh.ghostty.didEndKeySequence")
+    static let didContinueKeySequence = Notification.Name(JTerm.namespaced("didContinueKeySequence"))
+    static let didEndKeySequence = Notification.Name(JTerm.namespaced("didEndKeySequence"))
     static let KeySequenceKey = didContinueKeySequence.rawValue + ".key"
 
     /// Notifications related to key tables
-    static let didChangeKeyTable = Notification.Name("com.mitchellh.ghostty.didChangeKeyTable")
+    static let didChangeKeyTable = Notification.Name(JTerm.namespaced("didChangeKeyTable"))
     static let KeyTableKey = didChangeKeyTable.rawValue + ".action"
 }
 

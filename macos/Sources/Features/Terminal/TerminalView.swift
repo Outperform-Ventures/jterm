@@ -7,7 +7,7 @@ import os
 /// titles being set, cell sizes being changed, etc.
 protocol TerminalViewDelegate: AnyObject {
     /// Called when the currently focused surface changed. This can be nil.
-    func focusedSurfaceDidChange(to: Ghostty.SurfaceView?)
+    func focusedSurfaceDidChange(to: JTerm.SurfaceView?)
 
     /// The URL of the pwd should change.
     func pwdDidChange(to: URL?)
@@ -16,7 +16,7 @@ protocol TerminalViewDelegate: AnyObject {
     func cellSizeDidChange(to: NSSize)
 
     /// Perform an action. At the time of writing this is only triggered by the command palette.
-    func performAction(_ action: String, on: Ghostty.SurfaceView)
+    func performAction(_ action: String, on: JTerm.SurfaceView)
     
     /// A split tree operation
     func performSplitAction(_ action: TerminalSplitOperation)
@@ -28,7 +28,7 @@ protocol TerminalViewDelegate: AnyObject {
 protocol TerminalViewModel: ObservableObject {
     /// The tree of terminal surfaces (splits) within the view. This is mutated by TerminalView
     /// and children. This should be @Published.
-    var surfaceTree: SplitTree<Ghostty.SurfaceView> { get set }
+    var surfaceTree: SplitTree<JTerm.SurfaceView> { get set }
 
     /// The command palette state.
     var commandPaletteIsShowing: Bool { get set }
@@ -39,7 +39,7 @@ protocol TerminalViewModel: ObservableObject {
 
 /// The main terminal view. This terminal view supports splits.
 struct TerminalView<ViewModel: TerminalViewModel>: View {
-    @ObservedObject var ghostty: Ghostty.App
+    @ObservedObject var ghostty: JTerm.App
 
     // The required view model
     @ObservedObject var viewModel: ViewModel
@@ -49,7 +49,7 @@ struct TerminalView<ViewModel: TerminalViewModel>: View {
     
     // The most recently focused surface, equal to focusedSurface when
     // it is non-nil.
-    @State private var lastFocusedSurface: Weak<Ghostty.SurfaceView> = .init()
+    @State private var lastFocusedSurface: Weak<JTerm.SurfaceView> = .init()
 
     // This seems like a crutch after switching from SwiftUI to AppKit lifecycle.
     @FocusState private var focused: Bool

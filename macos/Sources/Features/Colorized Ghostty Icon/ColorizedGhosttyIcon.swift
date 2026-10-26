@@ -8,7 +8,7 @@ struct ColorizedGhosttyIcon {
     let ghostColor: NSColor
 
     /// The frame type to use
-    let frame: Ghostty.MacOSIconFrame
+    let frame: JTerm.MacOSIconFrame
 
     /// Make a custom colorized ghostty icon.
     func makeImage() -> NSImage? {

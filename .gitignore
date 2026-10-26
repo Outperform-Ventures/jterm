@@ -24,3 +24,22 @@ glad.zip
 /ghostty.qcow2
 
 vgcore.*
+
+# Local-only data and agent logs; excluded from OPV source handoff
+.env
+.env.*
+!.env.example
+!.env.local.example
+!.env.*.example
+.claude/
+.codex/
+.shopify/
+.local/
+.data/
+node_modules/
+.DS_Store
+*.log
+docs/session-transcripts/
+*.pem
+*.p12
+*.pfx

@@ -1,5 +1,5 @@
-extension Ghostty {
-    /// Possible errors from internal Ghostty calls.
+extension JTerm {
+    /// Possible errors from internal JTerm calls.
     enum Error: Swift.Error, CustomLocalizedStringResourceConvertible {
         case apiFailed
 

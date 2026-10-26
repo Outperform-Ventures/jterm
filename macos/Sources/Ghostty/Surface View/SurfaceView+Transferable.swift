@@ -5,7 +5,7 @@ import CoreTransferable
 import UniformTypeIdentifiers
 
 /// Conformance to `Transferable` enables drag-and-drop.
-extension Ghostty.SurfaceView: Transferable {
+extension JTerm.SurfaceView: Transferable {
     static var transferRepresentation: some TransferRepresentation {
         DataRepresentation(contentType: .ghosttySurfaceId) { surface in
             withUnsafeBytes(of: surface.id.uuid) { Data($0) }
@@ -33,7 +33,7 @@ extension Ghostty.SurfaceView: Transferable {
     @MainActor
     static func find(uuid: UUID) -> Self? {
         #if canImport(AppKit)
-        guard let del = NSApp.delegate as? Ghostty.Delegate else { return nil }
+        guard let del = NSApp.delegate as? JTerm.Delegate else { return nil }
         return del.ghosttySurface(id: uuid) as? Self
         #elseif canImport(UIKit)
         // We should be able to use UIApplication here.
@@ -47,7 +47,7 @@ extension Ghostty.SurfaceView: Transferable {
 extension UTType {
     /// A format that encodes the bare UUID only for the surface. This can be used if you have
     /// a way to look up a surface by ID.
-    static let ghosttySurfaceId = UTType(exportedAs: "com.mitchellh.ghosttySurfaceId")
+    static let ghosttySurfaceId = UTType(exportedAs: JTerm.namespaced("surfaceId"))
 }
 
 #if canImport(AppKit)

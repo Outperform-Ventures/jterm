@@ -1,12 +1,12 @@
 import SwiftUI
 import GhosttyKit
 
-/// A view that cycles through Ghostty's official icon variants.
+/// A view that cycles through jTerm's icon variants.
 struct CyclingIconView: View {
-    @State private var currentIcon: Ghostty.MacOSIcon = .official
+    @State private var currentIcon: JTerm.MacOSIcon = .official
     @State private var isHovering: Bool = false
 
-    private let icons: [Ghostty.MacOSIcon] = [
+    private let icons: [JTerm.MacOSIcon] = [
         .official,
         .blueprint,
         .chalkboard,
@@ -38,12 +38,12 @@ struct CyclingIconView: View {
             advanceToNextIcon()
         }
         .help("macos-icon = \(currentIcon.rawValue)")
-        .accessibilityLabel("Ghostty Application Icon")
+        .accessibilityLabel("jTerm Application Icon")
         .accessibilityHint("Click to cycle through icon variants")
     }
 
     @ViewBuilder
-    private func iconView(for icon: Ghostty.MacOSIcon) -> some View {
+    private func iconView(for icon: JTerm.MacOSIcon) -> some View {
         let iconImage: Image = switch icon.assetName {
         case let assetName?: Image(assetName)
         case nil: ghosttyIconImage()

@@ -3,10 +3,10 @@ import MetalKit
 import SwiftUI
 import GhosttyKit
 
-extension Ghostty {
+extension JTerm {
     /// InspectableSurface is a type of Surface view that allows an inspector to be attached.
     struct InspectableSurface: View {
-        @EnvironmentObject var ghostty: Ghostty.App
+        @EnvironmentObject var ghostty: JTerm.App
 
         /// Same as SurfaceWrapper, see the doc comments there.
         @ObservedObject var surfaceView: SurfaceView
@@ -49,7 +49,7 @@ extension Ghostty {
                         inspectorFocus = true
                     }
                 } else {
-                    Ghostty.moveFocus(to: surfaceView)
+                    JTerm.moveFocus(to: surfaceView)
                 }
             }
         }
@@ -98,7 +98,7 @@ extension Ghostty {
             didSet { surfaceViewDidChange() }
         }
 
-        private var inspector: Ghostty.Inspector? {
+        private var inspector: JTerm.Inspector? {
             guard let surfaceView = self.surfaceView else { return nil }
             return surfaceView.inspector
         }
@@ -226,25 +226,25 @@ extension Ghostty {
 
         override func mouseDown(with event: NSEvent) {
             guard let inspector = self.inspector else { return }
-            let mods = Ghostty.ghosttyMods(event.modifierFlags)
+            let mods = JTerm.ghosttyMods(event.modifierFlags)
             inspector.mouseButton(GHOSTTY_MOUSE_PRESS, button: GHOSTTY_MOUSE_LEFT, mods: mods)
         }
 
         override func mouseUp(with event: NSEvent) {
             guard let inspector = self.inspector else { return }
-            let mods = Ghostty.ghosttyMods(event.modifierFlags)
+            let mods = JTerm.ghosttyMods(event.modifierFlags)
             inspector.mouseButton(GHOSTTY_MOUSE_RELEASE, button: GHOSTTY_MOUSE_LEFT, mods: mods)
         }
 
         override func rightMouseDown(with event: NSEvent) {
             guard let inspector = self.inspector else { return }
-            let mods = Ghostty.ghosttyMods(event.modifierFlags)
+            let mods = JTerm.ghosttyMods(event.modifierFlags)
             inspector.mouseButton(GHOSTTY_MOUSE_PRESS, button: GHOSTTY_MOUSE_RIGHT, mods: mods)
         }
 
         override func rightMouseUp(with event: NSEvent) {
             guard let inspector = self.inspector else { return }
-            let mods = Ghostty.ghosttyMods(event.modifierFlags)
+            let mods = JTerm.ghosttyMods(event.modifierFlags)
             inspector.mouseButton(GHOSTTY_MOUSE_RELEASE, button: GHOSTTY_MOUSE_RIGHT, mods: mods)
         }
 
@@ -321,7 +321,7 @@ extension Ghostty {
 
             // The keyAction function will do this AGAIN below which sucks to repeat
             // but this is super cheap and flagsChanged isn't that common.
-            let mods = Ghostty.ghosttyMods(event.modifierFlags)
+            let mods = JTerm.ghosttyMods(event.modifierFlags)
 
             // If the key that pressed this is active, its a press, else release
             var action = GHOSTTY_ACTION_RELEASE
@@ -332,8 +332,8 @@ extension Ghostty {
 
         private func keyAction(_ action: ghostty_input_action_e, event: NSEvent) {
             guard let inspector = self.inspector else { return }
-            guard let key = Ghostty.Input.Key(keyCode: event.keyCode) else { return }
-            let mods = Ghostty.ghosttyMods(event.modifierFlags)
+            guard let key = JTerm.Input.Key(keyCode: event.keyCode) else { return }
+            let mods = JTerm.ghosttyMods(event.modifierFlags)
             inspector.key(action, key: key.cKey, mods: mods)
         }
 

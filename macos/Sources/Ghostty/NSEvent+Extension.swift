@@ -2,7 +2,7 @@ import Cocoa
 import GhosttyKit
 
 extension NSEvent {
-    /// Create a Ghostty key event for a given keyboard action.
+    /// Create a JTerm key event for a given keyboard action.
     ///
     /// This will not set the "text" or "composing" fields since these can't safely be set
     /// with the information or lifetimes given.
@@ -27,8 +27,8 @@ extension NSEvent {
         // producing text. We apply a simple heuristic here that has worked for years
         // so far: control and command never contribute to the translation of text,
         // assume everything else did.
-        key_ev.mods = Ghostty.ghosttyMods(modifierFlags)
-        key_ev.consumed_mods = Ghostty.ghosttyMods(
+        key_ev.mods = JTerm.ghosttyMods(modifierFlags)
+        key_ev.consumed_mods = JTerm.ghosttyMods(
             (translationMods ?? modifierFlags)
                 .subtracting([.control, .command]))
 
@@ -48,10 +48,10 @@ extension NSEvent {
         return key_ev
     }
 
-    /// Returns the text to set for a key event for Ghostty.
+    /// Returns the text to set for a key event for JTerm.
     ///
     /// This namely contains logic to avoid control characters, since we handle control character
-    /// mapping manually within Ghostty.
+    /// mapping manually within JTerm.
     var ghosttyCharacters: String? {
         // If we have no characters associated with this event we do nothing.
         guard let characters else { return nil }
@@ -60,13 +60,13 @@ extension NSEvent {
            let scalar = characters.unicodeScalars.first {
             // If we have a single control character, then we return the characters
             // without control pressed. We do this because we handle control character
-            // encoding directly within Ghostty's KeyEncoder.
+            // encoding directly within JTerm's KeyEncoder.
             if scalar.value < 0x20 {
                 return self.characters(byApplyingModifiers: modifierFlags.subtracting(.control))
             }
 
             // If we have a single value in the PUA, then it's a function key and
-            // we don't want to send PUA ranges down to Ghostty.
+            // we don't want to send PUA ranges down to JTerm.
             if scalar.value >= 0xF700 && scalar.value <= 0xF8FF {
                 return nil
             }

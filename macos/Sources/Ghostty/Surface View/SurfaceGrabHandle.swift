@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-extension Ghostty {    
+extension JTerm {    
     /// A grab handle overlay at the top of the surface for dragging the window.
     /// Only appears when hovering in the top region of the surface.
     struct SurfaceGrabHandle: View {

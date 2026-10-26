@@ -11,11 +11,11 @@ class ClipboardConfirmationController: NSWindowController {
 
     let surface: ghostty_surface_t
     let contents: String
-    let request: Ghostty.ClipboardRequest
+    let request: JTerm.ClipboardRequest
     let state: UnsafeMutableRawPointer?
     weak private var delegate: ClipboardConfirmationViewDelegate? = nil
 
-    init(surface: ghostty_surface_t, contents: String, request: Ghostty.ClipboardRequest, state: UnsafeMutableRawPointer?, delegate: ClipboardConfirmationViewDelegate) {
+    init(surface: ghostty_surface_t, contents: String, request: JTerm.ClipboardRequest, state: UnsafeMutableRawPointer?, delegate: ClipboardConfirmationViewDelegate) {
         self.surface = surface
         self.contents = contents
         self.request = request

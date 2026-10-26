@@ -13,11 +13,11 @@ struct QuickTerminalIntent: AppIntent {
     @MainActor
     func perform() async throws -> some IntentResult & ReturnsValue<[TerminalEntity]> {
         guard await requestIntentPermission() else {
-            throw GhosttyIntentError.permissionDenied
+            throw JTermIntentError.permissionDenied
         }
         
         guard let delegate = NSApp.delegate as? AppDelegate else {
-            throw GhosttyIntentError.appUnavailable
+            throw JTermIntentError.appUnavailable
         }
 
         // This is safe to call even if it is already shown.

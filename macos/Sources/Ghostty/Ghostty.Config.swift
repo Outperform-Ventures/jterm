@@ -1,10 +1,10 @@
 import SwiftUI
 import GhosttyKit
 
-extension Ghostty {
+extension JTerm {
     /// Maps to a `ghostty_config_t` and the various operations on that.
     class Config: ObservableObject {
-        // The underlying C pointer to the Ghostty config structure. This
+        // The underlying C pointer to the JTerm config structure. This
         // should never be accessed directly. Any operations on this should
         // be called from the functions on this or another class.
         private(set) var config: ghostty_config_t? = nil {
@@ -108,7 +108,7 @@ extension Ghostty {
         // MARK: - Keybindings
 
         /// Return the key equivalent for the given action. The action is the name of the action
-        /// in the Ghostty configuration. For example `keybind = cmd+q=quit` in Ghostty
+        /// in the JTerm configuration. For example `keybind = cmd+q=quit` in JTerm
         /// configuration would be "quit" action.
         ///
         /// Returns nil if there is no key equivalent for the given action.
@@ -116,13 +116,13 @@ extension Ghostty {
             guard let cfg = self.config else { return nil }
 
             let trigger = ghostty_config_trigger(cfg, action, UInt(action.lengthOfBytes(using: .utf8)))
-            return Ghostty.keyboardShortcut(for: trigger)
+            return JTerm.keyboardShortcut(for: trigger)
         }
 #endif
 
         // MARK: - Configuration Values
 
-        /// For all of the configuration values below, see the associated Ghostty documentation for
+        /// For all of the configuration values below, see the associated JTerm documentation for
         /// details on what each means. We only add documentation if there is a strange conversion
         /// due to the embedded library and Swift.
 
@@ -332,7 +332,7 @@ extension Ghostty {
 
         var macosCustomIcon: String {
             #if os(macOS)
-            let defaultValue = NSString("~/.config/ghostty/Ghostty.icns").expandingTildeInPath
+            let defaultValue = NSString("~/.config/jterm/jTerm.icns").expandingTildeInPath
             guard let config = self.config else { return defaultValue }
             var v: UnsafePointer<Int8>? = nil
             let key = "macos-custom-icon"
@@ -633,21 +633,21 @@ extension Ghostty {
             return Scrollbar(rawValue: str) ?? defaultValue
         }
 
-        var commandPaletteEntries: [Ghostty.Command] {
+        var commandPaletteEntries: [JTerm.Command] {
             guard let config = self.config else { return [] }
             var v: ghostty_config_command_list_s = .init()
             let key = "command-palette-entry"
             guard ghostty_config_get(config, &v, key, UInt(key.lengthOfBytes(using: .utf8))) else { return [] }
             guard v.len > 0 else { return [] }
             let buffer = UnsafeBufferPointer(start: v.commands, count: v.len)
-            return buffer.map { Ghostty.Command(cValue: $0) }
+            return buffer.map { JTerm.Command(cValue: $0) }
         }
     }
 }
 
 // MARK: Configuration Enums
 
-extension Ghostty.Config {
+extension JTerm.Config {
     enum AutoUpdate : String {
         case off
         case check

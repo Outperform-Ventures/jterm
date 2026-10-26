@@ -364,7 +364,7 @@ enum UpdateState: Equatable {
     }
     
     struct Installing {
-        /// True if this state is triggered by ``Ghostty/UpdateDriver/updater(_:willInstallUpdateOnQuit:immediateInstallationBlock:)``
+        /// True if this state is triggered by ``JTerm/UpdateDriver/updater(_:willInstallUpdateOnQuit:immediateInstallationBlock:)``
         var isAutoUpdate = false
         let retryTerminatingApplication: () -> Void
         let dismiss: () -> Void

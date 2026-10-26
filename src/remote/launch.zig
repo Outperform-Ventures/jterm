@@ -22,6 +22,7 @@ pub const Parsed = struct {
     };
 
     title: ?[]const u8 = null,
+    cwd: ?[]const u8 = null,
     os_window_state: OsWindowState = .normal,
     env: []const EnvPair = &.{},
     argv: []const []const u8 = &.{},
@@ -44,6 +45,7 @@ pub fn parseArgs(
     defer argv_list.deinit(alloc);
 
     var title: ?[]const u8 = null;
+    var cwd: ?[]const u8 = null;
     var os_window_state: Parsed.OsWindowState = .normal;
     var parse_options = true;
 
@@ -80,6 +82,21 @@ pub fn parseArgs(
             const value = arg["--title=".len..];
             if (value.len == 0) return error.MissingValue;
             title = value;
+            continue;
+        }
+
+        if (parse_options and std.mem.eql(u8, arg, "--cwd")) {
+            i += 1;
+            if (i >= args.len) return error.MissingValue;
+            if (args[i].len == 0) return error.MissingValue;
+            cwd = args[i];
+            continue;
+        }
+
+        if (parse_options and std.mem.startsWith(u8, arg, "--cwd=")) {
+            const value = arg["--cwd=".len..];
+            if (value.len == 0) return error.MissingValue;
+            cwd = value;
             continue;
         }
 
@@ -123,6 +140,7 @@ pub fn parseArgs(
 
     return .{
         .title = title,
+        .cwd = cwd,
         .os_window_state = os_window_state,
         .env = env,
         .argv = argv,
@@ -133,7 +151,7 @@ pub fn buildLaunchText(
     alloc: Allocator,
     parsed: Parsed,
 ) Allocator.Error!?[]u8 {
-    if (parsed.env.len == 0 and parsed.argv.len == 0) return null;
+    if (parsed.env.len == 0 and parsed.argv.len == 0 and parsed.cwd == null) return null;
 
     var out: std.ArrayList(u8) = .empty;
     defer out.deinit(alloc);
@@ -147,7 +165,13 @@ pub fn buildLaunchText(
             try appendShellQuoted(alloc, &out, pair.value);
         }
 
-        if (parsed.argv.len > 0) try out.appendSlice(alloc, "; ");
+        if (parsed.cwd != null or parsed.argv.len > 0) try out.appendSlice(alloc, "; ");
+    }
+
+    if (parsed.cwd) |cwd| {
+        try out.appendSlice(alloc, "cd ");
+        try appendShellQuoted(alloc, &out, cwd);
+        if (parsed.argv.len > 0) try out.appendSlice(alloc, " && ");
     }
 
     if (parsed.argv.len > 0) {
@@ -157,7 +181,9 @@ pub fn buildLaunchText(
         }
     }
 
-    try out.append(alloc, '\n');
+    // remoteInputCallback sends byte-exact PTY input, so command submission
+    // must use carriage return rather than a cooked newline.
+    try out.append(alloc, '\r');
     return @as(?[]u8, try out.toOwnedSlice(alloc));
 }
 
@@ -242,6 +268,7 @@ test "parseArgs supports kitty-style launch fields" {
     defer parsed.deinit(testing.allocator);
 
     try testing.expectEqualStrings("symph: demo", parsed.title.?);
+    try testing.expect(parsed.cwd == null);
     try testing.expectEqual(Parsed.OsWindowState.normal, parsed.os_window_state);
     try testing.expectEqual(@as(usize, 1), parsed.env.len);
     try testing.expectEqualStrings("SYMPH_WINDOW", parsed.env[0].key);
@@ -265,6 +292,22 @@ test "parseArgs supports os-window-state" {
 
     try testing.expectEqual(Parsed.OsWindowState.minimized, parsed.os_window_state);
     try testing.expectEqual(@as(usize, 2), parsed.argv.len);
+}
+
+test "parseArgs supports cwd" {
+    const testing = std.testing;
+
+    const args = [_][]const u8{
+        "--cwd=/tmp/demo",
+        "pwd",
+    };
+
+    var parsed = try parseArgs(testing.allocator, args[0..]);
+    defer parsed.deinit(testing.allocator);
+
+    try testing.expectEqualStrings("/tmp/demo", parsed.cwd.?);
+    try testing.expectEqual(@as(usize, 1), parsed.argv.len);
+    try testing.expectEqualStrings("pwd", parsed.argv[0]);
 }
 
 test "parseArgs rejects unknown os-window-state" {
@@ -305,7 +348,24 @@ test "buildLaunchText exports env and executes command" {
     defer testing.allocator.free(text);
 
     try testing.expectEqualStrings(
-        "export SYMPH_WINDOW='demo'; 'bash' '-lc' 'symph me demo'\n",
+        "export SYMPH_WINDOW='demo'; 'bash' '-lc' 'symph me demo'\r",
+        text,
+    );
+}
+
+test "buildLaunchText changes directory before command" {
+    const testing = std.testing;
+
+    const parsed: Parsed = .{
+        .cwd = "/tmp/demo",
+        .argv = &.{ "bash", "-lc", "pwd" },
+    };
+
+    const text = (try buildLaunchText(testing.allocator, parsed)).?;
+    defer testing.allocator.free(text);
+
+    try testing.expectEqualStrings(
+        "cd '/tmp/demo' && 'bash' '-lc' 'pwd'\r",
         text,
     );
 }

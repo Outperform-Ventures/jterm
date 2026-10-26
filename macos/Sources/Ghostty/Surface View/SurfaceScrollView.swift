@@ -1,7 +1,7 @@
 import SwiftUI
 import Combine
 
-/// Wraps a Ghostty surface view in an NSScrollView to provide native macOS scrollbar support.
+/// Wraps a JTerm surface view in an NSScrollView to provide native macOS scrollbar support.
 ///
 /// ## Coordinate System
 /// AppKit uses a +Y-up coordinate system (origin at bottom-left), while terminals conceptually
@@ -11,11 +11,11 @@ import Combine
 /// ## Architecture
 /// - `scrollView`: The outermost NSScrollView that manages scrollbar rendering and behavior
 /// - `documentView`: A blank NSView whose height represents total scrollback (in pixels)
-/// - `surfaceView`: The actual Ghostty renderer, positioned to fill the visible rect
+/// - `surfaceView`: The actual JTerm renderer, positioned to fill the visible rect
 class SurfaceScrollView: NSView {
     private let scrollView: NSScrollView
     private let documentView: NSView
-    private let surfaceView: Ghostty.SurfaceView
+    private let surfaceView: JTerm.SurfaceView
     private var observers: [NSObjectProtocol] = []
     private var cancellables: Set<AnyCancellable> = []
     private var isLiveScrolling = false
@@ -25,7 +25,7 @@ class SurfaceScrollView: NSView {
     /// on the same row.
     private var lastSentRow: Int?
     
-    init(contentSize: CGSize, surfaceView: Ghostty.SurfaceView) {
+    init(contentSize: CGSize, surfaceView: JTerm.SurfaceView) {
         self.surfaceView = surfaceView
         // The scroll view is our outermost view that controls all our scrollbar
         // rendering and behavior.
@@ -53,7 +53,7 @@ class SurfaceScrollView: NSView {
         
         // The document view contains our actual surface as a child.
         // We synchronize the scrolling of the document with this surface
-        // so that our primary Ghostty renderer only needs to render the viewport.
+        // so that our primary JTerm renderer only needs to render the viewport.
         documentView.addSubview(surfaceView)
         
         super.init(frame: .zero)
@@ -75,7 +75,7 @@ class SurfaceScrollView: NSView {
             self?.handleScrollChange(notification)
         })
         
-        // Listen for scrollbar updates from Ghostty
+        // Listen for scrollbar updates from JTerm
         observers.append(NotificationCenter.default.addObserver(
             forName: .ghosttyDidUpdateScrollbar,
             object: surfaceView,
@@ -297,7 +297,7 @@ class SurfaceScrollView: NSView {
     /// - `offset`: First visible row (0 = top of history)
     /// - `len`: Number of visible rows (viewport height)
     private func handleScrollbarUpdate(_ notification: Notification) {
-        guard let scrollbar = notification.userInfo?[SwiftUI.Notification.Name.ScrollbarKey] as? Ghostty.Action.Scrollbar else {
+        guard let scrollbar = notification.userInfo?[SwiftUI.Notification.Name.ScrollbarKey] as? JTerm.Action.Scrollbar else {
             return
         }
         surfaceView.scrollbar = scrollbar
