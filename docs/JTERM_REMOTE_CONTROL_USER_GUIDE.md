@@ -5,8 +5,8 @@ Target baseline: kitty remote-control spec lock `0.45.0` + jTerm extensions
 
 Generated command references:
 
-- [JTERM_REMOTE_CONTROL_COMMAND_REFERENCE.md](/Users/jkuechly/code/jterm/docs/JTERM_REMOTE_CONTROL_COMMAND_REFERENCE.md)
-- [JTERM_REMOTE_CONTROL_CLI_MANPAGE.md](/Users/jkuechly/code/jterm/docs/JTERM_REMOTE_CONTROL_CLI_MANPAGE.md)
+- [JTERM_REMOTE_CONTROL_COMMAND_REFERENCE.md](JTERM_REMOTE_CONTROL_COMMAND_REFERENCE.md)
+- [JTERM_REMOTE_CONTROL_CLI_MANPAGE.md](JTERM_REMOTE_CONTROL_CLI_MANPAGE.md)
 
 The generated reference and manpage docs are the source of truth for command syntax, options, output behavior, and exit codes. This guide remains the narrative overview and workflow guide.
 

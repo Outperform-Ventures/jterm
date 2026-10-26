@@ -148,7 +148,7 @@ const locales = [_][]const u8{
 You should then be able to run `zig build` and see your translations in action!
 
 Before opening a pull request with the new translation file, you should also add
-your locale to the `CODEOWNERS` file. Find the `# Localization` section near the
+your locale to the upstream Ghostty `CODEOWNERS` file. Find the `# Localization` section near the
 bottom and add a line like so (where `xx_YY` is your locale):
 
 ```diff

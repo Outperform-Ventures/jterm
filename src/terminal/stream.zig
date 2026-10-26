@@ -3408,7 +3408,7 @@ test "stream: claude VT replay fuzz safety" {
         "\x1b[2K\r",
         "\x1b[38;5;15mClaude Code v2.1.69\x1b[0m\r\n",
         "\x1b[38;5;8mOpus 4.6 · Claude Max\x1b[0m\r\n",
-        "\x1b[2m/Users/jkuechly/code/misc\x1b[0m\r\n",
+        "\x1b[2m/home/example/projects/demo\x1b[0m\r\n",
         "\x1b[38;5;8m────────────────────────────────────────\x1b[0m\r\n",
         "\x1b[38;5;15m❯ \x1b[0m",
         "\x1b[?25h",

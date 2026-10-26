@@ -361,7 +361,6 @@ pub fn renderManpageDoc(alloc: Allocator) ![]u8 {
         \\## SEE ALSO
         \\
         \\- `docs/JTERM_REMOTE_CONTROL_USER_GUIDE.md`
-        \\- `docs/REMOTE_CONTROL_MANPAGE_GRADE_PLAN.md`
         \\
     );
 

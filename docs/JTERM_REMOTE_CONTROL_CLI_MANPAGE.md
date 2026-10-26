@@ -671,4 +671,3 @@ The canonical automation workflow is: create or discover a window, capture its i
 ## SEE ALSO
 
 - `docs/JTERM_REMOTE_CONTROL_USER_GUIDE.md`
-- `docs/REMOTE_CONTROL_MANPAGE_GRADE_PLAN.md`

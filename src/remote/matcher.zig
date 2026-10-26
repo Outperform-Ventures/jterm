@@ -194,7 +194,7 @@ test "matches cwd, focused, and recent rank" {
     const testing = std.testing;
     const c: Candidate = .{
         .id = 1,
-        .cwd = "/Users/jkuechly/code/jterm",
+        .cwd = "/home/example/projects/jterm",
         .focused = true,
         .recent_rank = 1,
     };

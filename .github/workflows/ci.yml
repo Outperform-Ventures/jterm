@@ -1,0 +1,36 @@
+name: Terminal core
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: terminal-core-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  terminal-core:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install Zig 0.15.2
+        shell: bash
+        run: |
+          curl --fail --location --retry 3 https://ziglang.org/download/0.15.2/zig-x86_64-linux-0.15.2.tar.xz --output "$RUNNER_TEMP/zig.tar.xz"
+          echo "02aa270f183da276e5b5920b1dac44a63f1a49e55050ebde3aecc9eb82f93239  $RUNNER_TEMP/zig.tar.xz" | sha256sum --check
+          tar -xJf "$RUNNER_TEMP/zig.tar.xz" -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/zig-x86_64-linux-0.15.2" >> "$GITHUB_PATH"
+      - name: Test terminal core
+        run: zig build test-lib-vt -Demit-docs=false
+      - name: Validate remote-control fixtures
+        run: |
+          python3 scripts/remote-parity/validate_vectors.py
+          python3 scripts/remote-parity/fixture_coverage.py

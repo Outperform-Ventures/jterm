@@ -1,8 +1,8 @@
-# Developing Ghostty
+# Developing jTerm
 
-This document describes the technical details behind Ghostty's development.
+This guide describes the inherited Ghostty build system used by jTerm.
 If you'd like to open any pull requests or would like to implement new features
-into Ghostty, please make sure to read our ["Contributing to Ghostty"](CONTRIBUTING.md)
+into Ghostty, please make sure to read our ["Contributing to jTerm"](CONTRIBUTING.md)
 document first.
 
 To start development on Ghostty, you need to build Ghostty from a Git checkout,
@@ -10,8 +10,8 @@ which is very similar in process to [building Ghostty from a source tarball](htt
 you need to clone the Git repository instead of unpacking the source tarball:
 
 ```shell
-git clone https://github.com/ghostty-org/ghostty
-cd ghostty
+git clone https://github.com/Outperform-Ventures/jterm.git
+cd jterm
 ```
 
 > [!NOTE]
@@ -31,7 +31,7 @@ here:
 
 | Command                         | Description                                                                                                            |
 | ------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `zig build run`                 | Runs Ghostty                                                                                                           |
+| `zig build run`                 | Runs jTerm                                                                                                           |
 | `zig build run-valgrind`        | Runs Ghostty under Valgrind to [check for memory leaks](#checking-for-memory-leaks)                                    |
 | `zig build test`                | Runs unit tests (accepts `-Dtest-filter=<filter>` to only run tests whose name matches the filter)                     |
 | `zig build update-translations` | Updates Ghostty's translation strings (see the [Contributor's Guide on Localizing Ghostty](po/README_CONTRIBUTORS.md)) |
@@ -67,31 +67,6 @@ sudo xcode-select --switch /Applications/Xcode.app
 > You do not need to be running on macOS 26 to build Ghostty, you can
 > still use Xcode 26 on macOS 15 stable.
 
-## AI and Agents
-
-If you're using AI assistance with Ghostty, Ghostty provides an
-[AGENTS.md file](https://github.com/ghostty-org/ghostty/blob/main/AGENTS.md)
-read by most of the popular AI agents to help produce higher quality
-results.
-
-We also provide commands in `.agents/commands` that have some vetted
-prompts for common tasks that have been shown to produce good results.
-We provide these to help reduce the amount of time a contributor has to
-spend prompting the AI to get good results, and hopefully to lower the slop
-produced.
-
-- `/gh-issue <number/url>` - Produces a prompt for diagnosing a GitHub
-  issue, explaining the problem, and suggesting a plan for resolving it.
-  Requires `gh` to be installed with read-only access to Ghostty.
-
-> [!WARNING]
->
-> All AI assistance usage [must be disclosed](https://github.com/ghostty-org/ghostty/blob/main/CONTRIBUTING.md#ai-assistance-notice)
-> and we expect contributors to understand the code that is produced and
-> be able to answer questions about it. If you don't understand the
-> code produced, feel free to disclose that, but if it has problems, we
-> may ask you to fix it and close the issue. It isn't a maintainers job to
-> review a PR so broken that it requires significant rework to be acceptable.
 
 ## Logging
 

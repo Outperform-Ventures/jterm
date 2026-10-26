@@ -25,7 +25,7 @@ glad.zip
 
 vgcore.*
 
-# Local-only data and agent logs; excluded from OPV source handoff
+# Local data, credentials, and generated artifacts
 .env
 .env.*
 !.env.example
@@ -43,3 +43,8 @@ docs/session-transcripts/
 *.pem
 *.p12
 *.pfx
+
+*.sqlite
+*.sqlite3
+docs/sessions/
+*.bak
